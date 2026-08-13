@@ -8,6 +8,29 @@ wrong netlist. So ERC passing is necessary but not sufficient evidence this sche
 correct -- this script is the check that actually reads the exported netlist and confirms
 the nets it claims to have are the nets that are really there.
 
+FIX ROUND 3 (coordinator review, IMPORTANT 3): earlier versions of this checker verified
+each net in isolation -- "does EVT_D5_CLAMP have exactly one diode node" -- without ever
+tying channel 5's input path to channel 5's output path. That passes even if the 16 data
+channels are permuted through the buffers (e.g. channel 3's buffer input wired to channel
+5's buffer output), which is exactly the failure class a netlist contract check exists to
+catch. `_walk_channel()` below walks each of the 17 lines end to end -- TPC header pin ->
+series R -> clamp node -> buffer input pin -> the SAME buffer reference's output pin
+(verified via the 74x541 family's fixed Ai<->Yi pin-pairing: input_pin + output_pin == 20
+for every channel of every instance of this symbol) -> PI net -> PI header pin at the real
+GPIO physical position -- asserting every hop belongs to the same physical parts, not just
+that each net individually looks plausible.
+
+Also asserts (fix round 3, IMPORTANT 4) that the isolation barrier is intact at pin level:
+no (ref, pin) appears on both an isolated-domain net and a non-isolated net. Pin level, not
+reference level, because U5/U6 (optocouplers) and U7 (isolated DC-DC) straddle the barrier
+by design -- their primary-side pins are legitimately on DGND, their secondary-side pins on
+ISO_GND, and a reference-level check would incorrectly flag every one of them.
+
+Both of the above are self-tested (see `self_test()`) against synthetic corruptions of the
+real, currently-passing netlist -- a negative control confirming the checks actually fire
+rather than passing vacuously -- every time this script runs, not just when someone
+remembers to.
+
 Also asserts the Pi-side header's real GPIO physical-pin mapping (coordinator fix round 1,
 finding 3) against the single source of truth in gen_mule.py (GPIO_PHYSICAL_PIN etc.),
 imported directly rather than duplicated here, so a later edit to the mapping in one file
@@ -20,12 +43,14 @@ Regenerate the netlist this reads via:
 Usage:
     python3 hardware/gen/check_mule_netlist.py [path/to/mule.net]
 
-Exits 0 and prints a summary if every check passes; exits 1 with a description of the
-first failure otherwise. Intended to be inherited by later tasks (e.g. a Task 12 netlist
-contract test) rather than re-derived -- see task-2-report.md.
+Exits 0 and prints a summary if every check (including the self-tests) passes; exits 1
+with a description of the first failure otherwise. Intended to be inherited by later
+tasks (e.g. a Task 12 netlist contract test) rather than re-derived -- see
+task-2-report.md.
 """
 from __future__ import annotations
 
+import copy
 import re
 import sys
 from pathlib import Path
@@ -43,6 +68,12 @@ DEFAULT_NET_PATH = Path(__file__).resolve().parent.parent / "mule" / "mule.net"
 # I2C HAT-ID probe contention) -- see gen_mule.py's buffer_output_net(). Every other channel
 # connects its buffer output directly to the header pin.
 INDIRECT_LINES = (0, 1)
+
+ISO_NETS = [
+    "ISO_5V", "ISO_GND", "EVT_STROBE_ISO", "BARCODE_ISO",
+    "OPTO_SPARE1_ISO", "OPTO_SPARE2_ISO",
+]
+NON_ISO_NETS = ["+5V", "+3V3", "DGND"]
 
 _NET_RE = re.compile(r'\(net\s*\(code\s+"(\d+)"\)\s*\(name\s+"([^"]*)"\)')
 _NODE_RE = re.compile(
@@ -62,6 +93,12 @@ class Node:
 
     def __repr__(self):
         return f"{self.ref}.{self.pin}({self.pintype})"
+
+    def __eq__(self, other):
+        return isinstance(other, Node) and (self.ref, self.pin) == (other.ref, other.pin)
+
+    def __hash__(self):
+        return hash((self.ref, self.pin))
 
 
 def parse_netlist(text: str) -> dict[str, list[Node]]:
@@ -98,6 +135,153 @@ def _expected_gpio(i: int) -> int:
     return GPIO_PHYSICAL_PIN[i] if i < 16 else STROBE_GPIO_PHYSICAL_PIN
 
 
+def _data_name(i: int) -> str:
+    return f"EVT_D{i}" if i < 16 else "EVT_STROBE"
+
+
+def _walk_channel(nets: dict[str, list[Node]], i: int) -> tuple[str, str, str]:
+    """Walk one of the 17 event-code channels end to end, asserting every hop belongs to
+    the SAME physical parts (not just that each net individually looks plausible).
+    Returns (buffer_ref, tpc_header_ref, pi_header_ref) for the caller's aggregate checks.
+    """
+    data_name = _data_name(i)
+    tpc_net, clamp_net, pi_net = f"{data_name}_TPC", f"{data_name}_CLAMP", f"{data_name}_PI"
+    is_indirect = i in INDIRECT_LINES
+
+    # Hop 1: TPC header pin (sequential position i+1) -> series resistor R_in.
+    check(tpc_net in nets, f"missing net: {tpc_net!r}")
+    tpc_nodes = nets[tpc_net]
+    check(
+        len(tpc_nodes) == 2,
+        f"{tpc_net}: expected 2 nodes (header pin + series R), found {tpc_nodes}",
+    )
+    r_in_nodes = [n for n in tpc_nodes if n.ref.startswith("R")]
+    tpc_hdr_nodes = [n for n in tpc_nodes if not n.ref.startswith("R")]
+    check(len(r_in_nodes) == 1, f"{tpc_net}: expected exactly 1 resistor node, found {tpc_nodes}")
+    check(len(tpc_hdr_nodes) == 1, f"{tpc_net}: expected exactly 1 header-pin node, found {tpc_nodes}")
+    expected_tpc_pin = str(i + 1)
+    check(
+        tpc_hdr_nodes[0].pin == expected_tpc_pin,
+        f"{tpc_net}: lands on header pin {tpc_hdr_nodes[0]}, expected sequential task-PC "
+        f"pin {expected_tpc_pin}",
+    )
+    r_in_ref = r_in_nodes[0].ref
+
+    # Hop 2: THE SAME resistor's other leg, on the clamp node, alongside the clamp diode
+    # and the buffer's INPUT pin -- ties the series R physically to this specific channel.
+    check(clamp_net in nets, f"missing net: {clamp_net!r}")
+    clamp_nodes = nets[clamp_net]
+    r_in_here = [n for n in clamp_nodes if n.ref == r_in_ref]
+    check(
+        len(r_in_here) == 1,
+        f"{clamp_net}: series resistor {r_in_ref} (the one bridging from {tpc_net}) does "
+        f"not reach here -- a different resistor was used, or this one bridges to a "
+        f"DIFFERENT channel's clamp node (a permutation symptom)",
+    )
+    diode_nodes = [n for n in clamp_nodes if n.ref.startswith("D")]
+    buf_in_nodes = [n for n in clamp_nodes if n.ref.startswith("U")]
+    check(len(diode_nodes) == 1, f"{clamp_net}: expected exactly 1 diode node, found {clamp_nodes}")
+    check(len(buf_in_nodes) == 1, f"{clamp_net}: expected exactly 1 buffer-input node, found {clamp_nodes}")
+    check(
+        len(clamp_nodes) == 3,
+        f"{clamp_net}: expected exactly 3 nodes (series R, diode, buffer input), found "
+        f"{len(clamp_nodes)}: {clamp_nodes}",
+    )
+    diode_ref = diode_nodes[0].ref
+    buf_ref = buf_in_nodes[0].ref
+    buf_a_pin = int(buf_in_nodes[0].pin)
+
+    # Hop 2b: that SAME diode clamps to +5V (not +3V3, fix round 2's bug) and DGND.
+    on_5v = [n for n in nets.get("+5V", []) if n.ref == diode_ref]
+    on_3v3 = [n for n in nets.get("+3V3", []) if n.ref == diode_ref]
+    on_dgnd = [n for n in nets.get("DGND", []) if n.ref == diode_ref]
+    check(len(on_5v) == 1, f"{clamp_net}: clamp diode {diode_ref} has no pin on +5V")
+    check(
+        len(on_3v3) == 0,
+        f"{clamp_net}: clamp diode {diode_ref} has a pin on +3V3 -- regressed to the "
+        f"fix-round-2 bug (see task-2-report.md, 'Fix round 2')",
+    )
+    check(len(on_dgnd) == 1, f"{clamp_net}: clamp diode {diode_ref} has no pin on DGND")
+
+    # Hop 3: the SAME buffer reference's OUTPUT pin -- not just "a" tri_state driver
+    # somewhere, but the one channel-paired with buf_a_pin via the 74x541 family's fixed
+    # Ai<->Yi numbering (gen_mule.py's CHAN_A/CHAN_Y: Ai=2+i, Yi=18-i, so
+    # input_pin + output_pin == 20 for every channel of every instance of this symbol).
+    # A permutation that wires one channel's input to a DIFFERENT channel's output either
+    # lands on a different buffer reference (caught by the ref match below) or the same
+    # reference at the wrong pin (caught by the pin-sum invariant).
+    buf_net = f"{data_name}_BUF" if is_indirect else pi_net
+    check(buf_net in nets, f"missing net: {buf_net!r}")
+    buf_side_nodes = nets[buf_net]
+    buf_out_nodes = [n for n in buf_side_nodes if n.ref == buf_ref and "tri_state" in n.pintype]
+    check(
+        len(buf_out_nodes) == 1,
+        f"{buf_net}: expected exactly 1 tri_state output pin belonging to buffer {buf_ref} "
+        f"(the same reference whose input pin is on {clamp_net}), found {len(buf_out_nodes)} "
+        f"-- if a different buffer drives this net, channel data has crossed ICs",
+    )
+    buf_y_pin = int(buf_out_nodes[0].pin)
+    check(
+        buf_a_pin + buf_y_pin == 20,
+        f"channel {i}: buffer {buf_ref}'s input pin {buf_a_pin} (on {clamp_net}) and "
+        f"output pin {buf_y_pin} (on {buf_net}) don't satisfy the 74x541 family's fixed "
+        f"Ai<->Yi pairing (input_pin + output_pin must equal 20) -- this channel's input "
+        f"and output are not the same physical buffer channel: the data has been permuted",
+    )
+
+    # Hop 4: reach the PI header at the real GPIO physical position -- directly for 15 of
+    # 17 lines, or via the SAME GPIO0/1 series resistor bridging buf_net to pi_net.
+    if is_indirect:
+        check(
+            len(buf_side_nodes) == 2,
+            f"{buf_net}: expected 2 nodes (buffer output + series R), found {buf_side_nodes}",
+        )
+        r_out_nodes = [n for n in buf_side_nodes if n.ref.startswith("R")]
+        check(len(r_out_nodes) == 1, f"{buf_net}: expected exactly 1 resistor node, found {buf_side_nodes}")
+        r_out_ref = r_out_nodes[0].ref
+        check(pi_net in nets, f"missing net: {pi_net!r}")
+        pi_nodes = nets[pi_net]
+        r_out_here = [n for n in pi_nodes if n.ref == r_out_ref]
+        check(
+            len(r_out_here) == 1,
+            f"{pi_net}: the GPIO{i} series resistor {r_out_ref} (bridging from {buf_net}) "
+            f"does not reach here -- a different resistor, or a broken bridge",
+        )
+        check(len(pi_nodes) == 2, f"{pi_net}: expected 2 nodes (resistor + header), found {pi_nodes}")
+        pi_hdr_nodes = [n for n in pi_nodes if not n.ref.startswith("R")]
+    else:
+        pi_nodes = buf_side_nodes  # buf_net == pi_net for every direct line
+        # EVT_STROBE_PI carries one deliberate extra connection beyond driver + header:
+        # it also feeds the isolated path's strobe optocoupler channel. Every other
+        # direct line has exactly the driver + header, 2 nodes.
+        expected_extra = 1 if data_name == "EVT_STROBE" else 0
+        extra_r = [n for n in pi_nodes if n.ref.startswith("R")]
+        check(
+            len(extra_r) == expected_extra,
+            f"{pi_net}: expected {expected_extra} extra resistor node(s) (opto tap, "
+            f"strobe only), found {len(extra_r)}: {pi_nodes}",
+        )
+        check(
+            len(pi_nodes) == 2 + expected_extra,
+            f"{pi_net}: expected {2 + expected_extra} total nodes, found {len(pi_nodes)}: {pi_nodes}",
+        )
+        pi_hdr_nodes = [n for n in pi_nodes if not n.ref.startswith(("U", "R"))]
+
+    check(
+        len(pi_hdr_nodes) == 1,
+        f"{pi_net}: expected exactly 1 header-pin node, found {len(pi_hdr_nodes)}: {pi_nodes}",
+    )
+    expected_pi_pin = str(_expected_gpio(i))
+    check(
+        pi_hdr_nodes[0].pin == expected_pi_pin,
+        f"{pi_net}: lands on header pin {pi_hdr_nodes[0]}, but the real Raspberry Pi "
+        f"GPIO{i if i < 16 else 16} physical position is pin {expected_pi_pin} -- the "
+        f"bring-up PIO capture test (check 7) cannot run against this",
+    )
+
+    return buf_ref, tpc_hdr_nodes[0].ref, pi_hdr_nodes[0].ref
+
+
 def verify(nets: dict[str, list[Node]]) -> list[str]:
     """Run the full contract check. Returns a list of human-readable summary lines on
     success; raises CheckFailure with a specific, localized message on the first
@@ -105,149 +289,49 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
     """
     summary = []
 
-    # --- Core contract: all 17 EVT_*_PI nets exist, each connecting to the Pi header at
-    # its REAL physical GPIO pin position, ultimately driven by exactly one buffer
-    # output (directly for 15 of 17 lines; through a 330R series resistor for GPIO0/1). ---
-    pi_signal_names = [f"EVT_D{i}_PI" for i in range(16)] + ["EVT_STROBE_PI"]
-    check(len(pi_signal_names) == 17, "internal error: expected 17 PI-side signal names")
-
-    # EVT_STROBE_PI carries one deliberate extra connection beyond buffer+header: it
-    # also feeds the isolated path's strobe optocoupler channel (see gen_mule.py, Step
-    # 3) -- reusing the already-buffered signal rather than adding an undocumented
-    # second buffer stage. That is a real 3rd node (a resistor pin) on a real net, not a
-    # merge bug, so it needs to be an explicit, named exception rather than silently
-    # loosening the check for all 17 nets.
-    expected_extra_fanout = {"EVT_STROBE_PI": 1}  # net -> extra non-driver/non-header nodes
-
-    header_refs_seen: set[str] = set()
+    # --- Walk all 17 event-code channels end to end (fix round 3, IMPORTANT 3). ---
     driver_ref_counts: dict[str, int] = {}
-
-    for i, name in enumerate(pi_signal_names):
-        check(name in nets, f"missing net: {name!r} does not exist in the netlist at all")
-        nodes = nets[name]
-        # The header pin is identified by reference prefix, not electrical type, because
-        # a resistor tap (also pintype "passive") can otherwise be indistinguishable from
-        # the header pin (also "passive") by type alone.
-        headers = [n for n in nodes if not n.ref.startswith(("U", "R"))]
-        check(
-            len(headers) == 1,
-            f"{name}: expected exactly 1 header-pin node, found {len(headers)}: {nodes}",
-        )
-        header_refs_seen.add(headers[0].ref)
-
-        expected_pin = str(_expected_gpio(i))
-        check(
-            headers[0].pin == expected_pin,
-            f"{name}: lands on header pin {headers[0].ref}.{headers[0].pin}, but the real "
-            f"Raspberry Pi GPIO{i if i < 16 else 16} physical position is pin "
-            f"{expected_pin} -- the Pi-side header no longer matches the real Pi 5 GPIO "
-            f"map, and the bring-up PIO capture test (check 7) cannot run against this",
-        )
-
-        if i in INDIRECT_LINES:
-            # GPIO0/GPIO1: a 330R resistor sits between the buffer output and this header
-            # pin (boot-time I2C HAT-ID probe contention). The only non-header node on
-            # EVT_Dx_PI itself must be that resistor's Pi-side leg; the actual tri_state
-            # driver lives one hop upstream, on EVT_Dx_BUF, bridged by the SAME resistor.
-            check(
-                len(nodes) == 2,
-                f"{name}: GPIO{i} is an indirect (resistor-bridged) line, expected exactly "
-                f"2 nodes (resistor + header), found {len(nodes)}: {nodes}",
-            )
-            resistors = [n for n in nodes if n.ref.startswith("R")]
-            check(
-                len(resistors) == 1,
-                f"{name}: expected exactly 1 series-resistor node, found {nodes}",
-            )
-            buf_name = f"EVT_D{i}_BUF"
-            check(
-                buf_name in nets,
-                f"missing net: {buf_name!r} -- the buffer-side leg of GPIO{i}'s series "
-                f"resistor should land here, not directly on {name}",
-            )
-            buf_nodes = nets[buf_name]
-            check(
-                len(buf_nodes) == 2,
-                f"{buf_name}: expected exactly 2 nodes (buffer output + resistor), found "
-                f"{len(buf_nodes)}: {buf_nodes}",
-            )
-            buf_drivers = [n for n in buf_nodes if "tri_state" in n.pintype]
-            buf_resistors = [n for n in buf_nodes if n.ref.startswith("R")]
-            check(
-                len(buf_drivers) == 1,
-                f"{buf_name}: expected exactly 1 tri_state (buffer output) node, found "
-                f"{buf_nodes}",
-            )
-            check(
-                len(buf_resistors) == 1,
-                f"{buf_name}: expected exactly 1 resistor node, found {buf_nodes}",
-            )
-            check(
-                buf_resistors[0].ref == resistors[0].ref,
-                f"{name}/{buf_name}: resistor pins are on two DIFFERENT references "
-                f"({resistors[0].ref} vs {buf_resistors[0].ref}) -- should be the same "
-                f"330R part bridging buffer output to header pin, not two unrelated parts",
-            )
-            check(
-                buf_drivers[0].ref.startswith("U"),
-                f"{buf_name}: driver {buf_drivers[0]} is not on a 'U'-prefixed (IC) "
-                f"reference -- unexpected part driving this net",
-            )
-            driver_ref_counts[buf_drivers[0].ref] = (
-                driver_ref_counts.get(buf_drivers[0].ref, 0) + 1
-            )
-        else:
-            drivers = [n for n in nodes if "tri_state" in n.pintype]
-            extras = [n for n in nodes if n.ref.startswith("R")]
-            expected_extra = expected_extra_fanout.get(name, 0)
-            check(
-                len(drivers) == 1,
-                f"{name}: expected exactly 1 tri_state (buffer output) node, found "
-                f"{len(drivers)}: {nodes}",
-            )
-            check(
-                len(extras) == expected_extra,
-                f"{name}: expected {expected_extra} extra (non-driver/non-header) node(s), "
-                f"found {len(extras)}: {nodes} -- this is exactly the 'merged net' failure "
-                f"mode constraint 1 warns about if it's an unexpected resistor/other part, "
-                f"or a broken connection if a driver/header is missing",
-            )
-            check(
-                len(nodes) == 2 + expected_extra,
-                f"{name}: expected {2 + expected_extra} total nodes, found {len(nodes)}: "
-                f"{nodes}",
-            )
-            check(
-                drivers[0].ref.startswith("U"),
-                f"{name}: the tri_state driver {drivers[0]} is not on a 'U'-prefixed "
-                f"(IC) reference -- unexpected part driving this net",
-            )
-            driver_ref_counts[drivers[0].ref] = driver_ref_counts.get(drivers[0].ref, 0) + 1
+    tpc_header_refs: set[str] = set()
+    pi_header_refs: set[str] = set()
+    for i in range(17):
+        buf_ref, tpc_hdr_ref, pi_hdr_ref = _walk_channel(nets, i)
+        driver_ref_counts[buf_ref] = driver_ref_counts.get(buf_ref, 0) + 1
+        tpc_header_refs.add(tpc_hdr_ref)
+        pi_header_refs.add(pi_hdr_ref)
 
     check(
-        len(header_refs_seen) == 1,
+        len(pi_header_refs) == 1,
         f"all 17 EVT_*_PI nets should land on the SAME physical Pi-header connector, "
-        f"but found {len(header_refs_seen)} different refs: {header_refs_seen}",
+        f"found {len(pi_header_refs)}: {pi_header_refs}",
     )
-    summary.append(
-        f"All 17 EVT_*_PI nets land on header {next(iter(header_refs_seen))} at their real "
-        f"Pi 5 GPIO physical pin positions (GPIO0-15 -> data, GPIO16 -> strobe), each "
-        f"ultimately driven by exactly one buffer output. GPIO0/GPIO1 verified indirect "
-        f"via their dedicated 330R series resistor each. Driver distribution: "
-        f"{driver_ref_counts} (expect 3 distinct buffer refs: two carrying 8 lines each, "
-        f"one carrying 1 -- see task-2-report.md, 'three packages not two')."
+    check(
+        len(tpc_header_refs) == 1,
+        f"all 17 EVT_*_TPC nets should land on the SAME physical task-PC header connector, "
+        f"found {len(tpc_header_refs)}: {tpc_header_refs}",
+    )
+    check(
+        tpc_header_refs.isdisjoint(pi_header_refs),
+        f"the TPC-side header {tpc_header_refs} and the PI-side header {pi_header_refs} "
+        f"must be two DIFFERENT physical connectors, but they're the same",
     )
     check(
         len(driver_ref_counts) == 3,
         f"expected exactly 3 distinct SN74LVC541APW buffer references driving the 17 "
-        f"EVT_*_PI lines (two full 8-channel packages + one single-channel package for "
-        f"strobe), found {len(driver_ref_counts)}: {driver_ref_counts}",
+        f"channels (two full 8-channel packages + one single-channel package for strobe), "
+        f"found {len(driver_ref_counts)}: {driver_ref_counts}",
     )
     counts = sorted(driver_ref_counts.values())
     check(
         counts == [1, 8, 8],
-        f"expected the 3 buffer references to carry [1, 8, 8] lines (one strobe-only "
-        f"package, two full 8-line packages); found {counts}",
+        f"expected the 3 buffer references to carry [1, 8, 8] channels (one strobe-only "
+        f"package, two full 8-channel packages); found {counts}",
+    )
+    summary.append(
+        f"All 17 event-code channels walked end to end (TPC header -> series R -> clamp "
+        f"node -> buffer input -> SAME buffer's output, verified via the 74x541 "
+        f"Ai<->Yi=20 pairing -> PI net -> PI header at its real GPIO physical pin), each "
+        f"hop tied to the same physical parts. TPC header {next(iter(tpc_header_refs))}, "
+        f"PI header {next(iter(pi_header_refs))}. Driver distribution: {driver_ref_counts}."
     )
 
     # --- BARCODE_PI: also a real physical GPIO position (GPIO17), named explicitly in
@@ -268,80 +352,26 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
         f"Pi GPIO17 physical position."
     )
 
-    # --- Bidirectional clamp: every CLAMP net's BAT54S diode must reference +5V, not
-    # +3V3, on its high side (coordinator fix round 2). A clamp referenced to +3V3 sinks
-    # continuous current into that rail on every normal 5V logic-high, defeating the
-    # reason SN74LVC541A was chosen at all -- see task-2-report.md, "Fix round 2". Checked
-    # per-diode against both +5V and +3V3 (not just "does +5V mention it somewhere") so a
-    # future edit that reintroduces a +3V3 connection on any one of the 17 diodes is
-    # caught even if the other 16 are still correct. ---
-    clamp_signal_names = [f"EVT_D{i}_CLAMP" for i in range(16)] + ["EVT_STROBE_CLAMP"]
-    clamp_diode_refs: set[str] = set()
-    for name in clamp_signal_names:
+    # --- Isolation barrier: no (ref, pin) may appear on both an isolated-domain net and a
+    # non-isolated net (fix round 3, IMPORTANT 4). Pin level, not reference level -- U5,
+    # U6 (optocouplers) and U7 (isolated DC-DC) straddle the barrier BY DESIGN (LED/
+    # primary-side pins legitimately on DGND, output/secondary-side pins legitimately on
+    # ISO_GND); a reference-level check would incorrectly flag every one of them. ---
+    for name in ISO_NETS + NON_ISO_NETS:
         check(name in nets, f"missing net: {name!r}")
-        diode_nodes = [n for n in nets[name] if n.ref.startswith("D")]
-        check(
-            len(diode_nodes) == 1,
-            f"{name}: expected exactly 1 diode (BAT54S COM pin) node, found {nets[name]}",
-        )
-        clamp_diode_refs.add(diode_nodes[0].ref)
+    iso_pins = {(n.ref, n.pin) for name in ISO_NETS for n in nets[name]}
+    non_iso_pins = {(n.ref, n.pin) for name in NON_ISO_NETS for n in nets[name]}
+    overlap = iso_pins & non_iso_pins
     check(
-        len(clamp_diode_refs) == 17,
-        f"expected 17 distinct clamp-diode references (one BAT54S per line), found "
-        f"{len(clamp_diode_refs)}: {clamp_diode_refs}",
-    )
-    for ref in clamp_diode_refs:
-        on_5v = [n for n in nets.get("+5V", []) if n.ref == ref]
-        on_3v3 = [n for n in nets.get("+3V3", []) if n.ref == ref]
-        on_dgnd = [n for n in nets.get("DGND", []) if n.ref == ref]
-        check(
-            len(on_5v) == 1,
-            f"clamp diode {ref}: expected exactly 1 pin on +5V (the high-side clamp "
-            f"target), found {len(on_5v)}",
-        )
-        check(
-            len(on_3v3) == 0,
-            f"clamp diode {ref}: has a pin on +3V3 -- the high-side clamp target has "
-            f"regressed back to +3V3, which sinks continuous current into that rail on "
-            f"every normal 5V logic-high (see task-2-report.md, 'Fix round 2')",
-        )
-        check(
-            len(on_dgnd) == 1,
-            f"clamp diode {ref}: expected exactly 1 pin on DGND (the low-side clamp "
-            f"target), found {len(on_dgnd)}",
-        )
-    summary.append(
-        f"All 17 clamp diodes (BAT54S) reference +5V/DGND on their outer pins, with zero "
-        f"pins on +3V3 -- checked per-diode, not just net-level."
-    )
-
-    # --- TPC-side inbound nets: header pin -> 100R series resistor, one each. Stays
-    # sequential (coordinator fix round 1: accepted as-is, not a real Pi pinout). ---
-    tpc_signal_names = [f"EVT_D{i}_TPC" for i in range(16)] + ["EVT_STROBE_TPC"]
-    tpc_header_refs: set[str] = set()
-    for name in tpc_signal_names:
-        check(name in nets, f"missing net: {name!r}")
-        nodes = nets[name]
-        check(len(nodes) == 2, f"{name}: expected 2 nodes (header pin + resistor), found {nodes}")
-        r_nodes = [n for n in nodes if n.ref.startswith("R")]
-        other_nodes = [n for n in nodes if not n.ref.startswith("R")]
-        check(len(r_nodes) == 1, f"{name}: expected exactly 1 resistor node, found {nodes}")
-        check(len(other_nodes) == 1, f"{name}: expected exactly 1 non-resistor node, found {nodes}")
-        tpc_header_refs.add(other_nodes[0].ref)
-    check(
-        len(tpc_header_refs) == 1,
-        f"all 17 EVT_*_TPC nets should land on the same task-PC header connector, found "
-        f"{tpc_header_refs}",
-    )
-    check(
-        tpc_header_refs.isdisjoint(header_refs_seen),
-        f"the TPC-side header {tpc_header_refs} and the PI-side header {header_refs_seen} "
-        f"must be two DIFFERENT physical connectors, but they're the same -- inbound and "
-        f"outbound sides of the level shift have collapsed onto one connector",
+        not overlap,
+        f"isolation barrier violated: pin(s) {overlap} appear on both an isolated-domain "
+        f"net ({ISO_NETS}) and a non-isolated net ({NON_ISO_NETS}) -- a single PIN cannot "
+        f"legitimately be on both sides of the barrier (unlike a REFERENCE, which can "
+        f"straddle it by design)",
     )
     summary.append(
-        f"All 17 EVT_*_TPC nets: header {next(iter(tpc_header_refs))} + series resistor "
-        f"each, distinct from the PI-side header (sequential pin assignment, unchanged)."
+        f"Isolation barrier intact: zero pins shared between {ISO_NETS} and "
+        f"{NON_ISO_NETS} (checked at pin level, not reference level)."
     )
 
     # --- Locked Pi-sourced / power net names exist at all (existence + non-triviality). ---
@@ -350,12 +380,13 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
         check(len(nets[name]) >= 2, f"{name}: suspiciously small, only {nets[name]}")
     summary.append("BARCODE_PI, BARCODE_OUT, and all 5 power nets are present and populated.")
 
-    # --- No two of the locked event-code nets (including the two new GPIO0/1 buffer-side
-    # nets) have accidentally merged into one (the specific "plausible but wrong" failure
-    # this whole check exists to catch). ---
+    # --- No two of the locked event-code nets have accidentally merged into one (the
+    # specific "plausible but wrong" failure this whole check exists to catch). ---
     all_locked = (
-        pi_signal_names
-        + tpc_signal_names
+        [f"EVT_D{i}_PI" for i in range(16)]
+        + ["EVT_STROBE_PI"]
+        + [f"EVT_D{i}_TPC" for i in range(16)]
+        + ["EVT_STROBE_TPC"]
         + [f"EVT_D{i}_BUF" for i in INDIRECT_LINES]
     )
     seen_node_sets = {}
@@ -370,6 +401,64 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
     summary.append(f"No two of the {len(all_locked)} EVT_* nets collapsed onto the same physical net.")
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Self-test: negative controls confirming the checks above actually fire,
+# rather than passing vacuously. Runs against synthetic corruptions of the
+# real, currently-passing netlist every time this script runs.
+# ---------------------------------------------------------------------------
+
+
+def _assert_fails(nets: dict[str, list[Node]], expect_substring: str, label: str) -> str:
+    try:
+        verify(nets)
+    except CheckFailure as e:
+        check(
+            expect_substring in str(e),
+            f"self-test {label!r}: verify() failed, but not with the expected complaint "
+            f"(expected a message containing {expect_substring!r}, got: {e})",
+        )
+        return str(e)
+    raise CheckFailure(
+        f"self-test {label!r}: verify() did NOT raise on a corrupted netlist -- the check "
+        f"this self-test exists to validate is passing vacuously"
+    )
+
+
+def self_test(good_nets: dict[str, list[Node]]) -> list[str]:
+    """Negative controls for fix round 3's two new checks. `good_nets` must already pass
+    `verify()` cleanly -- each corruption below is a minimal, targeted mutation of that
+    known-good structure, not a hand-built fixture, so the test is exercising the real
+    parsed shape of the real schematic.
+    """
+    results = []
+
+    # IMPORTANT 3 negative control: swap two channels' buffer OUTPUT pins (a permutation)
+    # and confirm the end-to-end walk catches it. Channels 3 and 5 are both "direct"
+    # lines (not GPIO0/1's indirect resistor-bridged pair), so EVT_D3_PI and EVT_D5_PI
+    # each hold exactly one tri_state driver node -- swap those two Node objects between
+    # the two nets.
+    swapped = copy.deepcopy(good_nets)
+    d3_driver_idx = next(i for i, n in enumerate(swapped["EVT_D3_PI"]) if "tri_state" in n.pintype)
+    d5_driver_idx = next(i for i, n in enumerate(swapped["EVT_D5_PI"]) if "tri_state" in n.pintype)
+    swapped["EVT_D3_PI"][d3_driver_idx], swapped["EVT_D5_PI"][d5_driver_idx] = (
+        swapped["EVT_D5_PI"][d5_driver_idx],
+        swapped["EVT_D3_PI"][d3_driver_idx],
+    )
+    msg = _assert_fails(swapped, "permuted", "channel 3/5 buffer-output swap")
+    results.append(f"Channel permutation (swapped EVT_D3_PI/EVT_D5_PI buffer drivers): caught -- {msg}")
+
+    # IMPORTANT 4 negative control: short ISO_GND to DGND (a single shared pin) and
+    # confirm the isolation-barrier check catches it.
+    shorted = copy.deepcopy(good_nets)
+    phantom = Node(ref="DBG99", pin="1", pinfunction="", pintype="passive")
+    shorted["ISO_GND"] = shorted["ISO_GND"] + [phantom]
+    shorted["DGND"] = shorted["DGND"] + [phantom]
+    msg = _assert_fails(shorted, "isolation barrier violated", "ISO_GND/DGND short")
+    results.append(f"Isolation barrier short (ISO_GND tied to DGND via one shared pin): caught -- {msg}")
+
+    return results
 
 
 def main() -> int:
@@ -390,6 +479,15 @@ def main() -> int:
         return 1
     print("PASS:")
     for line in summary:
+        print(f"  - {line}")
+
+    try:
+        self_test_results = self_test(nets)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print("SELF-TEST PASS (negative controls fired as expected):")
+    for line in self_test_results:
         print(f"  - {line}")
     return 0
 

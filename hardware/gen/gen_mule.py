@@ -97,7 +97,11 @@ GPIO_PHYSICAL_PIN = {
 }
 STROBE_GPIO_PHYSICAL_PIN = 36  # GPIO16
 BARCODE_GPIO_PHYSICAL_PIN = 11  # GPIO17 -- named explicitly in the brief's own Step 2 text
-PI_GND_PHYSICAL_PINS = (6, 9)  # real Pi GND positions, disjoint from every signal pin above
+# FIX ROUND 3 (IMPORTANT 2): all 8 real Pi GND positions, not just 2. The real board bonds
+# every ground the Pi header provides; a mule that bonds only 2 of 8 doesn't produce
+# crosstalk/edge-quality measurements that transfer to the real board, which is the
+# board's entire purpose. Disjoint from every signal pin in GPIO_PHYSICAL_PIN above.
+PI_GND_PHYSICAL_PINS = (6, 9, 14, 20, 25, 30, 34, 39)
 GPIO0_1_SERIES_OHMS = "330"  # exact value from the plan's Task 9 Step 2, reused here
 
 
@@ -367,13 +371,25 @@ def build() -> Sch:
     # member that actually matches the required net name. "-class" in the brief's own
     # wording licenses picking the matching family member rather than the literal,
     # voltage-mismatched part number.
+    # FIX ROUND 3 (IMPORTANT 1): per-channel LED series resistor, not one 330R for all
+    # four. The strobe channel is driven from a 3.3V LVC541A output and the barcode
+    # channel from a 5V HCT541 output; 330R on both gives roughly 4.8mA vs 10mA of LED
+    # drive (see task-2-report.md, "Fix round 3" for the exact arithmetic) -- HCPL-4661's
+    # recommended minimum I_F(on) is ~6.3mA, so the 3.3V-driven channel sits below spec,
+    # and this family's propagation delay is strongly I_F-dependent, so the two
+    # channels being measured (bring-up checks 5-6) would differ ~2x in drive and neither
+    # number would transfer cleanly to the real board. 160R on the two 3.3V-driven
+    # channels targets the same ~10mA as the 5V-driven channels get from 330R. The two
+    # spare (bench-injection) channels keep 330R: their drive voltage is whatever the
+    # bench injects, unknown at generation time, and 330R is the safer default against an
+    # unexpectedly-high injected voltage than a resistor sized for 3.3V would be.
     OPTO_LED_PINS = {1: ("1", "2"), 2: ("4", "3")}  # channel -> (anode pin, cathode pin)
     OPTO_VO_PIN = {1: "7", 2: "6"}  # channel -> open-collector output pin
     opto_channels = [
-        ("EVT_STROBE_PI", "EVT_STROBE_ISO", "1"),
-        ("BARCODE_OUT", "BARCODE_ISO", "2"),
-        ("OPTO_SPARE1_IN", "OPTO_SPARE1_ISO", "3"),
-        ("OPTO_SPARE2_IN", "OPTO_SPARE2_ISO", "4"),
+        ("EVT_STROBE_PI", "EVT_STROBE_ISO", "1", "160"),   # 3.3V-driven (LVC541A)
+        ("BARCODE_OUT", "BARCODE_ISO", "2", "330"),          # 5V-driven (HCT541)
+        ("OPTO_SPARE1_IN", "OPTO_SPARE1_ISO", "3", "330"),   # bench-injected, unknown V
+        ("OPTO_SPARE2_IN", "OPTO_SPARE2_ISO", "4", "330"),
     ]
     screw_pins = sch.place(
         "Connector", "Screw_Terminal_01x04", sch.next_ref("J"),
@@ -384,13 +400,16 @@ def build() -> Sch:
         pkg_ref = sch.next_ref("U")
         pkg_pins = sch.place("Isolator", "HCPL-263A", pkg_ref, "HCPL-4661", X_OPTO, pkg_y)
         for ch in (1, 2):
-            src_net, iso_net, screw_num = opto_channels[pkg * 2 + (ch - 1)]
+            src_net, iso_net, screw_num, led_r_ohms = opto_channels[pkg * 2 + (ch - 1)]
             a_num, c_num = OPTO_LED_PINS[ch]
             vo_num = OPTO_VO_PIN[ch]
             led_net = f"{pkg_ref}_LED{ch}"
             ch_dy = -2.54 if ch == 1 else 2.54  # keep the 2 channels' passives from overlapping
 
-            two_pin(sch, "Device", "R", "R", "330", X_OPTO - 30.48, pkg_y + ch_dy, src_net, led_net)
+            two_pin(
+                sch, "Device", "R", "R", led_r_ohms,
+                X_OPTO - 30.48, pkg_y + ch_dy, src_net, led_net,
+            )
             ax, ay = pin_pos(X_OPTO, pkg_y, pkg_pins[a_num])
             sch.label(led_net, ax, ay)
             cx, cy = pin_pos(X_OPTO, pkg_y, pkg_pins[c_num])
@@ -409,6 +428,16 @@ def build() -> Sch:
         sch.label("ISO_GND", gx, gy)
         vccx, vccy = pin_pos(X_OPTO, pkg_y, pkg_pins["8"])
         sch.label("ISO_5V", vccx, vccy)
+        # CRITICAL fix (coordinator review): 100nF local bypass between VCC (pin 8) and
+        # GND (pin 5), per the HCPL-4661 datasheet -- without it, an open-collector logic
+        # optocoupler is prone to output chatter on transitions, which would directly
+        # compromise the propagation-delay/edge-quality measurement this board exists to
+        # take (bring-up checks 5-6), and Task 11 reuses this topology verbatim. Placed
+        # right next to the package in the schematic; Task 3 (layout) needs to keep it
+        # within ~7mm of the package on the real board, same as the datasheet asks.
+        two_pin(
+            sch, "Device", "C", "C", "100nF", X_OPTO, pkg_y + 20.32, "ISO_5V", "ISO_GND",
+        )
 
     for spare_idx in (1, 2):
         hp = sch.place(
@@ -429,6 +458,11 @@ def build() -> Sch:
     for num, net in dcdc_map.items():
         x, y = pin_pos(X_DCDC, Y_DCDC, dcdc_pins[num])
         sch.label(net, x, y)
+    # CRITICAL fix (coordinator review, brief Step 4's "100nF per IC" -- U7 had none):
+    # local bypass on both the DC-DC's input and output sides, right at the package, in
+    # addition to the 10uF bulk caps already placed elsewhere on +5V/ISO_5V.
+    two_pin(sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC - 20.32, "+5V", "DGND")
+    two_pin(sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC + 20.32, "ISO_5V", "ISO_GND")
 
     iso_tp_pins = sch.place(
         "Connector_Generic", "Conn_01x02", sch.next_ref("J"),
