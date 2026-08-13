@@ -261,7 +261,16 @@ git add hardware/mule/
 git commit -m "feat(hw): mule schematic — 17-line event path, both shift directions, optos"
 ```
 
-### Task 3: Mule layout and fab outputs **[agent]**
+### Task 3: Mule layout and fab outputs **[human-led, agent produces placement]**
+
+**Note on execution, corrected during execution:** this task was originally marked `[agent]` while
+Task 14 was marked `[human-led]` for identical reasons — an inconsistency. `kicad-cli` exposes
+`drc`, `export`, `import`, `render` and `upgrade` but **no Specctra DSN export**, so there is no
+headless round-trip to an external autorouter and no way to route a board from the command line.
+The agent generates the board file with outline, footprints placed to the floorplan (including
+the isolation slot) and the netlist imported; a person routes it in pcbnew and runs DRC.
+Placement is the design-critical half and stays with the agent; routing twelve parts on a
+100 × 80 mm two-layer board is mechanical and pleasant work.
 
 **Files:**
 - Create: `hardware/mule/mule.kicad_pcb`, `hardware/mule/fab/`, `hardware/mule/mule-bom.csv`
