@@ -210,11 +210,19 @@ git commit -m "chore(hw): KiCad project skeleton and library paths"
 
 - [ ] **Step 1: Capture the inbound path — task PC to Pi**
 
-Seventeen lines. `SN74LVC541APW` on +3V3 (two packages: 16 data + strobe = 17 channels of 20
-available across two devices). Each input gets 100 Ω series and a BAV99 clamp pair to +3V3/DGND.
+Seventeen lines. `SN74LVC541APW` on +3V3, **three packages** — the '541 is an *octal* buffer, so
+a package carries 8 channels, not the 20 its pin count suggests; two packages cover 16 of the 17
+lines and strand the strobe. Each input gets 100 Ω series and a BAV99 clamp to +3V3/DGND, wired
+as the series pair it is with the signal on the midpoint so it clamps **both** rails. A
+low-side-only clamp leaves the Pi exposed to exactly the positive overshoot this board exists to
+disprove.
 
 Nets in: `EVT_D0_TPC`…`EVT_D15_TPC`, `EVT_STROBE_TPC` on a 2×20 IDC header.
-Nets out: `EVT_D0_PI`…`EVT_D15_PI`, `EVT_STROBE_PI` on a 2×20 IDC header to the Pi.
+Nets out: `EVT_D0_PI`…`EVT_D15_PI`, `EVT_STROBE_PI` on a 2×20 (40-pin) header **carrying the
+real Pi 5 GPIO map** — data on GPIO0–15, strobe on GPIO16, at their actual header positions.
+Bring-up check 7 runs PIO capture, which reads a contiguous GPIO range, so a sequentially
+assigned header makes the mule's most valuable test impossible to run. Series resistors on
+GPIO0/1 for the boot-time I²C probe.
 
 - [ ] **Step 2: Capture the outbound path — Pi to 5 V equipment**
 
@@ -224,9 +232,15 @@ One `SN74HCT541PW` on +5V driving four test outputs from Pi GPIO17 (`BARCODE_PI`
 - [ ] **Step 3: Capture the isolated path**
 
 Four optocoupler channels (one quad package) carrying `EVT_STROBE`, `BARCODE`, and two spares
-into an isolated domain powered by a `TMA0512D`-class isolated DC-DC, terminating on a 4-way
-screw terminal. Proves the isolation topology and lets the bench measure propagation delay and
-edge quality.
+into an isolated domain powered by a **`TMA-0505S`**-class isolated DC-DC (5 V in, isolated 5 V
+out — a ±12 V dual-output part cannot produce this rail), terminating on a 4-way screw terminal.
+Proves the isolation topology and lets the bench measure propagation delay and edge quality.
+
+**The optocoupler must be logic-output** — `Isolator:HCPL-4661` or equivalent quad — **not a
+phototransistor part such as PC847.** The main board mandates logic output because a
+phototransistor's edge rate varies with load and with current-transfer ratio, the parameter that
+drifts as the LED ages. Measuring the wrong part class here produces numbers that do not
+transfer to the board this mule exists to de-risk.
 
 - [ ] **Step 4: Capture power**
 
@@ -445,8 +459,15 @@ against NI's device pinout document and record the source in a schematic text fi
 
 - [ ] **Step 2: Inbound buffers — 19 channels**
 
-`SN74LVC541APW` on +3V3 for the 16 data lines, strobe, `RWD_CMD` and `STIM_TRIG`. 100 Ω series
-and BAV99 clamps on every input, exactly as validated on the mule.
+`SN74LVC541APW` on +3V3 for the 16 data lines, strobe, `RWD_CMD` and `STIM_TRIG` — 19 channels,
+so **three packages** at 8 channels each. 100 Ω series and BAV99 clamps on every input, wired as
+a series pair clamping both rails, exactly as validated on the mule.
+
+**Also produce a 5 V buffered copy for the optocouplers.** A second bank of `74HCT541` on +5 V
+emits `EVT_D0_BUF`…`EVT_D15_BUF`, `EVT_STROBE_BUF`, `RWD_CMD_BUF`, `STIM_TRIG_BUF`, which is
+what Task 11's NI optocouplers consume. Without it those 22 LED loads sit directly on the task
+PC's DAQ pins — within the card's per-pin rating, but loading 22 timing-critical lines to save
+one package is a poor trade.
 
 - [ ] **Step 3: Outbound buffers — 4 channels**
 
