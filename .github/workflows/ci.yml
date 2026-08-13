@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the supported range, and each is load-bearing:
+        #   3.11 — wl-preproc's floor, capped there by the Kilosort4/PyTorch
+        #          pin for Pascal (sm_61, CUDA 12.x). This package must import
+        #          cleanly under it.
+        #   3.13 — what Raspberry Pi OS Trixie ships, so it is what the sync box
+        #          will actually run on.
+        # A change that works on one and not the other is exactly the failure
+        # this matrix exists to catch.
+        python-version: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Assert no hardware dependency
+        # The core must import and test with no Pi libraries present. If piolib
+        # or a GPIO library ever leaks into the base dependencies, the sync box
+        # stops being testable in CI and every regression after that is found on
+        # a bench instead of in a pull request.
+        run: |
+          pip list --format=freeze | grep -iE '^(piolib|pigpio|lgpio|rpi-)' \
+            && { echo "hardware dependency leaked into the base install"; exit 1; } \
+            || echo "clean: no Pi libraries installed"
+
+      - name: Test
+        run: pytest -v
