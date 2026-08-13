@@ -1,0 +1,26 @@
+[project]
+name = "wl-sync"
+version = "0.1.0"
+description = "Sync box: master timebase for recording rigs"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.6"]
+
+# No upper Python bound, deliberately. wl-preproc is capped at 3.11 by the
+# Kilosort4/PyTorch pin for Pascal, so this package must *work on* 3.11 — but it
+# also has to install on the Pi 5's system Python, and Raspberry Pi OS Trixie
+# ships 3.13. Capping here would break the forward compatibility Pi 5 was chosen
+# for. Develop against 3.11, the floor that actually constrains us.
+
+[project.optional-dependencies]
+pi = []          # piolib binding, added in Task 5b
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["wl_sync*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
