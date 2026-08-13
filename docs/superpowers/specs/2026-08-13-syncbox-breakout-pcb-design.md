@@ -1,0 +1,435 @@
+# Sync-box breakout PCB — design
+
+**Written 2026-08-13.** The board that sits between the behavioural task PC, the sync box
+(Raspberry Pi 5), and everything that records. It is a hub: every rig signal terminates here,
+is conditioned once, and is fanned to each destination that needs it.
+
+**This repository is public.** The routing requirements originate in a private design spec in
+`wl-preproc` (§4.1–§4.4, §4.7, §12). Constraints are restated here as electrical facts so the
+board can be built and reviewed from this document alone; no private text is reproduced.
+
+---
+
+## 1. What the board is for
+
+Two rigs, identically equipped. Without this board each rig is hand-wired, which makes the two
+rigs different in ways nobody has written down. The board exists so that a rig is reproducible
+by construction rather than by documentation discipline.
+
+It performs no logic beyond one OR gate and three comparators. It conditions, isolates, buffers
+and fans out.
+
+**Scope decision:** the board is the rig's complete patch panel, not only the event-code
+fan-out. Signals that never reach the Pi (analog sensors bound for the recorders, the stim
+trigger's ephys copies) still terminate here, because a signal routed outside the box is a
+signal nobody recorded a decision about.
+
+---
+
+## 2. Decisions register
+
+| # | Decision | Rationale |
+|---|---|---|
+| 1 | One board, two rigs, fully populated | Rigs are identical; a depopulation strategy would be insurance against variability that does not exist |
+| 2 | Pi 5 inside the same enclosure | Frees GPIO0/1 (no HAT ID EEPROM), which is what makes the contiguous capture range and two hardware-PWM triggers coexist |
+| 3 | **Optocouplers** on digital, **not** capacitive/magnetic digital isolators | Digital isolators transmit by modulating an RF carrier — a deliberate RF source beside headstages. Optocouplers have no carrier. Speed is irrelevant at this timing budget |
+| 4 | **Difference amplifiers** on analog, not isolation amplifiers | 33 analog stages cannot be galvanically isolated affordably, and isolation amplifiers degrade the signals most needing fidelity |
+| 5 | NI analog driven **NRSE**, not per-channel differential | All sources share one reference by construction, so AISENSE tied to AGND gives the same rejection while keeping 32 channels instead of 16 |
+| 6 | Two buffer families, one per direction | A single part cannot safely do both 5 V→3.3 V and 3.3 V→5 V. See §7 |
+| 7 | Intan's 8 analog channels selected by **Pi-controlled mux**, not jumpers | Routing becomes software state the Pi records, rather than a physical fact somebody must document correctly for a decade |
+| 8 | Comparator thresholds set by **I²C DAC**, not trimpots | Same argument, and it matters more: the accelerometer threshold is a behavioural parameter that gates task progression |
+| 9 | Mux and DAC control over **internal USB**, not GPIO | Preserves two spare GPIO on a header that is otherwise full |
+| 10 | **No on-board switching regulators** except one isolated DC-DC | Consistency with decision 3: rejecting an RF carrier and then adding a switcher would be incoherent |
+| 11 | 2U rack chassis, board-mount connectors through machined panels | ~40 panel positions do not fit a smaller case; board-mount eliminates internal hand wiring |
+| 12 | One board, not two | Splitting would put 30+ analog signals through an inter-board connector |
+
+---
+
+## 3. Signal contract
+
+### 3.1 Digital
+
+| Signal | Source | Task PC | Pi | NI (rec) | Intan | Other |
+|---|---|---|---|---|---|---|
+| Event code data ×16 | Task PC | — | ✓ | ✓ | — | |
+| Event strobe | Task PC | — | ✓ | ✓ | ✓ | |
+| Barcode | Pi | — | — | ✓ | ✓ | |
+| ohDPI camera trigger | Pi | — | — | — | — | eye cameras |
+| Behavior camera trigger | Pi | — | — | — | — | behavior cameras ×≤4 |
+| Photodiode 1 comparator | Board | ✓ | ✓ | — | — | |
+| Photodiode 2 comparator | Board | ✓ | ✓ | — | — | |
+| Accelerometer motion trigger | Board | ✓ | ✓ | — | — | gates task progression |
+| Reward commanded | Task PC | — | ✓ | ✓ | ✓ | → OR |
+| Manual reward button | Panel | — | — | — | — | → OR |
+| Reward delivered | Board (OR out) | — | ✓ | ✓ | ✓ | → reward driver |
+| Stim trigger | Task PC | — | ✓ | ✓ | ✓ | |
+| RHS stim output | Intan | ✓ | — | ✓ | — | |
+| Display sync | — | — | — | — | — | reserved, unpopulated |
+
+Digital line counts: **22** into the recording NI, **23** at the task PC (19 out, 4 in),
+**5** into Intan (of 8 available), **1** out of Intan.
+
+**Reward is recorded twice on purpose.** The task PC's commanded TTL and the debounced panel
+button feed an OR gate; the OR output drives the reward driver and is separately recorded as
+"delivered". A manual reward is therefore *delivered without commanded*, derivable with no
+extra logic — and it is recorded on training days, which is exactly when an unlogged hand-
+delivered reward would otherwise become a silent confound.
+
+### 3.2 Analog — 16 sources
+
+| Signal | Ch | Source | Task PC | NI (rec) | Intan |
+|---|---|---|---|---|---|
+| Eye X/Y, both eyes | 4 | ACCESIO USB-AO16-8A | ✓ | ✓ | mux |
+| Eye pupil, both eyes | 2 | ACCESIO USB-AO16-8A | — | ✓ | mux |
+| Photodiode ×2 | 2 | powered sensor head | — | ✓ | mux |
+| Ambient light | 1 | powered sensor head | — | ✓ | mux |
+| Accelerometer motion energy | 1 | custom device, single analog out | — | ✓ | mux |
+| Joystick X/Y | 2 | joystick | ✓ | ✓ | mux |
+| Microphone | 1 | powered mic, line level | — | ✓ | mux |
+| Misc analog | 3 | panel BNC, ÷1/÷2 selectable | ✓ | ✓ | mux |
+| **Totals** | **16** | | **9** | **16 of 32** | **8 of 8** |
+
+**33 buffered analog output stages.**
+
+**Intan's ceiling is 8 analog inputs and it is hard.** Two on the base controller plus six on
+the I/O Expander. Sixteen sources want to reach it; eight can, selected by mux (§6.3).
+
+This is a convenience loss rather than a data loss: every device is aligned into session time
+by barcode, so a channel recorded on NI is available in Intan's timebase after preprocessing.
+What Intan's eight buy is a native copy at the amplifier sample rate with no alignment step.
+
+**Recommended de-prioritisation for the eight:** the six eye channels have an authoritative
+record on the eye-tracker PC and should be the first dropped. The photodiodes, joystick,
+accelerometer, microphone and ambient sensor have no record anywhere except what this board
+delivers.
+
+---
+
+## 4. Raspberry Pi GPIO map
+
+| GPIO | Direction | Signal |
+|---|---|---|
+| 0–15 | in | Event code data ×16 |
+| 16 | in | Event strobe |
+| 17 | out | Barcode |
+| 18 | out | ohDPI camera trigger (hardware PWM) |
+| 19 | out | Behavior camera trigger (hardware PWM) |
+| 20, 21 | in | Photodiode comparators |
+| 22 | in | Reward commanded |
+| 23 | in | Reward delivered |
+| 24 | in | Stim trigger |
+| 25 | in | Accelerometer motion trigger |
+| 26, 27 | — | **spare** |
+
+**26 of 28 used.** The header is effectively full: any future signal needing a Pi input is a
+design change, not a populate option.
+
+**Why GPIO0–16 for the capture range.** PIO parallel capture reads a contiguous pin range, and
+camera triggers must land on a hardware PWM pin (12, 13, 18, 19). Every 17-wide contiguous
+window inside GPIO2–27 contains 12 and 13, and only the window starting at 2 leaves even one
+PWM pin free — insufficient for two triggers. Starting at 0 consumes 12 and 13 while leaving 18
+and 19 free. This is available only because the Pi is a separate board inside the enclosure
+rather than a HAT, so GPIO0/1 are not holding an ID EEPROM.
+
+**Boot contention, and it must be designed for.** The Pi probes GPIO0/1 as I²C at boot looking
+for a HAT ID. A buffer driving those pins contends with that probe. Mitigation: series
+resistors on GPIO0/1 and `force_eeprom_read=0` in `config.txt`.
+
+**Mux and DAC control does not use GPIO.** An internal USB cable from a Pi USB-A port to an
+on-board USB-I²C bridge (MCP2221A-class) drives the mux address expanders and the threshold
+DACs. All of it is configuration-time state with no timing requirement. This is what preserves
+GPIO26/27 as spare.
+
+---
+
+## 5. Grounding and isolation
+
+### 5.1 The premise
+
+Every device here is earthed through its own power cord, so **ground loops exist before this
+board is installed.** Eliminating them is not achievable and is the wrong target.
+
+The achievable goal: **no loop current in a path that shares impedance with a signal return.**
+
+### 5.2 Three mechanisms
+
+| Mechanism | What it buys | Where |
+|---|---|---|
+| Optocoupler | Breaks the conductive path for one digital line | Digital crossing into an ephys chassis |
+| Differential/NRSE drive | Receiver rejects the ground difference; no galvanic break | Destinations with a differential or non-referenced input |
+| Split planes, single star | Keeps unavoidable return currents out of the analog reference | Internal, everywhere |
+
+### 5.3 Domains
+
+- **AGND** — analog island: all 16 sources, their input buffers, comparator front ends, the mux
+  bank. Every sensor here is *structurally* loop-free: none has a ground of its own, so the
+  board defines their reference and no second path exists.
+- **DGND** — digital island: Pi, buffers, opto input sides, task PC returns.
+- Joined at a **single star point at power entry.**
+- **NI_GND** — exists only on the far side of optocouplers. Contains no analog stage, because
+  NRSE lets NI's copies be driven from AGND (§6.2).
+- **INTAN_GND** — optocoupler output sides plus the eight difference-amplifier output stages.
+
+### 5.4 Why the task PC is not isolated
+
+Isolating it costs 19 additional optocouplers and buys little: the task PC is not an ephys
+chassis, and its return current is confined to DGND by the plane split, where the analog
+section does not see it.
+
+**Stated as an accepted risk rather than an oversight.** If bench measurement shows task-PC
+earth noise reaching the analog channels, isolating those lines is the fix — and it would be a
+respin, not a populate option, because 19 optocouplers is real board area.
+
+### 5.5 Why NI and Intan are treated differently
+
+Not symmetry for its own sake; it falls out of the two receivers' input topologies.
+
+- **NI has non-referenced single-ended and differential input modes.** Drive from AGND with one
+  wire carrying AGND to **AISENSE**. NI performs the rejection. No NI-side analog supply exists.
+- **Intan's analog inputs are single-ended BNC**, so the shield is the return and there is no
+  differential receiver to exploit. Difference amplifiers referenced to INTAN_GND are required,
+  and they need power in that domain — which is why exactly one isolated supply exists (§8).
+
+---
+
+## 6. Analog signal chain
+
+### 6.1 Range convention
+
+**±5 V board-wide.** Inside every destination's range (NI ±10 V, Intan ±10.24 V), leaves
+headroom on ±12 V rails, and the ACCESIO DAC is jumper-selectable to ±5 V so the largest source
+group matches natively. Sources outside the convention are scaled at their own front end. The
+three misc inputs carry switchable ÷1/÷2 attenuation so they accept ±10 V.
+
+### 6.2 Per-source chain
+
+```
+panel connector
+  → series resistance + clamp diodes to rails
+  → scaling / buffer stage (AGND)
+  ├─→ buffer → series R → NI panel connector        (all 16; AGND → AISENSE)
+  ├─→ mux bank → difference amp (INTAN_GND) → BNC   (8 selected)
+  ├─→ buffer → task PC panel connector              (9 of 16)
+  └─→ comparator with hysteresis                    (photodiodes ×2, accelerometer)
+```
+
+### 6.3 The Intan mux bank
+
+Eight 16:1 analog multiplexers (ADG1206-class), each selecting one of the 16 sources onto one
+Intan output. Address lines driven by two I²C expanders behind the USB-I²C bridge.
+
+The mux sits **in AGND, ahead of the difference amplifier**, so its on-resistance is harmless
+into the amplifier's high-impedance input and charge injection appears only at switch time,
+never during a recording.
+
+The selected routing is software state the Pi holds and can write into the session record.
+
+### 6.4 Comparators
+
+Three channels used — photodiode 1, photodiode 2, accelerometer — from one quad package. The
+fourth is brought out to a misc input, unpopulated.
+
+**Hysteresis is mandatory, for two different reasons.** A photodiode crossing a bare threshold
+on a slow display transition emits a burst of edges. Motion energy is a noisy, slowly varying
+signal that chatters across a bare threshold continuously.
+
+**Thresholds are I²C-DAC-set with fixed hysteresis.** The accelerometer threshold defines how
+much movement counts as movement and gates task progression, which makes it a behavioural
+parameter; a task-gating parameter that is not recorded is a reproducibility hazard. If
+asymmetric make/break points are wanted later, that is a second DAC channel per comparator.
+
+---
+
+## 7. Digital signal chain
+
+### 7.1 Level shifting — the correction
+
+A single `74HCT541` cannot serve both directions, and following that assumption literally is
+how the Pi gets destroyed:
+
+- The task PC's DAQ outputs **0–5 V**. Into an HCT541 powered at 3.3 V this violates the
+  absolute-maximum input rating.
+- Powering that HCT541 at 5 V protects the buffer but produces 5 V outputs, which is precisely
+  what destroys a Pi that is not 5 V tolerant.
+
+| Path | Part | Rail | Why |
+|---|---|---|---|
+| Task PC (5 V) → Pi | `74LVC541A` | 3.3 V | LVC inputs tolerate 5.5 V regardless of supply |
+| Pi (3.3 V) → 5 V equipment | `74HCT541` | 5 V | 3.3 V is a valid high at HCT's 2.0 V threshold |
+| → NI or Intan | buffer, then optocoupler | — | galvanic break into the ephys chassis |
+| Intan → task PC, NI | optocoupler out of INTAN_GND, then buffer | — | the one inbound ephys-domain signal |
+
+Intan's digital inputs accept low 0–0.8 V and high 2.0–5.0 V, so the 5 V buffered outputs drive
+them directly.
+
+### 7.2 Reward OR
+
+Task PC commanded TTL and the debounced panel button (RC + Schmitt) feed an OR gate whose
+output drives the reward driver and is buffered out as "reward delivered" (§3.1).
+
+### 7.3 Optocoupler count
+
+| Crossing | Channels |
+|---|---|
+| Into NI_GND | 22 |
+| Into INTAN_GND | 5 |
+| Out of INTAN_GND (RHS stim output) | 1 |
+| **Total** | **28** |
+
+Seven quad packages in SOIC-16, all hand-solderable. Drive current is set conservatively: the timing budget is hundreds of
+microseconds, so there is large margin against current-transfer-ratio degradation over the
+board's intended decade of service.
+
+---
+
+## 8. Power
+
+**No on-board switching regulators**, with one unavoidable exception. Rejecting digital
+isolators for their RF carrier and then adding a switcher to the same board would be incoherent.
+
+| Rail | Source |
+|---|---|
+| Pi 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Substituting is a false economy on a Pi 5 |
+| ±12 V analog | External linear supply, panel inlet |
+| +5 V, +3.3 V | LDOs from +12 V |
+| NI domain | +5 V from NI's 68-pin connector — switcher-free and already referenced to NI's ground |
+| **Intan domain** | **One isolated ±12 V DC-DC**, pi-filtered with LDO post-regulation |
+
+The Intan domain is the exception because its single-ended inputs force difference amplifiers
+there (§5.5). As the only switcher in the enclosure it receives the whole filtering budget.
+
+Every panel input carries series resistance and clamp diodes.
+
+---
+
+## 9. Connectors and mechanical
+
+### 9.1 Panel inventory
+
+| Interface | Connector | Qty |
+|---|---|---|
+| Intan RHS | BNC | 14 (8 analog out, 5 digital out, 1 digital in) |
+| Recording NI | 68-pin MDR, male | 2 (analog+AISENSE / digital) |
+| Task PC NI | 68-pin MDR, male | 2 (analog+AISENSE / digital) |
+| Misc analog in | BNC | 3 |
+| Camera triggers | BNC | 5 (1 eye, 4 behavior) |
+| Reward driver out | BNC | 1 |
+| Display sync in | BNC | 1, unpopulated |
+| Photodiodes, ambient, accelerometer | mini-XLR TA4M | 4 |
+| Joystick | mini-XLR TA5M | 1 |
+| Microphone | 3.5 mm TRS | 1 |
+| Manual reward | panel momentary button + remote jack | 1 + 1 |
+| Analog supply in | 4-pin mini-DIN | 1 |
+| Pi ports | cutouts: USB-C, Ethernet, USB-A | — |
+
+**24 BNC positions, 23 populated** — the display-sync footprint and its panel cutout exist, the
+connector is not fitted. Different mini-XLR pin counts prevent cross-plugging sensor classes;
+every input is clamped, so a mis-plug costs wrong data rather than hardware.
+
+### 9.2 NI connector choice
+
+NI's `SHC68-68-EPM` cable is VHDCI-male to 68-pin-SCSI-female, and NI's own breakouts present
+the SCSI end. **The board carries 68-pin male MDR**, so NI's standard cable plugs straight in
+with nothing between. MDR is also the hand-solderable choice at 1.27 mm pitch against VHDCI's
+0.8 mm.
+
+**Two connectors per device** because all 32 analog inputs sit on Connector 0 while only
+P0.0–P0.7 do; the remaining port-0 lines are on Connector 1, and 22–23 digital lines cannot fit
+on eight. This is a benefit: analog and digital ride physically separate shielded cables.
+
+### 9.3 Enclosure
+
+**2U 19" rack chassis.** Rig-facing connectors front, equipment-facing rear, so the board spans
+the chassis depth: approximately **430 × 240 mm, 4 layers.** Panels are machined to match the
+layout; the enclosure is designed alongside the board rather than bought after it.
+
+Rack mounting also places the box beside the Intan controller, which is itself 1U rack-mount,
+keeping the barcode line short — it carries a high edge density and must be routed away from
+headstage cables.
+
+---
+
+## 10. Fabrication, assembly, schedule
+
+### 10.1 Quantity
+
+Two rigs. **Fab run of 5**: two production units, one to hand-assemble and shake out, two
+spares. The BOM is constrained so either route works — hand-solderable packages (nothing finer
+than SOIC/TSSOP, no BGA or QFN, nothing below 0603) that also exist in a turnkey assembler's
+parts library.
+
+### 10.2 Lead time
+
+| Stage | Estimate |
+|---|---|
+| Schematic capture | 2–3 wk |
+| Layout | 3–4 wk |
+| Panel and enclosure drawings | 1 wk, parallel |
+| Design review before fab | 1 wk |
+| Parts procurement | 1–8 wk |
+| PCB fabrication | ~2 wk |
+| Panel machining | 2–3 wk, parallel |
+| Hand assembly, first unit | 8–16 hr |
+| Bring-up and bench test | 1–2 wk |
+
+**10–14 weeks from this spec's approval to a bench-tested prototype**, dominated by design
+(5–8 weeks) rather than fabrication (2–3). The schedule risk is in the drawing, not the fab
+house.
+
+**Procurement is the widest error bar.** Actives and passives are commodities; board-mount
+MDR68 and 24 BNCs can run 4–8 weeks if no distributor holds stock. This is the first thing to
+confirm, being cheap to check and the only line that could quietly add a month.
+
+### 10.3 Against January
+
+Prototype lands late October to late November; a production run of four more finishes
+mid-November to mid-December. **This works with almost no slack for a respin**, which would
+cost 4–6 weeks and land in January or past it.
+
+Two consequences:
+
+1. **Order the NI cards now.** Their 12–13 week lead time is fixed and independent of this
+   board's pace.
+2. **Fab a minimal event-path mule immediately.** A board carrying only the 17-line event path —
+   the LVC541A down-shift, the HCT541 up-shift, a few optocouplers, IDC in and out — is a
+   one-day schematic, a two-day layout, roughly $30, and two weeks of fab. It validates the
+   level-shifting scheme, the strobe path, the contiguous-range PIO capture and the event
+   protocol end to end **while the main board is still in layout**, de-risking exactly the
+   failure a January respin cannot absorb.
+
+---
+
+## 11. Reversals and amendments
+
+Changes this design makes to decisions recorded in the `wl-preproc` spec. Each is a reversal
+rather than a gap, stated rather than made silently.
+
+| # | Was | Now | Why |
+|---|---|---|---|
+| 1 | Camera exposure-active returns are Pi inputs | Dropped | The spec names this as its own escape hatch when Pi inputs run short. Safe: the Pi triggers the cameras so frame times are known by construction, and the trigger-count-versus-frames check still runs off the camera sidecar |
+| 2 | Stim triggers go to NI and RHS only, never the Pi | Stim trigger also reaches the Pi | The Pi defines session time, so stim lands in the master timebase directly instead of being aligned into it. Reversal 1 freed the pins |
+| 3 | A `74HCT541` handles both directions in one part | Two families, one per direction | True going up, unsafe going down. See §7.1 |
+| 4 | Optoisolators on ephys-bound lines (board is digital fan-out) | Optocouplers on digital, difference amplifiers on analog | The board became mixed-signal. Isolating 17 digital lines while 30-plus analog lines tie the same grounds is ceremony, not protection |
+| 5 | Photodiode is analog to Intan/NI and comparator-digital to the Pi | Also comparator-digital to the task PC; two photodiodes, one as a per-frame flip patch | A flip patch is a frame clock measured at the display surface, catching post-GPU drops a vsync tap structurally cannot |
+
+**One note for the `wl-preproc` side, not actioned here.** The eye analog path is an ACCESIO
+USB DAC driven by the eye-tracking software, so its *content* carries software and USB latency
+even though its *samples* land on the recorder's clock. The authoritative eye record is the
+eye-tracker PC's own file. Recording the analog copy alongside it makes that lag measurable by
+cross-correlation per session, which is a better reason to keep the channels than redundancy.
+
+---
+
+## 12. Open items
+
+| # | Item | Blocking |
+|---|---|---|
+| 1 | **+5 V current budget on the NI 68-pin connector.** The NI-domain optocoupler supply depends on it; a filtered isolated DC-DC is the fallback | Schematic |
+| 2 | **Whether SpikeGLX exposes NRSE** as an NI terminal configuration. Decision 5 depends on it | Schematic |
+| 3 | **Connector 0 / Connector 1 pin split on the 6363**, confirming 22–23 digital lines need both | Layout |
+| 4 | **MDR68 and BNC stock and lead time** — the widest schedule error bar (§10.2) | Immediately |
+| 5 | Accelerometer is a custom device emitting one analog motion-energy channel; its output range sets the front-end scaling | Schematic |
+| 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
+| 7 | Whether the misc analog ports need to be outputs as well as inputs | Schematic |
+| 8 | Behavior camera count (≤4 budgeted); all share one trigger rate, since only two hardware PWM pins survive the contiguous capture range | Layout |
+| 9 | Whether asymmetric comparator make/break thresholds are wanted, costing a second DAC channel each | Schematic |
