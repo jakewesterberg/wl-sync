@@ -121,31 +121,36 @@ def bidirectional_clamp(sch, x, y, net_signal, net_hi, net_lo):
     signal makes one diode a correct high-side clamp but forces the other to conduct on
     every ordinary logic-high (anode=signal, cathode=DGND conducts whenever signal is
     above roughly one Schottky/silicon drop). The coordinator's review was that
-    low-side-only protection inverts the mule's own safety argument -- it exists to prove
-    the Pi is protected against overshoot above +3V3, not just undershoot -- and that a
-    correctly-wired series pair does this with one part. Re-checked BAV99 once more
-    against that framing (pin 3 as a series midpoint, per the coordinator's suggested
-    wiring) and it still isn't one: a genuine series midpoint pin, like BAV99S's shared
-    nodes, is named with both roles concatenated (e.g. "K1A2"); BAV99's pin 2 carries only
-    "A". Diode:BAT54S is: pin 1 "A" (anode only), pin 2 "K" (cathode only), pin 3 "COM",
+    low-side-only protection inverts the mule's own safety argument, and that a
+    correctly-wired series pair does this with one part. Re-checked BAV99 once more and it
+    still isn't a series pair: a genuine series midpoint pin, like BAV99S's shared nodes,
+    is named with both roles concatenated (e.g. "K1A2"); BAV99's pin 2 carries only "A".
+    Diode:BAT54S is: pin 1 "A" (anode only), pin 2 "K" (cathode only), pin 3 "COM",
     explicitly the shared node -- KiCad's own description for the part reads "Dual
     schottky barrier diode, in series". That makes D1 = anode(pin1) -> cathode(pin3=COM)
-    and D2 = anode(pin3=COM) -> cathode(pin2): wiring pin1->DGND, pin3(COM)->signal,
-    pin2->+3V3 gives D1 conducting when DGND exceeds signal by a diode drop (the low-side
-    clamp) and D2 conducting when signal exceeds +3V3 by a diode drop (the high-side
-    clamp) -- both diodes doing correctly-oriented work, a real two-rail clamp from one
-    part, matching what "a BAV99 clamp pair to +3V3/DGND" was always trying to describe.
+    and D2 = anode(pin3=COM) -> cathode(pin2): wiring pin1(A)->DGND, pin3(COM)->signal,
+    pin2(K)->[net_hi] gives D1 conducting when DGND exceeds signal by a diode drop (the
+    low-side clamp) and D2 conducting when signal exceeds [net_hi] by a diode drop (the
+    high-side clamp) -- both diodes doing correctly-oriented work, a real two-rail clamp
+    from one part.
 
-    This does reintroduce the steady-state concern the low-side-only design was built to
-    avoid: a Schottky's lower forward drop (~0.3-0.4V vs silicon's ~0.7V) means the
-    high-side diode conducts whenever a line is driven to a normal 5V logic-high, not just
-    during a fault -- sinking on the order of 10-15mA into the regulated +3V3 rail per
-    line that's high at any given moment (up to roughly 17x that, worst case, with every
-    line high simultaneously). That's now a real, designed-in property of the validated
-    topology rather than something engineered around, and it's exactly the kind of thing
-    bring-up should measure directly (does +3V3 sag or rise under worst-case load) rather
-    than something this schematic should silently avoid measuring. Flagged in
-    task-2-report.md as a concern for Task 5 bring-up.
+    FIX ROUND 2 (coordinator-directed, correcting fix round 1's own high-side target):
+    fix round 1 wired net_hi to +3V3, on the coordinator's own then-instruction, and
+    flagged as a concern that a Schottky's low forward drop (~0.3-0.4V) meant the
+    high-side diode would conduct on every normal 5V logic-high, not just a fault --
+    sinking ~10-15mA per line into the regulated 3.3V rail (up to ~230mA worst case
+    across all 17 lines), continuously, since 5V (the signal's normal high level) sits
+    well above 3.3V+Vf. That flagged concern turned out to be the actual bug: SN74LVC541A
+    is chosen specifically because its inputs tolerate 5.5V independent of its own 3.3V
+    supply -- clamping to +3V3 destroys exactly the property the part was chosen for, and
+    permanently, on every code the task PC emits, not just during a fault. The fix is to
+    reference the high-side clamp to +5V instead: net_hi is now "+5V", the rail the
+    signal's normal high legitimately swings to, so D2 sees ~0V of forward bias in normal
+    operation (signal and +5V both nominally 5V) and does not conduct -- only leakage
+    current, microamps, confirmed by direct calculation rather than assumed (see
+    task-2-report.md, "Fix round 2" section, for the arithmetic). +5V + Vf still lands
+    around 5.3-5.4V, comfortably under the LVC541A's 6.5V absolute-maximum input rating,
+    so a genuine overvoltage fault beyond the signal's normal range is still clamped.
     """
     pins = sch.place("Diode", "BAT54S", sch.next_ref("D"), "BAT54S", x, y)
     px, py = pin_pos(x, y, pins["1"])  # anode only -> low rail
@@ -263,7 +268,10 @@ def build() -> Sch:
         pi_net = f"{data_name}_PI"
 
         two_pin(sch, "Device", "R", "R", "100", X_R_IN, y, tpc_net, clamp_net)
-        bidirectional_clamp(sch, X_CLAMP, y, clamp_net, "+3V3", "DGND")
+        # FIX ROUND 2: high side clamps to +5V, not +3V3 -- see bidirectional_clamp()'s
+        # docstring. +3V3 sits below the signal's normal 5V high, so a clamp referenced
+        # to it would conduct continuously in normal operation, not just on a fault.
+        bidirectional_clamp(sch, X_CLAMP, y, clamp_net, "+5V", "DGND")
 
         # Task-PC side stays sequential (coordinator fix round 1: accepted as-is -- only
         # the Pi side needs to match a real physical header, since nothing on the task-PC

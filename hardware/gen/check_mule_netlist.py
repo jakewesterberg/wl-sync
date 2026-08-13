@@ -268,6 +268,53 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
         f"Pi GPIO17 physical position."
     )
 
+    # --- Bidirectional clamp: every CLAMP net's BAT54S diode must reference +5V, not
+    # +3V3, on its high side (coordinator fix round 2). A clamp referenced to +3V3 sinks
+    # continuous current into that rail on every normal 5V logic-high, defeating the
+    # reason SN74LVC541A was chosen at all -- see task-2-report.md, "Fix round 2". Checked
+    # per-diode against both +5V and +3V3 (not just "does +5V mention it somewhere") so a
+    # future edit that reintroduces a +3V3 connection on any one of the 17 diodes is
+    # caught even if the other 16 are still correct. ---
+    clamp_signal_names = [f"EVT_D{i}_CLAMP" for i in range(16)] + ["EVT_STROBE_CLAMP"]
+    clamp_diode_refs: set[str] = set()
+    for name in clamp_signal_names:
+        check(name in nets, f"missing net: {name!r}")
+        diode_nodes = [n for n in nets[name] if n.ref.startswith("D")]
+        check(
+            len(diode_nodes) == 1,
+            f"{name}: expected exactly 1 diode (BAT54S COM pin) node, found {nets[name]}",
+        )
+        clamp_diode_refs.add(diode_nodes[0].ref)
+    check(
+        len(clamp_diode_refs) == 17,
+        f"expected 17 distinct clamp-diode references (one BAT54S per line), found "
+        f"{len(clamp_diode_refs)}: {clamp_diode_refs}",
+    )
+    for ref in clamp_diode_refs:
+        on_5v = [n for n in nets.get("+5V", []) if n.ref == ref]
+        on_3v3 = [n for n in nets.get("+3V3", []) if n.ref == ref]
+        on_dgnd = [n for n in nets.get("DGND", []) if n.ref == ref]
+        check(
+            len(on_5v) == 1,
+            f"clamp diode {ref}: expected exactly 1 pin on +5V (the high-side clamp "
+            f"target), found {len(on_5v)}",
+        )
+        check(
+            len(on_3v3) == 0,
+            f"clamp diode {ref}: has a pin on +3V3 -- the high-side clamp target has "
+            f"regressed back to +3V3, which sinks continuous current into that rail on "
+            f"every normal 5V logic-high (see task-2-report.md, 'Fix round 2')",
+        )
+        check(
+            len(on_dgnd) == 1,
+            f"clamp diode {ref}: expected exactly 1 pin on DGND (the low-side clamp "
+            f"target), found {len(on_dgnd)}",
+        )
+    summary.append(
+        f"All 17 clamp diodes (BAT54S) reference +5V/DGND on their outer pins, with zero "
+        f"pins on +3V3 -- checked per-diode, not just net-level."
+    )
+
     # --- TPC-side inbound nets: header pin -> 100R series resistor, one each. Stays
     # sequential (coordinator fix round 1: accepted as-is, not a real Pi pinout). ---
     tpc_signal_names = [f"EVT_D{i}_TPC" for i in range(16)] + ["EVT_STROBE_TPC"]
