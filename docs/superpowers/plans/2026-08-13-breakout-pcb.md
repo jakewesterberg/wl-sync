@@ -213,9 +213,13 @@ git commit -m "chore(hw): KiCad project skeleton and library paths"
 Seventeen lines. `SN74LVC541APW` on +3V3, **three packages** — the '541 is an *octal* buffer, so
 a package carries 8 channels, not the 20 its pin count suggests; two packages cover 16 of the 17
 lines and strand the strobe. Each input gets 100 Ω series and a BAV99 clamp to +3V3/DGND, wired
-as the series pair it is with the signal on the midpoint so it clamps **both** rails. A
-low-side-only clamp leaves the Pi exposed to exactly the positive overshoot this board exists to
-disprove.
+as the series pair it is: signal on the midpoint, low side to DGND, **high side to +5V — not
+to +3V3**. The '541 is an LVC part precisely because its inputs tolerate 5.5 V independent of
+its supply, and that is what lets a 5 V DAQ drive a 3.3 V-powered buffer at all. A clamp to
++3V3 destroys that property: every normal logic high would sink ~13.5 mA through the diode,
+over half the DAQ pin's rating, and ~230 mA across 17 lines into a rail with no way to sink it.
+Referenced to +5V the diode never conducts in normal operation, and 5 V + Vf still sits under
+the part's 6.5 V absolute-maximum input, so a real overvoltage fault is still caught.
 
 Nets in: `EVT_D0_TPC`…`EVT_D15_TPC`, `EVT_STROBE_TPC` on a 2×20 IDC header.
 Nets out: `EVT_D0_PI`…`EVT_D15_PI`, `EVT_STROBE_PI` on a 2×20 (40-pin) header **carrying the
@@ -469,8 +473,9 @@ against NI's device pinout document and record the source in a schematic text fi
 - [ ] **Step 2: Inbound buffers — 19 channels**
 
 `SN74LVC541APW` on +3V3 for the 16 data lines, strobe, `RWD_CMD` and `STIM_TRIG` — 19 channels,
-so **three packages** at 8 channels each. 100 Ω series and BAV99 clamps on every input, wired as
-a series pair clamping both rails, exactly as validated on the mule.
+so **three packages** at 8 channels each. 100 Ω series and BAT54S clamps on every input, wired as
+a series pair with the low side to DGND and the **high side to +5V, not +3V3** — see Task 2 for
+why clamping a 5 V-tolerant input to the 3.3 V rail is wrong. Exactly as validated on the mule.
 
 **Also produce a 5 V buffered copy for the optocouplers.** A second bank of `74HCT541` on +5 V
 emits `EVT_D0_BUF`…`EVT_D15_BUF`, `EVT_STROBE_BUF`, `RWD_CMD_BUF`, `STIM_TRIG_BUF`, which is
