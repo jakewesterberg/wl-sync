@@ -2,8 +2,12 @@
 
 Implements task-2-brief.md (.superpowers/sdd/2026-08-13-breakout-pcb/task-2-brief.md):
 Step 1 (inbound task-PC -> Pi, 17 lines through 74LVC541A on +3V3), Step 2 (outbound Pi ->
-5V equipment through 74HCT541 on +5V), Step 3 (isolated path through a quad optocoupler and
-an isolated DC-DC converter), Step 4 (power: barrel jack, LDO, decoupling/bulk caps).
+5V equipment through 74HCT541 on +5V), Step 3 (isolated path through two logic-output
+optocouplers and an isolated DC-DC converter), Step 4 (power: barrel jack, LDO,
+decoupling/bulk caps), as revised by coordinator fix round 1 (see task-2-report.md,
+"Fix round 1" section, for the full rationale behind each change from the original
+submission): logic-output optocouplers instead of phototransistor-output, a genuinely
+bidirectional input clamp, and a Pi-side header that matches the real Pi 5 GPIO map.
 
 Uses the label-per-pin technique from hardware/gen/kicad_sch.py: every component pin gets a
 global label at its exact schematic coordinate, and two pins are on the same net iff their
@@ -41,7 +45,7 @@ ROW_PITCH = 10.16  # 17 channel rows: 50.8 .. 213.36
 
 X_TPC_HDR = 15.24
 X_R_IN = 76.2
-X_BAV = 106.68
+X_CLAMP = 106.68
 X_IC541 = 172.72
 X_PI_HDR = 289.56
 
@@ -55,6 +59,7 @@ Y_OUTBOUND = 289.56
 
 X_OPTO = 172.72
 Y_OPTO = GRID(360)
+OPTO_PKG_PITCH = GRID(30.48)  # vertical spacing between the two HCPL-4661 packages
 X_DCDC = 259.08
 Y_DCDC = GRID(360)
 X_SCREW = 320.04
@@ -75,8 +80,25 @@ Y_CAPS = GRID(460)
 DECOUPLE_DX = GRID(20)
 SPARE_HDR_DY = GRID(20)
 
+X_GPIO01_R = GRID(231.14)  # GPIO0/1 boot-contention series resistors, between IC and header
+Y_GPIO01_NOTE = GRID(30)
+
 CHAN_A = {i: str(2 + i) for i in range(8)}   # 74LS541 unit-1 pin numbers: A0..A7
 CHAN_Y = {i: str(18 - i) for i in range(8)}  # ...and Y0..Y7, paired by channel: Ai <-> Yi
+
+# Raspberry Pi 40-pin header: physical pin number for each BCM GPIO, cross-checked against
+# gpiozero's own pin-data table (not assumed) -- PIO parallel capture reads a *contiguous*
+# GPIO range (GPIO0-15 data, GPIO16 strobe, per the plan's global constraints), so the
+# bring-up PIO-capture test can only run against a header that presents these signals at
+# their real physical positions, not a sequentially-numbered one.
+GPIO_PHYSICAL_PIN = {
+    0: 27, 1: 28, 2: 3, 3: 5, 4: 7, 5: 29, 6: 31, 7: 26,
+    8: 24, 9: 21, 10: 19, 11: 23, 12: 32, 13: 33, 14: 8, 15: 10,
+}
+STROBE_GPIO_PHYSICAL_PIN = 36  # GPIO16
+BARCODE_GPIO_PHYSICAL_PIN = 11  # GPIO17 -- named explicitly in the brief's own Step 2 text
+PI_GND_PHYSICAL_PINS = (6, 9)  # real Pi GND positions, disjoint from every signal pin above
+GPIO0_1_SERIES_OHMS = "330"  # exact value from the plan's Task 9 Step 2, reused here
 
 
 def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2):
@@ -88,36 +110,50 @@ def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2):
     sch.label(net2, x2, y2)
 
 
-def bav99_low_side_clamp(sch, x, y, net_signal, net_gnd):
-    """Place a BAV99 wired as a doubled low-side (undershoot) clamp.
+def bidirectional_clamp(sch, x, y, net_signal, net_hi, net_lo):
+    """Place a BAT54S wired as a genuine two-rail bidirectional clamp.
 
-    JUDGMENT CALL (see task-2-report.md for the full derivation): the stock BAV99 symbol
-    (Diode:BAV99) is a common-anode pair -- pin 2 "A" is the shared anode, pins 1 and 3
-    are two independent cathodes both named "K" (confirmed from the raw symbol text, and
-    cross-checked against Diode:BAV99S, whose *genuinely* dual-role pins are named with
-    both roles concatenated, e.g. "K1A2" -- plain BAV99's pin 2 carries only "A", meaning
-    it is not a dual-role series node). A common-anode pair cannot bidirectionally clamp a
-    single signal to two different rails using both diodes usefully: tying the shared
-    anode to the signal makes the "high-side" diode correct but forces the other diode to
-    conduct on every ordinary logic-high (anode=signal, cathode=DGND conducts whenever
-    signal > ~0.7V), and tying the shared anode to +3V3 makes one diode a permanent short
-    across the supply if its cathode ever reaches DGND. The only non-broken uses are
-    single-direction: shared anode -> DGND with both cathodes -> signal (doubled
-    undershoot/ESD clamp, used here), or shared anode -> signal with one cathode -> a rail
-    (single-direction, wastes the other diode). This design uses the doubled low-side
-    form and relies on SN74LVC541APW's datasheet-specified 5.5V input tolerance (the
-    documented reason that part was chosen at all -- see hardware/README.md and the
-    global constraints) for high-side protection, rather than hard-clamping to +3V3,
-    which would otherwise sink a continuous ~10mA per line into the regulated 3.3V rail
-    every time the task PC legitimately drives a normal 5V logic-high (backfeeding a
-    rail an LDO cannot sink is worse than the undershoot case this clamp is for).
+    FIX ROUND 1 (coordinator-directed): the original submission used Diode:BAV99 wired as
+    a doubled low-side-only clamp, on the grounds that BAV99 is common-anode (pin 2 "A"
+    the shared anode, pins 1 and 3 both independently named "K" -- confirmed directly from
+    the raw symbol text) and a common-anode pair cannot bidirectionally clamp one signal
+    to two different rails using both diodes usefully: tying the shared anode to the
+    signal makes one diode a correct high-side clamp but forces the other to conduct on
+    every ordinary logic-high (anode=signal, cathode=DGND conducts whenever signal is
+    above roughly one Schottky/silicon drop). The coordinator's review was that
+    low-side-only protection inverts the mule's own safety argument -- it exists to prove
+    the Pi is protected against overshoot above +3V3, not just undershoot -- and that a
+    correctly-wired series pair does this with one part. Re-checked BAV99 once more
+    against that framing (pin 3 as a series midpoint, per the coordinator's suggested
+    wiring) and it still isn't one: a genuine series midpoint pin, like BAV99S's shared
+    nodes, is named with both roles concatenated (e.g. "K1A2"); BAV99's pin 2 carries only
+    "A". Diode:BAT54S is: pin 1 "A" (anode only), pin 2 "K" (cathode only), pin 3 "COM",
+    explicitly the shared node -- KiCad's own description for the part reads "Dual
+    schottky barrier diode, in series". That makes D1 = anode(pin1) -> cathode(pin3=COM)
+    and D2 = anode(pin3=COM) -> cathode(pin2): wiring pin1->DGND, pin3(COM)->signal,
+    pin2->+3V3 gives D1 conducting when DGND exceeds signal by a diode drop (the low-side
+    clamp) and D2 conducting when signal exceeds +3V3 by a diode drop (the high-side
+    clamp) -- both diodes doing correctly-oriented work, a real two-rail clamp from one
+    part, matching what "a BAV99 clamp pair to +3V3/DGND" was always trying to describe.
+
+    This does reintroduce the steady-state concern the low-side-only design was built to
+    avoid: a Schottky's lower forward drop (~0.3-0.4V vs silicon's ~0.7V) means the
+    high-side diode conducts whenever a line is driven to a normal 5V logic-high, not just
+    during a fault -- sinking on the order of 10-15mA into the regulated +3V3 rail per
+    line that's high at any given moment (up to roughly 17x that, worst case, with every
+    line high simultaneously). That's now a real, designed-in property of the validated
+    topology rather than something engineered around, and it's exactly the kind of thing
+    bring-up should measure directly (does +3V3 sag or rise under worst-case load) rather
+    than something this schematic should silently avoid measuring. Flagged in
+    task-2-report.md as a concern for Task 5 bring-up.
     """
-    pins = sch.place("Diode", "BAV99", sch.next_ref("D"), "BAV99", x, y)
-    for num in ("1", "3"):  # both cathodes -> signal (paralleled, doubled current capacity)
-        px, py = pin_pos(x, y, pins[num])
-        sch.label(net_signal, px, py)
-    px, py = pin_pos(x, y, pins["2"])  # shared anode -> DGND
-    sch.label(net_gnd, px, py)
+    pins = sch.place("Diode", "BAT54S", sch.next_ref("D"), "BAT54S", x, y)
+    px, py = pin_pos(x, y, pins["1"])  # anode only -> low rail
+    sch.label(net_lo, px, py)
+    px, py = pin_pos(x, y, pins["3"])  # COM, the genuine series midpoint -> signal
+    sch.label(net_signal, px, py)
+    px, py = pin_pos(x, y, pins["2"])  # cathode only -> high rail
+    sch.label(net_hi, px, py)
 
 
 def place_541(sch, value, x, y, rail, channels: dict[int, tuple[str, str]]):
@@ -199,12 +235,24 @@ def build() -> Sch:
         (Y_U2, 8, 8, "D"),    # U2: EVT_D8_TPC..D15_TPC
         (Y_U3, 16, 1, "STROBE"),  # U3: EVT_STROBE_TPC only; 7 channels unused
     ]
+    # FIX ROUND 1: GPIO0/GPIO1 (physical pins 27/28) need an extra 330R series resistor
+    # between the buffer and the physical Pi pin -- the Pi probes those two pins as I2C at
+    # boot looking for a HAT ID EEPROM, and a low-impedance buffer output driving them
+    # contends with that probe (plan doc, Task 9 Step 2, same technique reused here). That
+    # makes the buffer's own output, for exactly these 2 of 17 lines, a distinct net from
+    # what reaches the header: EVT_D{0,1}_PI is defined as arriving at the Pi (consistent
+    # with what it means for the other 15 lines), so the buffer output there gets its own
+    # non-contract net name and the resistor bridges the two.
+    def buffer_output_net(i, data_name, pi_net):
+        return f"{data_name}_BUF" if i in (0, 1) else pi_net
+
     for y_ic, base_i, count, _kind in ic_specs:
         channels = {}
         for local_ch in range(count):
             i = base_i + local_ch
             data_name = f"EVT_D{i}" if i < 16 else "EVT_STROBE"
-            channels[local_ch] = (f"{data_name}_CLAMP", f"{data_name}_PI")
+            pi_net = f"{data_name}_PI"
+            channels[local_ch] = (f"{data_name}_CLAMP", buffer_output_net(i, data_name, pi_net))
         place_541(sch, "SN74LVC541APW", X_IC541, y_ic, "+3V3", channels)
 
     for i in range(17):
@@ -215,26 +263,50 @@ def build() -> Sch:
         pi_net = f"{data_name}_PI"
 
         two_pin(sch, "Device", "R", "R", "100", X_R_IN, y, tpc_net, clamp_net)
-        bav99_low_side_clamp(sch, X_BAV, y, clamp_net, "DGND")
+        bidirectional_clamp(sch, X_CLAMP, y, clamp_net, "+3V3", "DGND")
 
-        hdr_num = str(i + 1)
-        header_pin(sch, tpc_pins, X_TPC_HDR, ROW0 + 8 * ROW_PITCH, hdr_num, tpc_net)
-        tpc_used.add(hdr_num)
-        header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, hdr_num, pi_net)
-        pi_used.add(hdr_num)
+        # Task-PC side stays sequential (coordinator fix round 1: accepted as-is -- only
+        # the Pi side needs to match a real physical header, since nothing on the task-PC
+        # side reads a contiguous hardware pin range the way the Pi's PIO capture does).
+        tpc_hdr_num = str(i + 1)
+        header_pin(sch, tpc_pins, X_TPC_HDR, ROW0 + 8 * ROW_PITCH, tpc_hdr_num, tpc_net)
+        tpc_used.add(tpc_hdr_num)
+
+        # Pi side: real physical GPIO position, not sequential (see GPIO_PHYSICAL_PIN).
+        pi_hdr_num = str(GPIO_PHYSICAL_PIN[i] if i < 16 else STROBE_GPIO_PHYSICAL_PIN)
+        header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, pi_hdr_num, pi_net)
+        pi_used.add(pi_hdr_num)
+
+        if i in (0, 1):
+            buf_net = buffer_output_net(i, data_name, pi_net)
+            two_pin(
+                sch, "Device", "R", "R", GPIO0_1_SERIES_OHMS, X_GPIO01_R, y, buf_net, pi_net,
+            )
+
+    for line_idx, line in enumerate([
+        "GPIO0/GPIO1 -- physical pins 27/28 -- are probed by the Pi as I2C at boot,",
+        "looking for a HAT ID EEPROM. The 330R series resistors above limit contention",
+        "with that probe. Requires force_eeprom_read=0 in config.txt.",
+    ]):
+        sch.text(line, X_GPIO01_R, Y_GPIO01_NOTE + line_idx * GRID(4))
 
     # A couple of DGND reference pins per header (return-path reference for the ribbon
-    # cable), plus BARCODE_PI inbound on the Pi header (see Step 2). Every other pin of
-    # both 40-pin headers is explicitly no-connected below -- this mule only exercises 18
-    # of the 40 Pi-header signals, and leaving the rest genuinely floating would be an
+    # cable), plus BARCODE_PI inbound on the Pi header at its real physical position
+    # (GPIO17 -- named explicitly in the brief's own Step 2 text). Every other pin of both
+    # 40-pin headers is explicitly no-connected below -- this mule only exercises 18 of
+    # the 40 Pi-header signals, and leaving the rest genuinely floating would be an
     # unlabelled, ERC-ambiguous "maybe I forgot this" rather than a documented choice.
     header_pin(sch, tpc_pins, X_TPC_HDR, ROW0 + 8 * ROW_PITCH, "18", "DGND")
     header_pin(sch, tpc_pins, X_TPC_HDR, ROW0 + 8 * ROW_PITCH, "19", "DGND")
     tpc_used |= {"18", "19"}
-    header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, "18", "BARCODE_PI")
-    header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, "19", "DGND")
-    header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, "20", "DGND")
-    pi_used |= {"18", "19", "20"}
+    header_pin(
+        sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH,
+        str(BARCODE_GPIO_PHYSICAL_PIN), "BARCODE_PI",
+    )
+    pi_used.add(str(BARCODE_GPIO_PHYSICAL_PIN))
+    for gnd_pin in PI_GND_PHYSICAL_PINS:
+        header_pin(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, str(gnd_pin), "DGND")
+        pi_used.add(str(gnd_pin))
 
     header_nc_remaining(sch, tpc_pins, X_TPC_HDR, ROW0 + 8 * ROW_PITCH, tpc_used)
     header_nc_remaining(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, pi_used)
@@ -259,63 +331,76 @@ def build() -> Sch:
         sch.label("BARCODE_OUT", x, y)
 
     # === Step 3: isolated path ===============================================
-    # JUDGMENT CALL: PC847 (Isolator:PC847) chosen for the quad optocoupler. The brief
-    # names no MPN ("Four optocoupler channels (one quad package)"), and the plan's own
-    # Task 11 explicitly treats the main board's optocoupler as "a part requirement
-    # rather than a fixed MPN". PC847 is SOIC-16 (hand-solderable), open-collector
-    # phototransistor output (matches the pull-up-to-ISO_5V topology below), and is one
-    # of the most common/available parts in this exact "quad logic optocoupler" category.
+    # FIX ROUND 1 (coordinator-directed): switched from PC847 (phototransistor output) to
+    # Isolator:HCPL-4661 (logic/open-collector output). The mule's bring-up procedure
+    # measures optocoupler propagation delay and strobe edge quality (checks 5-6); a
+    # phototransistor's edge rate depends on external load and on CTR, which drifts as the
+    # LED ages, so measuring one would validate a part class the real board (Task 11) does
+    # not use. HCPL-4661 is a real logic-output part in KiCad's stock Isolator library.
     #
-    # JUDGMENT CALL: TMA-0505S, not TMA-0512D. The brief names "TMA0512D-class" but that
-    # literal part is 5V-in / +-12V-out (dual), which cannot produce a rail actually named
-    # ISO_5V (a locked, contract net name). TMA-0505S is the same Traco SIP7 family, 5V
-    # in / 5V out, single output -- the family member that actually matches the required
-    # net name. "-class" in the brief's own wording licenses picking the matching family
-    # member rather than the literal, voltage-mismatched part number.
+    # CORRECTION flagged rather than silently applied: HCPL-4661 is a 2-channel part, not
+    # quad -- checked directly (Mouser/TME/RS-Online listings all say "Ch: 2" / "2-Channel",
+    # and the physical pin budget confirms it: an 8-pin DIP is 4 LED pins + 2
+    # open-collector outputs + VCC + GND, which is exactly a dual-channel part's pin count
+    # and too few pins to fit 4 independent channels). Implemented as two HCPL-4661
+    # packages, two channels each = four channels total, rather than inventing a quad
+    # variant that doesn't exist or substituting a different vendor/output type without
+    # checking first.
+    #
+    # HCPL-4661 (Isolator:HCPL-4661 in KiCad's stock library) extends Isolator:HCPL-263A
+    # (its 8-pin dual-channel base graphic) and carries no pins of its own -- placed via
+    # that root symbol per the extends-avoidance pattern (hardware/README.md gotcha 4),
+    # Value overridden to the real part number.
+    #
+    # JUDGMENT CALL (unchanged from the original submission): TMA-0505S, not TMA-0512D.
+    # The brief names "TMA0512D-class" but that literal part is 5V-in / +-12V-out (dual),
+    # which cannot produce a rail actually named ISO_5V (a locked, contract net name).
+    # TMA-0505S is the same Traco SIP7 family, 5V in / 5V out, single output -- the family
+    # member that actually matches the required net name. "-class" in the brief's own
+    # wording licenses picking the matching family member rather than the literal,
+    # voltage-mismatched part number.
+    OPTO_LED_PINS = {1: ("1", "2"), 2: ("4", "3")}  # channel -> (anode pin, cathode pin)
+    OPTO_VO_PIN = {1: "7", 2: "6"}  # channel -> open-collector output pin
     opto_channels = [
         ("EVT_STROBE_PI", "EVT_STROBE_ISO", "1"),
         ("BARCODE_OUT", "BARCODE_ISO", "2"),
         ("OPTO_SPARE1_IN", "OPTO_SPARE1_ISO", "3"),
         ("OPTO_SPARE2_IN", "OPTO_SPARE2_ISO", "4"),
     ]
-    # One reference (one physical PC847 package), placed as 4 separate unit instances
-    # below -- standard KiCad practice for a multi-channel part, same as how a quad
-    # NAND's 4 gates each get their own symbol graphic under one shared reference.
-    opto_ref = sch.next_ref("U")
     screw_pins = sch.place(
         "Connector", "Screw_Terminal_01x04", sch.next_ref("J"),
         "Isolated-domain outputs", X_SCREW, Y_SCREW,
     )
-    for idx, (src_net, iso_net, screw_num) in enumerate(opto_channels, start=1):
-        unit_pins = sch.place(
-            "Isolator", "PC847", opto_ref, "PC847", X_OPTO, Y_OPTO + (idx - 1) * 25.4,
-            unit=idx,
-        )
-        led_net = f"U7_LED{idx}"
-        anode_num, cathode_num = sorted(
-            (n for n, p in unit_pins.items() if p.x < 0), key=lambda n: -unit_pins[n].y
-        )
-        collector_num, emitter_num = sorted(
-            (n for n, p in unit_pins.items() if p.x > 0), key=lambda n: -unit_pins[n].y
-        )
-        two_pin(
-            sch, "Device", "R", "R", "330",
-            X_OPTO - 30.48, Y_OPTO + (idx - 1) * 25.4, src_net, led_net,
-        )
-        ax, ay = pin_pos(X_OPTO, Y_OPTO + (idx - 1) * 25.4, unit_pins[anode_num])
-        sch.label(led_net, ax, ay)
-        cx, cy = pin_pos(X_OPTO, Y_OPTO + (idx - 1) * 25.4, unit_pins[cathode_num])
-        sch.label("DGND", cx, cy)
-        two_pin(
-            sch, "Device", "R", "R", "4k7",
-            X_OPTO + 30.48, Y_OPTO + (idx - 1) * 25.4, "ISO_5V", iso_net,
-        )
-        collx, colly = pin_pos(X_OPTO, Y_OPTO + (idx - 1) * 25.4, unit_pins[collector_num])
-        sch.label(iso_net, collx, colly)
-        emx, emy = pin_pos(X_OPTO, Y_OPTO + (idx - 1) * 25.4, unit_pins[emitter_num])
-        sch.label("ISO_GND", emx, emy)
+    for pkg in range(2):  # two physical HCPL-4661 packages, two channels each
+        pkg_y = Y_OPTO + pkg * OPTO_PKG_PITCH
+        pkg_ref = sch.next_ref("U")
+        pkg_pins = sch.place("Isolator", "HCPL-263A", pkg_ref, "HCPL-4661", X_OPTO, pkg_y)
+        for ch in (1, 2):
+            src_net, iso_net, screw_num = opto_channels[pkg * 2 + (ch - 1)]
+            a_num, c_num = OPTO_LED_PINS[ch]
+            vo_num = OPTO_VO_PIN[ch]
+            led_net = f"{pkg_ref}_LED{ch}"
+            ch_dy = -2.54 if ch == 1 else 2.54  # keep the 2 channels' passives from overlapping
 
-        header_pin(sch, screw_pins, X_SCREW, Y_SCREW, screw_num, iso_net)
+            two_pin(sch, "Device", "R", "R", "330", X_OPTO - 30.48, pkg_y + ch_dy, src_net, led_net)
+            ax, ay = pin_pos(X_OPTO, pkg_y, pkg_pins[a_num])
+            sch.label(led_net, ax, ay)
+            cx, cy = pin_pos(X_OPTO, pkg_y, pkg_pins[c_num])
+            sch.label("DGND", cx, cy)
+
+            # 1k pull-up, not the original 4k7: HCPL-4661 is a 10Mbd-class logic output: a
+            # lower pull-up gives a faster, more representative edge for exactly the
+            # propagation-delay/edge-quality measurement this fix is about.
+            two_pin(sch, "Device", "R", "R", "1k", X_OPTO + 30.48, pkg_y + ch_dy, "ISO_5V", iso_net)
+            vox, voy = pin_pos(X_OPTO, pkg_y, pkg_pins[vo_num])
+            sch.label(iso_net, vox, voy)
+
+            header_pin(sch, screw_pins, X_SCREW, Y_SCREW, screw_num, iso_net)
+
+        gx, gy = pin_pos(X_OPTO, pkg_y, pkg_pins["5"])
+        sch.label("ISO_GND", gx, gy)
+        vccx, vccy = pin_pos(X_OPTO, pkg_y, pkg_pins["8"])
+        sch.label("ISO_5V", vccx, vccy)
 
     for spare_idx in (1, 2):
         hp = sch.place(

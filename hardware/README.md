@@ -89,6 +89,14 @@ generated — don't rediscover them.
   place `74xx:74LS541` with `Value` set to `SN74LVC541APW`, since the '541 pinout is identical
   across the LS/HCT/AHC/AHCT/LVC sub-families — this is standard KiCad practice, not a
   workaround unique to generated schematics).
+- **A raw newline byte inside a `(text "...")` element's quoted string makes KiCad refuse
+  the whole file** ("Failed to load schematic") — found adding an on-sheet documentation
+  note and initially writing it as one multi-line Python string. Isolated by testing two
+  minimal cases: a single-line `text` containing literal parentheses (loads fine) against
+  a two-line `text` with an embedded `\n` and no parentheses at all (fails) — so it's
+  specifically the embedded newline, not "special characters" in general. `Sch.text()`
+  (`hardware/gen/kicad_sch.py`) now asserts against this; call it once per line for a
+  multi-line note instead.
 
 ## Regenerating fab outputs
 

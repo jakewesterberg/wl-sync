@@ -344,6 +344,29 @@ class Sch:
     def no_connect(self, x: float, y: float) -> None:
         self.body.append(f'\t(no_connect\n\t\t(at {x} {y})\n\t\t(uuid "{uid()}")\n\t)')
 
+    def text(self, contents: str, x: float, y: float, size: float = 1.27) -> None:
+        """An on-sheet documentation note (not a label -- carries no electrical meaning).
+
+        `contents` must be a single line: a raw newline byte inside the quoted string
+        makes KiCad refuse to load the file outright ("Failed to load schematic") -- a
+        fifth format constraint found building this generator, isolated by testing a
+        multi-line call against one with literal parentheses but no newline (which loads
+        fine), so it's specifically the embedded newline, not just "unusual characters in
+        general". Call this once per line for a multi-line note (see hardware/README.md).
+        """
+        assert "\n" not in contents, (
+            "Sch.text() contents must be single-line -- a raw newline inside the quoted "
+            "string makes KiCad refuse to load the file. Call text() once per line instead."
+        )
+        escaped = contents.replace("\\", "\\\\").replace('"', '\\"')
+        self.body.append(
+            f"""\t(text "{escaped}"
+\t\t(at {x} {y} 0)
+\t\t(effects (font (size {size} {size})))
+\t\t(uuid "{uid()}")
+\t)"""
+        )
+
     # -- assembly --------------------------------------------------------
 
     def render(self, paper: str = "A2") -> str:
