@@ -25,8 +25,8 @@ material.
   per functional block (power, task-PC digital, Pi interface, analog front end, analog-to-NI,
   mux-to-Intan, comparators, opto-to-NI, opto-to-Intan, USB/I²C control).
 
-Neither tree exists yet as of this commit — this task only sets up the toolchain and shared
-library paths both tracks build on.
+As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_sch`, produced
+by `hardware/gen/gen_mule.py`); `hardware/breakout/` does not exist yet.
 
 ## Toolchain
 
@@ -41,6 +41,14 @@ library paths both tracks build on.
   own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR connector, mini-XLR
   TA4M/TA5M, the 4-pin mini-DIN, the ACCESIO D-sub, and the Pi 5 GPIO header. Both are empty
   skeletons until the symbols/footprints task populates them.
+- **`hardware/gen/`** — a reusable Python framework (`kicad_sch.py`) for generating `.kicad_sch`
+  files programmatically: pull a symbol's definition out of a stock KiCad library, place symbol
+  instances on a grid, and attach a global label at each pin's connection point so connectivity
+  is by label name rather than wire geometry. `gen_mule.py` uses it to produce
+  `hardware/mule/mule.kicad_sch`; `check_mule_netlist.py` parses the exported netlist back out
+  and asserts the contract nets are actually correct, not just ERC-clean (see the gotchas below
+  for why that distinction matters). Later schematic-capture tasks can import `kicad_sch.py`
+  directly rather than re-deriving the technique.
 
 ## KiCad gotchas found the hard way
 
@@ -65,6 +73,22 @@ generated — don't rediscover them.
   `(symbol "R_0_1"`, not `(symbol "Device:R_0_1"`. Only the parent symbol entry is prefixed;
   prefixing a child unit too makes KiCad refuse to load the file at all ("Failed to load
   schematic").
+- **Some stock symbols use `(extends "ParentName")` and carry no pin geometry of their own.**
+  `74xx:74HCT541` extends `74LS541`; `Regulator_Linear:LD1117S33TR_SOT223` extends `AP1117-15`;
+  `Converter_DCDC_Isolated:TMA-0512D` extends `TMA-0505D`. This is common wherever a stock
+  library represents several pin-compatible parts (a logic-family variant, a regulator's
+  different fixed-voltage options, a DC/DC converter's input/output voltage options) as one
+  base symbol plus thin per-variant overrides of just its `Reference`/`Value`/`Footprint`/
+  `Datasheet` properties. Extracting the named symbol textually (as the constraints above do)
+  yields a real, well-formed block with properties but no pins — silent at generation time, and
+  it is not yet known whether KiCad accepts a `lib_symbols` entry embedding the extends chain
+  the way it does when the GUI places such a part. `hardware/gen/kicad_sch.py` sidesteps the
+  question rather than answering it: `extract_symbol()` asserts loudly if the requested symbol
+  uses `extends`, and every caller is expected to name the extends-free root symbol instead,
+  overriding its `Value` property to the real ordered part number (the mule's inbound buffers
+  place `74xx:74LS541` with `Value` set to `SN74LVC541APW`, since the '541 pinout is identical
+  across the LS/HCT/AHC/AHCT/LVC sub-families — this is standard KiCad practice, not a
+  workaround unique to generated schematics).
 
 ## Regenerating fab outputs
 
