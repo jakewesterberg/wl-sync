@@ -397,12 +397,17 @@ Every panel input carries series resistance and clamp diodes.
 | Camera triggers | BNC | 5 (1 eye, 4 behavior) |
 | Reward driver out | BNC | 1 |
 | Display sync in | BNC | 1, unpopulated |
-| Photodiodes, ambient, accelerometer | mini-XLR TA4M | 4 |
-| Joystick | mini-XLR TA5M | 1 |
+| Photodiodes, ambient, accelerometer | mini-XLR **TB4M** | 4 |
+| Joystick | mini-XLR **TB5M** | 1 |
 | Microphone | 3.5 mm TRS | 1 |
 | Manual reward | panel momentary button + remote jack | 1 + 1 |
 | Analog supply in | 4-pin mini-DIN | 1 |
 | Pi ports | cutouts: USB-C, Ethernet, USB-A | — |
+
+> **TB, not TA — corrected 2026-08-13.** This section originally specified TA4M/TA5M.
+> **TA4M is obsolete and cable-mount only**; the panel-mount part in the TB series is TB4M/TB5M.
+> Confirmed against DigiKey, Switchcraft and Farnell. Ordering to the original naming would buy
+> a connector that cannot be panel-mounted.
 
 **24 BNC positions, 23 populated** — the display-sync footprint and its panel cutout exist, the
 connector is not fitted. Different mini-XLR pin counts prevent cross-plugging sensor classes;

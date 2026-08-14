@@ -52,7 +52,7 @@ task is marked:
 | Path | Responsibility |
 |---|---|
 | `hardware/README.md` | Electrical facts, board overview, how to rebuild fab outputs |
-| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, TA4M/TA5M, sensor heads) |
+| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, TB4M/TB5M, sensor heads) |
 | `hardware/lib/wl-sync.pretty/` | Custom footprints for the same |
 | `hardware/mule/` | Event-path mule: project, schematic, layout, fab, bring-up procedure |
 | `hardware/breakout/breakout.kicad_sch` | Root sheet — hierarchy only |
@@ -120,10 +120,30 @@ checked in `hardware/procurement-check.md`.
 |---|---|---|
 | 68-pin MDR male, right-angle PCB mount | 4 | The risk item — 4–8 wk if unstocked |
 | BNC, right-angle PCB mount, isolated | 23 | Volume makes even a short lead time matter |
-| Mini-XLR TA4M panel/PCB | 4 | |
-| Mini-XLR TA5M panel/PCB | 1 | |
+| Mini-XLR **TB4M** panel/PCB | 4 | TA4M is obsolete and cable-mount only |
+| Mini-XLR **TB5M** panel/PCB | 1 | same |
 | 3.5 mm TRS, PCB mount | 2 | mic + remote reward button |
 | 4-pin mini-DIN, PCB mount | 1 | ±12 V inlet |
+
+- [ ] **Step 2b: Order ONE physical sample of each custom-footprint connector, now**
+
+MDR68 male right-angle, mini-XLR TB4M and TB5M, and the 4-pin mini-DIN. These four are the only
+parts on the board with **custom footprints drawn from secondary sources** rather than from a
+manufacturer CAD drawing, and they are the parts whose panel cutouts are machined to match. A
+footprint error here scraps a panel rather than causing a rework.
+
+Two dimensions could not be closed from any retrievable document and must be **measured against
+the physical part** before Task 14 finalises placement: MDR68 row and mounting-hole spacing, and
+the mini-XLR panel-cutout diameter.
+
+**One of them is a topology risk rather than a tolerance risk, and is the more urgent.** The
+mini-XLR and mini-DIN contacts are currently modelled as evenly spaced around a full circle.
+Real keyed circular connectors often cluster their contacts in an arc instead. If that is the
+case here, the footprint is wrong in kind, not by a fraction of a millimetre — and no amount of
+tolerance margin saves it.
+
+Samples cost a few dollars and arrive long before the production order. Buying them with the
+stock check costs nothing and closes the largest remaining fab risk.
 
 - [ ] **Step 3: Record the outcome**
 
@@ -401,7 +421,7 @@ declares the nets it produces so later sheets can consume them.
 
 - [ ] **Step 1: Draw the custom symbols**
 
-Not in KiCad's stock libraries: 68-pin MDR male, mini-XLR TA4M, mini-XLR TA5M, 4-pin mini-DIN,
+Not in KiCad's stock libraries: 68-pin MDR male, mini-XLR TB4M, mini-XLR TB5M, 4-pin mini-DIN,
 the ACCESIO 37-pin D source, the Pi 5 40-pin header (with GPIO numbers as pin names, not BCM
 positions — this is what makes the map in spec §4 checkable by eye).
 
