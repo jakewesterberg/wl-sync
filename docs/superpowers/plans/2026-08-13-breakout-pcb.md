@@ -92,8 +92,24 @@ These are independent of every design task below and are on the critical path. D
 
 - [ ] **Step 1: Order the NI cards**
 
-12–13 week lead time, fixed and independent of this board's pace. One PCIe-6363 for each task
-PC, one PXIe-6363 for each recording chassis. Two rigs.
+12–13 week lead time, fixed and independent of this board's pace. **Verified against NI's own
+product pages 2026-08-13; both Active.**
+
+| Qty | Part | Each | For |
+|---|---|---|---|
+| 2 | **PXIe-6353** | $2,999 | recording chassis, one per rig |
+| 2 | **PCIe-6343** | $1,880 | task PC, one per rig |
+| 8 | `SHC68-68-EPM` | — | two per card; easily forgotten, same lead time |
+
+**Not the 6363s the spec originally named.** Both selected cards carry 48 DIO with 32
+hardware-timed lines on P0.<0..31> and two 68-pin connectors — identical to the 6363 on every
+axis this design uses. The recording card runs 640 kS/s of 1.25 MS/s at a 40 kHz scan; the task
+PC card runs ~18 kS/s of 500 kS/s. The 6363's extra rate is unused, and dropping a tier saves
+$4,884 across two rigs. Reasoning in spec §9.3.
+
+**One residual to raise with the NI rep:** SpikeGLX names the 6341, 6363 and 6366 as tested and
+does not name the 6353. It presents identically through DAQmx, so the risk is low — but if you
+want it eliminated, the recording card is where to spend the difference, not the task PC.
 
 - [ ] **Step 2: Check stock and lead time on the schedule-critical connectors**
 

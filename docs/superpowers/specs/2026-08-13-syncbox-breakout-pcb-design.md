@@ -56,8 +56,8 @@ signal nobody recorded a decision about.
 | Barcode | Pi | — | — | ✓ | ✓ | |
 | ohDPI camera trigger | Pi | — | — | — | — | eye cameras |
 | Behavior camera trigger | Pi | — | — | — | — | behavior cameras ×≤4 |
-| Photodiode 1 comparator | Board | ✓ | ✓ | — | — | |
-| Photodiode 2 comparator | Board | ✓ | ✓ | — | — | |
+| Photodiode 1 comparator | Board | ✓ | ✓ | ✓ | — | decouples NI onset timing from scan rate |
+| Photodiode 2 comparator | Board | ✓ | ✓ | ✓ | — | same |
 | Accelerometer motion trigger | Board | ✓ | ✓ | — | — | gates task progression |
 | Reward commanded | Task PC | — | ✓ | ✓ | ✓ | → OR |
 | Manual reward button | Panel | — | — | — | — | → OR |
@@ -66,8 +66,15 @@ signal nobody recorded a decision about.
 | RHS stim output | Intan | ✓ | — | ✓ | — | |
 | Display sync | — | — | — | — | — | reserved, unpopulated |
 
-Digital line counts: **22** into the recording NI, **23** at the task PC (19 out, 4 in),
+Digital line counts: **24** into the recording NI, **23** at the task PC (19 out, 4 in),
 **5** into Intan (of 8 available), **1** out of Intan.
+
+**The two photodiode comparators reach NI as well as the Pi and task PC, and it is what lets the
+analog scan rate be slow.** Without them, NI's only stimulus-onset information is the analog
+photodiode waveform, which would force a fast scan across all 16 channels to time an edge. With
+them, NI has a clean digital edge and the analog scan rate becomes a question about waveform
+fidelity alone. They cost the last two spare lines on connector 1 (§9.2) and buy a cheaper card
+(§9.3).
 
 **Reward is recorded twice on purpose.** The task PC's commanded TTL and the debounced panel
 button feed an OR gate; the OR output drives the reward driver and is separately recorded as
@@ -224,7 +231,23 @@ never during a recording.
 
 The selected routing is software state the Pi holds and can write into the session record.
 
-### 6.4 Comparators
+### 6.4 Microphone anti-alias filter
+
+**NI X-series multifunction cards have no anti-alias filter** — the front end is wideband, so
+content above Nyquist folds into the band. Fifteen of the sixteen channels are inherently
+band-limited by their sources: the eye channels come from a DAC updating at 4 kHz, and the
+sensors, joystick and misc inputs are all slow. The microphone is the only broadband source, and
+a mic with its own preamp typically responds well past 20 kHz.
+
+So the microphone front end carries a **4th-order low-pass at ~12 kHz**, implemented as two
+Sallen-Key sections on the buffer already present — passives only, no new part types.
+
+**The cutoff is set by Intan, not by NI.** The mic reaches both; Intan samples at 30 kHz, so its
+Nyquist is 15 kHz, below NI's 20 kHz at a 40 kHz scan. Filtering for NI alone would alias in the
+Intan record. Second-order would be only ~4 dB down at 15 kHz, which is why the order is four.
+12 kHz preserves macaque call energy, which mostly sits below 10 kHz.
+
+### 6.5 Comparators
 
 Three channels used — photodiode 1, photodiode 2, accelerometer — from one quad package. The
 fourth is brought out to a misc input, unpopulated.
@@ -292,11 +315,28 @@ isolators for their RF carrier and then adding a switcher to the same board woul
 | Pi 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Substituting is a false economy on a Pi 5 |
 | ±12 V analog | External linear supply, panel inlet |
 | +5 V, +3.3 V | LDOs from +12 V |
-| NI domain | +5 V from NI's 68-pin connector — switcher-free and already referenced to NI's ground |
+| NI domain | +5 V from NI's 68-pin connector, **250 mA per connector** — switcher-free and already referenced to NI's ground. See §8.1 |
 | **Intan domain** | **One isolated ±12 V DC-DC**, pi-filtered with LDO post-regulation |
 
 The Intan domain is the exception because its single-ended inputs force difference amplifiers
 there (§5.5). As the only switcher in the enclosure it receives the whole filtering budget.
+
+### 8.1 The NI +5 V budget is 250 mA, and it constrains the pull-ups
+
+NI's device specifications give **250 mA per connector** on the +5 V pins. Twenty-four
+optocoupler output stages at a typical 5–7 mA each is already 120–170 mA, so the pull-up choice
+is not free:
+
+| Pull-up | Pull-up current, 24 ch | Edge into ~50 pF | Verdict |
+|---|---|---|---|
+| 1 kΩ | ~60 mA | 0.05 µs | Pushes the domain to the limit for no benefit |
+| **10 kΩ** | **~6 mA** | **0.5 µs** | Against a 500 µs strobe, irrelevant |
+
+**10 kΩ on the NI side.** This deliberately differs from the mule board, where 1 kΩ was chosen
+to sharpen edges for measurement — different board, different objective.
+
+That lands the domain near 150 mA against 250 mA. If bench measurement disagrees, the fallbacks
+in order are: draw from both connectors, then a filtered isolated DC-DC.
 
 Every panel input carries series resistance and clamp diodes.
 
@@ -333,11 +373,68 @@ the SCSI end. **The board carries 68-pin male MDR**, so NI's standard cable plug
 with nothing between. MDR is also the hand-solderable choice at 1.27 mm pitch against VHDCI's
 0.8 mm.
 
-**Two connectors per device** because all 32 analog inputs sit on Connector 0 while only
+**Two connectors per device**, and the split is confirmed from NI's device specifications:
+
+| | Connector 0 | Connector 1 |
+|---|---|---|
+| Analog in | **AI 0–15** | AI 16–31 |
+| Digital | P0.0–P0.7, P1.0–P1.7 | **P0.8–P0.31**, P2.0–P2.7 |
+
+This permits the clean split the design wants: **all 16 analog channels on connector 0** — AI 0–15
+is exactly the channel count — and **all 24 digital lines on connector 1**, which is P0.8–P0.31
+exactly, so analog and digital ride physically separate shielded cables with no interleaving.
+The task PC's 9 analog and 23 digital fit the same way.
+
+**Connector 1 has zero spare hardware-timed lines at 24.** Only P0's 32 lines are hardware-timed
+(P1 and P2 are static), and P0.0–P0.7 live on connector 0. A twenty-fifth NI signal therefore
+either mixes digital onto the analog cable or is not hardware-timed. That is the cost of routing
+the photodiode comparators to NI (§3.1), and it is worth paying.
+
+**Consequence for task configuration:** the 16 event-code bits land on **P0.8–P0.23**, not
+P0.0–P0.15. MonkeyLogic should accept a non-zero-based line range; confirm rather than assume it.
+
+Two connectors are needed at all because all 32 analog inputs sit on Connector 0 while only
 P0.0–P0.7 do; the remaining port-0 lines are on Connector 1, and 22–23 digital lines cannot fit
 on eight. This is a benefit: analog and digital ride physically separate shielded cables.
 
-### 9.3 Enclosure
+### 9.3 NI device selection and the analog scan rate
+
+**Recording: PXIe-6353. Task PC: PCIe-6343.** Both Active, both quoted at 12–13 weeks.
+
+| | Card | Each | AI rate | Load |
+|---|---|---|---|---|
+| Recording | **PXIe-6353** | $2,999 | 1.25 MS/s | 640 kS/s = 51% |
+| Task PC | **PCIe-6343** | $1,880 | 500 kS/s | ~18 kS/s = 4% |
+
+Both carry 48 DIO with **32 hardware-timed lines on P0.<0..31>** and two 68-pin connectors —
+identical to the 6363 on every axis this design uses. The 6363's extra AI rate is unused.
+
+**The scan rate is set by the microphone and nothing else.** An X-series card multiplexes one
+ADC across the scanlist and has a single AI timing engine, so every channel in the task runs at
+the same rate and the fastest channel sets it. Per-channel requirements:
+
+| Channel(s) | Real bandwidth | Adequate rate |
+|---|---|---|
+| Eye X/Y, pupil (6) | 500 Hz — camera frame rate, via a DAC updating at 4 kHz | ~2 kHz |
+| Ambient light (1) | near-DC | ~100 Hz |
+| Accelerometer (1) | motion-energy envelope | ~1 kHz |
+| Joystick X/Y (2) | behavioural | ~1 kHz |
+| Misc (3) | confirmed slow | ~1 kHz |
+| Photodiode ×2 | waveform only — precise onset is the comparator, §3.1 | ~10 kHz |
+| **Microphone (1)** | **vocalisations, energy to ~10 kHz** | **~25 kHz** |
+
+**40 kHz scan**, giving 640 kS/s across 16 channels. Sampling the eye channels there records the
+DAC's staircase many times per genuine update, which is harmless; the alternative is losing
+audio bandwidth on the only channel that has any.
+
+**Residual, stated rather than buried:** SpikeGLX's documentation supports X-series generically
+and names the 6341, 6363 and 6366 as tested. **The 6353 is not named.** It presents identically
+through DAQmx — same AI count, same waveform-DI count, same STC3 timing — so the risk is low,
+but that is where the evidence stops.
+
+**Cables:** `SHC68-68-EPM` × 2 per card, so eight for two rigs. Same lead time, easily forgotten.
+
+### 9.4 Enclosure
 
 **2U 19" rack chassis.** Rig-facing connectors front, equipment-facing rear, so the board spans
 the chassis depth: approximately **430 × 240 mm, 4 layers.** Panels are machined to match the
@@ -424,9 +521,9 @@ cross-correlation per session, which is a better reason to keep the channels tha
 
 | # | Item | Blocking |
 |---|---|---|
-| 1 | **+5 V current budget on the NI 68-pin connector.** The NI-domain optocoupler supply depends on it; a filtered isolated DC-DC is the fallback | Schematic |
+| 1 | ~~+5 V current budget on the NI 68-pin connector~~ **Closed 2026-08-13** — **250 mA per connector**. Feasible at ~150 mA with 10 kΩ pull-ups; 1 kΩ would not be. See §8.1 | ~~Schematic~~ |
 | 2 | **Whether SpikeGLX exposes NRSE** as an NI terminal configuration. Decision 5 depends on it | Schematic |
-| 3 | **Connector 0 / Connector 1 pin split on the 6363**, confirming 22–23 digital lines need both | Layout |
+| 3 | ~~Connector 0 / Connector 1 pin split~~ **Closed 2026-08-13** — Connector 0 carries AI 0–15 + P0.0–7 + P1; Connector 1 carries AI 16–31 + P0.8–31 + P2. Analog fits entirely on 0, digital entirely on 1. See §9.2 | ~~Layout~~ |
 | 4 | **MDR68 and BNC stock and lead time** — the widest schedule error bar (§10.2) | Immediately |
 | 5 | Accelerometer is a custom device emitting one analog motion-energy channel; its output range sets the front-end scaling | Schematic |
 | 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
