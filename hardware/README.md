@@ -33,8 +33,8 @@ As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_s
 by `hardware/gen/gen_mule.py`) and a generated, placed-but-unrouted board (`mule.kicad_pcb`,
 produced by `hardware/gen/gen_mule_pcb.py`) — see `hardware/mule/floorplan.md` for the
 placement rationale and the constraints a router must respect. `hardware/breakout/` carries
-the root sheet (`breakout.kicad_sch`, produced by `hardware/gen/gen_breakout.py`) plus one
-populated child sheet so far: `sheets/power.kicad_sch` (produced by
+the root sheet (`breakout.kicad_sch`, produced by `hardware/gen/gen_breakout.py`) plus two
+populated child sheets so far: `sheets/power.kicad_sch` (produced by
 `hardware/gen/gen_breakout_power.py`, Task 7) — the 5-position analog/logic inlet (widened
 from 4 pins at Task 7 fix round 1, see below), the +3V3 logic rail regulated from +5V, and
 the one isolated ±12V supply the other nine sheets draw power from; see that generator's own
@@ -53,12 +53,23 @@ diagrams contradict, and that both parts are discontinued besides. The inlet is 
 M12A-05PFFP-SF8001, current production, 811 units in stock directly confirmed at DigiKey)
 — see "Custom connector footprints" below for the full selection rationale and
 per-dimension sourcing.
-The remaining nine hierarchical sheet symbols (`taskpc-digital`,
-`pi-interface`, `analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`,
-`opto-intan`, `control-usb-i2c`) each still reference a `sheets/<name>.kicad_sch` child file
-that does not exist yet — later tasks each create and populate their own (see "Sheet symbols
-referencing a child file that doesn't exist yet" below for why the root sheet doesn't
-pre-create them).
+And `sheets/taskpc-digital.kicad_sch` (produced by
+`hardware/gen/gen_breakout_taskpc_digital.py`, Task 8) — both task-PC MDR68 connectors
+(Connector 1 fully wired with the 23 digital lines, Connector 0 placed but left entirely
+unpopulated pending Task 10's own analog channels), the 19-channel inbound protected/
+buffered path (100Ω + BAT54S clamp per channel, high side +5V never +3V3, fanned out in
+parallel to a 3.3V `SN74LVC541APW` bank and a 5V `SN74HCT541PW` `_BUF` bank for Task 11's
+optocouplers), the 4-channel outbound path, and the reward OR (`74HCT32` + debounced
+`74HCT14` Schmitt pair); see that generator's own module docstring and
+`check_taskpc_digital_netlist.py` for the design and its verification. Task 8 is this
+project's first case of two REAL sibling child sheets coexisting, which surfaced a
+cross-sheet reference-collision gotcha `kicad_sch.py` needed a generic fix for — see the
+"KiCad gotchas" entry below.
+The remaining eight hierarchical sheet symbols (`pi-interface`, `analog-frontend`,
+`analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`, `control-usb-i2c`) each
+still reference a `sheets/<name>.kicad_sch` child file that does not exist yet — later
+tasks each create and populate their own (see "Sheet symbols referencing a child file that
+doesn't exist yet" below for why the root sheet doesn't pre-create them).
 
 ## Toolchain
 
@@ -520,6 +531,46 @@ generated — don't rediscover them.
   evidence: `ampli_ht.kicad_sch` (real, nested, used twice) carries NO such block at
   all, unlike its own root parent's single `(path "/" (page "1"))` entry describing
   only itself.
+- **Two sibling child sheets, each built by an independent `Sch` instance, silently mint
+  DUPLICATE reference designators the moment both have real content.** `next_ref()`
+  starts every prefix at 1 per `Sch` instance, which is exactly correct for a single
+  sheet in isolation — but every generator through Task 7 only ever built the FIRST real
+  child sheet to exist alongside another one (`power.kicad_sch`, Task 7), so this never
+  actually collided with anything. Task 8 (`taskpc-digital.kicad_sch`) is this project's
+  second real sheet, and its own independently-started "J1"/"R1"/"C1"/"D1"/"U1" collided
+  head-on with `power.kicad_sch`'s OWN "J1" (the M12A_5 inlet) etc. — two physically
+  different parts sharing one reference string, a genuine BOM/assembly ambiguity, not
+  just cosmetic. Silent for `kicad-cli sch erc` (0 errors either way — ERC does not
+  check cross-project reference uniqueness), but NOT silent for `kicad-cli sch export
+  netlist`, which prints `Warning: schematic has annotation errors, please use the
+  schematic editor to fix them`, and NOT silent for
+  `hardware/gen/check_mule_netlist.py`'s own `parse_component_values()` — shared
+  infrastructure `check_breakout_power_netlist.py` already depends on, and every future
+  child-sheet checker will too — which hard-asserts globally unique references and
+  raises immediately on the first duplicate it finds. A real KiCad user hits the
+  identical situation hand-building a multi-sheet project and resolves it with
+  Eeschema's own "Annotate Schematic" tool; this generator has no equivalent, so
+  `kicad_sch.py`'s `Sch` gained an optional `ref_start: dict[str, int] | None` field
+  (default `None`, unchanged behaviour for every generator that doesn't pass it) plus a
+  new `find_max_refs(sch_text)` helper that reads a SIBLING sheet's own already-committed
+  `.kicad_sch` text and returns `{prefix: highest number already used}` — a child-sheet
+  generator seeds `Sch(..., ref_start=find_max_refs(sibling_text))` so its own
+  `next_ref()` calls continue past whatever a sibling already used, rather than
+  restarting at 1 and colliding. Same "read the real committed artifact, don't invent
+  identity data" discipline `instance_path_prefix` already established for uuids,
+  extended to reference numbers — see `gen_breakout_taskpc_digital.py`'s own `build()`.
+  **A future child-sheet generator (Tasks 9-12) needs to seed from EVERY already-committed
+  sibling sheet's own maxima, not only `power.kicad_sch`** — this fix handles two real
+  sheets; a third and beyond needs the same treatment extended to read all of them.
+  Also broke `check_breakout_power_netlist.py`'s own `RAIL_BYPASS_EXPECTED` regression
+  guard, unrelatedly: `+5V`/`+3V3` are shared rails, and `_rail_bypass_cap_count()` counts
+  bypass/bulk capacitors PROJECT-WIDE, so `taskpc-digital.kicad_sch`'s own per-IC
+  decoupling on those two rails (legitimate, necessary, not a defect) changed the real
+  total the moment a second real sheet existed to add any. Fixed by updating the two
+  affected counts (recomputed directly against the regenerated netlist, not guessed) —
+  flagged there as needing the SAME update again once Tasks 9-12 also decouple their own
+  ICs on `+5V`/`+3V3`, an expected consequence of that function's own project-wide scope,
+  not a one-time fix.
 
 ## Byte-reproducibility
 
@@ -550,23 +601,31 @@ python3 hardware/gen/gen_mule_pcb.py
 kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
 
-For the breakout board's own library, root sheet, and (Task 7) its power child sheet. Order
-matters here in a way it didn't before Task 7 fix round 1: `gen_breakout_power.py` now
-*reads* `hardware/breakout/breakout.kicad_sch` (to compute its own components' real
-root+sheet-symbol ancestor path -- see the "KiCad gotchas" entry above and
-`gen_breakout_power.py`'s own `build()`), so `gen_breakout.py` must have already run and
-written that file, not merely conceptually precede it in the hierarchy -- running
-`gen_breakout_power.py` first raises `FileNotFoundError`, loudly, not silently:
+For the breakout board's own library, root sheet, and (Tasks 7-8) its power and
+task-PC-digital child sheets. Order matters here in a way it didn't before Task 7 fix
+round 1: `gen_breakout_power.py` now *reads* `hardware/breakout/breakout.kicad_sch` (to
+compute its own components' real root+sheet-symbol ancestor path -- see the "KiCad
+gotchas" entry above and `gen_breakout_power.py`'s own `build()`), so `gen_breakout.py`
+must have already run and written that file, not merely conceptually precede it in the
+hierarchy -- running `gen_breakout_power.py` first raises `FileNotFoundError`, loudly,
+not silently. `gen_breakout_taskpc_digital.py` (Task 8) reads BOTH
+`hardware/breakout/breakout.kicad_sch` (same reason) AND
+`hardware/breakout/sheets/power.kicad_sch` (to seed its own reference counters past
+whatever `power.kicad_sch` already used -- see the "KiCad gotchas" entry above,
+"duplicate reference designators"), so it must run after BOTH of those:
 
 ```bash
 python3 hardware/gen/gen_wl_sync_lib.py                             # hardware/lib/wl-sync.kicad_sym
 python3 hardware/gen/gen_wl_sync_footprints.py                      # hardware/lib/wl-sync.pretty/*.kicad_mod
-python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before the next line
-python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch
+python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before the next two lines
+python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch -- must run before the next line
+python3 hardware/gen/gen_breakout_taskpc_digital.py                 # hardware/breakout/sheets/taskpc-digital.kicad_sch
 kicad-cli sch upgrade hardware/breakout/breakout.kicad_sch           # see "Format upgrade" below
 kicad-cli sch upgrade hardware/breakout/sheets/power.kicad_sch       # ditto -- a child sheet is its own .kicad_sch file
+kicad-cli sch upgrade hardware/breakout/sheets/taskpc-digital.kicad_sch  # ditto
 kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net hardware/breakout/breakout.kicad_sch
 python3 hardware/gen/check_breakout_power_netlist.py /tmp/breakout.net  # verifies the power sheet's own netlist AND (reading breakout.kicad_sch/power.kicad_sch directly, not the netlist -- see its own module docstring) the instance-path fix, not just that ERC passed
+python3 hardware/gen/check_taskpc_digital_netlist.py /tmp/breakout.net  # verifies the task-PC digital sheet's own netlist end to end (both buffer banks) AND its own instance-path fix
 ```
 
 The library generators each run a structural self-check (round-tripping every symbol/

@@ -118,23 +118,41 @@ NON_ISO_NETS = [
     "P12_RAW", "N12_RAW", "P5_RAW",
 ]
 
-# Rail-pair bypass/bulk capacitor counts -- every capacitor gen_breakout_power.py places
-# is wired straight across some (rail, gnd) pair via two_pin(), so this can only regress
-# by a future edit accidentally dropping, adding, or moving one -- same
-# regression-guard purpose as check_mule_netlist.py's own RAIL_BYPASS_EXPECTED, computed
-# here directly against the currently-generated netlist (see task-7-report.md) rather than
-# assumed from the generator's own source. Recomputed for fix round 1 (reference numbers
-# shifted -- see ISO_NETS's own comment above; only +12V/DGND's COUNT actually changed,
-# 2->1, since U1's own CIN cap is gone along with U1 itself).
+# Rail-pair bypass/bulk capacitor counts. `_rail_bypass_cap_count()` below counts every
+# C-prefixed reference wired straight across a (rail, gnd) pair PROJECT-WIDE (it reads
+# the whole exported breakout.kicad_sch netlist, not just power.kicad_sch's own portion
+# of it) -- so this can only regress by a future edit accidentally dropping, adding, or
+# moving one, same regression-guard purpose as check_mule_netlist.py's own
+# RAIL_BYPASS_EXPECTED, computed here directly against the currently-generated netlist
+# (see task-7-report.md) rather than assumed from the generator's own source. Recomputed
+# for fix round 1 (reference numbers shifted -- see ISO_NETS's own comment above; only
+# +12V/DGND's COUNT actually changed, 2->1, since U1's own CIN cap is gone along with U1
+# itself).
+#
+# RECOMPUTED AGAIN AT TASK 8: +5V/DGND and +3V3/DGND are SHARED rails -- Task 7's own
+# +5V/DGND count (2: C5, C6, the inlet's own entry bulk+small) and +3V3/DGND count (2:
+# C7, C8, the LDO's own output decouple+bulk) are UNCHANGED on power.kicad_sch's own
+# side, but taskpc-digital.kicad_sch (Task 8) is the first OTHER sheet to also draw
+# these two rails, and it adds its own local 100nF decoupling next to each of its own
+# ICs (place_octal_buffer()/place_reward_or_gate()/place_debounce_inverters()'s own
+# established per-IC-decoupling convention, same discipline as every IC on this whole
+# project) -- 6 more on +5V/DGND (the _BUF bank's 3 HCT541 packages + the outbound
+# HCT541 + the 74HCT32 OR gate + the 74HCT14 debounce inverter, all +5V-powered) and 3
+# more on +3V3/DGND (the 3 LVC541 packages). Confirmed directly against the regenerated
+# whole-project netlist (not guessed), same discipline the rest of this dict already
+# follows. WILL need updating again once Tasks 9-12 add their own decoupling to these
+# same two shared rails -- not a one-time fix, an expected consequence of
+# `_rail_bypass_cap_count()`'s own project-wide scope every later child sheet inherits.
 RAIL_BYPASS_EXPECTED = {
     ("+12V", "AGND"): 2,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1
     ("-12V", "AGND"): 2,          # C3, C4 -- ditto, -12V rail
-    ("+5V", "DGND"): 2,           # C5, C6 -- entry bulk+small, fix round 1 (DGND-referenced
-                                   # per _place_inlet()'s own docstring, not AGND like the
-                                   # other two entry rails)
+    ("+5V", "DGND"): 8,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+                                   # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8)
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
-    ("+3V3", "DGND"): 2,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
+    ("+3V3", "DGND"): 5,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
+                                   # (power.kicad_sch); + 3 from taskpc-digital.kicad_sch's
+                                   # own 3 LVC541 packages (Task 8)
     ("ISO_P12", "INTAN_GND"): 2,  # C14, C15 -- U3 COUT + extra HF bypass
     ("ISO_N12", "INTAN_GND"): 2,  # C20, C21 -- U4 COUT + extra HF bypass
     ("ISO_P15_RAW", "INTAN_GND"): 1,   # C10 -- positive pi filter's first 10uF

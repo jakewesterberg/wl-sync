@@ -1,7 +1,118 @@
-ERC report (2026-08-14T01:51:16, Encoding UTF8)
+ERC report (2026-08-14T02:58:32, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 48.26 mm): Global Label 'EVT_D0_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 50.80 mm): Global Label 'EVT_D1_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 53.34 mm): Global Label 'EVT_D2_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 55.88 mm): Global Label 'EVT_D3_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 58.42 mm): Global Label 'EVT_D4_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 60.96 mm): Global Label 'EVT_D5_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 63.50 mm): Global Label 'EVT_D6_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 66.04 mm): Global Label 'EVT_D7_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 124.46 mm): Global Label 'EVT_D8_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 127.00 mm): Global Label 'EVT_D9_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 129.54 mm): Global Label 'EVT_D10_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 132.08 mm): Global Label 'EVT_D11_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 134.62 mm): Global Label 'EVT_D12_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 137.16 mm): Global Label 'EVT_D13_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 139.70 mm): Global Label 'EVT_D14_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 142.24 mm): Global Label 'EVT_D15_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 200.66 mm): Global Label 'EVT_STROBE_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(232.41 mm, 205.74 mm): Global Label 'STIM_TRIG'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 48.26 mm): Global Label 'EVT_D0_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 50.80 mm): Global Label 'EVT_D1_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 53.34 mm): Global Label 'EVT_D2_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 55.88 mm): Global Label 'EVT_D3_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 58.42 mm): Global Label 'EVT_D4_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 60.96 mm): Global Label 'EVT_D5_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 63.50 mm): Global Label 'EVT_D6_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 66.04 mm): Global Label 'EVT_D7_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 124.46 mm): Global Label 'EVT_D8_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 127.00 mm): Global Label 'EVT_D9_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 129.54 mm): Global Label 'EVT_D10_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 132.08 mm): Global Label 'EVT_D11_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 134.62 mm): Global Label 'EVT_D12_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 137.16 mm): Global Label 'EVT_D13_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 139.70 mm): Global Label 'EVT_D14_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 142.24 mm): Global Label 'EVT_D15_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 200.66 mm): Global Label 'EVT_STROBE_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 203.20 mm): Global Label 'RWD_CMD_BUF'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(322.58 mm, 205.74 mm): Global Label 'STIM_TRIG_BUF'
 
 ***** Sheet /power/
 
@@ -23,7 +134,7 @@ Report includes: Errors, Warnings
 
 ***** Sheet /control-usb-i2c/
 
- ** ERC messages: 0  Errors 0  Warnings 0
+ ** ERC messages: 37  Errors 0  Warnings 37
 
  ** Ignored checks:
     - Global label only appears once in the schematic

@@ -316,6 +316,35 @@ class Sch:
     lib_symbol_blocks: dict[str, str] = None  # type: ignore[assignment]
     body: list[str] = None  # type: ignore[assignment]
     ref_counters: dict[str, int] = None  # type: ignore[assignment]
+    ref_start: dict[str, int] | None = None
+    # Per-prefix SEED for ref_counters, so next_ref("J") hands out "J2" (not "J1") when a
+    # SIBLING sheet already committed to disk has already used "J1" for something else
+    # entirely. Left None (the default) for a hierarchy ROOT or a child sheet that is the
+    # first to use a given prefix -- ref_counters then starts every prefix at 0, exactly
+    # the pre-existing behaviour every generator through Task 7 relied on (gen_mule.py,
+    # gen_breakout.py, gen_breakout_power.py -- none of them pass this, and none of their
+    # own committed output changes because of this parameter's mere existence).
+    #
+    # WHY THIS EXISTS (found at Task 8, not anticipated at Task 7): every child-sheet
+    # generator through Task 7 built the FIRST non-trivial sheet to coexist with another
+    # one, so no two sheets' OWN reference counters had ever actually collided yet. Task
+    # 8 is this project's second one (alongside power.kicad_sch), and its own next_ref()
+    # calls independently mint "J1", "R1", "C1", "D1", "U1", ... starting from 1 again --
+    # colliding with power.kicad_sch's OWN "J1" (a completely different physical part,
+    # the M12A_5 inlet, versus task-PC-digital's own Connector 0). Confirmed empirically,
+    # not theoretically: `kicad-cli sch export netlist` on the combined project prints
+    # "Warning: schematic has annotation errors", and hardware/gen/check_mule_netlist.py's
+    # own parse_component_values() -- shared infrastructure check_breakout_power_
+    # netlist.py already depends on, and every future child-sheet checker will too --
+    # hard-asserts globally unique references and raises immediately on the very first
+    # duplicate. A REAL KiCad user hits the identical situation building a multi-sheet
+    # project by hand and resolves it with Eeschema's own "Annotate Schematic" tool,
+    # which this generator has no equivalent of; ref_start is the substitute, computed by
+    # a child-sheet generator reading its already-committed SIBLING sheets' own real,
+    # on-disk reference usage (find_max_refs() below) -- same "read the real committed
+    # artifact, don't invent identity data" discipline instance_path_prefix already
+    # established, extended from uuids to reference numbers. See
+    # gen_breakout_taskpc_digital.py's own build() for the concrete usage.
     footprints: dict[str, str] = None  # type: ignore[assignment]
     instance_uuid: dict[str, str] = None  # type: ignore[assignment]
     values: dict[str, str] = None  # type: ignore[assignment]
@@ -330,7 +359,7 @@ class Sch:
             self.instance_path_prefix = f"/{self.root_uuid}"
         self.lib_symbol_blocks = {}
         self.body = []
-        self.ref_counters = {}
+        self.ref_counters = dict(self.ref_start) if self.ref_start else {}
         # ref -> footprint lib id, ref -> this symbol instance's own uuid, and ref -> Value
         # text, recorded as a side effect of place() so a companion PCB generator
         # (hardware/gen/gen_mule_pcb.py, using hardware/gen/kicad_pcb.py) can consume them
@@ -736,3 +765,33 @@ def find_all_instance_paths(sch_text: str) -> list[str]:
         block = _find_balanced(sch_text, m.start())
         paths.extend(_INSTANCE_PATH_RE.findall(block))
     return paths
+
+
+_INSTANCE_REFERENCE_RE = re.compile(r'\(property "Reference" "([A-Za-z#]+?)(\d+)"')
+
+
+def find_max_refs(sch_text: str) -> dict[str, int]:
+    """{reference prefix: highest number already used} for every PLACED INSTANCE's own
+    `(property "Reference" "...")` in a rendered .kicad_sch file -- e.g. {"J": 1, "R": 4,
+    "C": 21, "D": 3, "U": 4, "NT": 1, "FB": 2, "#PWR": 7} for the real, committed
+    power.kicad_sch. Used by a child-sheet generator to compute `Sch`'s own `ref_start`
+    (see that class's own docstring for why) so its OWN next_ref() calls do not silently
+    re-mint a reference an already-committed SIBLING sheet already used for a different
+    physical part.
+
+    The regex requires at least one trailing digit (`\\d+`), which is what excludes a
+    `lib_symbols` entry's own bare-prefix default Reference (`(property "Reference" "U"
+    ...)`, no digit -- every stock/custom symbol's own library-default Reference is
+    exactly this bare-letter form, confirmed against every symbol used through Task 7) --
+    so this only counts genuinely PLACED instances, never a library definition copied
+    into the same file by ensure_lib_symbol(). Confirmed directly against
+    power.kicad_sch: this returns exactly the 43 real placed instances' own maxima, not
+    the handful of extra bare-prefix entries the file's own lib_symbols block also
+    contains.
+    """
+    maxes: dict[str, int] = {}
+    for prefix, num in _INSTANCE_REFERENCE_RE.findall(sch_text):
+        n = int(num)
+        if n > maxes.get(prefix, 0):
+            maxes[prefix] = n
+    return maxes
