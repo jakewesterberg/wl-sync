@@ -589,9 +589,35 @@ git commit -m "feat(hw): Pi interface sheet — GPIO map, boot-contention resist
 
 - [ ] **Step 1: Front ends — 16 sources**
 
-Per source: connector, 1 kΩ series, BAV99 clamps to ±12 V, then an `OPA4192` buffer referenced
-to `AGND`. Sensor connectors per spec §9.1. The three misc inputs get a ÷1/÷2 divider selected
-by a 3-pin jumper. The ACCESIO 37-pin D brings in the six eye channels.
+Per source: **isolated** BNC, 1 kΩ series, BAV99 clamps to ±12 V, then a **difference-receiving
+input stage** — not a plain buffer to `AGND`. Sensor connectors per spec §9.1; all rig-facing
+sensors are BNC.
+
+**Every front end senses its source against its own return, not against AGND** (spec §5.6). Each
+BNC shell ties to `AGND` through **~10 Ω** to provide the return path and a DC reference, and the
+input stage senses **centre against shell at the connector**. Use matched-resistor difference
+amplifiers or integrated parts (`INA134`-class); a 4-resistor network needs 0.1% parts to reach
+useful CMRR.
+
+**Why, and it is not symmetry for its own sake:** the rig is inside a Faraday cage sound booth and
+it is undecided whether the bulkhead bonds each shield to the cage shell. If it does, circulating
+current flows in the shield — which is also the signal return — and a plain AGND-referenced
+buffer would add that voltage straight to the signal. Differential receive turns it into common
+mode. **The shield cannot simply be lifted instead: it is the return path.** This is what lets
+the bulkhead decision be made, or reversed, without touching the board.
+
+The **ACCESIO 37-pin D** brings in the six eye channels and gets the same treatment, sensed
+against the ACCESIO's own AGND pins — it lives on a separately-earthed eye-tracker PC, so it has
+a ground offset for the same reason.
+
+The three misc inputs additionally get a ÷1/÷2 divider selected by a 3-pin jumper.
+
+**Photodiodes are the exception in form, not in principle** (spec §6.3.1). They are passive, so
+their input stage is a transimpedance amplifier rather than a difference amplifier: photodiode
+across centre and shell, TIA summing junction on centre, **non-inverting input referenced to the
+shell** rather than to AGND — which achieves the same rejection. Size compensation for **6 m** of
+coax (~600 pF); tested range is 3–5 m. Photovoltaic mode, zero bias, since there is no power in
+the booth. Follow with a low-pass that doubles as anti-aliasing.
 
 - [ ] **Step 2: NI fan-out — 16 channels**
 
