@@ -121,11 +121,11 @@ checked in `hardware/procurement-check.md`.
 | 68-pin MDR male, right-angle PCB mount | 4 | The risk item — 4–8 wk if unstocked |
 | BNC, right-angle PCB mount, **isolated** | 30 | Volume makes even a short lead time matter. Isolated shells are required — see spec §5.6 |
 | 3.5 mm TRS, PCB mount | 1 | remote reward button |
-| 4-pin mini-DIN, PCB mount | 1 | ±12 V inlet |
+| **5-pin** mini-DIN, PCB mount | 1 | ±12 V + 5 V inlet. **MD-40SN and MD-50SN are both discontinued** — an equivalent must be sourced |
 
 - [ ] **Step 2b: Order ONE physical sample of each custom-footprint connector, now**
 
-MDR68 male right-angle and the 4-pin mini-DIN. (The mini-XLR samples are no longer needed — all rig-facing sensors became BNC once the Faraday cage was known about, which deleted those footprints and the topology risk with them.) These four are the only
+MDR68 male right-angle and the **5-pin** mini-DIN. (The mini-XLR samples are no longer needed — all rig-facing sensors became BNC once the Faraday cage was known about, which deleted those footprints and the topology risk with them.) These are the only
 parts on the board with **custom footprints drawn from secondary sources** rather than from a
 manufacturer CAD drawing, and they are the parts whose panel cutouts are machined to match. A
 footprint error here scraps a panel rather than causing a rework.
@@ -134,11 +134,18 @@ Two dimensions could not be closed from any retrievable document and must be **m
 the physical part** before Task 14 finalises placement: MDR68 row and mounting-hole spacing, and
 the mini-XLR panel-cutout diameter.
 
-**One of them is a topology risk rather than a tolerance risk, and is the more urgent.** The
-mini-XLR and mini-DIN contacts are currently modelled as evenly spaced around a full circle.
-Real keyed circular connectors often cluster their contacts in an arc instead. If that is the
-case here, the footprint is wrong in kind, not by a fraction of a millimetre — and no amount of
-tolerance margin saves it.
+**The topology risk is no longer hypothetical for the mini-DIN.** Task 7 found the manufacturer's
+own datasheet diagram shows its contacts **clustered in an arc, not evenly spaced around a full
+circle** — which is exactly the failure mode flagged earlier, now visually confirmed rather than
+suspected. The 5-pin footprint was drawn from that datasheet; **the older `MiniDIN_4_Panel`
+footprint, drawn on the even-spacing assumption, is therefore presumed wrong.** It is unused
+after the inlet went 5-pin, but a wrong footprint left in the library is a trap for a later task
+— delete it or mark it deprecated. Measure the 5-pin part against a physical sample regardless:
+a footprint wrong in kind is not saved by tolerance margin.
+
+**Procurement, and it needs resolving before layout:** `MD-40SN` and `MD-50SN` are **both
+discontinued**. A current equivalent must be sourced and its drawing used, since the footprint
+follows the part rather than the other way round.
 
 Samples cost a few dollars and arrive long before the production order. Buying them with the
 stock check costs nothing and closes the largest remaining fab risk.

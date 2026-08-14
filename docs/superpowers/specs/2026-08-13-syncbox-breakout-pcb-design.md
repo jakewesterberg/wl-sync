@@ -506,7 +506,7 @@ Every panel input carries series resistance and clamp diodes.
 | Display sync in | BNC | 1, unpopulated |
 | Photodiodes ×2, ambient, accelerometer, joystick X/Y, microphone | **BNC** | 7 |
 | Manual reward | panel momentary button + remote jack | 1 + 1 |
-| Analog supply in | 4-pin mini-DIN | 1 |
+| Supply in (±12 V, +5 V) | **5-pin mini-DIN** | 1 | — see §8.2 and the sourcing note below |
 | Pi ports | cutouts: USB-C, Ethernet, USB-A | — |
 
 > **All rig-facing sensors are BNC — mini-XLR removed entirely, 2026-08-13.** This section
