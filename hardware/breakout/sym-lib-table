@@ -1,0 +1,12 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "Device") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Device.kicad_sym") (options "") (descr "Generic symbols for common devices"))
+	(lib (name "74xx") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/74xx.kicad_sym") (options "") (descr "74xx symbols"))
+	(lib (name "Amplifier_Operational") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Amplifier_Operational.kicad_sym") (options "") (descr "General operational amplifiers"))
+	(lib (name "Comparator") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Comparator.kicad_sym") (options "") (descr "Comparator symbols"))
+	(lib (name "Isolator") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Isolator.kicad_sym") (options "") (descr "Isolator devices"))
+	(lib (name "Interface_UART") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Interface_UART.kicad_sym") (options "") (descr "UART interface symbols"))
+	(lib (name "Connector") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Connector.kicad_sym") (options "") (descr "Connector symbols (Examples: Terminal Block, D-SUB, DIN, USB...)"))
+	(lib (name "power") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/power.kicad_sym") (options "") (descr "Power symbols, special power flags"))
+	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.kicad_sym") (options "") (descr "wl-sync custom symbols: MDR68, mini-XLR TA4M/TA5M, mini-DIN, ACCES I/O DB37, Raspberry Pi 5 GPIO header"))
+)

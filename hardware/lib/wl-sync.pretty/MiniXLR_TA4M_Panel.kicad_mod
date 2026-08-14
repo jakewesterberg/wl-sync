@@ -1,0 +1,120 @@
+(footprint "MiniXLR_TA4M_Panel"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Switchcraft Tini-QG mini-XLR, 4-pin male, panel mount (TB4M -- the panel-mount member of the family; see hardware/README.md and the Task 6 report for why this, not the cable-mount TA-series the symbol is named after, is the real part modelled here). Bushing/cutout diameter and contact-circle arrangement are approximate -- flagged in the report as needing re-verification against the real part before panel machining.")
+	(tags "connector XLR mini-XLR audio 4pin panel TB4M")
+	(property "Reference" "REF**"
+		(at 0 -6.95 0)
+		(layer "F.SilkS")
+		(uuid "7807666e-6ca0-49e0-b674-306341d401de")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "MiniXLR_TA4M_Panel"
+		(at 0 6.95 0)
+		(layer "F.Fab")
+		(uuid "5f6d8aad-12d5-4b25-90b4-a8ad2fc958d6")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "5f0fb71e-5be3-4b84-bf65-dca30a30d8f8")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "a11b8131-11e8-43e2-8785-ea0cb35eae85")
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_circle
+		(center 0 0)
+		(end 5.45 0)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "1b7c30de-0693-4731-902c-b39648b5e3bf")
+	)
+	(fp_circle
+		(center 0 0)
+		(end 5.95 0)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "c2d6f7f8-93bf-4d04-8cff-342332fce5d0")
+	)
+	(fp_circle
+		(center 0 0)
+		(end 5.45 0)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.Fab")
+		(uuid "120a92d5-86fe-42ca-b293-46c1f9b44926")
+	)
+	(pad "1" thru_hole rect
+		(at 0 -2.75)
+		(size 1.2 1.2)
+		(drill 0.7)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "1eb4dde4-02a7-4c2c-82c5-2799f7fbef41")
+	)
+	(pad "2" thru_hole circle
+		(at 2.75 0)
+		(size 1.2 1.2)
+		(drill 0.7)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "f634545a-ab70-44bc-9a28-84ee307b5560")
+	)
+	(pad "3" thru_hole circle
+		(at 0 2.75)
+		(size 1.2 1.2)
+		(drill 0.7)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "34be85f4-997e-4e89-a080-8ac49a53d517")
+	)
+	(pad "4" thru_hole circle
+		(at -2.75 0)
+		(size 1.2 1.2)
+		(drill 0.7)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "43bf623c-3e0c-4952-a290-4c17f295466f")
+	)
+	(embedded_fonts no)
+)

@@ -28,8 +28,14 @@ material.
 As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_sch`, produced
 by `hardware/gen/gen_mule.py`) and a generated, placed-but-unrouted board (`mule.kicad_pcb`,
 produced by `hardware/gen/gen_mule_pcb.py`) — see `hardware/mule/floorplan.md` for the
-placement rationale and the constraints a router must respect. `hardware/breakout/` does not
-exist yet.
+placement rationale and the constraints a router must respect. `hardware/breakout/` carries
+the root sheet only (`breakout.kicad_sch`, produced by `hardware/gen/gen_breakout.py`): ten
+hierarchical sheet symbols named `power`, `taskpc-digital`, `pi-interface`,
+`analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`,
+`control-usb-i2c`, each referencing a `sheets/<name>.kicad_sch` child file that does not
+exist yet — later tasks each create and populate their own child sheet (see "Sheet
+symbols referencing a child file that doesn't exist yet" below for why the root sheet
+doesn't pre-create them).
 
 ## Toolchain
 
@@ -40,14 +46,21 @@ exist yet.
   KiCad libraries this design draws parts from: `Device`, `74xx`, `Amplifier_Operational`,
   `Comparator`, `Isolator`, `Interface_UART`, `Connector`, `power`. Extend it, don't replace it,
   if a later sheet needs a stock library not yet listed.
-- **`hardware/mule/fp-lib-table`** — the same idea, one level down and for footprints: a
-  project-scoped footprint library table registering the stock KiCad `.pretty` libraries the
-  layout draws footprints from. It must sit beside `mule.kicad_pro`, same constraint as
-  `sym-lib-table` (see gotchas below) — a per-project copy, not the root `hardware/` directory.
+- **`hardware/mule/fp-lib-table`** and **`hardware/breakout/fp-lib-table`** — the same idea,
+  one level down and for footprints: a project-scoped footprint library table registering the
+  `.pretty` libraries each project's layout draws footprints from (stock KiCad libraries, plus
+  `wl-sync` once a sheet places a custom footprint). Each must sit beside its own `.kicad_pro`,
+  same constraint as `sym-lib-table` (see gotchas below) — a per-project copy, not the root
+  `hardware/` directory.
 - **`hardware/lib/wl-sync.kicad_sym`** and **`hardware/lib/wl-sync.pretty/`** — this project's
-  own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR connector, mini-XLR
-  TA4M/TA5M, the 4-pin mini-DIN, the ACCESIO D-sub, and the Pi 5 GPIO header. Both are empty
-  skeletons until the symbols/footprints task populates them.
+  own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR male connector,
+  mini-XLR TA4M/TA5M, the 4-pin mini-DIN, the mating DB37 for the ACCES I/O USB-AO16-8A analog
+  source, and the Raspberry Pi 5 GPIO header (six symbols; the Pi header and the DB37 connector
+  reuse stock footprints — a bare 2×20 2.54mm THT header and KiCad's own `Connector_Dsub`
+  DB37, respectively — rather than needing new ones, so only four new `.kicad_mod` files exist:
+  MDR68, mini-XLR ×2, mini-DIN). `hardware/breakout/sym-lib-table` and
+  `hardware/breakout/fp-lib-table` both register `wl-sync`; `hardware/mule/`'s copies do not
+  (the mule places no custom parts).
 - **`hardware/gen/`** — a reusable Python framework for generating KiCad files programmatically,
   in two halves that mirror each other:
   - `kicad_sch.py` builds `.kicad_sch` files: pull a symbol's definition out of a stock KiCad
@@ -81,10 +94,11 @@ generated — don't rediscover them.
   `hardware/breakout/` needs its own copy (or symlink) in that same directory, or
   `kicad-cli sch erc` reports every stock symbol as unresolved (`lib_symbol_issues`) even though
   the schematic itself is correct. Confirmed empirically: identical schematic, identical stock
-  symbol, ERC clean one directory level and not the next. That per-project copy will also need
-  its own `wl-sync` entry (`uri` relative to that project's `${KIPRJMOD}`, pointing back up to
-  `hardware/lib/wl-sync.kicad_sym`) once a sheet places a custom symbol — this table doesn't
-  register `wl-sync` yet because the library is still empty.
+  symbol, ERC clean one directory level and not the next. A per-project copy also needs its own
+  `wl-sync` entry (`uri` relative to that project's `${KIPRJMOD}`, pointing back up to
+  `hardware/lib/wl-sync.kicad_sym`) once a sheet places a custom symbol —
+  `hardware/breakout/sym-lib-table` has one as of Task 6; `hardware/mule/sym-lib-table` does
+  not, since the mule places no custom parts.
 - **In a `.kicad_sch`, `lib_symbols` entries must be keyed by the full lib id** —
   `(symbol "Device:R"`, not `(symbol "R"`. Keyed by the bare name, KiCad loads the file without
   error but silently fails to resolve pins: they collapse to the symbol origin, and both pins of
@@ -100,15 +114,15 @@ generated — don't rediscover them.
   different fixed-voltage options, a DC/DC converter's input/output voltage options) as one
   base symbol plus thin per-variant overrides of just its `Reference`/`Value`/`Footprint`/
   `Datasheet` properties. Extracting the named symbol textually (as the constraints above do)
-  yields a real, well-formed block with properties but no pins — silent at generation time, and
-  it is not yet known whether KiCad accepts a `lib_symbols` entry embedding the extends chain
-  the way it does when the GUI places such a part. `hardware/gen/kicad_sch.py` sidesteps the
-  question rather than answering it: `extract_symbol()` asserts loudly if the requested symbol
-  uses `extends`, and every caller is expected to name the extends-free root symbol instead,
-  overriding its `Value` property to the real ordered part number (the mule's inbound buffers
-  place `74xx:74LS541` with `Value` set to `SN74LVC541APW`, since the '541 pinout is identical
-  across the LS/HCT/AHC/AHCT/LVC sub-families — this is standard KiCad practice, not a
-  workaround unique to generated schematics).
+  yields a real, well-formed block with properties but no pins — silent at generation time.
+  Tasks 2 and 3 sidestepped this by naming the extends-free root symbol instead and overriding
+  its `Value` property to the real ordered part number (the mule's inbound buffers place
+  `74xx:74LS541` with `Value` set to `SN74LVC541APW`, since the '541 pinout is identical across
+  the LS/HCT/AHC/AHCT/LVC sub-families — this is standard KiCad practice, not a workaround
+  unique to generated schematics, and the mule itself was left exactly as it shipped). Task 6
+  resolved the underlying question properly instead of continuing to sidestep it — see the
+  dedicated entry below, "A symbol using `(extends "Parent")` does not resolve just by
+  embedding both the parent and the child in `lib_symbols`."
 - **A raw newline byte inside a `(text "...")` element's quoted string makes KiCad refuse
   the whole file** ("Failed to load schematic") — found adding an on-sheet documentation
   note and initially writing it as one multi-line Python string. Isolated by testing two
@@ -166,6 +180,51 @@ generated — don't rediscover them.
   from the master by precisely the rotation. (That check only runs at all when a project's
   `fp-lib-table` can resolve the footprint's library; an empty directory with no
   `fp-lib-table` reports nothing either way, which is what makes it easy to mis-attribute.)
+- **A symbol using `(extends "Parent")` does not resolve just by embedding both the parent
+  and the child in `lib_symbols`, even keyed correctly.** Task 2 left this as an open
+  question ("not yet known whether KiCad accepts a lib_symbols entry embedding the extends
+  chain the way it does when the GUI places such a part"); Task 6 answered it empirically and
+  the answer is no. Embedding `74xx:74LS541` (the extends-free parent) and `74xx:74HCT541`
+  (the child, its own `(extends "74LS541")` left exactly as the stock library writes it) side
+  by side, keyed by full lib id like any other entry, and placing an instance of the child:
+  every one of its pins reports `label_dangling` in ERC and the exported netlist carries zero
+  nodes for it — regardless of whether the project's own `sym-lib-table` also has a real,
+  resolvable entry for the parent's library (tried both ways, identical failure). KiCad's own
+  GUI does not merely copy text when it places a derived symbol — it flattens parent and child
+  into one self-contained block with no live `extends` reference left in it, and only a
+  schematic already containing that flattened form resolves. `hardware/gen/kicad_sch.py`'s
+  `extract_symbol()` now does the same flattening (`_flatten_extends()`): the parent's full
+  unit geometry (pins and graphics, its child sub-symbols renamed from the parent's bare name
+  to the child's) merged with the child's own top-level property overrides. Verified the same
+  way as everything else here — a real `kicad-cli sch erc` + netlist export round-trip on the
+  flattened output, confirmed clean (0 errors, correct pin names/numbers), not just that the
+  text looks plausible. A symbol using `extends` can now be placed directly by its real name,
+  no stand-in Value substitution needed; the mule's own `74LS541`-valued-`SN74LVC541APW`
+  workaround was left as-is (already fabricated, not worth touching) rather than migrated.
+- **A hierarchical sheet symbol referencing a child `.kicad_sch` file that does not exist yet
+  does not fail ERC.** `kicad-cli sch erc` on a root sheet with a `(sheet ...)` whose
+  `Sheetfile` points at a nonexistent file reports 0 violations — it silently treats the
+  missing sheet as empty, the same as a genuinely empty one. So a root sheet's ten hierarchical
+  sheet symbols do not need their ten child files to exist on disk for the root sheet's own
+  ERC run to pass; each later task creates its own child file when it populates that sheet
+  (confirmed this holds for `kicad-cli sch export svg` too — it plots an empty page for the
+  missing child rather than erroring).
+- **A real, pcbnew-authored `(sheet ...)` block carries no `(pin ...)` entries until its child
+  sheet actually defines hierarchical labels for the parent to expose.** Confirmed against
+  KiCad's own shipped demo (`demos/complex_hierarchy`): its `ampli_ht_vertical` and
+  `ampli_ht_horizontal` sheet symbols have zero pins. A childless placeholder sheet symbol is
+  therefore not a simplification this generator is taking — it is what KiCad itself writes for
+  the same situation.
+- **`kicad-cli sch export netlist`'s `pinfunction` field is always `"{pin name}_{pin
+  number}"`, never the bare pin name.** E.g. a pin named `GPIO2` at number `3` exports as
+  `(pinfunction "GPIO2_3")`; a pin named plainly `"1"` at number `"1"` (this project's generic
+  connectors use bare position numbers as names — see `hardware/gen/gen_wl_sync_lib.py`)
+  exports as `(pinfunction "1_1")`, which reads like a doubled/duplicated value until you check
+  a pin with a distinct name and number and see the same `_{number}` suffix appended there too.
+  Worth knowing before writing a netlist-contract checker (as
+  `hardware/gen/check_mule_netlist.py` and any later `tests/hardware/test_netlist.py` are) that
+  asserts on pin names rather than only pin numbers — comparing against the bare name directly
+  fails even when resolution is completely correct.
 
 ## Byte-reproducibility
 
@@ -195,6 +254,24 @@ python3 hardware/gen/check_mule_netlist.py hardware/mule/mule.net   # verifies t
 python3 hardware/gen/gen_mule_pcb.py
 kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
+
+For the breakout board's own library and root sheet:
+
+```bash
+python3 hardware/gen/gen_wl_sync_lib.py                             # hardware/lib/wl-sync.kicad_sym
+python3 hardware/gen/gen_wl_sync_footprints.py                      # hardware/lib/wl-sync.pretty/*.kicad_mod
+python3 hardware/gen/gen_breakout.py
+kicad-cli sch upgrade hardware/breakout/breakout.kicad_sch           # see "Format upgrade" below
+```
+
+The library generators each run a structural self-check (round-tripping every symbol/
+footprint through `kicad_sch.py`'s/`kicad_pcb.py`'s own parser) before writing anything to
+disk, and both `.kicad_sym`/`.kicad_mod` outputs additionally pass `kicad-cli sym upgrade`/
+`kicad-cli fp upgrade` cleanly (exit 0, "library was not updated" — already current-format,
+well-formed KiCad). Symbol/footprint correctness beyond "well-formed" (constraint 1's
+silent-wrong-netlist failure mode) is not something a lone `.kicad_sym`/`.kicad_mod` file can
+prove on its own — see the Task 6 report for the scratch-schematic + netlist-export proof run
+against every custom symbol.
 
 **Format upgrade.** Each generator writes the file-format version its grammar was written
 against and validated on — `20231120` for the schematic, `20241229` for the board, both

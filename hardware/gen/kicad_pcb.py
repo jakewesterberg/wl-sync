@@ -87,6 +87,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FPROOT = Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints")
+# This repo's own custom footprints (hardware/lib/wl-sync.pretty/) -- searched after the
+# stock KiCad directory, so a local library name can never accidentally shadow a stock
+# one. Added at Task 6 (the first task to introduce a non-stock footprint library),
+# mirroring kicad_sch.py's LOCAL_SYMDIR; unused by any generator until Task 14 places a
+# board footprint from wl-sync.pretty; kept parallel with the schematic-side fix now
+# rather than left as a second landmine for that task to rediscover.
+LOCAL_FPROOT = Path(__file__).resolve().parent.parent / "lib"
 
 
 def uid() -> str:
@@ -268,10 +275,20 @@ _FOOTPRINT_CACHE: dict[str, str] = {}
 
 
 def extract_footprint(libname: str, modname: str) -> str:
-    """Read one footprint's full body text out of `libname.pretty/modname.kicad_mod`."""
+    """Read one footprint's full body text out of `libname.pretty/modname.kicad_mod`
+    (stock KiCad footprint dir first, then this repo's own hardware/lib/ -- LOCAL_FPROOT)."""
     key = f"{libname}:{modname}"
     if key not in _FOOTPRINT_CACHE:
-        path = FPROOT / f"{libname}.pretty" / f"{modname}.kicad_mod"
+        path = None
+        for root in (FPROOT, LOCAL_FPROOT):
+            candidate = root / f"{libname}.pretty" / f"{modname}.kicad_mod"
+            if candidate.exists():
+                path = candidate
+                break
+        assert path is not None, (
+            f"{key}: not found under {FPROOT / (libname + '.pretty')} or "
+            f"{LOCAL_FPROOT / (libname + '.pretty')}"
+        )
         text = path.read_text()
         start = text.find(f'(footprint "{modname}"')
         assert start != -1, f"{key}: opening tag not found in {path}"

@@ -22,10 +22,31 @@ Three KiCad format constraints, each found the hard way (see hardware/README.md)
 A fourth constraint found while building this generator, not in the original probe: some
 stock symbols (e.g. ``74xx:74HCT541``, ``Regulator_Linear:LD1117S33TR_SOT223``,
 ``Converter_DCDC_Isolated:TMA-0512D``) use ``(extends "ParentName")`` and carry no pins of
-their own -- their graphics/pins live entirely on a *different* symbol. This generator
-sidesteps that entirely by always extracting the extends-free root symbol (the one that
+their own -- their graphics/pins live entirely on a *different* symbol. Tasks 2 and 3
+sidestepped this entirely by always extracting the extends-free root symbol (the one that
 actually carries pin geometry) and overriding its Value property to the real ordered part
-number. See gen_mule.py for which root symbol backs which real part.
+number (see gen_mule.py for which root symbol backs which real part) and left resolving it
+properly as an open question: "it is not yet known whether KiCad accepts a lib_symbols entry
+embedding the extends chain the way it does when the GUI places such a part."
+
+Resolved at Task 6, empirically, and it is NOT simply "embed both the parent and the child
+verbatim": that was tried first, keying both by full lib id exactly like every other symbol
+here (constraint 1) and leaving the child's own bare ``(extends "74LS541")`` untouched.
+Result, confirmed with a real ``kicad-cli sch erc`` + netlist export round-trip: every pin
+of the placed symbol reports ``label_dangling`` and the exported netlist carries zero nodes
+for it -- the *lib_symbols* entry has zero resolvable pins, independent of whether the
+project's own sym-lib-table also has a real, resolvable entry for the parent library (tried
+both ways; identical failure). KiCad's GUI does not merely copy the child's text when it
+places a derived symbol -- it flattens parent and child into one self-contained block at
+placement time, and only a schematic file already containing that flattened form resolves.
+``extract_symbol()`` below does the same flattening this generator's way: the parent's full
+unit geometry (pins and graphics, its child sub-symbols renamed from the parent's bare name
+to the child's) merged with the child's own top-level property overrides (Reference
+default position aside, every derived symbol checked overrides exactly and only Value,
+Footprint, Datasheet, Description, ki_keywords, ki_fp_filters -- nothing else varies, which
+is what makes flattening this generically safe rather than special-cased per part). A
+symbol using ``extends`` can now be placed directly, by its own real name and library, with
+no stand-in Value substitution needed.
 """
 from __future__ import annotations
 
@@ -35,6 +56,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SYMDIR = Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/symbols")
+# This repo's own custom symbols (hardware/lib/wl-sync.kicad_sym) -- searched after the
+# stock KiCad directory, so a local library name can never accidentally shadow a stock
+# one. Added at Task 6 (the first task to introduce a non-stock library); every stock-only
+# lookup Tasks 2/3 relied on is unaffected since none of those library names exist here.
+LOCAL_SYMDIR = Path(__file__).resolve().parent.parent / "lib"
 
 
 def uid() -> str:
@@ -60,29 +86,100 @@ def _find_balanced(text: str, start: int) -> str:
 
 
 _SYMLIB_CACHE: dict[str, str] = {}
+_EXTENDS_RE = re.compile(r'\(extends\s+"([^"]+)"\)')
+_PROPERTY_NAME_RE = re.compile(r'\(property\s+"([^"]+)"')
+
+
+def _symlib_path(libname: str) -> Path:
+    for root in (SYMDIR, LOCAL_SYMDIR):
+        candidate = root / f"{libname}.kicad_sym"
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"{libname}.kicad_sym not found in {SYMDIR} or {LOCAL_SYMDIR}"
+    )
+
+
+def _header(block: str) -> str:
+    """The portion of a `(symbol "Name" ...)` block before its first nested child-unit
+    `(symbol "Name_U_S" ...)` -- exactly where top-level attributes like `(extends ...)`
+    and top-level `(property ...)` blocks live, as opposed to unit graphics/pins."""
+    child_start = block.find('\n\t\t(symbol "')
+    return block if child_start == -1 else block[:child_start]
+
+
+def _top_properties(block: str) -> dict[str, str]:
+    """{property_name: full "(property ...)" block text} for every TOP-LEVEL property
+    (i.e. within `_header()`, not reaching into nested unit sub-symbols)."""
+    header = _header(block)
+    out: dict[str, str] = {}
+    for m in re.finditer(r'\(property\s+"', header):
+        pblock = _find_balanced(header, m.start())
+        name = _PROPERTY_NAME_RE.match(pblock).group(1)
+        out[name] = pblock
+    return out
+
+
+def _flatten_extends(libname: str, symname: str, child_block: str, parent_name: str) -> str:
+    """Resolve `(extends "parent_name")` by merging the parent's full unit geometry with
+    the child's own top-level property overrides -- see module docstring, constraint 4,
+    for why this is necessary (a live extends reference embedded in a generated file does
+    not resolve) and what "merging" means precisely. Returns a block keyed
+    "libname:symname" with no `extends` remaining, safe to treat exactly like any other
+    `ensure_lib_symbol()` result.
+    """
+    parent_full = extract_symbol(libname, parent_name)  # keyed "libname:parent_name"
+    parent_bare = parent_full.replace(
+        f'(symbol "{libname}:{parent_name}"', f'(symbol "{parent_name}"', 1
+    )
+    parent_props = _top_properties(parent_bare)
+    child_props = _top_properties(child_block)
+
+    flat = parent_bare.replace(f'(symbol "{parent_name}"', f'(symbol "{libname}:{symname}"', 1)
+    for pname, ptext in child_props.items():
+        assert pname in parent_props, (
+            f"{libname}:{symname}: child overrides property {pname!r} that its parent "
+            f"{parent_name!r} does not itself define -- every derived symbol checked "
+            f"while writing this overrides a strict subset of the parent's own "
+            f"properties (Reference/Value/Footprint/Datasheet/Description/ki_keywords/"
+            f"ki_fp_filters); this one doesn't fit that pattern and needs a real "
+            f"insertion point worked out, not a silent drop."
+        )
+        flat = flat.replace(parent_props[pname], ptext, 1)
+
+    # The parent's own child unit sub-symbols (e.g. "74LS541_0_1", "74LS541_1_1") keep
+    # the PARENT's bare name -- rename them to the symbol actually being placed so
+    # unit_pins()'s f"{symname}_{unit}_" lookup finds them (constraint 2: still bare,
+    # just re-based).
+    flat = re.sub(
+        rf'\(symbol "{re.escape(parent_name)}_(\d+_\d+)"',
+        lambda m: f'(symbol "{symname}_{m.group(1)}"',
+        flat,
+    )
+    return flat
 
 
 def extract_symbol(libname: str, symname: str) -> str:
-    """Pull one symbol's full definition out of a .kicad_sym library.
+    """Pull one symbol's full definition out of a .kicad_sym library (stock KiCad first,
+    then this repo's own hardware/lib/ -- see LOCAL_SYMDIR).
 
     Renames only the PARENT entry to "libname:symname" (lib_symbols must be keyed by
     full lib id -- constraint 1). Nested child-unit symbols keep their bare names
     (constraint 2) because this function only rewrites the opening tag, not the body.
 
-    Raises if the symbol uses `(extends ...)` -- callers must pick the extends-free root
-    symbol instead (see module docstring, constraint 4).
+    If the symbol uses `(extends ...)`, returns a flattened, self-contained, extends-free
+    block instead (see module docstring, constraint 4, and `_flatten_extends()`) rather
+    than raising -- callers no longer need to pick the root symbol it extends by hand.
     """
     if libname not in _SYMLIB_CACHE:
-        _SYMLIB_CACHE[libname] = (SYMDIR / f"{libname}.kicad_sym").read_text()
+        _SYMLIB_CACHE[libname] = _symlib_path(libname).read_text()
     text = _SYMLIB_CACHE[libname]
     start = text.find(f'(symbol "{symname}"')
     assert start != -1, f"{libname}:{symname} not found"
     block = _find_balanced(text, start)
-    header_end = block.find("\n")
-    assert "(extends " not in block[:header_end + 200], (
-        f"{libname}:{symname} uses (extends ...) -- pick the root symbol it extends "
-        f"instead (it carries no pins of its own)."
-    )
+    m = _EXTENDS_RE.search(_header(block))
+    if m:
+        return _flatten_extends(libname, symname, block, m.group(1))
     return block.replace(f'(symbol "{symname}"', f'(symbol "{libname}:{symname}"', 1)
 
 
@@ -176,6 +273,9 @@ class Sch:
     footprints: dict[str, str] = None  # type: ignore[assignment]
     instance_uuid: dict[str, str] = None  # type: ignore[assignment]
     values: dict[str, str] = None  # type: ignore[assignment]
+    _sheet_page: int = 1  # page "1" is always the root sheet itself; sheet() below hands
+    # out 2, 3, 4, ... to each hierarchical sheet symbol placed, matching the page numbers
+    # a real KiCad-authored project assigns as sheets are added.
 
     def __post_init__(self):
         self.root_uuid = uid()
@@ -384,6 +484,77 @@ class Sch:
 \t\t(uuid "{uid()}")
 \t)"""
         )
+
+    def sheet(
+        self, name: str, filename: str, x: float, y: float,
+        w: float = 76.2, h: float = 38.1,
+    ) -> str:
+        """Place one hierarchical sheet symbol -- a reference to a CHILD .kicad_sch file
+        (`filename`, resolved relative to this file's own directory by KiCad), not a
+        component instance. `(x, y)` is the box's TOP-LEFT corner, matching KiCad's own
+        `(at X Y)` semantics for a sheet (confirmed against a real pcbnew-authored file:
+        demos/complex_hierarchy's ampli_ht_vertical sheet sits at `(at 71.12 111.76)`
+        `(size 50.8 36.83)` with its "Sheetname" property text baseline at Y=110.9975,
+        i.e. 0.7625mm *above* the box's own top edge, and "Sheetfile" at Y=149.2001, i.e.
+        0.6101mm *below* the bottom edge at 111.76+36.83=148.59 -- both reproduced here at
+        a clean, round 1.27mm gap instead of KiCad's own auto-placement fractions, which
+        carry no meaning beyond "GUI text auto-placed at this specific font size").
+
+        Emits zero `(pin ...)` entries: a childless/pin-less sheet symbol is valid KiCad
+        -- the same demo's ampli_ht_vertical/_horizontal sheets carry none either, since
+        their child file (ampli_ht.kicad_sch) exposes no hierarchical labels for the
+        parent to expose pins for. Exactly what an empty placeholder sheet needs; a later
+        task that adds hierarchical labels to the child file adds matching `(pin ...)`
+        entries here too, at that point.
+
+        The child file itself does NOT need to exist on disk for `kicad-cli sch erc` to
+        pass: confirmed empirically against this exact generator's output (a `(sheet
+        ...)` referencing a missing file reports zero violations; kicad-cli silently
+        treats it as an empty sheet). So this method does not create the child file --
+        matching the plan's own division of labour, where each later task's brief lists
+        its own child sheet file as something IT creates, not Task 6.
+
+        Returns the new sheet symbol's own uuid.
+        """
+        self._sheet_page += 1
+        page = str(self._sheet_page)
+        sheet_uuid = uid()
+        name_y = y - 1.27
+        file_y = y + h + 1.27
+        self.body.append(
+            f"""\t(sheet
+\t\t(at {x} {y})
+\t\t(size {w} {h})
+\t\t(exclude_from_sim no)
+\t\t(in_bom yes)
+\t\t(on_board yes)
+\t\t(dnp no)
+\t\t(stroke
+\t\t\t(width 0.1524)
+\t\t\t(type solid)
+\t\t)
+\t\t(fill
+\t\t\t(color 0 0 0 0.0000)
+\t\t)
+\t\t(uuid "{sheet_uuid}")
+\t\t(property "Sheetname" "{name}"
+\t\t\t(at {x} {name_y} 0)
+\t\t\t(effects (font (size 1.27 1.27)) (justify left bottom))
+\t\t)
+\t\t(property "Sheetfile" "{filename}"
+\t\t\t(at {x} {file_y} 0)
+\t\t\t(effects (font (size 1.27 1.27)) (justify left top))
+\t\t)
+\t\t(instances
+\t\t\t(project "{self.project}"
+\t\t\t\t(path "/{self.root_uuid}"
+\t\t\t\t\t(page "{page}")
+\t\t\t\t)
+\t\t\t)
+\t\t)
+\t)"""
+        )
+        return sheet_uuid
 
     # -- assembly --------------------------------------------------------
 
