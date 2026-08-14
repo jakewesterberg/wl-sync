@@ -75,8 +75,10 @@ built from, not an alternate source of truth -- keep the two in sync if either c
   part is Amphenol LTW M12A-05PFFP-SF8001 -- a 5-position, IEC 61076-2-101 A-coded M12
   connector, female sockets, PCB solder-pin termination, front-fastened panel mount,
   M12x1 threaded coupling (locking), IP68/IP69K. Confirmed ACTIVE/current-production with
-  real stock at BOTH DigiKey (811 units, part status "Active") and Mouser (1,081 units) --
-  checked directly against each distributor's own product page, not assumed. A-coding is
+  811 units in real stock at DigiKey -- checked directly against DigiKey's own product
+  page, not assumed (Mouser's own page for this exact SKU could not be fetched directly
+  in this environment; TME and OnlineComponents.com independently corroborate real stock
+  of the same part number via search results). A-coding is
   a physical keying feature (this is the entire reason "coding" exists in the M12 spec):
   the connector cannot mate rotated. The screw-thread coupling is a true lock, not
   friction -- the panel this part sits on is rack-mounted and slides in and out.
@@ -405,9 +407,9 @@ def build_m12a_5pos() -> str:
         "rotated), screw-locking M12x1 coupling, panel mount, PCB solder-pin "
         "termination. Real part: Amphenol LTW M12A-05PFFP-SF8001 (female sockets, "
         "front-fastened, IP68/IP69K) -- confirmed active/current-production with real "
-        "stock at DigiKey and Mouser (see hardware/README.md). Contact geometry (Ø5.0mm "
-        "pitch circle for 4 outer contacts at 90deg spacing, 45deg off the keyway "
-        "reference, 1 contact at centre) is the IEC 61076-2-101 A-coding STANDARD "
+        "stock at DigiKey, 811 units, checked directly (see hardware/README.md). "
+        "Contact geometry (Ø5.0mm pitch circle for 4 outer contacts at 90deg spacing, "
+        "45deg off the keyway reference, 1 contact at centre) is the IEC 61076-2-101 A-coding STANDARD "
         "geometry, cross-confirmed against the standard itself and a real Bulgin M12 "
         "datasheet, not modelled as an even ring the way the mini-DIN this replaces was. "
         "Panel cutout (12.5mm, M12x1 thread + standard clearance) is consistent across "

@@ -50,8 +50,9 @@ below). Task 7 fix round 2 (task-7-report.md's "Fix round 2") replaced the inlet
 footprints modelled an evenly-spaced ring the real Same Sky MD-40SN/MD-50SN datasheet's own
 diagrams contradict, and that both parts are discontinued besides. The inlet is now a
 5-position, IEC 61076-2-101 A-coded, keyed, screw-locking M12 connector (Amphenol LTW
-M12A-05PFFP-SF8001, current production, in stock at DigiKey and Mouser) — see "Custom
-connector footprints" below for the full selection rationale and per-dimension sourcing.
+M12A-05PFFP-SF8001, current production, 811 units in stock directly confirmed at DigiKey)
+— see "Custom connector footprints" below for the full selection rationale and
+per-dimension sourcing.
 The remaining nine hierarchical sheet symbols (`taskpc-digital`,
 `pi-interface`, `analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`,
 `opto-intan`, `control-usb-i2c`) each still reference a `sheets/<name>.kicad_sch` child file
@@ -178,8 +179,8 @@ the schematic symbol.
 | `MiniXLR_TA4M_Panel` / `MiniXLR_TA5M_Panel` | Panel bushing / cutout diameter | ~10.9mm | Derived from the TA-series housing diameter (0.413in/10.5mm, Switchcraft catalog) plus one distributor's TB5M listing (~10.7mm) | **Low — the least-certain dimension of any of the four footprints; no primary TB-series numeric drawing found** |
 | `MiniXLR_TA4M_Panel` / `MiniXLR_TA5M_Panel` | Contact-circle diameter | 5.5mm | Modelled, not measured off the real part | Medium |
 | `MiniXLR_TA4M_Panel` / `MiniXLR_TA5M_Panel` | Contact angular arrangement | Evenly spaced around the full circle | Approximation — see "Contact arrangement" below | **Low — possible topology error, not just a tolerance one** |
-| `M12A_5_Panel` | Real part | Amphenol LTW M12A-05PFFP-SF8001 | Manufacturer product page + DigiKey/Mouser listings | High — confirmed ACTIVE lifecycle status, 811 units in stock at DigiKey and 1,081 at Mouser, checked directly against each distributor's own product page |
-| `M12A_5_Panel` | Coding / keying | IEC 61076-2-101 A-code (5-position) | The connector's own part number and DigiKey/Mouser listings; cross-checked against the IEC 61076-2-101:2012 standard document itself, Table 1 (A-coding, 5-way style, 5 contacts → 60V/4A, exact match) | High — a physical keying feature, not a modelling choice; the shell cannot mate rotated |
+| `M12A_5_Panel` | Real part | Amphenol LTW M12A-05PFFP-SF8001 | Manufacturer product page + DigiKey's own product page | High — confirmed ACTIVE lifecycle status, 811 units in stock at DigiKey, checked directly against DigiKey's own product page; TME and OnlineComponents.com independently corroborate real stock of this exact part number (via search results, not a direct fetch) |
+| `M12A_5_Panel` | Coding / keying | IEC 61076-2-101 A-code (5-position) | The connector's own part number and DigiKey's own listing; cross-checked against the IEC 61076-2-101:2012 standard document itself, Table 1 (A-coding, 5-way style, 5 contacts → 60V/4A, exact match) | High — a physical keying feature, not a modelling choice; the shell cannot mate rotated |
 | `M12A_5_Panel` | Locking mechanism | M12×1 threaded coupling nut | Amphenol LTW product page ("Screw Thread"); Bulgin's own current M12 datasheet independently states "Locking Mechanism: Screw coupling" for the same standardised class | High — a true mechanical lock, not friction |
 | `M12A_5_Panel` | Contact pitch circle diameter (4 outer contacts) | Ø5.0mm | A real, current Bulgin M12-series datasheet's own dimensioned "5 pole 'A' Code Front View" drawing, cross-confirmed as the IEC 61076-2-101 A-coding standard geometry (not a per-manufacturer choice — A-coding exists specifically so every compliant manufacturer's part shares this geometry) | High — standardised, cross-manufacturer geometry, not measured off this specific part |
 | `M12A_5_Panel` | Contact angular arrangement | 4 contacts at 90° spacing, 45°±30′ off the keyway reference (a diamond, not N/E/S/W); 5th contact at the exact centre | Same Bulgin datasheet drawing, cross-checked against an independent secondary description of the same IEC standard ("four pins at the corners of a square… pin 5 in the centre") | High — this is the dimension the mini-DIN got wrong by assumption; here it is sourced from a real dimensioned drawing of the same standardised class, not modelled as an even ring |
@@ -239,8 +240,11 @@ sample should be checked against.
 against the review finding's own priority order — each criterion checked, not assumed:
 
 1. **Current production and stocked at a major distributor.** Confirmed ACTIVE lifecycle
-   status directly on DigiKey's own product page (811 units in stock) and on Mouser's (1,081
-   units) — both checked directly, not inferred from a search snippet.
+   status and 811 units in stock directly on DigiKey's own product page — checked directly,
+   not inferred from a search snippet. (Mouser's own page for this exact SKU could not be
+   fetched directly in this environment; TME and OnlineComponents.com independently
+   corroborate real stock of the same part number via search results. DigiKey alone already
+   satisfies this criterion.)
 2. **A real manufacturer drawing or CAD model is publicly available.** Amphenol LTW's own
    product page and DigiKey's EDA/CAD models tab both offer a 2D drawing and 3D STEP/IGS
    model for this exact part. (This generator could not extract that drawing's raw numbers —

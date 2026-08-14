@@ -387,9 +387,12 @@ SYM_TA5M = build_symbol(
 #
 #    WHAT REPLACED IT, and why: Amphenol LTW M12A-05PFFP-SF8001, selected against the
 #    brief's own priority order --
-#      1. Current production and stocked: confirmed ACTIVE with real stock at BOTH
-#         DigiKey (811 units) and Mouser (1,081 units), checked directly against each
-#         distributor's own product page, not assumed.
+#      1. Current production and stocked: confirmed ACTIVE with 811 units in stock
+#         directly on DigiKey's own product page for this exact part, not assumed.
+#         (Mouser's own page for this exact SKU could not be fetched directly in this
+#         environment; TME and OnlineComponents.com independently corroborate real
+#         stock of the same part number via search results -- DigiKey alone already
+#         satisfies "stocked at a major distributor".)
 #      2. Real manufacturer drawing/CAD publicly available: Amphenol LTW's own product
 #         page and DigiKey's EDA/CAD models tab both offer 2D drawing + 3D STEP/IGS
 #         downloads for this exact part (hard requirement, not a nice-to-have -- the
@@ -429,7 +432,7 @@ SYM_M12A_5 = build_symbol(
     "M12A_5",
     "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), "
     "screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- "
-    "confirmed active/current-production, in stock at DigiKey and Mouser; see "
+    "confirmed active/current-production, 811 units in stock at DigiKey; see "
     "hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment "
     "(+12V/-12V/+5V/GND/shield) is made where this is placed.",
     "connector M12 power inlet panel locking keyed A-coded",

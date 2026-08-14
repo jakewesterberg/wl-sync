@@ -1097,7 +1097,7 @@
 				)
 			)
 		)
-		(property "Description" "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- confirmed active/current-production, in stock at DigiKey and Mouser; see hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where this is placed."
+		(property "Description" "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- confirmed active/current-production, 811 units in stock at DigiKey; see hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where this is placed."
 			(at 0 0 0)
 			(show_name no)
 			(do_not_autoplace no)

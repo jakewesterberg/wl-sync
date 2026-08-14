@@ -3,12 +3,12 @@
 	(generator "pcbnew")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount, PCB solder-pin termination. Real part: Amphenol LTW M12A-05PFFP-SF8001 (female sockets, front-fastened, IP68/IP69K) -- confirmed active/current-production with real stock at DigiKey and Mouser (see hardware/README.md). Contact geometry (Ø5.0mm pitch circle for 4 outer contacts at 90deg spacing, 45deg off the keyway reference, 1 contact at centre) is the IEC 61076-2-101 A-coding STANDARD geometry, cross-confirmed against the standard itself and a real Bulgin M12 datasheet, not modelled as an even ring the way the mini-DIN this replaces was. Panel cutout (12.5mm, M12x1 thread + standard clearance) is consistent across every M12 panel-mount datasheet checked but not independently confirmed against this specific part's own drawing -- verify before panel machining, see hardware/README.md.")
+	(descr "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount, PCB solder-pin termination. Real part: Amphenol LTW M12A-05PFFP-SF8001 (female sockets, front-fastened, IP68/IP69K) -- confirmed active/current-production with real stock at DigiKey, 811 units, checked directly (see hardware/README.md). Contact geometry (Ø5.0mm pitch circle for 4 outer contacts at 90deg spacing, 45deg off the keyway reference, 1 contact at centre) is the IEC 61076-2-101 A-coding STANDARD geometry, cross-confirmed against the standard itself and a real Bulgin M12 datasheet, not modelled as an even ring the way the mini-DIN this replaces was. Panel cutout (12.5mm, M12x1 thread + standard clearance) is consistent across every M12 panel-mount datasheet checked but not independently confirmed against this specific part's own drawing -- verify before panel machining, see hardware/README.md.")
 	(tags "connector M12 power inlet panel locking keyed A-coded")
 	(property "Reference" "REF**"
 		(at 0 -7.75 0)
 		(layer "F.SilkS")
-		(uuid "a5c39859-49d7-4730-bc31-496cb8660a15")
+		(uuid "189a395c-8761-41d7-9405-e6aa038784eb")
 		(effects
 			(font
 				(size 1 1)
@@ -19,7 +19,7 @@
 	(property "Value" "M12A_5_Panel"
 		(at 0 7.75 0)
 		(layer "F.Fab")
-		(uuid "802160d8-75d7-408b-94d4-0a30ab6abbdb")
+		(uuid "7070f32b-5b7d-494e-95c9-2f7ebb43fe63")
 		(effects
 			(font
 				(size 1 1)
@@ -31,7 +31,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "09d29d8c-59fe-4b9f-aa7d-d52ef3ed22f8")
+		(uuid "a58dfd81-de87-4b86-94f4-44bb93179caa")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -42,7 +42,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "d86d2d23-cc70-4f97-a78d-883e27d45fd3")
+		(uuid "bf36f937-08f8-4e6c-8fdb-7388fc68df57")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -60,7 +60,7 @@
 		)
 		(fill no)
 		(layer "F.SilkS")
-		(uuid "f3e47559-ba99-4c78-9606-9bdd7c1f1332")
+		(uuid "6fb6a625-2984-44d9-94f1-3b7c1c6a1e96")
 	)
 	(fp_circle
 		(center 0 0)
@@ -71,7 +71,7 @@
 		)
 		(fill no)
 		(layer "F.CrtYd")
-		(uuid "5f0a011e-2d6f-423f-9a82-aa56401f326f")
+		(uuid "e067621d-790c-4fbf-b1f3-c4cce84e367c")
 	)
 	(fp_circle
 		(center 0 0)
@@ -82,7 +82,7 @@
 		)
 		(fill no)
 		(layer "F.Fab")
-		(uuid "1d5179a0-1230-4cac-8af8-1a35baec782a")
+		(uuid "62900b4c-0171-4231-badf-abb5084c4b7e")
 	)
 	(pad "1" thru_hole rect
 		(at 1.767767 -1.767767)
@@ -90,7 +90,7 @@
 		(drill 1.3)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "5472a4c0-f745-4fba-a2af-fe0a501b28e2")
+		(uuid "f6b17eb7-e681-4e47-b769-692d6b13588f")
 	)
 	(pad "2" thru_hole circle
 		(at 1.767767 1.767767)
@@ -98,7 +98,7 @@
 		(drill 1.3)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "510a042d-f0d3-47e8-bb06-45b4c54f292a")
+		(uuid "ec468983-dcb2-4eee-9860-de51b1ace85c")
 	)
 	(pad "3" thru_hole circle
 		(at -1.767767 1.767767)
@@ -106,7 +106,7 @@
 		(drill 1.3)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "648a947a-02fa-4c5f-b2e6-9b72d2aed345")
+		(uuid "f61e87e5-a78c-4d13-991e-00a6b2f7cb74")
 	)
 	(pad "4" thru_hole circle
 		(at -1.767767 -1.767767)
@@ -114,7 +114,7 @@
 		(drill 1.3)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "e842ef13-8de5-4ce4-9c5a-11c6b7c554dd")
+		(uuid "866dfd33-ff0b-450c-854c-8385f2d46f8b")
 	)
 	(pad "5" thru_hole circle
 		(at 0 0)
@@ -122,7 +122,7 @@
 		(drill 1.3)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "bc6744cd-6017-4c50-9199-b371adda6c93")
+		(uuid "79ac793d-4b83-4546-8206-491085c48b8e")
 	)
 	(embedded_fonts no)
 )
