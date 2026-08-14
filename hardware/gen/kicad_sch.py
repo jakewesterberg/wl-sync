@@ -229,17 +229,38 @@ def _parse_all_units(block: str) -> dict[str, list[Pin]]:
 def unit_pins(block: str, symname: str, unit: int) -> dict[str, Pin]:
     """Return {pin_number: Pin} for one unit of a symbol, keyed off pin NUMBER.
 
-    Looks for a child block named "<bare_symname>_<unit>_<style>" (style varies: some
+    Looks for child blocks named "<bare_symname>_<unit>_<style>" (style varies: some
     stock symbols only define style 0, others only style 1 -- both carry identical pin
-    geometry, so either is fine). `symname` is the bare name (no lib prefix), matching
-    what extract_symbol leaves on child blocks (constraint 2).
+    geometry, so either is fine) AND "<bare_symname>_0_<style>" -- KiCad's own "common to
+    all units" pseudo-unit, whose content is shown/present no matter which real unit
+    (1, 2, 3, ...) is selected, merged in unconditionally the same way KiCad's GUI
+    renders it. For every part used through Task 6 this merge was a no-op (unit 0 either
+    doesn't exist in the library entry, or exists as pin-less body graphics only), so it
+    went unnoticed; found necessary at Task 7 by Converter_DCDC_Isolated's XP Power
+    IH-series (e.g. IH1215D): confirmed directly against the raw library text, its 6 pins
+    split with 5 (-Vin/+Vin/-Vout/+Vout/0V) living in "IH0503D_0_0" (unit 0) and only the
+    6th (NC) in "IH0503D_1_1" (unit 1) -- calling with unit=1 alone silently returned just
+    the NC pin, a 5-pin-short result that would have gone undetected as "a plausible but
+    wrong netlist" (this file's own constraint-1 failure mode) had it not raised KeyError
+    the moment a caller tried to label a pin number this dropped. `symname` is the bare
+    name (no lib prefix), matching what extract_symbol leaves on child blocks
+    (constraint 2).
     """
     units = _parse_all_units(block)
-    prefix = f"{symname}_{unit}_"
-    for uname, pins in units.items():
-        if uname.startswith(prefix):
-            return {p.number: p for p in pins}
-    raise AssertionError(f"no unit {unit} found for {symname} (have: {list(units)})")
+
+    def _collect(n: int) -> dict[str, Pin]:
+        prefix = f"{symname}_{n}_"
+        out: dict[str, Pin] = {}
+        for uname, pins in units.items():
+            if uname.startswith(prefix):
+                out.update({p.number: p for p in pins})
+        return out
+
+    merged = _collect(0)
+    if unit != 0:
+        merged.update(_collect(unit))
+    assert merged, f"no pins found for {symname} unit {unit} (have: {list(units)})"
+    return merged
 
 
 # ---------------------------------------------------------------------------

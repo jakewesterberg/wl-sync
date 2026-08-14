@@ -2137,4 +2137,344 @@
 		)
 		(embedded_fonts no)
 	)
+	(symbol "TPS7A4901"
+		(pin_names
+			(offset 1.016)
+		)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(duplicate_pin_numbers_are_jumpers no)
+		(property "Reference" "U"
+			(at -25.4 7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "TPS7A4901"
+			(at -25.4 -7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://www.ti.com/lit/ds/symlink/tps7a49.pdf"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "36V, 150mA, ultralow-noise (12.7uVrms), high-PSRR (72dB) adjustable POSITIVE linear regulator. Vout = VFB(nom)*(1+R1/R2), VFB(nom)=1.185V typ (TI datasheet SBVS121E Eq.5's own worked value); EN can tie directly to IN if unused (datasheet Sec.5, verbatim) but must not float (Sec.9.3 Do's and Don'ts). Packages: 8-pin HVSSOP PowerPAD (DGN, used here) or 3x3mm VSON (DRB, QFN-style -- excluded, this board's own hand-solderability constraint disallows QFN/BGA)."
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_keywords" "regulator LDO adjustable positive ultralow-noise TI linear"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(symbol "TPS7A4901_0_1"
+			(rectangle
+				(start -25.4 5.08)
+				(end 25.4 -5.08)
+				(stroke
+					(width 0.254)
+					(type default)
+				)
+				(fill
+					(type background)
+				)
+			)
+		)
+		(symbol "TPS7A4901_1_1"
+			(pin power_out line
+				(at -29.209999999999997 3.81 0)
+				(length 3.81)
+				(name "OUT"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "1"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin input line
+				(at -29.209999999999997 1.27 0)
+				(length 3.81)
+				(name "FB"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "2"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin no_connect line
+				(at -29.209999999999997 -1.27 0)
+				(length 3.81)
+				(name "NC"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "3"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at -29.209999999999997 -3.81 0)
+				(length 3.81)
+				(name "GND"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "4"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 3.81 180)
+				(length 3.81)
+				(name "IN"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "8"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin no_connect line
+				(at 29.209999999999997 1.27 180)
+				(length 3.81)
+				(name "DNC"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "7"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -1.27 180)
+				(length 3.81)
+				(name "NR/SS"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "6"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin input line
+				(at 29.209999999999997 -3.81 180)
+				(length 3.81)
+				(name "EN"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "5"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(embedded_fonts no)
+	)
+	(symbol "TPS7A3001"
+		(pin_names
+			(offset 1.016)
+		)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(duplicate_pin_numbers_are_jumpers no)
+		(property "Reference" "U"
+			(at -25.4 7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "TPS7A3001"
+			(at -25.4 -7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://www.ti.com/lit/ds/symlink/tps7a30.pdf"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "-35V, 200mA, ultralow-noise (14uVrms), high-PSRR (72dB) adjustable NEGATIVE linear regulator -- TPS7A4901's datasheet-documented negative counterpart (TI SBVS121E Sec.9.1.11), pin-for-pin identical DGN pinout (TI SBVS125D Sec.5). Vout = VFB(nom)*(1+R1/R2) (both negative); TI's own Table 2 gives R1=93.1k/R2=10k as the standard 1% pair for Vout=-12V, used as-is rather than re-derived. EN can tie directly to IN if unused but must not float, same as TPS7A4901."
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_keywords" "regulator LDO adjustable negative ultralow-noise TI linear"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(symbol "TPS7A3001_0_1"
+			(rectangle
+				(start -25.4 5.08)
+				(end 25.4 -5.08)
+				(stroke
+					(width 0.254)
+					(type default)
+				)
+				(fill
+					(type background)
+				)
+			)
+		)
+		(symbol "TPS7A3001_1_1"
+			(pin power_out line
+				(at -29.209999999999997 3.81 0)
+				(length 3.81)
+				(name "OUT"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "1"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin input line
+				(at -29.209999999999997 1.27 0)
+				(length 3.81)
+				(name "FB"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "2"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin no_connect line
+				(at -29.209999999999997 -1.27 0)
+				(length 3.81)
+				(name "NC"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "3"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at -29.209999999999997 -3.81 0)
+				(length 3.81)
+				(name "GND"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "4"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 3.81 180)
+				(length 3.81)
+				(name "IN"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "8"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin no_connect line
+				(at 29.209999999999997 1.27 180)
+				(length 3.81)
+				(name "DNC"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "7"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -1.27 180)
+				(length 3.81)
+				(name "NR/SS"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "6"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin input line
+				(at 29.209999999999997 -3.81 180)
+				(length 3.81)
+				(name "EN"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "5"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(embedded_fonts no)
+	)
 )

@@ -181,6 +181,37 @@ def parse_component_uuids(text: str) -> dict[str, str]:
     return out
 
 
+_COMP_REF_VALUE_RE = re.compile(r'\(ref\s+"([^"]+)"\)\s*\(value\s+"([^"]*)"\)')
+
+
+def parse_component_values(text: str) -> dict[str, str]:
+    """Return {reference: Value property text} from each component's own top-level
+    `(comp (ref "X") (value "Y") ...)` in the exported netlist -- e.g. a resistor's ohm
+    value, an IC's part number. Added at Task 7 for check_breakout_power_netlist.py's own
+    divider-resistor value assertions (parse_netlist()'s Node only carries ref/pin/
+    pinfunction/pintype -- the (nets ...) section's own fields -- not Value, which lives
+    on each component's OWN (comp ...) block instead).
+
+    Deliberately does NOT reuse _COMP_RE plus a slice-and-search-within-it approach the
+    way parse_component_uuids() above does: a component's (comp ...) block also contains
+    several OTHER `(property (name "...") (value "..."))` entries (Sheetname, Sheetfile,
+    ki_keywords, ki_fp_filters), each of which is ALSO, textually, a `(value "...")`
+    occurrence -- confirmed the hard way, first attempt at this used exactly that
+    slice-and-search shape and pulled in "power" (the Sheetname) and "C_*" (the
+    ki_fp_filters) alongside the real "10uF" for a Device:C instance, tripping its own
+    "expected exactly one" assertion. Anchoring the regex to "(value ...) immediately
+    after (ref ...)" selects only the TOP-LEVEL value (the netlist's only place that
+    specific adjacency occurs -- a (nets ...) section's own `(node (ref ...) (pin ...)
+    ...)` never has (value ...) next) without needing the two-pass slice at all.
+    """
+    out: dict[str, str] = {}
+    for m in _COMP_REF_VALUE_RE.finditer(text):
+        ref, value = m.groups()
+        assert ref not in out, f"duplicate component reference in netlist: {ref!r}"
+        out[ref] = value
+    return out
+
+
 class CheckFailure(AssertionError):
     pass
 

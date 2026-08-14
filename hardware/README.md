@@ -33,13 +33,17 @@ As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_s
 by `hardware/gen/gen_mule.py`) and a generated, placed-but-unrouted board (`mule.kicad_pcb`,
 produced by `hardware/gen/gen_mule_pcb.py`) — see `hardware/mule/floorplan.md` for the
 placement rationale and the constraints a router must respect. `hardware/breakout/` carries
-the root sheet only (`breakout.kicad_sch`, produced by `hardware/gen/gen_breakout.py`): ten
-hierarchical sheet symbols named `power`, `taskpc-digital`, `pi-interface`,
-`analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`,
-`control-usb-i2c`, each referencing a `sheets/<name>.kicad_sch` child file that does not
-exist yet — later tasks each create and populate their own child sheet (see "Sheet
-symbols referencing a child file that doesn't exist yet" below for why the root sheet
-doesn't pre-create them).
+the root sheet (`breakout.kicad_sch`, produced by `hardware/gen/gen_breakout.py`) plus one
+populated child sheet so far: `sheets/power.kicad_sch` (produced by
+`hardware/gen/gen_breakout_power.py`, Task 7) — the analog inlet, the linear +5V/+3V3 logic
+rails, and the one isolated ±12V supply the other nine sheets draw power from; see that
+generator's own module docstring and `check_breakout_power_netlist.py` for the design and
+its verification. The remaining nine hierarchical sheet symbols (`taskpc-digital`,
+`pi-interface`, `analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`,
+`opto-intan`, `control-usb-i2c`) each still reference a `sheets/<name>.kicad_sch` child file
+that does not exist yet — later tasks each create and populate their own (see "Sheet symbols
+referencing a child file that doesn't exist yet" below for why the root sheet doesn't
+pre-create them).
 
 ## Toolchain
 
@@ -47,21 +51,29 @@ doesn't pre-create them).
 - **`kicad-cli` on `PATH`.** On macOS this is a symlink to
   `/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli`.
 - **`hardware/sym-lib-table`** — a project-scoped symbol library table registering the stock
-  KiCad libraries this design draws parts from: `Device`, `74xx`, `Amplifier_Operational`,
-  `Comparator`, `Isolator`, `Interface_UART`, `Connector`, `power`. Extend it, don't replace it,
-  if a later sheet needs a stock library not yet listed.
+  KiCad libraries this design draws parts from. Each project directory's own copy is the one
+  that actually matters (see gotchas below); as of Task 7, `hardware/breakout/sym-lib-table`
+  registers `Device`, `74xx`, `Amplifier_Operational`, `Comparator`, `Isolator`,
+  `Interface_UART`, `Connector`, `power`, and `wl-sync` (Task 6), plus `Diode`,
+  `Converter_DCDC_Isolated`, and `Regulator_Linear` — added this task for the power sheet's
+  reverse-polarity Schottky diodes, its one isolated DC/DC converter, and
+  `LD1117S33TR_SOT223` respectively. Extend it, don't replace it, if a later sheet needs a
+  stock library not yet listed.
 - **`hardware/mule/fp-lib-table`** and **`hardware/breakout/fp-lib-table`** — the same idea,
   one level down and for footprints: a project-scoped footprint library table registering the
   `.pretty` libraries each project's layout draws footprints from (stock KiCad libraries, plus
   `wl-sync` once a sheet places a custom footprint). Each must sit beside its own `.kicad_pro`,
   same constraint as `sym-lib-table` (see gotchas below) — a per-project copy, not the root
-  `hardware/` directory.
+  `hardware/` directory. Task 7 added `Diode_SMD`, `Inductor_SMD` (the pi filters' ferrite
+  beads), and `NetTie` (the AGND/DGND star point) to `hardware/breakout/fp-lib-table`.
 - **`hardware/lib/wl-sync.kicad_sym`** and **`hardware/lib/wl-sync.pretty/`** — this project's
   own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR male connector,
   mini-XLR TA4M/TA5M, the 4-pin mini-DIN, the mating DB37 for the ACCES I/O USB-AO16-8A analog
-  source, and the Raspberry Pi 5 GPIO header (six symbols; the Pi header and the DB37 connector
-  reuse stock footprints — a bare 2×20 2.54mm THT header and KiCad's own `Connector_Dsub`
-  DB37, respectively — rather than needing new ones, so only four new `.kicad_mod` files exist:
+  source, the Raspberry Pi 5 GPIO header, and (Task 7) TPS7A4901/TPS7A3001 — TI's ultralow-noise
+  adjustable LDO pair, eight symbols total. The Pi header, the DB37 connector, and (Task 7)
+  TPS7A4901/TPS7A3001 all reuse stock footprints — a bare 2×20 2.54mm THT header, KiCad's own
+  `Connector_Dsub` DB37, and a generic `Package_SO` HVSSOP-8-1EP PowerPAD, respectively —
+  rather than needing new ones, so only four new `.kicad_mod` files exist:
   MDR68, mini-XLR ×2, mini-DIN). `hardware/breakout/sym-lib-table` and
   `hardware/breakout/fp-lib-table` both register `wl-sync`; `hardware/mule/`'s copies do not
   (the mule places no custom parts). See "Custom connector footprints" below for the TA-vs-TB
@@ -334,6 +346,35 @@ generated — don't rediscover them.
   `hardware/gen/check_mule_netlist.py` and any later `tests/hardware/test_netlist.py` are) that
   asserts on pin names rather than only pin numbers — comparing against the bare name directly
   fails even when resolution is completely correct.
+- **Some multi-pin stock symbols split their pins across "unit 0" (KiCad's "common to all
+  units" pseudo-unit) and a numbered real unit, instead of keeping every pin in one block.**
+  Found at Task 7 placing `Converter_DCDC_Isolated:IH1215D` (a 2W isolated ±15V DC/DC
+  converter): its library entry keeps 5 of its 6 pins (`-Vin`/`+Vin`/`-Vout`/`+Vout`/`0V`) in
+  a block named `IH0503D_0_0` (unit 0) and only the 6th (`NC`) in `IH0503D_1_1` (unit 1).
+  `hardware/gen/kicad_sch.py`'s `unit_pins(block, symname, unit=1)` — written against every
+  part used through Task 6, none of which split this way — looked only at unit 1's own block
+  and silently returned a 1-pin result instead of 6. Not silent for long: the next line that
+  tried `pins["1"]` (the power pin this generator actually needed) raised `KeyError`, so this
+  one surfaced as a loud crash rather than constraint 1's usual silent-wrong-netlist failure —
+  but a symbol whose split pins are simply the ones actually used by the caller could still
+  fail Task 6's exact way. Fixed generically in `unit_pins()` itself (not special-cased to
+  this one symbol): it now merges unit 0's pins with the requested unit's own, matching how
+  KiCad's GUI actually renders a placed instance (unit-0 content is shown regardless of which
+  unit is selected). Confirmed harmless for every symbol already in use — for all of them,
+  unit 0 either doesn't exist in the library entry or exists as pin-less body graphics only,
+  so the merge is a no-op there.
+- **A series element (a pi filter's ferrite bead, say) that bridges two DIFFERENTLY-NAMED
+  nets breaks ERC's `power_pin_not_driven` check on the downstream one, even though real
+  current still reaches it.** `Device:FerriteBead`'s pins are typed `passive`, and ERC's
+  check is evaluated per NET NAME, not by tracing through passive components across a
+  net-name boundary — so a node like the power sheet's `ISO_P15_FILT` (between a pi filter's
+  ferrite bead and a regulator's `IN` pin) has no `power_out`-typed pin on IT specifically,
+  even though the isolated DC/DC's own `power_out` pin drives the net one hop upstream
+  (`ISO_P15_RAW`, on the OTHER side of the ferrite). Same fix as any other undriven
+  power-input net: `sch.power_flag()` on the downstream node — see
+  `hardware/gen/gen_breakout_power.py`'s `build()` for the two instances this took
+  (`ISO_P15_FILT`/`ISO_N15_FILT`), the first time this codebase's generators needed a
+  PWR_FLAG on something other than a literal contract-rail or entry-point net.
 
 ## Byte-reproducibility
 
@@ -364,13 +405,17 @@ python3 hardware/gen/gen_mule_pcb.py
 kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
 
-For the breakout board's own library and root sheet:
+For the breakout board's own library, root sheet, and (Task 7) its power child sheet:
 
 ```bash
 python3 hardware/gen/gen_wl_sync_lib.py                             # hardware/lib/wl-sync.kicad_sym
 python3 hardware/gen/gen_wl_sync_footprints.py                      # hardware/lib/wl-sync.pretty/*.kicad_mod
 python3 hardware/gen/gen_breakout.py
+python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch
 kicad-cli sch upgrade hardware/breakout/breakout.kicad_sch           # see "Format upgrade" below
+kicad-cli sch upgrade hardware/breakout/sheets/power.kicad_sch       # ditto -- a child sheet is its own .kicad_sch file
+kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net hardware/breakout/breakout.kicad_sch
+python3 hardware/gen/check_breakout_power_netlist.py /tmp/breakout.net  # verifies the power sheet's own netlist, not just that ERC passed
 ```
 
 The library generators each run a structural self-check (round-tripping every symbol/

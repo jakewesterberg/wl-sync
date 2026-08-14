@@ -1,8 +1,21 @@
-"""Generator for hardware/lib/wl-sync.kicad_sym -- the five custom symbols Task 6 of
-docs/superpowers/plans/2026-08-13-breakout-pcb.md needs that aren't in any KiCad stock
-library: the 68-pin MDR male (NI connector), mini-XLR TA4M/TA5M, the 4-pin mini-DIN
-(+-12V inlet), the ACCES I/O USB-AO16-8A's mating DB37 connector, and the Raspberry Pi 5
-40-pin GPIO header.
+"""Generator for hardware/lib/wl-sync.kicad_sym -- the custom symbols the breakout board
+needs that aren't in any KiCad stock library. Task 6 (docs/superpowers/plans/
+2026-08-13-breakout-pcb.md) added the first five, all connectors: the 68-pin MDR male (NI
+connector), mini-XLR TA4M/TA5M, the 4-pin mini-DIN (+-12V inlet), the ACCES I/O
+USB-AO16-8A's mating DB37 connector, and the Raspberry Pi 5 40-pin GPIO header. Task 7
+(power sheet) added a sixth and seventh: TPS7A4901 and TPS7A3001, TI's ultralow-noise
+36V/-35V adjustable LDOs (the brief's exact-named logic-rail regulator, and its "negative
+counterpart" datasheet-recommended pairing for post-DC-DC-converter analog-rail cleanup --
+see task-7-report.md) -- real, specific, orderable parts with no stock KiCad symbol at
+all (confirmed by grepping every .kicad_sym under KiCad's install for "TPS7A49"/"TPS7A30";
+neither exists), unlike Tasks 2/3's stand-in-symbol-plus-Value-override workaround for
+parts that ARE in stock libraries just under a pin-compatible sibling's name. A stand-in
+was rejected here on a stronger basis than "worth doing precisely": TPS7A4901/TPS7A3001
+have a real EN pin (the datasheet's own "Do not float the enable (EN) pin" is a Do/Don't,
+not a suggestion) and a real NR/SS noise-reduction pin that this design's low-noise
+rationale specifically wants wired -- no already-stocked LDO's pinout has those pins to
+borrow, so a stand-in would omit signals this circuit needs to actually route, not just
+misname them.
 
 These are hand-designed from scratch (no stock symbol to extract from), so this module
 writes raw s-expression text directly rather than using kicad_sch.py's extract_symbol()
@@ -13,8 +26,9 @@ kicad_sch.py's own module docstring): every symbol here is written BARE (`(symbo
 does for a stock library's own bare-named entries), with child unit sub-symbols named
 "<Name>_0_1" (graphics) and "<Name>_1_1" (pins), also bare. This file is a normal,
 standalone .kicad_sym library, openable in KiCad's own Symbol Editor independent of any
-generator -- the generator exists so the 5 symbols' pin geometry is computed from a
-single per-symbol pin table (see PIN GEOMETRY below) instead of hand-typed 68 times.
+generator -- the generator exists so each symbol's pin geometry is computed from a single
+per-symbol pin table (see PIN GEOMETRY below, and TPS7A49_PINS for the two ICs) instead of
+hand-typed dozens of times over.
 
 PIN GEOMETRY, reverse-engineered from KiCad's own stock connectors (Connector_Generic's
 Conn_01x04 and Conn_02x20_Odd_Even) rather than guessed: a pin's `(at X Y ROT)` is its
@@ -193,6 +207,102 @@ def build_symbol(
     return f"\t{header}\n{body_rect}\n{pins_block}\n\t\t(embedded_fonts no)\n\t)"
 
 
+def _pin_typed(etype: str, number: str, name: str, x: float, y: float, rot: int) -> str:
+    """Like `_pin()` but with a real electrical type instead of a hardcoded "passive" --
+    needed for an IC (TPS7A4901/TPS7A3001below), where ERC's rules (power pin driven,
+    input pin driven, etc.) only mean anything if IN/OUT/GND read as power_in/power_out
+    and EN/FB read as input, matching the etypes kicad_sch.py's own extract_symbol()
+    pulls out of every STOCK part this generator's sibling parts sit alongside (e.g.
+    Regulator_Linear:LD1117S33TR_SOT223's GND=power_in, VO=power_out -- see
+    hardware/gen/kicad_sch.py). `build_symbol()`'s connectors never needed this because a
+    bare-numbered pass-through pin genuinely has no more specific electrical role to
+    assert.
+    """
+    return (
+        f"\t\t\t(pin {etype} line\n"
+        f"\t\t\t\t(at {x} {y} {rot})\n"
+        f"\t\t\t\t(length {PIN_LEN})\n"
+        f'\t\t\t\t(name "{_esc(name)}"\n'
+        f"\t\t\t\t\t(effects (font (size 1.27 1.27)))\n"
+        f"\t\t\t\t)\n"
+        f'\t\t\t\t(number "{_esc(number)}"\n'
+        f"\t\t\t\t\t(effects (font (size 1.27 1.27)))\n"
+        f"\t\t\t\t)\n"
+        f"\t\t\t)"
+    )
+
+
+def build_ic_symbol(
+    symname: str,
+    value: str,
+    description: str,
+    keywords: str,
+    datasheet: str,
+    footprint: str,
+    left: list[tuple[str, str, str]],
+    right: list[tuple[str, str, str]],
+) -> str:
+    """One IC symbol: `left`/`right` are [(number, name, etype), ...] top-to-bottom,
+    drawn as a two-column box exactly like `build_symbol()`'s connectors (same PITCH/PAD/
+    PIN_LEN, same PAD margin, same PWR_FLAG-style property block) but with a real
+    per-pin electrical type (see `_pin_typed()`) and a non-empty `Footprint` (every
+    connector above leaves Footprint blank -- a schematic-capture-stage placeholder is
+    fine for a connector, whose real footprint is a board-specific/panel-fit decision
+    made per hardware/README.md's own "Custom connector footprints" section; an IC's
+    footprint is just its package, fixed by the part number, so filling it in here saves
+    every future placer of this symbol from re-picking it identically).
+    """
+    n_rows = max(len(left), len(right))
+    ys = _rows_y(n_rows)
+    half_w = 10 * PITCH  # matches the Pi header's own proven-safe width for visible
+    # multi-character pin names (up to "NR/SS", 5 chars here vs "GPIO14"/"GPIO27" there)
+    body_top = ys[0] + PAD
+    body_bot = ys[n_rows - 1] - PAD
+
+    pins_txt = [
+        _pin_typed(etype, num, name, -(half_w + PIN_LEN), ys[i], 0)
+        for i, (num, name, etype) in enumerate(left)
+    ] + [
+        _pin_typed(etype, num, name, half_w + PIN_LEN, ys[i], 180)
+        for i, (num, name, etype) in enumerate(right)
+    ]
+
+    header = (
+        f'(symbol "{symname}"\n'
+        f"\t\t(pin_names\n"
+        f"\t\t\t(offset 1.016)\n"
+        f"\t\t)\n"
+        f"\t\t(exclude_from_sim no)\n"
+        f"\t\t(in_bom yes)\n"
+        f"\t\t(on_board yes)\n"
+        f"\t\t(in_pos_files yes)\n"
+        f"\t\t(duplicate_pin_numbers_are_jumpers no)\n"
+        f'{_prop("Reference", "U", -half_w, body_top + 2.54, hide=False)}\n'
+        f'{_prop("Value", value, -half_w, body_bot - 2.54, hide=False)}\n'
+        f'{_prop("Footprint", footprint, 0, 0)}\n'
+        f'{_prop("Datasheet", datasheet, 0, 0)}\n'
+        f'{_prop("Description", description, 0, 0)}\n'
+        f'{_prop("ki_keywords", keywords, 0, 0)}'
+    )
+    body_rect = (
+        f'\t\t(symbol "{symname}_0_1"\n'
+        f"\t\t\t(rectangle\n"
+        f"\t\t\t\t(start {-half_w} {body_top})\n"
+        f"\t\t\t\t(end {half_w} {body_bot})\n"
+        f"\t\t\t\t(stroke\n"
+        f"\t\t\t\t\t(width 0.254)\n"
+        f"\t\t\t\t\t(type default)\n"
+        f"\t\t\t\t)\n"
+        f"\t\t\t\t(fill\n"
+        f"\t\t\t\t\t(type background)\n"
+        f"\t\t\t\t)\n"
+        f"\t\t\t)\n"
+        f"\t\t)"
+    )
+    pins_block = f'\t\t(symbol "{symname}_1_1"\n' + "\n".join(pins_txt) + "\n\t\t)"
+    return f"\t{header}\n{body_rect}\n{pins_block}\n\t\t(embedded_fonts no)\n\t)"
+
+
 # ---------------------------------------------------------------------------
 # 1. MDR68 male -- generic 68-pin pass-through (per-pin function assignment is a later,
 #    open schematic-capture decision -- spec Sec.9.2 fixes the connector-level split
@@ -329,16 +439,89 @@ SYM_PI5_HEADER = build_symbol(
     hide_pin_names=False,
 )
 
+
+# ---------------------------------------------------------------------------
+# 7/8. TPS7A4901 / TPS7A3001 -- TI's ultralow-noise adjustable LDO pair (the brief's
+#    exact-named +12V->+5V logic-rail regulator, TPS7A4901, and its datasheet-documented
+#    "negative counterpart" TPS7A3001, reused for the isolated -15V(raw)->-12V
+#    post-regulation stage rather than a generic 79Lxx -- see task-7-report.md for why:
+#    TI's own TPS7A49 datasheet section 9.1.11 "Power for Precision Analog" names TPS7A30
+#    by part number as the pairing for exactly this application, and TPS7A49's own
+#    Figure 28 ("Post DC-DC Converter Regulation to High-Performance Analog Circuitry")
+#    draws TPS7A49+TPS7A30 cleaning a raw +-18V rail to +-15V -- the identical topology
+#    this design uses at +-15V(raw)->+-12V).
+#
+#    Pin table sourced directly from each part's own current datasheet (TI SBVS121E for
+#    TPS7A49/TPS7A4901, SBVS125D for TPS7A30/TPS7A3001 -- both "Pin Configuration and
+#    Functions", DGN package, section 5), not inferred from a sibling part: confirmed
+#    pin-for-pin IDENTICAL between the two (1=OUT, 2=FB, 3=NC, 4=GND, 5=EN, 6=NR/SS,
+#    7=DNC, 8=IN) -- TI's positive/negative "counterpart" framing extends to the physical
+#    pinout, not just the application-circuit topology, so one pin table serves both
+#    parts (TPS7A49_PINS name below is a slight misnomer kept for its origin; it's really
+#    "the shared TPS7A49/TPS7A30 DGN pinout"). DNC (7) genuinely must not be routed to any
+#    net, "not even GND or IN" (both datasheets, verbatim) -- placed via sch.no_connect(),
+#    same as NC (3, "left open or tied to GND" -- left open here, the simpler of the two
+#    datasheet-sanctioned options). The PowerPAD exposed thermal pad is deliberately NOT
+#    given a schematic pin: both datasheets sanction leaving it electrically open, and
+#    inventing a pin for it here would assert a specific footprint pad-9 numbering this
+#    hand-built symbol has no real footprint to verify against yet -- left as a layout-
+#    stage note (see the Footprint property below) for whichever task lays out the
+#    breakout board's PCB.
+# ---------------------------------------------------------------------------
+TPS7A49_FOOTPRINT = "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"  # generic
+# HVSSOP-8-1EP -- TI's own DGN package is this JEDEC outline; the exact TI DGN0008[B/D/G]
+# mechanical-suffix variant (they differ slightly in exposed-pad/mask size) needs
+# confirming against each datasheet's own package drawing at PCB-layout time, not
+# asserted here without having pulled that page -- flagged the same way
+# hardware/README.md flags its own footprint-confidence gaps rather than left silent.
+TPS7A49_PINS = {
+    "left": [("1", "OUT", "power_out"), ("2", "FB", "input"),
+             ("3", "NC", "no_connect"), ("4", "GND", "power_in")],
+    "right": [("8", "IN", "power_in"), ("7", "DNC", "no_connect"),
+              ("6", "NR/SS", "passive"), ("5", "EN", "input")],
+}
+SYM_TPS7A4901 = build_ic_symbol(
+    "TPS7A4901",
+    "TPS7A4901",
+    "36V, 150mA, ultralow-noise (12.7uVrms), high-PSRR (72dB) adjustable POSITIVE linear "
+    "regulator. Vout = VFB(nom)*(1+R1/R2), VFB(nom)=1.185V typ (TI datasheet SBVS121E "
+    "Eq.5's own worked value); EN can tie directly to IN if unused (datasheet Sec.5, "
+    "verbatim) but must not float (Sec.9.3 Do's and Don'ts). Packages: 8-pin HVSSOP "
+    "PowerPAD (DGN, used here) or 3x3mm VSON (DRB, QFN-style -- excluded, this board's "
+    "own hand-solderability constraint disallows QFN/BGA).",
+    "regulator LDO adjustable positive ultralow-noise TI linear",
+    "https://www.ti.com/lit/ds/symlink/tps7a49.pdf",
+    TPS7A49_FOOTPRINT,
+    TPS7A49_PINS["left"], TPS7A49_PINS["right"],
+)
+SYM_TPS7A3001 = build_ic_symbol(
+    "TPS7A3001",
+    "TPS7A3001",
+    "-35V, 200mA, ultralow-noise (14uVrms), high-PSRR (72dB) adjustable NEGATIVE linear "
+    "regulator -- TPS7A4901's datasheet-documented negative counterpart (TI SBVS121E "
+    "Sec.9.1.11), pin-for-pin identical DGN pinout (TI SBVS125D Sec.5). "
+    "Vout = VFB(nom)*(1+R1/R2) (both negative); TI's own Table 2 gives R1=93.1k/R2=10k "
+    "as the standard 1% pair for Vout=-12V, used as-is rather than re-derived. EN can tie "
+    "directly to IN if unused but must not float, same as TPS7A4901.",
+    "regulator LDO adjustable negative ultralow-noise TI linear",
+    "https://www.ti.com/lit/ds/symlink/tps7a30.pdf",
+    TPS7A49_FOOTPRINT,
+    TPS7A49_PINS["left"], TPS7A49_PINS["right"],
+)
+
 SYMBOLS = [
     SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_MINIDIN4, SYM_ACCESIO, SYM_PI5_HEADER,
+    SYM_TPS7A4901, SYM_TPS7A3001,
 ]
 _SYMBOL_NAMES = [
     "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "MiniDIN_4",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
+    "TPS7A4901", "TPS7A3001",
 ]
 _EXPECTED_PIN_COUNTS = {
     "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "MiniDIN_4": 4,
     "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
+    "TPS7A4901": 8, "TPS7A3001": 8,
 }
 
 
