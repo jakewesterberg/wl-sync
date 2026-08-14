@@ -1,10 +1,14 @@
 # wl-sync breakout PCB
 
 KiCad sources for the sync-box breakout board: a 2U rack-mount mixed-signal hub that sits
-between the behavioural task PC, the Raspberry Pi 5 sync box, the recording NI card, and the
-Intan RHS amplifier. Every signal that crosses between those devices terminates on this board,
-is conditioned once, and is fanned out — so a rig is reproducible from the board rather than
-from hand wiring.
+between the behavioural task PC, the sync-box module, the recording NI card, and the Intan RHS
+amplifier. Every signal that crosses between those devices terminates on this board, is
+conditioned once, and is fanned out — so a rig is reproducible from the board rather than from
+hand wiring. "Sync-box module" is deliberately not a single product name: the module carries a
+BCM2712 SoC and RP1 I/O controller either way, so its GPIO map and pinout are identical whether
+it ships as a Raspberry Pi 5 or as a Compute Module 5 (Lite) on the official CM5 IO Board — the
+choice between the two is a floorplan/placement decision this repository's own sources do not
+yet lock in, not an electrical one.
 
 Full design rationale, the signal contract, the grounding scheme, and the fabrication schedule
 live in [`docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md`](../docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md).
