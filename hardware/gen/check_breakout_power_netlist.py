@@ -150,9 +150,23 @@ NON_ISO_NETS = [
 # own decoupling to these same two shared rails -- not a one-time fix, an expected
 # consequence of `_rail_bypass_cap_count()`'s own project-wide scope every later child
 # sheet inherits.
+#
+# RECOMPUTED AGAIN AT TASK 10a: analog-frontend.kicad_sch is the first child sheet to draw
+# +12V/-12V (every prior sheet's own ICs ran on +5V/+3V3 only), and it decouples each of
+# its 15 op-amp packages (13 INA105KU difference receivers + 1 OPA2197xD photodiode TIA
+# dual + 1 OPA4197xD mic quad) with its own 100nF-per-rail pair, same discipline as every
+# IC on this whole project -- +15 on EACH of +12V/AGND and -12V/AGND (2->17 both), not
+# just one of the two, since every one of those 15 packages is genuinely dual-supply.
+# Confirmed directly against the regenerated whole-project netlist via this same
+# `_rail_bypass_cap_count()`, not guessed. Exactly the update this comment's own prior
+# entry predicted would be needed "once Tasks 10-12 add their own" -- WILL need the same
+# treatment again once Tasks 10b-10d (and 11-12) place their own +12V/-12V-powered parts.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 2,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1
-    ("-12V", "AGND"): 2,          # C3, C4 -- ditto, -12V rail
+    ("+12V", "AGND"): 17,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
+                                   # +15 from analog-frontend.kicad_sch's own 15 op-amp
+                                   # packages (Task 10a)
+    ("-12V", "AGND"): 17,         # C3, C4 -- ditto, -12V rail; +15 from analog-frontend.kicad_sch
+                                   # (Task 10a), same reasoning as +12V/AGND above
     ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer

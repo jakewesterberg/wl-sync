@@ -3,6 +3,7 @@
 	(lib (name "Device") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Device.kicad_sym") (options "") (descr "Generic symbols for common devices"))
 	(lib (name "74xx") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/74xx.kicad_sym") (options "") (descr "74xx symbols"))
 	(lib (name "Amplifier_Operational") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Amplifier_Operational.kicad_sym") (options "") (descr "General operational amplifiers"))
+	(lib (name "Amplifier_Difference") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Amplifier_Difference.kicad_sym") (options "") (descr "Difference amplifier symbols"))
 	(lib (name "Comparator") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Comparator.kicad_sym") (options "") (descr "Comparator symbols"))
 	(lib (name "Isolator") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Isolator.kicad_sym") (options "") (descr "Isolator devices"))
 	(lib (name "Diode") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Diode.kicad_sym") (options "") (descr "Diode symbols"))
