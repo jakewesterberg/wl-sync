@@ -32,7 +32,7 @@ signal nobody recorded a decision about.
 |---|---|---|
 | 1 | One board, two rigs, fully populated | Rigs are identical; a depopulation strategy would be insurance against variability that does not exist |
 | 2 | Sync-box board inside the same enclosure | Frees GPIO0/1 — no HAT is fitted, so nothing supplies an ID EEPROM — which is what makes the contiguous capture range and two hardware-PWM triggers coexist |
-| 2a | **CM5 Lite + official CM5 IO Board**, not a Pi 5 | Onboard M.2 removes the PCIe flex cable, which is a mechanical failure mode in a rack chassis that gets slid in and out while carrying the boot device. Production committed to ≥ Jan 2036. **Conditional on floorplan — see §9.4** |
+| 2a | **CM5 Lite 4 GB, no wireless (`CM5004000`) + official CM5 IO Board**, not a Pi 5 | Onboard M.2 removes the PCIe flex cable, which is a mechanical failure mode in a rack chassis that gets slid in and out while carrying the boot device. Production committed to ≥ Jan 2036. **Conditional on floorplan — see §9.4** |
 | 3 | **Optocouplers** on digital, **not** capacitive/magnetic digital isolators | Digital isolators transmit by modulating an RF carrier — a deliberate RF source beside headstages. Optocouplers have no carrier. Speed is irrelevant at this timing budget |
 | 4 | **Difference amplifiers** on analog, not isolation amplifiers | 33 analog stages cannot be galvanically isolated affordably, and isolation amplifiers degrade the signals most needing fidelity |
 | 5 | NI analog driven **NRSE**, not per-channel differential | All sources share one reference by construction, so AISENSE tied to AGND gives the same rejection while keeping 32 channels instead of 16 |
@@ -188,6 +188,32 @@ SD card in the boot path preserves exactly the failure mode being designed out.
 
 **Active cooler fitted.** The module wants it, and it sits in a closed chassis beside analog
 circuitry that would rather not be warmed. See §9.4.
+
+### 4.2 Module variant: CM5 Lite, 4 GB, no wireless — `CM5004000`
+
+**No wireless, and this is the part with a technical argument behind it.** A live 2.4/5 GHz
+transceiver and Bluetooth radio, powered inside a sealed enclosure alongside 33 analog stages, a
+microphone preamp, and a few feet of headstage cable recording microvolts, contradicts the
+reasoning used everywhere else in this design: digital isolators were rejected for modulating an
+RF carrier (§2 decision 3), and on-board switching regulators were rejected for consistency with
+that (§8). Buying a module with a radio in it and disabling it in software would be the same
+mistake with more steps. Nothing is traded away — Ethernet is already required for NAS transfer
+at session end, and the sync box has no reason to talk to anything else. The non-wireless SKU is
+also cheaper.
+
+> **Ordering trap.** The digit after `CM5` is the wireless flag. `CM5104000` is the *wireless*
+> 4 GB Lite part, and resellers stock the wireless variants by default because for general use
+> they are the obvious choice. The part wanted here is **`CM5004000`**.
+
+**4 GB, not 8 GB.** The service holds well under 1 GB — Pi OS Lite headless at 200–400 MB plus a
+Python process — and the log streams to disk rather than accumulating, so a session's gigabyte
+never sits in RAM. 8 GB serves no identifiable workload on this machine.
+
+**The upgrade path is real, which is what makes 4 GB safe rather than merely cheap.** CM5 is a
+socketed module and the OS lives on the IO Board's M.2 drive, so raising RAM later means
+swapping the module and booting from the same disk — no reimaging, no re-provisioning. A Pi 5
+has soldered RAM, so the equivalent upgrade would be a new board plus relocating the NVMe
+adapter. This is an advantage of the CM5 choice that was not enumerated when it was made.
 
 ---
 
