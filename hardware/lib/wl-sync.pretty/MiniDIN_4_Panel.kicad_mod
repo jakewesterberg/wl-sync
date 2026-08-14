@@ -3,12 +3,12 @@
 	(generator "pcbnew")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "4-pin mini-DIN, panel mount, Same Sky (CUI) MD-40SN. Through-panel bushing diameter (10.0mm) from the manufacturer's own dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf); panel flange envelope 38.5x15.25mm and 2x M? mounting ears at 30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side hardware, not part of this PCB footprint (see hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact per-pin angle is an even-spacing approximation, not measured off the drawing's own small pin diagram -- see the Task 6 report.")
+	(descr "4-pin mini-DIN, panel mount, Same Sky (CUI) MD-40SN. Through-panel bushing diameter (10.0mm) from the manufacturer's own dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf); panel flange envelope 38.5x15.25mm and 2x M? mounting ears at 30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side hardware, not part of this PCB footprint (see hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact per-pin angle is an even-spacing approximation, not measured off the drawing's own small pin diagram, and may be a topology error rather than a tolerance one -- see hardware/README.md; verify against a physical sample before fab.")
 	(tags "connector mini-DIN power inlet panel MD-40SN")
 	(property "Reference" "REF**"
 		(at 0 -6.5 0)
 		(layer "F.SilkS")
-		(uuid "1dcc365c-0871-4ab1-b50f-c479965e63fe")
+		(uuid "2eca3d38-0fbf-4693-84fb-ba5944ae19c2")
 		(effects
 			(font
 				(size 1 1)
@@ -19,7 +19,7 @@
 	(property "Value" "MiniDIN_4_Panel"
 		(at 0 6.5 0)
 		(layer "F.Fab")
-		(uuid "5970bd06-9f9b-43b0-98fc-66aa8924299e")
+		(uuid "4db2dacc-a5fb-44c3-bd39-3417b5a2343a")
 		(effects
 			(font
 				(size 1 1)
@@ -31,7 +31,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "17c35add-7d39-4254-acd0-c9fed10e37db")
+		(uuid "3aa70c1f-1c60-4e97-afad-071f8679fc35")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -42,7 +42,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "37ac9c8d-e2c4-4094-b97b-112d7d3a32ea")
+		(uuid "09e4ae3c-332e-4564-9e78-aae2263684e2")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -60,7 +60,7 @@
 		)
 		(fill no)
 		(layer "F.SilkS")
-		(uuid "516b34c5-d909-41cb-920a-505fa9b75665")
+		(uuid "a2812770-aa5e-4228-8cf5-7661d9bac338")
 	)
 	(fp_circle
 		(center 0 0)
@@ -71,7 +71,7 @@
 		)
 		(fill no)
 		(layer "F.CrtYd")
-		(uuid "ca66be61-57a8-4f92-8dba-477f6986a98f")
+		(uuid "86a12d2d-97e6-48ba-a2ee-b876bfc6eea9")
 	)
 	(fp_circle
 		(center 0 0)
@@ -82,7 +82,7 @@
 		)
 		(fill no)
 		(layer "F.Fab")
-		(uuid "75c3c822-1e33-41c4-8026-49a6c33722e3")
+		(uuid "71fc48db-43a9-41d9-bef9-b62aee83a593")
 	)
 	(pad "1" thru_hole rect
 		(at 0 -3.5)
@@ -90,7 +90,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "a4f3d287-4ed9-4bc5-9bb2-58bda1c6ea5d")
+		(uuid "40894110-12b3-4c80-a841-a56764232db1")
 	)
 	(pad "2" thru_hole circle
 		(at 3.5 0)
@@ -98,7 +98,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "efc978c3-ae06-4508-b96d-4f3202f7fbaa")
+		(uuid "340f3d03-059d-4b5e-b4a6-9670d5787972")
 	)
 	(pad "3" thru_hole circle
 		(at 0 3.5)
@@ -106,7 +106,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "bf3e3e08-cbac-4f49-9a07-5b9e57fd0643")
+		(uuid "a05513a2-c7bc-439f-9b36-3476c0597850")
 	)
 	(pad "4" thru_hole circle
 		(at -3.5 0)
@@ -114,7 +114,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "18a3c478-5dce-4a4a-9024-0ac3dd6e3004")
+		(uuid "17c2c5b7-cea4-4941-96f7-4926423a1051")
 	)
 	(embedded_fonts no)
 )

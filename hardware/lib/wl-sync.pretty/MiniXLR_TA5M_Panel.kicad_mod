@@ -3,12 +3,12 @@
 	(generator "pcbnew")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "Switchcraft Tini-QG mini-XLR, 5-pin male, panel mount (TB5M -- the panel-mount member of the family; see hardware/README.md and the Task 6 report for why this, not the cable-mount TA-series the symbol is named after, is the real part modelled here). Bushing/cutout diameter and contact-circle arrangement are approximate -- flagged in the report as needing re-verification against the real part before panel machining.")
+	(descr "Switchcraft Tini-QG mini-XLR, 5-pin male, panel mount (TB5M -- the panel-mount member of the family; see hardware/README.md for why this, not the cable-mount TA-series the symbol is named after, is the real part modelled here). Bushing/cutout diameter is approximate -- flagged in hardware/README.md for re-verification against the real part before panel machining. Contact-circle arrangement is an even-spacing approximation that may be a topology error, not just a tolerance one -- see hardware/README.md; verify against a physical sample before fab.")
 	(tags "connector XLR mini-XLR audio 5pin panel TB5M")
 	(property "Reference" "REF**"
 		(at 0 -6.95 0)
 		(layer "F.SilkS")
-		(uuid "bf6697c4-f8c5-444f-84af-b2b84aecbf9a")
+		(uuid "593b863a-e744-4a46-9883-740691ab21ff")
 		(effects
 			(font
 				(size 1 1)
@@ -19,7 +19,7 @@
 	(property "Value" "MiniXLR_TA5M_Panel"
 		(at 0 6.95 0)
 		(layer "F.Fab")
-		(uuid "19a3b2df-627f-424d-8a13-f73d884f2fd2")
+		(uuid "f9272bc7-2644-42f7-a809-e49b14336507")
 		(effects
 			(font
 				(size 1 1)
@@ -31,7 +31,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "354a3da7-eaf0-488d-9173-5557ea5d3dd0")
+		(uuid "006ec427-e964-4cf7-ba52-4919dbf3b6b9")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -42,7 +42,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "1ef5ac28-f881-40c6-9c02-1ab05c47fcfc")
+		(uuid "f634e02a-05fa-4a26-959f-1654b8a3d8bb")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -60,7 +60,7 @@
 		)
 		(fill no)
 		(layer "F.SilkS")
-		(uuid "306e0e86-515b-47ef-86b9-a26c8b487f92")
+		(uuid "c9edaeb2-59bf-4db0-bafb-0bbc192ea26d")
 	)
 	(fp_circle
 		(center 0 0)
@@ -71,7 +71,7 @@
 		)
 		(fill no)
 		(layer "F.CrtYd")
-		(uuid "e4f9c6fd-6560-49b4-ba39-137c742a6229")
+		(uuid "85724fc5-3bf2-48c1-8fd2-d49b6f561b72")
 	)
 	(fp_circle
 		(center 0 0)
@@ -82,7 +82,7 @@
 		)
 		(fill no)
 		(layer "F.Fab")
-		(uuid "2e6796a5-fc92-41b6-b040-d844a9ac2d9e")
+		(uuid "ce089ed1-c2d1-48bd-9e77-00a0599eb5c4")
 	)
 	(pad "1" thru_hole rect
 		(at 0 -2.75)
@@ -90,7 +90,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "01762e96-a38d-4e70-aedf-96754b4e349a")
+		(uuid "c1b1ebe2-e611-47bc-a995-7bba364fd9af")
 	)
 	(pad "2" thru_hole circle
 		(at 2.615405 -0.849797)
@@ -98,7 +98,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "b1e993d2-7ed8-4edf-804b-b0d8178ad7a7")
+		(uuid "f1727f46-286e-4207-8d49-a9877d66f191")
 	)
 	(pad "3" thru_hole circle
 		(at 1.616409 2.224797)
@@ -106,7 +106,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "45f8e246-3098-4851-b3f4-8f2be31ffeec")
+		(uuid "2985a255-d5da-4645-bbb7-8ad40d0c95b3")
 	)
 	(pad "4" thru_hole circle
 		(at -1.616409 2.224797)
@@ -114,7 +114,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "ef556e7c-12a4-42a3-8800-d3e5bf2da86a")
+		(uuid "21b98687-b800-40ec-9717-77277bc00a17")
 	)
 	(pad "5" thru_hole circle
 		(at -2.615405 -0.849797)
@@ -122,7 +122,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "c7b5463d-ab39-40d1-95b6-8136d5b039d3")
+		(uuid "df25f126-dc02-46de-8c65-0b909416129f")
 	)
 	(embedded_fonts no)
 )

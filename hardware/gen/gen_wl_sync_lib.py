@@ -33,8 +33,10 @@ Judgment call, stated once here rather than per symbol: only the Raspberry Pi 5 
 pins are named for a specific real-world function (GPIO numbers, per the brief and spec
 Sec.4 -- a fixed, public, hardware-defined mapping that exists independent of this board).
 The other four connectors' pin-to-signal assignment is NOT yet fixed anywhere in the spec
-or plan -- Task 7 (mini-DIN rail assignment), Task 8/10 (MDR68 channel split, an
-explicitly OPEN item per spec Sec.12 #3, "blocking: layout"), and Task 10 (mini-XLR
+or plan -- Task 7 (mini-DIN rail assignment), Task 8/10 (MDR68 per-pin channel
+assignment -- spec Sec.9.2 fixes which of the two 68-pin connectors carries which signal
+range (closed 2026-08-13, formerly open item 3), but no spec table assigns a specific
+physical pin number to a specific signal within either connector), and Task 10 (mini-XLR
 sensor-head wiring) all make that call later. Naming those connectors' pins by physical
 position only ("1".."68" etc., matching Connector_Generic's own convention for the same
 reason) avoids this task inventing an assignment a later task would then have to contradict
@@ -192,8 +194,9 @@ def build_symbol(
 
 
 # ---------------------------------------------------------------------------
-# 1. MDR68 male -- generic 68-pin pass-through (function-per-pin is a later, open
-#    schematic-capture decision, spec Sec.12 #3; see module docstring).
+# 1. MDR68 male -- generic 68-pin pass-through (per-pin function assignment is a later,
+#    open schematic-capture decision -- spec Sec.9.2 fixes the connector-level split
+#    only, not individual pin numbers; see module docstring).
 # ---------------------------------------------------------------------------
 mdr68_left = [(str(n), str(n)) for n in range(1, 35)]
 mdr68_right = [(str(n), str(n)) for n in range(35, 69)]
@@ -213,7 +216,7 @@ SYM_MDR68 = build_symbol(
 # ---------------------------------------------------------------------------
 # 2/3. Mini-XLR TA4M / TA5M -- generic N-pin (function is a Task 10 sensor-head wiring
 #    decision; see module docstring). Panel-mount footprint is the real part (TB4M/TB5M
-#    -- see hardware/lib/wl-sync.pretty and the report for why).
+#    -- see hardware/README.md's "Custom connector footprints" section for why).
 # ---------------------------------------------------------------------------
 SYM_TA4M = build_symbol(
     "MiniXLR_TA4M",

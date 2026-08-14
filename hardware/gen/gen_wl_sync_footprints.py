@@ -2,11 +2,11 @@
 Task 6 needs that aren't in any KiCad stock .pretty library: the 68-pin MDR male
 (right-angle PCB mount), mini-XLR TA4M and TA5M (panel mount), and the 4-pin mini-DIN
 (panel mount). The fifth and sixth symbols this task adds (the ACCES I/O DB37 connector
-and the Raspberry Pi 5 GPIO header) reuse STOCK footprints instead -- see the report for
-why: DB37 is a mechanically standardised D-sub shell (KiCad's own Connector_Dsub.pretty
-already has it, real dimensions, not "a similar part"), and the Pi header reuses the same
-bare 2x20 2.54mm THT footprint hardware/gen/gen_mule.py's own Pi-side header already uses
-(FOOTPRINT_IDC40 in that file) -- the real Raspberry Pi GPIO header is exactly that part.
+and the Raspberry Pi 5 GPIO header) reuse STOCK footprints instead: DB37 is a mechanically
+standardised D-sub shell (KiCad's own Connector_Dsub.pretty already has it, real
+dimensions, not "a similar part"), and the Pi header reuses the same bare 2x20 2.54mm THT
+footprint hardware/gen/gen_mule.py's own Pi-side header already uses (FOOTPRINT_IDC40 in
+that file) -- the real Raspberry Pi GPIO header is exactly that part.
 
 Written as raw .kicad_mod text (there is no stock footprint to extract from), following
 the exact low-level shape kicad_pcb.py's extract_footprint()/Board.place() expect to read
@@ -18,8 +18,10 @@ pad_nets dict -- when an instance is actually placed; a library master carrying 
 uuid/net would leave a stray, wrong second one behind, or a net no instance's schematic
 agrees with).
 
-Sourcing and confidence, stated once here rather than scattered per symbol (also see the
-task report for the full research trail):
+Sourcing and confidence, stated once here rather than scattered per symbol -- and again,
+in full and for real, in hardware/README.md's "Custom connector footprints" section, which
+is the canonical in-repo copy of this table. (This docstring is the working notes it was
+built from, not an alternate source of truth -- keep the two in sync if either changes.)
 
 - MDR68_Male_RightAngle: overall envelope (63.86 x 16.7 x 12.5mm) from MH Connectors
   3700-0121-01, a real, currently-distributed right-angle male 68-pin MDR/SCSI-3
@@ -30,20 +32,24 @@ task report for the full research trail):
   2.84mm and jackscrew-to-jackscrew spacing 57.9mm are figures that appeared consistently
   across general MDR-68 dimensional references but were not confirmed against one single
   primary-source CAD drawing with a numeric callout for THIS specific dimension --
-  flagged in the report as the one MDR68 number worth re-checking against the exact MPN
-  Task 0 procures, same discipline that task's own brief already calls for.
+  flagged in hardware/README.md as the one MDR68 number worth re-checking against the
+  exact MPN Task 0 procures, same discipline that task's own brief already calls for.
 - MiniXLR_TA4M/TA5M_Panel: panel/chassis thickness (6.35mm max) is Switchcraft's own
   published number for the TB-series panel-mount receptacle -- the real part this
-  footprint models (TA4M/TA5M themselves are CABLE-mount only and TA4M is discontinued;
-  see the report for why the footprint is the TB-series and the symbol keeps the
-  spec's own TA4M/TA5M name). Panel bushing/cutout diameter (~10.9mm) is corroborated
-  from the TA-series housing diameter (0.413in/10.5mm, Switchcraft's own catalog) but not
-  confirmed against a primary numeric TB-series drawing -- the least-certain dimension on
-  this board's panel-mount parts by the report's own account, flagged there for
-  re-verification before panel machining. Internal contact-circle arrangement is a clean,
-  evenly-spaced approximation, not measured -- lower risk than the cutout itself (fixing a
-  contact position is a footprint edit; fixing a wrong cutout is a scrapped panel), but
-  still worth checking against the real part before fab.
+  footprint models (TA4M/TA5M themselves are CABLE-mount only and TA4M is obsolete,
+  independently confirmed against DigiKey, Switchcraft and Farnell; see hardware/README.md
+  for why the footprint is the TB-series and the symbol keeps the spec's own TA4M/TA5M
+  name). Panel bushing/cutout diameter (~10.9mm) is corroborated from the TA-series
+  housing diameter (0.413in/10.5mm, Switchcraft's own catalog) but not confirmed against a
+  primary numeric TB-series drawing -- the least-certain single dimension on this board's
+  panel-mount parts, flagged in hardware/README.md for re-verification before panel
+  machining. Internal contact-circle arrangement is a clean, evenly-spaced approximation,
+  not measured off the real part -- and NOT merely a tolerance risk: real keyed circular
+  connectors often cluster contacts in an arc rather than spacing them evenly around the
+  full circle, so this could be a topology error (wrong contact layout, not just an
+  angular offset) rather than a dimensional one. See hardware/README.md's "Contact
+  arrangement" note -- verify against a physical sample before fab, don't just tweak the
+  angle.
 - MiniDIN_4_Panel: panel envelope, mounting-hole spacing/diameter, and through-panel
   bushing diameter are all read directly off a real, dimensioned manufacturer CAD drawing
   (Same Sky/CUI MD-SN series datasheet, the 4-pin MD-40SN row) -- the best-sourced of the
@@ -51,7 +57,8 @@ task report for the full research trail):
   standard (this connector class is only useful because it interoperates across
   manufacturers on a fixed contact geometry); exact per-pin angular position was
   approximated as four evenly-spaced positions rather than measured off the drawing's own
-  small pin diagram, same lower-risk-than-cutout reasoning as the mini-XLR pins above.
+  small pin diagram -- same possible-topology-error caveat as the mini-XLR pins above, not
+  just an angular tolerance; see hardware/README.md.
 
 No footprint below drills a PCB mounting hole for the mini-XLR/mini-DIN parts: both are
 PANEL-mount (their own flange or bushing nut carries the mechanical load, screwed to the
@@ -240,8 +247,8 @@ def build_mdr68() -> str:
         "MDR68_Male_RightAngle",
         "68-pin Mini D Ribbon (MDR/SCSI-3), male, right-angle PCB mount, 1.27mm pitch "
         "2x34, two 4-40 clearance mounting/jackscrew holes at 57.9mm centres. Envelope "
-        "and mounting spacing from MH Connectors 3700-0121-01; see hardware/README.md "
-        "and the Task 6 report for sourcing and confidence per dimension.",
+        "and mounting spacing from MH Connectors 3700-0121-01; see hardware/README.md's "
+        "per-dimension sourcing table for confidence per dimension.",
         "connector MDR SCSI-3 68pin right-angle PCB",
         els,
     )
@@ -272,11 +279,13 @@ def build_minixlr(n_pins: int, modname: str, real_part: str) -> str:
     return assemble(
         modname,
         f"Switchcraft Tini-QG mini-XLR, {n_pins}-pin male, panel mount ({real_part} -- "
-        f"the panel-mount member of the family; see hardware/README.md and the Task 6 "
-        f"report for why this, not the cable-mount TA-series the symbol is named after, "
-        f"is the real part modelled here). Bushing/cutout diameter and contact-circle "
-        f"arrangement are approximate -- flagged in the report as needing re-verification "
-        f"against the real part before panel machining.",
+        f"the panel-mount member of the family; see hardware/README.md for why this, not "
+        f"the cable-mount TA-series the symbol is named after, is the real part modelled "
+        f"here). Bushing/cutout diameter is approximate -- flagged in hardware/README.md "
+        f"for re-verification against the real part before panel machining. Contact-circle "
+        f"arrangement is an even-spacing approximation that may be a topology error, not "
+        f"just a tolerance one -- see hardware/README.md; verify against a physical "
+        f"sample before fab.",
         f"connector XLR mini-XLR audio {n_pins}pin panel {real_part}",
         els,
     )
@@ -313,7 +322,9 @@ def build_minidin4() -> str:
         "same drawing but are panel-side hardware, not part of this PCB footprint (see "
         "hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's "
         "own standard; exact per-pin angle is an even-spacing approximation, not "
-        "measured off the drawing's own small pin diagram -- see the Task 6 report.",
+        "measured off the drawing's own small pin diagram, and may be a topology error "
+        "rather than a tolerance one -- see hardware/README.md; verify against a "
+        "physical sample before fab.",
         "connector mini-DIN power inlet panel MD-40SN",
         els,
     )
