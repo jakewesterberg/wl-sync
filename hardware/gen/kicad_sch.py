@@ -288,6 +288,31 @@ class Sch:
 
     project: str
     root_uuid: str = None  # type: ignore[assignment]
+    instance_path_prefix: str | None = None
+    # The ancestor-path PREFIX every `(instances (project ... (path "<prefix>" ...)))`
+    # block this file emits (place(), power_flag(), sheet()) carries. Left None (the
+    # default), this file is treated as a hierarchy ROOT: __post_init__ below sets it to
+    # `/{root_uuid}`, this file's OWN identity uuid -- correct for a root .kicad_sch,
+    # confirmed against a real pcbnew-authored one (KiCad's own demos/complex_hierarchy/
+    # complex_hierarchy.kicad_sch: every component placed directly on its own canvas
+    # carries exactly `(path "/<that file's own uuid>" ...)`).
+    #
+    # A CHILD sheet (one instantiated via some OTHER file's sheet() call, e.g. this
+    # project's power.kicad_sch under breakout.kicad_sch) must NOT default this way --
+    # its own file-identity uuid plays no role at all in a real KiCad project's own
+    # ancestor-path bookkeeping. Confirmed empirically against the same demo project's
+    # ampli_ht.kicad_sch, a genuine child sheet placed TWICE (as "ampli_ht_vertical" and
+    # "ampli_ht_horizontal") from complex_hierarchy.kicad_sch: every one of its own
+    # components carries TWO `(path ...)` entries, one per placement --
+    # `/<complex_hierarchy's root uuid>/<vertical sheet SYMBOL's own uuid>` and
+    # `/<same root uuid>/<horizontal sheet SYMBOL's own uuid>` -- and NEITHER contains
+    # ampli_ht.kicad_sch's own file-identity uuid anywhere. So a child sheet's builder
+    # must pass this explicitly: `/{parent's real root uuid}/{the sheet SYMBOL's own
+    # uuid, as placed in the parent}` -- see find_sheet_instance_path() below, which
+    # computes exactly this string by reading the parent .kicad_sch's own on-disk text
+    # (not trusting any in-process value from a separate generator run -- the same
+    # defect class Task 3 hit with gen_mule_pcb.py's schematic cross-link uuids, fixed
+    # there by reading the committed artifact rather than re-deriving in-process).
     lib_symbol_blocks: dict[str, str] = None  # type: ignore[assignment]
     body: list[str] = None  # type: ignore[assignment]
     ref_counters: dict[str, int] = None  # type: ignore[assignment]
@@ -300,6 +325,9 @@ class Sch:
 
     def __post_init__(self):
         self.root_uuid = uid()
+        self._is_hierarchy_root = self.instance_path_prefix is None
+        if self.instance_path_prefix is None:
+            self.instance_path_prefix = f"/{self.root_uuid}"
         self.lib_symbol_blocks = {}
         self.body = []
         self.ref_counters = {}
@@ -397,7 +425,7 @@ class Sch:
 {chr(10).join(pin_lines)}
 \t\t(instances
 \t\t\t(project "{self.project}"
-\t\t\t\t(path "/{self.root_uuid}"
+\t\t\t\t(path "{self.instance_path_prefix}"
 \t\t\t\t\t(reference "{ref}") (unit {unit})
 \t\t\t\t)
 \t\t\t)
@@ -471,7 +499,7 @@ class Sch:
 \t\t(pin "1" (uuid "{uid()}"))
 \t\t(instances
 \t\t\t(project "{self.project}"
-\t\t\t\t(path "/{self.root_uuid}"
+\t\t\t\t(path "{self.instance_path_prefix}"
 \t\t\t\t\t(reference "{ref}") (unit 1)
 \t\t\t\t)
 \t\t\t)
@@ -568,7 +596,7 @@ class Sch:
 \t\t)
 \t\t(instances
 \t\t\t(project "{self.project}"
-\t\t\t\t(path "/{self.root_uuid}"
+\t\t\t\t(path "{self.instance_path_prefix}"
 \t\t\t\t\t(page "{page}")
 \t\t\t\t)
 \t\t\t)
@@ -581,6 +609,23 @@ class Sch:
 
     def render(self, paper: str = "A2") -> str:
         lib_symbols_text = "\n".join(self.lib_symbol_blocks.values())
+        # `sheet_instances` records where THIS SCREEN ITSELF sits in the hierarchy --
+        # meaningful only for the project ROOT (trivially "/", page "1"). A genuine
+        # nested child .kicad_sch carries NO such block at all: confirmed against
+        # demos/complex_hierarchy/ampli_ht.kicad_sch (a real child sheet, used twice),
+        # which has zero `(sheet_instances ...)` -- unlike its own parent
+        # complex_hierarchy.kicad_sch, which has exactly one, `(path "/" (page "1"))`,
+        # describing only ITSELF (not either of ampli_ht's two placements, which live
+        # entirely in the PARENT's own per-sheet-symbol `(instances ...)` blocks
+        # instead -- see sheet()). A child screen can be instantiated more than once at
+        # different ancestor paths (this project's own power.kicad_sch is not, but the
+        # demo's ampli_ht.kicad_sch is), so there is no single path that could correctly
+        # describe it at the file level even in principle. Gated on the same
+        # `_is_hierarchy_root` flag instance_path_prefix's default derives from -- see
+        # the Sch class docstring.
+        sheet_instances_block = (
+            '\t(sheet_instances\n\t\t(path "/" (page "1"))\n\t)\n' if self._is_hierarchy_root else ""
+        )
         return f"""(kicad_sch
 \t(version 20231120)
 \t(generator "wl-sync-gen")
@@ -591,13 +636,103 @@ class Sch:
 {lib_symbols_text}
 \t)
 {chr(10).join(self.body)}
-\t(sheet_instances
-\t\t(path "/" (page "1"))
-\t)
-\t(embedded_fonts no)
+{sheet_instances_block}\t(embedded_fonts no)
 )
 """
 
 
 def write_project_stub(path: Path) -> None:
     path.write_text('{"board":{},"schematic":{}}\n')
+
+
+# ---------------------------------------------------------------------------
+# Reading hierarchy/ancestor-path information back out of an already-rendered
+# .kicad_sch file -- what a CHILD sheet's own generator needs to build a correctly-
+# ancestored Sch(instance_path_prefix=...) (see the class docstring above), and what
+# a netlist-contract checker needs to confirm the fix actually took, independent of
+# whatever the generator itself computed in-process. Reads real on-disk text only --
+# no trust placed in any in-memory Sch object from a separate process run, the same
+# discipline gen_mule_pcb.py's schematic-cross-link fix established (Task 3): a
+# separate process invocation mints its own fresh uuids, so the only value worth
+# trusting is the one actually committed to the artifact being built against.
+# ---------------------------------------------------------------------------
+
+_FILE_UUID_RE = re.compile(r'\(uuid\s+"([0-9a-fA-F-]{36})"\)')
+
+
+def find_root_uuid(sch_text: str) -> str:
+    """The FILE's own identity uuid -- the first `(uuid "...")` in a rendered
+    .kicad_sch, emitted before lib_symbols or any placed element (see Sch.render()).
+    For a project ROOT this is also the value every one of its own directly-placed
+    components' `(instances (path "/<this>" ...))` should carry (confirmed against
+    demos/complex_hierarchy/complex_hierarchy.kicad_sch). It is NOT what a CHILD
+    sheet's own components should carry -- see find_sheet_instance_path().
+    """
+    m = _FILE_UUID_RE.search(sch_text)
+    assert m, "no top-level (uuid \"...\") found -- not a rendered .kicad_sch file"
+    return m.group(1)
+
+
+_SHEET_BLOCK_RE = re.compile(r"\(sheet\n")
+_SHEETFILE_PROP_RE = re.compile(r'\(property "Sheetfile" "([^"]+)"')
+
+
+def find_sheet_instance_path(parent_sch_text: str, parent_root_uuid: str, child_filename: str) -> str:
+    """The correct `(instances (path "..." ...))` PREFIX for every component a CHILD
+    sheet places, given the PARENT (or root) .kicad_sch's own already-rendered text,
+    that parent's own root uuid (find_root_uuid(parent_sch_text), passed in rather
+    than re-derived here so a caller walking a >2-level hierarchy can chain calls with
+    the true project root's uuid throughout, not each intermediate parent's own), and
+    the child's `Sheetfile` property text exactly as the parent's own `(sheet ...)`
+    block spells it (e.g. "sheets/power.kicad_sch").
+
+    This is the read side of the fix for the self-referential-`(instances (path...))`
+    defect flagged in task-7-report.md's Concerns (Sch previously always used its OWN
+    root_uuid for this, correct only when a file IS the root). Confirmed against a
+    real KiCad-authored file, not assumed: demos/complex_hierarchy/ampli_ht.kicad_sch
+    is placed TWICE from complex_hierarchy.kicad_sch (as "ampli_ht_vertical" and
+    "ampli_ht_horizontal"), and every one of its own components carries two `(path
+    ...)` entries, `/<root>/<vertical sheet symbol's own uuid>` and `/<root>/<horizontal
+    sheet symbol's own uuid>` -- ampli_ht.kicad_sch's OWN file-identity uuid appears in
+    neither, proving only the PLACING sheet symbol's own uuid (not the child file's
+    own identity) belongs in the chain.
+    """
+    for m in _SHEET_BLOCK_RE.finditer(parent_sch_text):
+        block = _find_balanced(parent_sch_text, m.start())
+        fm = _SHEETFILE_PROP_RE.search(block)
+        if fm and fm.group(1) == child_filename:
+            um = _FILE_UUID_RE.search(block)
+            assert um, f"(sheet ...) block for Sheetfile {child_filename!r} has no (uuid ...)"
+            return f"/{parent_root_uuid}/{um.group(1)}"
+    raise AssertionError(
+        f"no (sheet ...) block with Sheetfile {child_filename!r} found in the given parent "
+        f"schematic text -- wrong parent file, or the sheet symbol hasn't been placed yet"
+    )
+
+
+_INSTANCES_BLOCK_RE = re.compile(r"\(instances\n")
+_INSTANCE_PATH_RE = re.compile(r'\(path\s+"([^"]+)"')
+
+
+def find_all_instance_paths(sch_text: str) -> list[str]:
+    """Every `(instances (project ... (path "..." ...)))` PATH STRING actually present
+    in a rendered .kicad_sch file -- one per placed symbol/power-flag/sheet-symbol
+    instance (more than one only for a child sheet instantiated more than once by its
+    own parent, e.g. the ampli_ht.kicad_sch case documented in
+    find_sheet_instance_path() -- not this project's power.kicad_sch, placed once).
+    Used by check_breakout_power_netlist.py to confirm, independently and from the
+    actual on-disk artifact, that every path resolves to the real ancestor chain
+    find_sheet_instance_path() computes -- not merely that Sch was CONSTRUCTED with
+    the right instance_path_prefix (which the exported netlist itself cannot show:
+    confirmed empirically that kicad-cli sch export netlist recomputes each
+    component's own `sheetpath`/`tstamps` fields by walking the real `(sheet ...)`
+    file-path hierarchy, never by reading this `(instances (path ...))` bookkeeping at
+    all, so a self-referential path here does not show up as any difference in the
+    exported netlist -- only in the raw .kicad_sch source itself, which is why this
+    function reads that directly rather than extending parse_netlist()).
+    """
+    paths = []
+    for m in _INSTANCES_BLOCK_RE.finditer(sch_text):
+        block = _find_balanced(sch_text, m.start())
+        paths.extend(_INSTANCE_PATH_RE.findall(block))
+    return paths

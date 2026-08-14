@@ -3,12 +3,12 @@
 	(generator "pcbnew")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "4-pin mini-DIN, panel mount, Same Sky (CUI) MD-40SN. Through-panel bushing diameter (10.0mm) from the manufacturer's own dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf); panel flange envelope 38.5x15.25mm and 2x M? mounting ears at 30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side hardware, not part of this PCB footprint (see hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact per-pin angle is an even-spacing approximation, not measured off the drawing's own small pin diagram, and may be a topology error rather than a tolerance one -- see hardware/README.md; verify against a physical sample before fab.")
+	(descr "4-pin mini-DIN, panel mount, Same Sky (CUI) MD-40SN -- discontinued per the manufacturer's own datasheet revision history (rev 1.06/1.07, 2022-2023; see hardware/README.md) -- flagged here as a real procurement fact, not a reason this generator substitutes a different part on its own. Through-panel bushing diameter (10mm) from the manufacturer's own dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf), confirmed shared across MD-30SN through MD-80SN, not just the row this specific part number sits on; panel flange envelope 38.5x15.25mm and 2x M? mounting ears at 30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side hardware, not part of this PCB footprint (see hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact per-pin angle is an even-spacing approximation, not measured off the drawing's own small pin diagram, and may be a topology error rather than a tolerance one -- see hardware/README.md; verify against a physical sample before fab.")
 	(tags "connector mini-DIN power inlet panel MD-40SN")
 	(property "Reference" "REF**"
 		(at 0 -6.5 0)
 		(layer "F.SilkS")
-		(uuid "2eca3d38-0fbf-4693-84fb-ba5944ae19c2")
+		(uuid "b8712720-e11b-4b73-b7ea-39ef2d235163")
 		(effects
 			(font
 				(size 1 1)
@@ -19,7 +19,7 @@
 	(property "Value" "MiniDIN_4_Panel"
 		(at 0 6.5 0)
 		(layer "F.Fab")
-		(uuid "4db2dacc-a5fb-44c3-bd39-3417b5a2343a")
+		(uuid "c8c89874-e2bb-4507-8974-5c4257e5f403")
 		(effects
 			(font
 				(size 1 1)
@@ -31,7 +31,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "3aa70c1f-1c60-4e97-afad-071f8679fc35")
+		(uuid "c9c71dd2-27a2-47a5-9ef4-809d6f843f28")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -42,7 +42,7 @@
 		(at 0 0 0)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "09e4ae3c-332e-4564-9e78-aae2263684e2")
+		(uuid "8bb2fccd-1a54-4cb6-9f3e-be4ecf5bdded")
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -60,7 +60,7 @@
 		)
 		(fill no)
 		(layer "F.SilkS")
-		(uuid "a2812770-aa5e-4228-8cf5-7661d9bac338")
+		(uuid "5b833256-eba4-4596-a02c-8aa29b385803")
 	)
 	(fp_circle
 		(center 0 0)
@@ -71,7 +71,7 @@
 		)
 		(fill no)
 		(layer "F.CrtYd")
-		(uuid "86a12d2d-97e6-48ba-a2ee-b876bfc6eea9")
+		(uuid "b72f9531-e628-48cd-a54c-49a59502b31c")
 	)
 	(fp_circle
 		(center 0 0)
@@ -82,7 +82,7 @@
 		)
 		(fill no)
 		(layer "F.Fab")
-		(uuid "71fc48db-43a9-41d9-bef9-b62aee83a593")
+		(uuid "da4c4ef1-60ac-4286-b121-49bf0154aa80")
 	)
 	(pad "1" thru_hole rect
 		(at 0 -3.5)
@@ -90,7 +90,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "40894110-12b3-4c80-a841-a56764232db1")
+		(uuid "d912bfdd-0d46-417b-8a00-f4c3f6c049cd")
 	)
 	(pad "2" thru_hole circle
 		(at 3.5 0)
@@ -98,7 +98,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "340f3d03-059d-4b5e-b4a6-9670d5787972")
+		(uuid "0c053711-f999-4a9f-86c1-9105e3d3bf05")
 	)
 	(pad "3" thru_hole circle
 		(at 0 3.5)
@@ -106,7 +106,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "a05513a2-c7bc-439f-9b36-3476c0597850")
+		(uuid "bde892b2-e86d-47e1-9748-880ea48f0e18")
 	)
 	(pad "4" thru_hole circle
 		(at -3.5 0)
@@ -114,7 +114,7 @@
 		(drill 0.7)
 		(layers "*.Cu" "*.Mask")
 		(remove_unused_layers no)
-		(uuid "17c2c5b7-cea4-4941-96f7-4926423a1051")
+		(uuid "4ca48a90-2fca-40f7-889b-5e7a8a078785")
 	)
 	(embedded_fonts no)
 )

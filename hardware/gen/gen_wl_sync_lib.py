@@ -4,9 +4,7 @@ needs that aren't in any KiCad stock library. Task 6 (docs/superpowers/plans/
 connector), mini-XLR TA4M/TA5M, the 4-pin mini-DIN (+-12V inlet), the ACCES I/O
 USB-AO16-8A's mating DB37 connector, and the Raspberry Pi 5 40-pin GPIO header. Task 7
 (power sheet) added a sixth and seventh: TPS7A4901 and TPS7A3001, TI's ultralow-noise
-36V/-35V adjustable LDOs (the brief's exact-named logic-rail regulator, and its "negative
-counterpart" datasheet-recommended pairing for post-DC-DC-converter analog-rail cleanup --
-see task-7-report.md) -- real, specific, orderable parts with no stock KiCad symbol at
+36V/-35V adjustable LDOs -- real, specific, orderable parts with no stock KiCad symbol at
 all (confirmed by grepping every .kicad_sym under KiCad's install for "TPS7A49"/"TPS7A30";
 neither exists), unlike Tasks 2/3's stand-in-symbol-plus-Value-override workaround for
 parts that ARE in stock libraries just under a pin-compatible sibling's name. A stand-in
@@ -15,7 +13,20 @@ have a real EN pin (the datasheet's own "Do not float the enable (EN) pin" is a 
 not a suggestion) and a real NR/SS noise-reduction pin that this design's low-noise
 rationale specifically wants wired -- no already-stocked LDO's pinout has those pins to
 borrow, so a stand-in would omit signals this circuit needs to actually route, not just
-misname them.
+misname them. As originally built, TPS7A4901 filled TWO roles (the brief's named
++12V->+5V logic-rail regulator, AND -- a second instance -- post-DC-DC-converter cleanup
+on the isolated +15V(raw) rail, paired with TPS7A3001 as its datasheet-documented
+"negative counterpart" on the -15V(raw) side); Task 7 fix round 1 (task-7-report.md, "the
++5V rail is undersized by roughly a factor of two") removed the first role -- +5V now
+comes directly from a fifth inlet pin instead of being regulated down from +12V on
+board -- so TPS7A4901/TPS7A3001 now serve ONLY the isolated-supply post-regulation role,
+one instance each. Both symbols are unchanged by that fix (only gen_breakout_power.py's
+own placement code changed); still described here for completeness since a symbol's own
+Description property (below) is written once and read by whoever places it later.
+
+Task 7 fix round 1 also added an eighth (schematic) symbol, MiniDIN_5 -- the 5-pin
+mini-DIN inlet connector the +5V fix needs (see MiniDIN_5's own comment block below for
+why a fifth inlet pin is required and the real part it models).
 
 These are hand-designed from scratch (no stock symbol to extract from), so this module
 writes raw s-expression text directly rather than using kicad_sch.py's extract_symbol()
@@ -353,16 +364,71 @@ SYM_TA5M = build_symbol(
 # ---------------------------------------------------------------------------
 # 4. 4-pin mini-DIN, panel mount -- +-12V inlet. Generic pin-to-rail assignment (a
 #    Task 7 decision; see module docstring). Real part: Same Sky (CUI) MD-40SN.
+#
+#    SUPERSEDED at the inlet as of Task 7 fix round 1 (task-7-report.md): the +5V rail
+#    moved from an on-board TPS7A4901 regulated off +12V to coming directly off a FIFTH
+#    inlet pin (see MiniDIN_5 below), so gen_breakout_power.py now places that symbol,
+#    not this one. Left defined and in the library rather than deleted -- nothing else
+#    references it, but it is a real, harmless, still-correct 4-pin part definition, and
+#    removing it is not something this fix's own scope (the +5V undersizing and the
+#    instances-path defect) calls for.
 # ---------------------------------------------------------------------------
 SYM_MINIDIN4 = build_symbol(
     "MiniDIN_4",
     "J",
     "MiniDIN_4",
     "4-pin mini-DIN, panel mount (Same Sky/CUI MD-40SN) -- analog +-12V supply inlet. "
-    "Pin-to-rail assignment (+12V/-12V/GND/shield) is made where this is placed.",
+    "Pin-to-rail assignment (+12V/-12V/GND/shield) is made where this is placed. "
+    "Superseded at the inlet by MiniDIN_5 as of Task 7 fix round 1 -- see that symbol.",
     "connector mini-DIN power inlet panel",
     "https://www.sameskydevices.com/product/resource/md-sn.pdf",
     [(str(n), str(n)) for n in range(1, 5)],
+)
+
+# ---------------------------------------------------------------------------
+# 4b. 5-pin mini-DIN, panel mount -- Task 7 fix round 1 (task-7-report.md, "Fix round
+#    1"): the board's +5V logic rail is undersized regulating it down from +12V on
+#    board (a worst-case ~26 simultaneous optocoupler LEDs need ~180-260mA, the
+#    TPS7A4901 caps at 150mA), and the fix is bringing +5V in directly from the
+#    external supply instead -- which needs a fifth inlet pin. Real part: Same Sky
+#    (CUI) MD-50SN, same MD-SN family and the SAME primary-source mechanical drawing
+#    as MD-40SN above (sameskydevices.com/product/resource/md-sn.pdf, pulled directly
+#    for this fix, not assumed to carry over unchanged from the 4-pin row): panel
+#    envelope (38.5x15.25mm), mounting-ear spacing/diameter (30.0mm centres, 3.05mm
+#    dia) and through-panel bushing diameter (10.0mm) are confirmed IDENTICAL across
+#    every pin count from MD-30SN through MD-80SN (only the 9-pin MD-90SN differs,
+#    with a larger 10.25/10.9mm shell) -- one shared mechanical drawing, just a
+#    different contact count/arrangement stamped into the same shell. Generic
+#    pin-to-rail assignment, same convention as MiniDIN_4 and every other connector in
+#    this file (see module docstring) -- gen_breakout_power.py makes that assignment.
+#
+#    Sourcing note worth recording plainly (public repo, electrical/mechanical facts
+#    only): the datasheet's OWN revision history (rev 1.06, 2022-09-26) lists MD-50SN
+#    among five pin-counts discontinued that day (MD-30SN/50SN/60SN/80SN/90SN), and a
+#    later revision (1.07, 2023-10-04) discontinued MD-40SN too -- so BOTH the 4-pin
+#    part this repo already cites elsewhere and the 5-pin part this fix adds share the
+#    same real procurement risk (only MD-70SN is not listed as discontinued in either
+#    entry). Not a reason to pick a different part here -- re-qualifying the mini-DIN
+#    inlet part number against current distributor stock is squarely Task 0's own
+#    procurement-verification job (the same "buy one physical sample before panel
+#    machining" step hardware/README.md already calls for), not a redesign this
+#    generator gets to make -- but silently citing a discontinued part number without
+#    saying so would be exactly the kind of overclaimed-confidence this repo's own
+#    footprint-sourcing table (hardware/README.md) otherwise takes care to avoid.
+# ---------------------------------------------------------------------------
+SYM_MINIDIN5 = build_symbol(
+    "MiniDIN_5",
+    "J",
+    "MiniDIN_5",
+    "5-pin mini-DIN, panel mount (Same Sky/CUI MD-50SN -- discontinued per the "
+    "manufacturer's own datasheet revision history, same as MD-40SN; see "
+    "hardware/README.md) -- +12V/-12V/+5V supply inlet (Task 7 fix round 1: +5V now "
+    "comes directly from the external supply rather than being regulated down from "
+    "+12V on board). Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where "
+    "this is placed.",
+    "connector mini-DIN power inlet panel",
+    "https://www.sameskydevices.com/product/resource/md-sn.pdf",
+    [(str(n), str(n)) for n in range(1, 6)],
 )
 
 # ---------------------------------------------------------------------------
@@ -441,15 +507,19 @@ SYM_PI5_HEADER = build_symbol(
 
 
 # ---------------------------------------------------------------------------
-# 7/8. TPS7A4901 / TPS7A3001 -- TI's ultralow-noise adjustable LDO pair (the brief's
-#    exact-named +12V->+5V logic-rail regulator, TPS7A4901, and its datasheet-documented
-#    "negative counterpart" TPS7A3001, reused for the isolated -15V(raw)->-12V
-#    post-regulation stage rather than a generic 79Lxx -- see task-7-report.md for why:
-#    TI's own TPS7A49 datasheet section 9.1.11 "Power for Precision Analog" names TPS7A30
-#    by part number as the pairing for exactly this application, and TPS7A49's own
-#    Figure 28 ("Post DC-DC Converter Regulation to High-Performance Analog Circuitry")
-#    draws TPS7A49+TPS7A30 cleaning a raw +-18V rail to +-15V -- the identical topology
-#    this design uses at +-15V(raw)->+-12V).
+# 7/8. TPS7A4901 / TPS7A3001 -- TI's ultralow-noise adjustable LDO pair. TPS7A4901
+#    originally also served as the brief's named +12V->+5V logic-rail regulator;
+#    Task 7 fix round 1 removed that role (+5V now comes directly off a fifth inlet
+#    pin -- see MiniDIN_5 below and task-7-report.md's "Fix round 1"), so as of that
+#    fix both symbols serve only the isolated-supply post-regulation stage: TPS7A4901
+#    (positive) paired with its datasheet-documented "negative counterpart" TPS7A3001
+#    (negative) cleaning the isolated -15V(raw)->-12V rail, one instance each, rather
+#    than a generic 79Lxx -- see task-7-report.md for why: TI's own TPS7A49 datasheet
+#    section 9.1.11 "Power for Precision Analog" names TPS7A30 by part number as the
+#    pairing for exactly this application, and TPS7A49's own Figure 28 ("Post DC-DC
+#    Converter Regulation to High-Performance Analog Circuitry") draws TPS7A49+TPS7A30
+#    cleaning a raw +-18V rail to +-15V -- the identical topology this design uses at
+#    +-15V(raw)->+-12V).
 #
 #    Pin table sourced directly from each part's own current datasheet (TI SBVS121E for
 #    TPS7A49/TPS7A4901, SBVS125D for TPS7A30/TPS7A3001 -- both "Pin Configuration and
@@ -510,16 +580,16 @@ SYM_TPS7A3001 = build_ic_symbol(
 )
 
 SYMBOLS = [
-    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_MINIDIN4, SYM_ACCESIO, SYM_PI5_HEADER,
+    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_MINIDIN4, SYM_MINIDIN5, SYM_ACCESIO, SYM_PI5_HEADER,
     SYM_TPS7A4901, SYM_TPS7A3001,
 ]
 _SYMBOL_NAMES = [
-    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "MiniDIN_4",
+    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "MiniDIN_4", "MiniDIN_5",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
     "TPS7A4901", "TPS7A3001",
 ]
 _EXPECTED_PIN_COUNTS = {
-    "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "MiniDIN_4": 4,
+    "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "MiniDIN_4": 4, "MiniDIN_5": 5,
     "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
     "TPS7A4901": 8, "TPS7A3001": 8,
 }

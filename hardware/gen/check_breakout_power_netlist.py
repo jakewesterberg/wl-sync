@@ -1,5 +1,6 @@
-"""Parse hardware/breakout's exported netlist and verify the power sheet's contract nets
-are electrically correct -- not just that ERC was silent.
+"""Parse hardware/breakout's exported netlist (and, for two checks the exported netlist
+provably cannot answer -- see below, the raw .kicad_sch sources) and verify the power
+sheet's contract nets are electrically correct -- not just that ERC was silent.
 
 Why this exists, not just ERC (same reasoning as check_mule_netlist.py's own docstring,
 restated because it is the reason THIS file exists too, not inherited automatically): this
@@ -15,6 +16,35 @@ point, and that the isolated rails share no PIN with the non-isolated ones.
 
 Reuses check_mule_netlist.py's parser (parse_netlist, Node, CheckFailure, check) rather
 than re-implementing it -- same netlist s-expression shape, same repo, same job.
+
+TASK 7 FIX ROUND 1 (task-7-report.md, "Fix round 1") added two check families on top of
+the original nine, one per finding:
+
+  - verify() gained a "+5V originates at the inlet, not a regulator" check (Finding 1: the
+    +5V rail was undersized regulating it down from +12V on board; the fix moved it to a
+    direct inlet rail instead, and this is the netlist-topology proof that fix actually
+    landed -- D3 bridges P5_RAW<->+5V with the same reverse-polarity orientation as D1,
+    J1 has a pin on P5_RAW, and critically, NO power_out-typed pin sits on +5V anywhere
+    -- ruling out ANY regulator driving it, not just the specific TPS7A4901 that used to).
+  - A new, separate verify_instance_paths() (Finding 2: the child sheet's own component
+    `(instances (path ...))` ancestor chain was self-referential -- this file's own root
+    uuid, correct only for a hierarchy ROOT -- rather than the true breakout-root +
+    power-sheet-symbol chain a real KiCad-authored nested sheet carries). This check
+    CANNOT be folded into verify() or run against the exported netlist at all: confirmed
+    empirically against the ORIGINAL (pre-fix) committed power.kicad_sch -- its every
+    component's own `(instances (path "/cac9e729-..." ...))` carried that file's own
+    self-referential root uuid (grepped directly: 47 raw occurrences in the .kicad_sch
+    source), yet that exact uuid string had ZERO occurrences anywhere in the exported
+    netlist kicad-cli produced from it, and the netlist's own per-component `sheetpath`/
+    `tstamps` fields already matched the REAL breakout-root+sheet-symbol chain even
+    then. I.e. kicad-cli sch export netlist recomputes those fields by walking the REAL
+    `(sheet ...)` file hierarchy from the invoked root, never by reading a component's
+    own `(instances (path ...))` bookkeeping at all -- the defect was already invisible
+    in the netlist BEFORE this fix, not merely unchanged by it. So this check reads the raw
+    .kicad_sch sources directly (kicad_sch.py's find_root_uuid()/find_sheet_instance_path()/
+    find_all_instance_paths(), the same helpers gen_breakout_power.py's own build() now
+    uses to compute the correct prefix in the first place) -- the only place this defect is
+    actually visible on disk.
 
 Regenerate the netlist this reads via:
     kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net \\
@@ -40,8 +70,21 @@ from check_mule_netlist import (  # noqa: E402
     parse_component_values,
     parse_netlist,
 )
+from kicad_sch import (  # noqa: E402
+    find_all_instance_paths,
+    find_root_uuid,
+    find_sheet_instance_path,
+)
 
 DEFAULT_NET_PATH = Path("/tmp/breakout.net")
+# The two raw .kicad_sch sources verify_instance_paths() reads -- see module docstring
+# for why this check can't use the exported netlist at all. Not overridable from argv
+# (unlike DEFAULT_NET_PATH): the task's own verification command runs this script with
+# no arguments, so these two must resolve correctly on their own.
+DEFAULT_BREAKOUT_SCH = Path(__file__).resolve().parent.parent / "breakout" / "breakout.kicad_sch"
+DEFAULT_POWER_SCH = DEFAULT_BREAKOUT_SCH.parent / "sheets" / "power.kicad_sch"
+POWER_SHEETFILE = "sheets/power.kicad_sch"  # exactly as breakout.kicad_sch's own Sheetfile
+# property spells it -- must match gen_breakout_power.py's own POWER_SHEETFILE constant.
 
 # The brief's own required net list -- task-7-brief.md, "Net names you must produce,
 # exactly". Every other breakout sheet consumes these by name.
@@ -53,18 +96,26 @@ CONTRACT_NETS = [
 # nodes (the pi filters' raw/filtered nodes and the two isolated-side regulators'
 # FB/NR-SS nodes) -- everything electrically inside the DC-DC's secondary side. Checked
 # at PIN level against NON_ISO_NETS below, same reasoning check_mule_netlist.py's own
-# ISO_NETS/NON_ISO_NETS split gives: U3 (the isolated DC-DC) legitimately straddles the
+# ISO_NETS/NON_ISO_NETS split gives: U2 (the isolated DC-DC) legitimately straddles the
 # barrier BY REFERENCE (primary pins on the non-isolated side, secondary pins on the
 # isolated side), so only a PIN-level check -- not a reference-level one -- can tell a
 # real short from the converter's own by-design straddling.
+#
+# Reference numbers below are Task 7 fix round 1's, not the original report's: removing
+# the old U1 (TPS7A4901, the undersized +12V->+5V logic regulator -- Finding 1) shifted
+# every later reference down by one (U2->U1, U3->U2, U4->U3, U5->U4; R3-R6->R1-R4;
+# recomputed directly against the regenerated netlist, not hand-derived -- see
+# task-7-report.md's "Fix round 1"). U1_FB/U1_NRSS (the old TPS7A4901-for-+5V's own FB/
+# NR-SS nodes) no longer exist at all -- LD1117S33 (now U1) is a fixed regulator with
+# neither pin -- so they are dropped here, not renumbered.
 ISO_NETS = [
     "ISO_P12", "ISO_N12", "INTAN_GND",
     "ISO_P15_RAW", "ISO_P15_FILT", "ISO_N15_RAW", "ISO_N15_FILT",
-    "U4_FB", "U4_NRSS", "U5_FB", "U5_NRSS",
+    "U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS",
 ]
 NON_ISO_NETS = [
     "+12V", "-12V", "+5V", "+3V3", "AGND", "DGND",
-    "P12_RAW", "N12_RAW", "U1_FB", "U1_NRSS",
+    "P12_RAW", "N12_RAW", "P5_RAW",
 ]
 
 # Rail-pair bypass/bulk capacitor counts -- every capacitor gen_breakout_power.py places
@@ -72,19 +123,24 @@ NON_ISO_NETS = [
 # by a future edit accidentally dropping, adding, or moving one -- same
 # regression-guard purpose as check_mule_netlist.py's own RAIL_BYPASS_EXPECTED, computed
 # here directly against the currently-generated netlist (see task-7-report.md) rather than
-# assumed from the generator's own source.
+# assumed from the generator's own source. Recomputed for fix round 1 (reference numbers
+# shifted -- see ISO_NETS's own comment above; only +12V/DGND's COUNT actually changed,
+# 2->1, since U1's own CIN cap is gone along with U1 itself).
 RAIL_BYPASS_EXPECTED = {
     ("+12V", "AGND"): 2,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1
     ("-12V", "AGND"): 2,          # C3, C4 -- ditto, -12V rail
-    ("+12V", "DGND"): 2,          # C7 (U1 CIN), C12 (U3/IH1215D primary bypass)
-    ("+5V", "DGND"): 2,           # C8 (U1 COUT), C9 (U1 COUT extra HF bypass)
-    ("+3V3", "DGND"): 2,          # C10, C11 -- U2/LD1117S33TR output decouple+bulk
-    ("ISO_P12", "INTAN_GND"): 2,  # C17, C18 -- U4 COUT + extra HF bypass
-    ("ISO_N12", "INTAN_GND"): 2,  # C23, C24 -- U5 COUT + extra HF bypass
-    ("ISO_P15_RAW", "INTAN_GND"): 1,   # C13 -- positive pi filter's first 10uF
-    ("ISO_P15_FILT", "INTAN_GND"): 1,  # C14 -- positive pi filter's second 10uF / U4 CIN
-    ("ISO_N15_RAW", "INTAN_GND"): 1,   # C19 -- negative pi filter's first 10uF
-    ("ISO_N15_FILT", "INTAN_GND"): 1,  # C20 -- negative pi filter's second 10uF / U5 CIN
+    ("+5V", "DGND"): 2,           # C5, C6 -- entry bulk+small, fix round 1 (DGND-referenced
+                                   # per _place_inlet()'s own docstring, not AGND like the
+                                   # other two entry rails)
+    ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
+                                   # round 1: U1's own CIN, now gone with U1, was the other)
+    ("+3V3", "DGND"): 2,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
+    ("ISO_P12", "INTAN_GND"): 2,  # C14, C15 -- U3 COUT + extra HF bypass
+    ("ISO_N12", "INTAN_GND"): 2,  # C20, C21 -- U4 COUT + extra HF bypass
+    ("ISO_P15_RAW", "INTAN_GND"): 1,   # C10 -- positive pi filter's first 10uF
+    ("ISO_P15_FILT", "INTAN_GND"): 1,  # C11 -- positive pi filter's second 10uF / U3 CIN
+    ("ISO_N15_RAW", "INTAN_GND"): 1,   # C16 -- negative pi filter's first 10uF
+    ("ISO_N15_FILT", "INTAN_GND"): 1,  # C17 -- negative pi filter's second 10uF / U4 CIN
 }
 
 
@@ -174,24 +230,27 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"isolated-domain nets and the {len(NON_ISO_NETS)} non-isolated nets."
     )
 
-    # --- U3 (IH1215D) pin map: confirms the isolated DC-DC's primary side really is on
+    # --- U2 (IH1215D) pin map: confirms the isolated DC-DC's primary side really is on
     # +12V/DGND and its secondary side really is on the raw isolated nodes that lead to
     # ISO_P12/ISO_N12/INTAN_GND -- the specific wiring the isolation-barrier check above
-    # depends on being right, not just present. ---
-    u3_map = {"1": "DGND", "3": "+12V", "4": "ISO_N15_RAW", "5": "ISO_P15_RAW", "6": "INTAN_GND"}
-    for pin, net in u3_map.items():
-        nodes = [n for n in nets[net] if n.ref == "U3" and n.pin == pin]
-        check(len(nodes) == 1, f"U3 pin {pin} expected on {net!r}, not found there: {nets[net]}")
-    summary.append("U3 (isolated DC-DC) pin map confirmed: primary +12V/DGND, secondary raw ISO nodes.")
+    # depends on being right, not just present. (Ref "U2", not the original report's
+    # "U3": fix round 1 removed the old U1/TPS7A4901-for-+5V, shifting every later
+    # reference down by one -- see ISO_NETS's own comment above.) ---
+    u2_map = {"1": "DGND", "3": "+12V", "4": "ISO_N15_RAW", "5": "ISO_P15_RAW", "6": "INTAN_GND"}
+    for pin, net in u2_map.items():
+        nodes = [n for n in nets[net] if n.ref == "U2" and n.pin == pin]
+        check(len(nodes) == 1, f"U2 pin {pin} expected on {net!r}, not found there: {nets[net]}")
+    summary.append("U2 (isolated DC-DC) pin map confirmed: primary +12V/DGND, secondary raw ISO nodes.")
 
-    # --- Reverse-polarity diode orientation, D1 (+12V) and D2 (-12V) -- worked through
-    # explicitly in gen_breakout_power.py's own _place_inlet() docstring because the two
-    # rails need OPPOSITE diode orientations and it is easy to get backwards; this is the
-    # executable form of that derivation. A silently-reversed diode would still produce a
-    # net literally named "+12V" or "-12V" (ERC-clean, netlist-plausible) while providing
-    # NO reverse-polarity protection at all -- exactly the "plausible but wrong" failure
-    # class this whole checker exists to catch, just at the component-orientation level
-    # instead of the pin-resolution level. ---
+    # --- Reverse-polarity diode orientation, D1 (+12V), D2 (-12V), and D3 (+5V, fix
+    # round 1) -- worked through explicitly in gen_breakout_power.py's own
+    # _place_inlet() docstring because -12V needs the OPPOSITE orientation from +12V/+5V
+    # and it is easy to get backwards; this is the executable form of that derivation. A
+    # silently-reversed diode would still produce a net literally named "+12V"/"-12V"/
+    # "+5V" (ERC-clean, netlist-plausible) while providing NO reverse-polarity
+    # protection at all -- exactly the "plausible but wrong" failure class this whole
+    # checker exists to catch, just at the component-orientation level instead of the
+    # pin-resolution level. ---
     d1_k = [n for n in nets["+12V"] if n.ref == "D1" and n.pin == "1"]
     d1_a = [n for n in nets["P12_RAW"] if n.ref == "D1" and n.pin == "2"]
     check(len(d1_k) == 1, f"D1 cathode (pin 1) expected on +12V, not found: {nets['+12V']}")
@@ -200,21 +259,58 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     d2_k = [n for n in nets["N12_RAW"] if n.ref == "D2" and n.pin == "1"]
     check(len(d2_a) == 1, f"D2 anode (pin 2) expected on -12V, not found: {nets['-12V']}")
     check(len(d2_k) == 1, f"D2 cathode (pin 1) expected on N12_RAW, not found: {nets['N12_RAW']}")
+    d3_k = [n for n in nets["+5V"] if n.ref == "D3" and n.pin == "1"]
+    d3_a = [n for n in nets["P5_RAW"] if n.ref == "D3" and n.pin == "2"]
+    check(len(d3_k) == 1, f"D3 cathode (pin 1) expected on +5V, not found: {nets['+5V']}")
+    check(len(d3_a) == 1, f"D3 anode (pin 2) expected on P5_RAW, not found: {nets['P5_RAW']}")
     summary.append(
         "Reverse-polarity diodes correctly oriented: D1 anode->P12_RAW/cathode->+12V "
         "(source->load), D2 anode->-12V/cathode->N12_RAW (load->source, mirrored -- see "
-        "_place_inlet()'s docstring for the derivation)."
+        "_place_inlet()'s docstring for the derivation), D3 anode->P5_RAW/cathode->+5V "
+        "(source->load, same orientation as D1 -- fix round 1)."
     )
 
-    # --- FB-divider topology + values for the three adjustable regulators (U1, U4, U5):
-    # R_top between OUT and FB, R_bottom between FB and the regulator's own GND net, with
-    # the specific 1%-standard values task-7-report.md derives/cites. Catches a swapped
-    # R1/R2 (which would still "look like" a divider topologically but set the wrong
-    # ratio) as well as a wrong or drifted value. ---
+    # --- Finding 1's own core claim, made executable: +5V ORIGINATES AT THE INLET, not
+    # from a regulator off +12V. Two halves, both needed -- either alone is not the full
+    # claim. (1) POSITIVE: the D3/J1 wiring just confirmed above already proves +5V
+    # traces back to J1 (the physical connector) through exactly one protection diode --
+    # restated here as the conclusion rather than re-checked. (2) NEGATIVE, the half a
+    # topology check alone would miss: no node on +5V is power_out-typed, other than a
+    # PWR_FLAG (which never appears in an exported netlist's own node list at all --
+    # confirmed empirically, checked directly against this net and against +12V's own
+    # long-standing flag -- so no explicit exclusion is even needed here). A regulator's
+    # OUT pin is ALWAYS power_out-typed (confirmed directly: U3's own OUT pin on ISO_P12
+    # is "power_out" in this exact netlist) -- ruling out ANY power_out pin on +5V rules
+    # out ANY regulator driving it, not merely the specific TPS7A4901 fix round 1
+    # removed, catching a future regression that re-adds a DIFFERENT regulator here just
+    # as surely. ---
+    check(len(nets["P5_RAW"]) >= 1, f"P5_RAW: suspiciously small, only {nets['P5_RAW']}")
+    j1_on_p5raw = [n for n in nets["P5_RAW"] if n.ref == "J1"]
+    check(len(j1_on_p5raw) == 1, f"J1 (the inlet connector) has no pin on P5_RAW: {nets['P5_RAW']}")
+    power_out_on_5v = [n for n in nets["+5V"] if n.pintype == "power_out"]
+    check(
+        not power_out_on_5v,
+        f"+5V has a power_out-typed pin ({power_out_on_5v}) -- it is being DRIVEN BY A "
+        f"REGULATOR again, regressing exactly the Finding 1 defect fix round 1 removed "
+        f"(the +5V rail must originate at the inlet via D3, not from an on-board "
+        f"regulator off +12V; see task-7-report.md's 'Fix round 1')",
+    )
+    summary.append(
+        "+5V originates at the inlet (J1 -> D3 -> +5V, same reverse-polarity orientation "
+        "as +12V) and NOT from a regulator: zero power_out-typed pins on +5V anywhere on "
+        "this sheet (fix round 1 -- see task-7-report.md)."
+    )
+
+    # --- FB-divider topology + values for the two adjustable isolated-supply
+    # post-regulators (U3, U4 -- fix round 1 renumbered these from U4/U5; the +5V
+    # regulator's own divider, formerly U1's, no longer exists at all, see ISO_NETS's
+    # own comment above): R_top between OUT and FB, R_bottom between FB and the
+    # regulator's own GND net, with the specific 1%-standard values task-7-report.md
+    # derives/cites. Catches a swapped R1/R2 (which would still "look like" a divider
+    # topologically but set the wrong ratio) as well as a wrong or drifted value. ---
     divider_specs = [
-        ("U1", "+5V", "DGND", "R1", "32.4k", "R2", "10.0k"),
-        ("U4", "ISO_P12", "INTAN_GND", "R3", "90.9k", "R4", "10.0k"),
-        ("U5", "ISO_N12", "INTAN_GND", "R5", "93.1k", "R6", "10.0k"),
+        ("U3", "ISO_P12", "INTAN_GND", "R1", "90.9k", "R2", "10.0k"),
+        ("U4", "ISO_N12", "INTAN_GND", "R3", "93.1k", "R4", "10.0k"),
     ]
     for u_ref, out_net, gnd_net, r_top, r_top_val, r_bot, r_bot_val in divider_specs:
         fb_net = f"{u_ref}_FB"
@@ -246,22 +342,27 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
             f"{values.get(r_bot)!r}",
         )
     summary.append(
-        "FB-divider topology AND values confirmed: U1 R1=32.4k/R2=10.0k (Vout~5.02V), "
-        "U4 R3=90.9k/R4=10.0k (Vout~11.96V), U5 R5=93.1k/R6=10.0k (TI's own published "
-        "-12V pair) -- each R_top bridges OUT<->FB, each R_bottom bridges FB<->GND."
+        "FB-divider topology AND values confirmed: U3 R1=90.9k/R2=10.0k (Vout~11.96V), "
+        "U4 R3=93.1k/R4=10.0k (TI's own published -12V pair) -- each R_top bridges "
+        "OUT<->FB, each R_bottom bridges FB<->GND. (U1/LD1117S33 is a FIXED regulator, "
+        "no divider to check; the old TPS7A4901-for-+5V divider this used to also check "
+        "no longer exists at all -- fix round 1.)"
     )
 
     # --- Right part in the right role: the wl-sync custom symbols (TPS7A4901/TPS7A3001)
-    # and the two real, specific, brief-named/report-justified parts (IH1215D, SS14) are
-    # each the value gen_breakout_power.py actually intends for that reference -- catches
-    # a copy-paste value mistake (e.g. U5 accidentally left as "TPS7A4901" instead of
-    # "TPS7A3001", which would silently turn the -12V post-regulator into a POSITIVE
-    # regulator wired backwards) that no net-topology check above would notice, since the
-    # pin NUMBERS/NAMES are identical between the two parts by design (see
-    # gen_wl_sync_lib.py's own comment on the shared TPS7A49_PINS table). ---
+    # and the real, specific, brief-named/report-justified parts (IH1215D, SS14,
+    # LD1117S33TR_SOT223) are each the value gen_breakout_power.py actually intends for
+    # that reference -- catches a copy-paste value mistake (e.g. U4 accidentally left as
+    # "TPS7A4901" instead of "TPS7A3001", which would silently turn the -12V
+    # post-regulator into a POSITIVE regulator wired backwards) that no net-topology
+    # check above would notice, since the pin NUMBERS/NAMES are identical between the
+    # two parts by design (see gen_wl_sync_lib.py's own comment on the shared
+    # TPS7A49_PINS table). References renumbered for fix round 1 -- see ISO_NETS's own
+    # comment above; D3 (the new +5V protection diode) added. ---
     expected_values = {
-        "U1": "TPS7A4901", "U2": "LD1117S33TR_SOT223", "U3": "IH1215D",
-        "U4": "TPS7A4901", "U5": "TPS7A3001", "D1": "SS14", "D2": "SS14",
+        "U1": "LD1117S33TR_SOT223", "U2": "IH1215D",
+        "U3": "TPS7A4901", "U4": "TPS7A3001",
+        "D1": "SS14", "D2": "SS14", "D3": "SS14",
     }
     for ref, expected in expected_values.items():
         check(
@@ -286,7 +387,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 
     # --- No two named nets collapsed onto the same physical net (constraint 1's own
     # signature failure: two labels, one real net). ---
-    all_named = CONTRACT_NETS + ["P12_RAW", "N12_RAW"]
+    all_named = CONTRACT_NETS + ["P12_RAW", "N12_RAW", "P5_RAW"]
     seen: dict[frozenset, str] = {}
     for name in all_named:
         key = frozenset((n.ref, n.pin) for n in nets[name])
@@ -378,20 +479,51 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(d1_reversed, good_values, "D1 cathode", "D1 installed backwards")
     results.append(f"D1 (reverse-polarity diode) installed backwards: caught -- {msg}")
 
-    # Divider resistor value drift: R1 (should be 32.4k) accidentally left/edited to a
-    # different value -- topology still correct, only the VALUE is wrong.
+    # D3 (+5V, fix round 1) installed backwards -- same construction as D1's own test
+    # above, mirrored onto the new diode.
+    d3_reversed = copy.deepcopy(good_nets)
+    d3_in_5v = next(n for n in d3_reversed["+5V"] if n.ref == "D3")
+    d3_in_raw = next(n for n in d3_reversed["P5_RAW"] if n.ref == "D3")
+    d3_reversed["+5V"] = [n for n in d3_reversed["+5V"] if n.ref != "D3"] + [
+        Node(ref="D3", pin=d3_in_raw.pin, pinfunction=d3_in_raw.pinfunction, pintype=d3_in_raw.pintype)
+    ]
+    d3_reversed["P5_RAW"] = [n for n in d3_reversed["P5_RAW"] if n.ref != "D3"] + [
+        Node(ref="D3", pin=d3_in_5v.pin, pinfunction=d3_in_5v.pinfunction, pintype=d3_in_5v.pintype)
+    ]
+    msg = _assert_fails(d3_reversed, good_values, "D3 cathode", "D3 installed backwards")
+    results.append(f"D3 (+5V reverse-polarity diode, fix round 1) installed backwards: caught -- {msg}")
+
+    # Finding 1 regression control: +5V driven by a regulator again -- inject a
+    # synthetic power_out-typed node onto "+5V" (exactly what re-adding ANY regulator's
+    # OUT pin there, not just the specific removed TPS7A4901, would look like in the
+    # netlist) and confirm the "not from a regulator" half of the +5V-origin check fires.
+    regulator_regressed = copy.deepcopy(good_nets)
+    phantom_reg = Node(ref="DBG97", pin="1", pinfunction="OUT_1", pintype="power_out")
+    regulator_regressed["+5V"] = regulator_regressed["+5V"] + [phantom_reg]
+    msg = _assert_fails(
+        regulator_regressed, good_values, "power_out-typed pin", "+5V driven by a regulator again",
+    )
+    results.append(
+        f"+5V regulator regression (synthetic power_out pin injected, simulating a "
+        f"regulator re-added off +12V): caught -- {msg}"
+    )
+
+    # Divider resistor value drift: R1 (should be 90.9k, fix round 1's renumbering)
+    # accidentally left/edited to a different value -- topology still correct, only the
+    # VALUE is wrong.
     drifted_values = dict(good_values)
     drifted_values["R1"] = "10k"
-    msg = _assert_fails(good_nets, drifted_values, "should be '32.4k'", "R1 value drift")
-    results.append(f"R1 value drift (32.4k -> 10k, topology unchanged): caught -- {msg}")
+    msg = _assert_fails(good_nets, drifted_values, "should be '90.9k'", "R1 value drift")
+    results.append(f"R1 value drift (90.9k -> 10k, topology unchanged): caught -- {msg}")
 
-    # Copy-paste part mix-up: U5 (should be TPS7A3001, the negative regulator) left as
-    # TPS7A4901 -- exactly the failure class the "right part in the right role" check
-    # exists for, since the two parts' pin numbers/names are identical.
+    # Copy-paste part mix-up: U4 (should be TPS7A3001, the negative regulator -- fix
+    # round 1 renumbered this from U5) left as TPS7A4901 -- exactly the failure class
+    # the "right part in the right role" check exists for, since the two parts' pin
+    # numbers/names are identical.
     swapped_part = dict(good_values)
-    swapped_part["U5"] = "TPS7A4901"
-    msg = _assert_fails(good_nets, swapped_part, "U5: expected Value", "U5 part mix-up")
-    results.append(f"U5 part mix-up (TPS7A3001 -> TPS7A4901, a copy-paste-shaped bug): caught -- {msg}")
+    swapped_part["U4"] = "TPS7A4901"
+    msg = _assert_fails(good_nets, swapped_part, "U4: expected Value", "U4 part mix-up")
+    results.append(f"U4 part mix-up (TPS7A3001 -> TPS7A4901, a copy-paste-shaped bug): caught -- {msg}")
 
     # Bypass-cap negative control: drop one capacitor's two nodes from a rail pair
     # (simulating an accidental deletion in a future edit).
@@ -405,6 +537,122 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     results.append(f"Bypass cap removal ({victim} dropped from +12V/AGND): caught -- {msg}")
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Finding 2's check: instance-path ancestor-chain resolution. Reads the raw .kicad_sch
+# SOURCES directly, not the exported netlist -- see module docstring for why the netlist
+# cannot show this defect at all (confirmed empirically, not assumed).
+# ---------------------------------------------------------------------------
+
+
+def verify_instance_paths(power_sch_text: str, breakout_sch_text: str) -> str:
+    """Confirm every component/power-flag instance power.kicad_sch places carries the
+    REAL root+sheet-symbol ancestor path (`/<breakout's own root uuid>/<the "power"
+    sheet symbol's own uuid>`, both read fresh off breakout_sch_text -- not trusted from
+    any in-process value) rather than a self-referential one (power.kicad_sch's own
+    file-identity uuid, which is what kicad_sch.py's Sch used to default to for every
+    file regardless of whether it was a hierarchy root -- see task-7-report.md's
+    Concerns and "Fix round 1", and kicad_sch.py's Sch class docstring for the real
+    KiCad file this was confirmed against).
+
+    Returns a summary line on success; raises CheckFailure with a specific message on
+    the first violation. Structured as its own function (not folded into verify()) and
+    given its own self-test (self_test_instance_paths(), below) because its INPUTS are
+    different in kind -- raw schematic source text, not a parsed netlist -- not because
+    the property it checks matters any less.
+    """
+    breakout_root_uuid = find_root_uuid(breakout_sch_text)
+    own_root_uuid = find_root_uuid(power_sch_text)
+    check(
+        own_root_uuid != breakout_root_uuid,
+        f"power.kicad_sch's own file-identity uuid ({own_root_uuid}) collides with "
+        f"breakout.kicad_sch's root uuid ({breakout_root_uuid}) -- regenerate "
+        f"power.kicad_sch (kicad_sch.py's uid() mints a fresh uuid4 per file; an actual "
+        f"collision here would itself be the failure worth investigating)",
+    )
+    expected_prefix = find_sheet_instance_path(breakout_sch_text, breakout_root_uuid, POWER_SHEETFILE)
+
+    paths = find_all_instance_paths(power_sch_text)
+    check(
+        len(paths) >= 40,
+        f"only found {len(paths)} (instances (path ...)) entries in power.kicad_sch -- "
+        f"expected >=40 (one per placed component/power-flag; task-7-report.md's "
+        f"original count was 5 ICs + 24 caps + 6 resistors + 2 diodes + 2 ferrite beads "
+        f"+ 1 net tie + 1 connector + 6 flags = 47, and fix round 1 only shifted counts "
+        f"around, not down past 40)",
+    )
+    bad = [p for p in paths if p != expected_prefix]
+    # `bad[:3]`, not `bad[0]`: check()'s message argument is a plain Python expression,
+    # evaluated eagerly before check() decides whether to raise -- indexing an element
+    # that only exists on the FAILURE path would raise IndexError even when `bad` is
+    # empty and the check legitimately passes. A slice is safe empty-or-not.
+    check(
+        not bad,
+        f"{len(bad)}/{len(paths)} component instance paths in power.kicad_sch do not "
+        f"resolve to the real ancestor chain ({expected_prefix!r}) -- e.g. found "
+        f"{bad[:3]!r} instead. A self-referential path (this file's own root uuid rather "
+        f"than breakout's root + the 'power' sheet symbol's own uuid) breaks "
+        f"cross-probing and any future PCB generator's schematic cross-link, even "
+        f"though it does not change kicad-cli sch erc/export netlist's own output "
+        f"(confirmed empirically -- see task-7-report.md's 'Fix round 1')",
+    )
+    return (
+        f"All {len(paths)} component/power-flag instance paths in power.kicad_sch "
+        f"resolve to the real ancestor chain {expected_prefix!r} (breakout's own root "
+        f"uuid + the 'power' sheet symbol's own uuid), not a self-referential one."
+    )
+
+
+def _assert_instance_paths_fail(power_text: str, breakout_text: str, expect_substring: str, label: str) -> str:
+    try:
+        verify_instance_paths(power_text, breakout_text)
+    except CheckFailure as e:
+        check(
+            expect_substring in str(e),
+            f"self-test {label!r}: verify_instance_paths() failed, but not with the "
+            f"expected complaint (expected a message containing {expect_substring!r}, "
+            f"got: {e})",
+        )
+        return str(e)
+    raise CheckFailure(
+        f"self-test {label!r}: verify_instance_paths() did NOT raise on a corrupted "
+        f"schematic -- the check this self-test exists to validate is passing vacuously"
+    )
+
+
+def self_test_instance_paths(good_power_text: str, good_breakout_text: str) -> list[str]:
+    """One negative control: reintroduce the ORIGINAL self-referential-path defect
+    (task-7-report.md's Concerns, before fix round 1) into a single component's own
+    `(instances (path ...))` entry -- power.kicad_sch's own file-identity uuid in place
+    of the real breakout-root+sheet-symbol chain, exactly what kicad_sch.py's Sch always
+    used to emit -- and confirm verify_instance_paths() catches it. `good_power_text`/
+    `good_breakout_text` must already pass verify_instance_paths() cleanly.
+    """
+    own_root_uuid = find_root_uuid(good_power_text)
+    breakout_root_uuid = find_root_uuid(good_breakout_text)
+    real_prefix = find_sheet_instance_path(good_breakout_text, breakout_root_uuid, POWER_SHEETFILE)
+
+    # Corrupt exactly ONE occurrence (not every one) -- a single mis-generated
+    # component's path is a more realistic regression than the whole file reverting,
+    # and proves the check catches even one bad entry among many good ones, not just a
+    # wholesale reversion.
+    corrupted = good_power_text.replace(f'(path "{real_prefix}"', f'(path "/{own_root_uuid}"', 1)
+    check(
+        corrupted != good_power_text,
+        "self-test setup failed: no occurrence of the expected ancestor path found to "
+        "corrupt -- good_power_text may not actually be passing verify_instance_paths() "
+        "cleanly to begin with",
+    )
+    msg = _assert_instance_paths_fail(
+        corrupted, good_breakout_text, "do not resolve to the real ancestor chain",
+        "one component's instance path reverted to self-referential",
+    )
+    return [
+        f"Self-referential instance path (power.kicad_sch's own root uuid in place of "
+        f"the real breakout ancestor chain, on one component -- the exact original "
+        f"defect) reintroduced: caught -- {msg}"
+    ]
 
 
 def main() -> int:
@@ -436,6 +684,34 @@ def main() -> int:
         return 1
     print("SELF-TEST PASS (negative controls fired as expected):")
     for line in self_test_results:
+        print(f"  - {line}")
+
+    # Finding 2's check: instance-path ancestor-chain resolution -- reads the raw
+    # .kicad_sch SOURCES, not the netlist (see module docstring for why). Not
+    # overridable from argv, unlike net_path above -- see DEFAULT_BREAKOUT_SCH/
+    # DEFAULT_POWER_SCH's own comment.
+    if not DEFAULT_BREAKOUT_SCH.exists() or not DEFAULT_POWER_SCH.exists():
+        print(
+            f"error: {DEFAULT_BREAKOUT_SCH} and/or {DEFAULT_POWER_SCH} do not exist -- "
+            f"run gen_breakout.py and gen_breakout_power.py first"
+        )
+        return 1
+    breakout_sch_text = DEFAULT_BREAKOUT_SCH.read_text()
+    power_sch_text = DEFAULT_POWER_SCH.read_text()
+    try:
+        path_summary = verify_instance_paths(power_sch_text, breakout_sch_text)
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {path_summary}")
+
+    try:
+        path_self_test_results = self_test_instance_paths(power_sch_text, breakout_sch_text)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print("SELF-TEST PASS (negative controls fired as expected):")
+    for line in path_self_test_results:
         print(f"  - {line}")
     return 0
 

@@ -1,12 +1,20 @@
-"""Generator for hardware/lib/wl-sync.pretty/*.kicad_mod -- the four custom footprints
-Task 6 needs that aren't in any KiCad stock .pretty library: the 68-pin MDR male
-(right-angle PCB mount), mini-XLR TA4M and TA5M (panel mount), and the 4-pin mini-DIN
-(panel mount). The fifth and sixth symbols this task adds (the ACCES I/O DB37 connector
-and the Raspberry Pi 5 GPIO header) reuse STOCK footprints instead: DB37 is a mechanically
+"""Generator for hardware/lib/wl-sync.pretty/*.kicad_mod -- the custom footprints Task 6
+needs that aren't in any KiCad stock .pretty library: the 68-pin MDR male (right-angle PCB
+mount), mini-XLR TA4M and TA5M (panel mount), and the 4-pin mini-DIN (panel mount) -- four
+originally. The fifth and sixth symbols Task 6 adds (the ACCES I/O DB37 connector and the
+Raspberry Pi 5 GPIO header) reuse STOCK footprints instead: DB37 is a mechanically
 standardised D-sub shell (KiCad's own Connector_Dsub.pretty already has it, real
 dimensions, not "a similar part"), and the Pi header reuses the same bare 2x20 2.54mm THT
 footprint hardware/gen/gen_mule.py's own Pi-side header already uses (FOOTPRINT_IDC40 in
 that file) -- the real Raspberry Pi GPIO header is exactly that part.
+
+Task 7 fix round 1 (task-7-report.md, "Fix round 1") added a fifth custom footprint,
+MiniDIN_5_Panel -- the +5V-rail fix's 5-pin inlet connector -- via a generalized
+build_minidin(n_pins, ...) that also now produces MiniDIN_4_Panel (its `descr` text is
+therefore regenerated too, not byte-identical to the original hand-written version; the
+only material change is recording the MD-40SN/MD-50SN discontinued-part fact pulled from
+the manufacturer's datasheet while researching the 5-pin part -- see MiniDIN_5_Panel's own
+note below and hardware/README.md).
 
 Written as raw .kicad_mod text (there is no stock footprint to extract from), following
 the exact low-level shape kicad_pcb.py's extract_footprint()/Board.place() expect to read
@@ -50,15 +58,31 @@ built from, not an alternate source of truth -- keep the two in sync if either c
   angular offset) rather than a dimensional one. See hardware/README.md's "Contact
   arrangement" note -- verify against a physical sample before fab, don't just tweak the
   angle.
-- MiniDIN_4_Panel: panel envelope, mounting-hole spacing/diameter, and through-panel
-  bushing diameter are all read directly off a real, dimensioned manufacturer CAD drawing
-  (Same Sky/CUI MD-SN series datasheet, the 4-pin MD-40SN row) -- the best-sourced of the
-  four. Contact-circle diameter (7.0mm) is the mini-DIN family's own well-established
-  standard (this connector class is only useful because it interoperates across
-  manufacturers on a fixed contact geometry); exact per-pin angular position was
-  approximated as four evenly-spaced positions rather than measured off the drawing's own
-  small pin diagram -- same possible-topology-error caveat as the mini-XLR pins above, not
-  just an angular tolerance; see hardware/README.md.
+- MiniDIN_4_Panel / MiniDIN_5_Panel: panel envelope, mounting-hole spacing/diameter, and
+  through-panel bushing diameter are all read directly off a real, dimensioned
+  manufacturer CAD drawing (Same Sky/CUI MD-SN series datasheet) -- the best-sourced of
+  the footprints in this file. Task 7 fix round 1 pulled the datasheet's own mechanical
+  drawing page directly (rather than citing "the MD-40SN row" secondhand, as the original
+  4-pin-only version of this docstring did) and confirmed the panel envelope, mounting-ear
+  spacing/diameter, AND bushing diameter are IDENTICAL across every pin count from
+  MD-30SN through MD-80SN (only the 9-pin MD-90SN differs) -- so MiniDIN_5_Panel reuses
+  every one of MiniDIN_4_Panel's own dimensions, at higher confidence than before since
+  this is now confirmed rather than assumed to carry over. Contact-circle diameter (7.0mm)
+  is the mini-DIN family's own well-established standard (this connector class is only
+  useful because it interoperates across manufacturers on a fixed contact geometry); exact
+  per-pin angular position was approximated as N evenly-spaced positions rather than
+  measured off the drawing's own small pin diagram -- same possible-topology-error caveat
+  as the mini-XLR pins above, not just an angular tolerance; see hardware/README.md. (The
+  same datasheet page's own small per-pin-count diagrams visibly show a CLUSTERED, not
+  evenly-spaced, arrangement for every pin count -- MD-50SN's own diagram reads as two
+  pins upper-right, one pin left, two pins lower-right, not five points on a ring -- which
+  is worth recording as a strengthening of that existing caveat, not a new one: this
+  generator still uses the even-spacing approximation rather than hand-transcribing exact
+  angles off a diagram too small to read precisely, per hardware/README.md's own "verify
+  against a physical sample, don't speculatively edit the angles" guidance.) Also worth
+  recording plainly (public repo, facts only): the datasheet's own revision history lists
+  MD-40SN and MD-50SN as BOTH discontinued (rev 1.06/1.07, 2022/2023) -- a real
+  procurement-risk fact, not a redesign trigger; see hardware/README.md.
 
 No footprint below drills a PCB mounting hole for the mini-XLR/mini-DIN parts: both are
 PANEL-mount (their own flange or bushing nut carries the mechanical load, screwed to the
@@ -292,40 +316,53 @@ def build_minixlr(n_pins: int, modname: str, real_part: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 4. MiniDIN_4_Panel -- Same Sky/CUI MD-40SN, real dimensioned drawing (see docstring).
+# 4/4b. MiniDIN_4_Panel / MiniDIN_5_Panel -- Same Sky/CUI MD-40SN / MD-50SN, real
+#    dimensioned drawing (see docstring). Generalized to build_minidin(n_pins, ...) at
+#    Task 7 fix round 1 (task-7-report.md, "Fix round 1") to add the 5-pin variant the
+#    +5V-rail fix needs -- same parameterize-by-pin-count shape build_minixlr() above
+#    already uses, not a new pattern. BUSHING_D stays a fixed 10.0mm default for both:
+#    pulled directly from the Same Sky MD-SN family datasheet while building this fix
+#    (sameskydevices.com/product/resource/md-sn.pdf) and confirmed, not assumed, that
+#    the panel envelope, mounting-ear spacing/diameter, AND through-panel bushing
+#    diameter are identical across every pin count from MD-30SN through MD-80SN (only
+#    the 9-pin MD-90SN differs, with a larger 10.25/10.9mm shell) -- one mechanical
+#    drawing serves the whole family up to 8 pins, just a different contact
+#    count/arrangement stamped into the same shell.
 # ---------------------------------------------------------------------------
-def build_minidin4() -> str:
-    CONTACT_CIRCLE_D = 7.0  # mini-DIN family standard
-    BUSHING_D = 10.0        # Same Sky MD-SN drawing, MD-40SN row
-    PAD_SIZE, DRILL = 1.2, 0.7
-    N_PINS = 4
+def build_minidin(n_pins: int, modname: str, real_part: str, bushing_d: float = 10.0) -> str:
+    CONTACT_CIRCLE_D = 7.0  # mini-DIN family standard, shared across pin counts
 
     r = CONTACT_CIRCLE_D / 2
     els = []
-    for i in range(N_PINS):
-        angle = math.radians(90 - i * (360 / N_PINS))
+    for i in range(n_pins):
+        angle = math.radians(90 - i * (360 / n_pins))
         x, y = r * math.cos(angle), -r * math.sin(angle)
-        els.append(fp_pad(str(i + 1), x, y, PAD_SIZE, DRILL, "rect" if i == 0 else "circle"))
+        els.append(fp_pad(str(i + 1), x, y, 1.2, 0.7, "rect" if i == 0 else "circle"))
 
-    els.append(fp_circle(0, 0, BUSHING_D / 2, "F.SilkS", 0.12))
-    els.append(fp_circle(0, 0, BUSHING_D / 2 + 0.5, "F.CrtYd", 0.05))
-    els.append(fp_circle(0, 0, BUSHING_D / 2, "F.Fab", 0.1))
-    els.append(fp_text_ref(0, -(BUSHING_D / 2 + 1.5)))
-    els.append(fp_text_val(0, BUSHING_D / 2 + 1.5, "MiniDIN_4_Panel"))
+    els.append(fp_circle(0, 0, bushing_d / 2, "F.SilkS", 0.12))
+    els.append(fp_circle(0, 0, bushing_d / 2 + 0.5, "F.CrtYd", 0.05))
+    els.append(fp_circle(0, 0, bushing_d / 2, "F.Fab", 0.1))
+    els.append(fp_text_ref(0, -(bushing_d / 2 + 1.5)))
+    els.append(fp_text_val(0, bushing_d / 2 + 1.5, modname))
 
     return assemble(
-        "MiniDIN_4_Panel",
-        "4-pin mini-DIN, panel mount, Same Sky (CUI) MD-40SN. Through-panel bushing "
-        "diameter (10.0mm) from the manufacturer's own dimensioned drawing "
-        "(sameskydevices.com/product/resource/md-sn.pdf); panel flange envelope "
-        "38.5x15.25mm and 2x M? mounting ears at 30.0mm centres, 3.05mm dia, are on the "
-        "same drawing but are panel-side hardware, not part of this PCB footprint (see "
-        "hardware/README.md). Contact-circle diameter (7.0mm) is the mini-DIN family's "
-        "own standard; exact per-pin angle is an even-spacing approximation, not "
-        "measured off the drawing's own small pin diagram, and may be a topology error "
-        "rather than a tolerance one -- see hardware/README.md; verify against a "
-        "physical sample before fab.",
-        "connector mini-DIN power inlet panel MD-40SN",
+        modname,
+        f"{n_pins}-pin mini-DIN, panel mount, Same Sky (CUI) {real_part} -- discontinued "
+        f"per the manufacturer's own datasheet revision history (rev 1.06/1.07, "
+        f"2022-2023; see hardware/README.md) -- flagged here as a real procurement fact, "
+        f"not a reason this generator substitutes a different part on its own. "
+        f"Through-panel bushing diameter ({bushing_d:g}mm) from the manufacturer's own "
+        f"dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf), confirmed "
+        f"shared across MD-30SN through MD-80SN, not just the row this specific part "
+        f"number sits on; panel flange envelope 38.5x15.25mm and 2x M? mounting ears at "
+        f"30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side "
+        f"hardware, not part of this PCB footprint (see hardware/README.md). "
+        f"Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact "
+        f"per-pin angle is an even-spacing approximation, not measured off the "
+        f"drawing's own small pin diagram, and may be a topology error rather than a "
+        f"tolerance one -- see hardware/README.md; verify against a physical sample "
+        f"before fab.",
+        f"connector mini-DIN power inlet panel {real_part}",
         els,
     )
 
@@ -336,7 +373,8 @@ def main() -> None:
         ("MDR68_Male_RightAngle.kicad_mod", build_mdr68(), 68),
         ("MiniXLR_TA4M_Panel.kicad_mod", build_minixlr(4, "MiniXLR_TA4M_Panel", "TB4M"), 4),
         ("MiniXLR_TA5M_Panel.kicad_mod", build_minixlr(5, "MiniXLR_TA5M_Panel", "TB5M"), 5),
-        ("MiniDIN_4_Panel.kicad_mod", build_minidin4(), 4),
+        ("MiniDIN_4_Panel.kicad_mod", build_minidin(4, "MiniDIN_4_Panel", "MD-40SN"), 4),
+        ("MiniDIN_5_Panel.kicad_mod", build_minidin(5, "MiniDIN_5_Panel", "MD-50SN"), 5),
     ]
     for filename, text, n_pads in parts:
         modname = filename[: -len(".kicad_mod")]
