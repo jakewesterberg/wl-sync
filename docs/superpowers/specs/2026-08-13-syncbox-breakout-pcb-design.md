@@ -433,14 +433,42 @@ isolators for their RF carrier and then adding a switcher to the same board woul
 
 | Rail | Source |
 |---|---|
-| Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Substituting is a false economy on a CM5-class board |
-| ±12 V analog | External linear supply, panel inlet |
-| +5 V, +3.3 V | LDOs from +12 V |
+| Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Separate from the board's +5 V rail. Substituting is a false economy on a CM5-class board |
+| ±12 V analog, **+5 V** | External linear supply, panel inlet — **5-pin mini-DIN**: +12 V, −12 V, +5 V, GND, shield |
+| +3.3 V | LDO. **+5 V is NOT derived on board** — see §8.2 |
 | NI domain | +5 V from NI's 68-pin connector, **250 mA per connector** — switcher-free and already referenced to NI's ground. See §8.1 |
 | **Intan domain** | **One isolated ±12 V DC-DC**, pi-filtered with LDO post-regulation |
 
 The Intan domain is the exception because its single-ended inputs force difference amplifiers
 there (§5.5). As the only switcher in the enclosure it receives the whole filtering budget.
+
+### 8.2 +5 V comes from the external supply, not from +12 V on board
+
+The +5 V rail feeds the optocoupler LEDs, and there are 28 isolated channels. Worst-case
+simultaneous conduction is about **26 LEDs** — all 16 data bits high at once, plus strobe,
+barcode, reward commanded, reward delivered, stim trigger, and the five Intan-bound copies:
+
+| Drive per LED | Worst-case rail current |
+|---|---|
+| 6.3 mA (HCPL-4661 family recommended minimum) | ~180 mA |
+| 10 mA (as used on the mule for edge quality) | ~260 mA |
+
+**Budget: 400 mA**, so downstream sheets have headroom without reopening this.
+
+Duty cycle does not rescue a smaller supply — a regulator supplies peak, not average, and riding
+260 mA through a 750 µs code on bulk capacitance would need ~2000 µF for 100 mV of droop, which
+is a workaround rather than a design.
+
+**Why not a larger on-board LDO:** linear 12→5 V at 260 mA dissipates **~1.9 W** inside a sealed
+2U chassis already carrying 10–15 W from the sync-box module, beside analog stages whose offset
+drift is temperature-dependent (§9.4). Two more watts to save one connector pin is the wrong
+trade.
+
+**Why not a switching regulator:** unavailable by construction. This design rejected digital
+isolators for modulating an RF carrier beside headstages (§2 decision 3) and rejected on-board
+switchers for consistency with that (§8). The isolated ±12 V DC-DC remains the sole switcher.
+
+So the external supply becomes a **three-output linear brick** and the inlet gains a pin.
 
 ### 8.1 The NI +5 V budget is 250 mA, and it constrains the pull-ups
 
