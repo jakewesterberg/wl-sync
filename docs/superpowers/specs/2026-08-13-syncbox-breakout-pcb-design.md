@@ -112,7 +112,7 @@ delivers.
 
 ---
 
-## 4. Raspberry Pi GPIO map
+## 4. Raspberry Pi GPIO map and sync-box hardware
 
 | GPIO | Direction | Signal |
 |---|---|---|
@@ -146,6 +146,34 @@ resistors on GPIO0/1 and `force_eeprom_read=0` in `config.txt`.
 on-board USB-I²C bridge (MCP2221A-class) drives the mux address expanders and the threshold
 DACs. All of it is configuration-time state with no timing requirement. This is what preserves
 GPIO26/27 as spare.
+
+### 4.1 Storage — NVMe, and the adapter must not touch the header
+
+The Pi **boots and logs to an NVMe SSD on a PCIe-FPC-only adapter.** Not an SD card, and not a
+GPIO-header-mounted HAT.
+
+**The constraint is not negotiable, and it follows directly from the GPIO map above.** A
+conforming HAT or HAT+ carries its ID EEPROM on ID_SD/ID_SC — which *are* GPIO0 and GPIO1, and
+which carry event-code bits 0 and 1. Fitting one collides with the event bus. Mechanically it is
+worse: the 40-pin header carries the ribbon to this board, so a header-mounted adapter has
+nowhere to sit. **The adapter must connect solely through the Pi 5's PCIe flex connector and
+mount underneath on standoffs.** Verify any candidate does not touch the 40-pin header before
+purchase — the popular official M.2 HAT+ style does.
+
+**Throughput is not why.** The Pi logs its own camera-trigger edges at 500 Hz, a photodiode flip
+patch at the display refresh rate, a barcode frame per second and a handful of behavioural
+lines — roughly 2,000 edges/s, about **40 KB/s, or ~1 GB for an eight-hour session.** An SD card
+would keep up without noticing, and capacity is a non-issue since sessions transfer to the NAS
+at the end. 256 GB is months of margin.
+
+**Reliability is why.** SD cards fail abruptly and on power loss, and a rig switched off at the
+wall for a decade is close to the worst case for them. The consequence is asymmetric: the Pi is
+the **sole recorder on training days**, so its storage failing does not degrade a session, it
+loses one entirely. **Boot from the NVMe rather than merely mounting it for data** — leaving the
+SD card in the boot path preserves exactly the failure mode being designed out.
+
+**Active cooler fitted.** The Pi 5 wants it, and it sits in a closed chassis beside analog
+circuitry that would rather not be warmed. See §9.4.
 
 ---
 
@@ -443,6 +471,20 @@ layout; the enclosure is designed alongside the board rather than bought after i
 Rack mounting also places the box beside the Intan controller, which is itself 1U rack-mount,
 keeping the barcode line short — it carries a high edge density and must be routed away from
 headstage cables.
+
+**Thermal, which is a mechanical requirement nobody had written down.** The enclosure contains a
+Pi 5 with its active cooler and an NVMe drive (§4.1) — call it 10–15 W of deliberate heat —
+sharing a sealed chassis with 33 analog stages whose offset drift is temperature-dependent, and
+with comparator thresholds that gate task progression. Three consequences for the panel and
+floorplan, all of which must be settled **before panels are machined**:
+
+- **Airflow is designed, not assumed.** Intake and exhaust positions are panel cutouts and
+  therefore part of the mechanical drawing, not something added afterwards.
+- **The Pi and NVMe sit downstream of the analog section in the airflow**, not upstream, so their
+  exhaust does not wash over the analog front ends and the difference amplifiers.
+- **Fans are a noise source in both senses.** If a fan is fitted it wants to be a quiet one on
+  the rack-facing panel, and its motor is an electrical noise source that should not sit beside
+  the microphone preamp or the photodiode front ends.
 
 ---
 

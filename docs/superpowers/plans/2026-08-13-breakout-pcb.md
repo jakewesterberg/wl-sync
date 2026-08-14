@@ -806,6 +806,16 @@ cutouts. Domain regions placed so each isolation barrier is a **single straight 
 the board, never a zigzag: AGND front-centre, DGND centre, NI_GND and INTAN_GND each in their
 own rear corner.
 
+- [ ] **Step 1b: Place the Pi, its NVMe adapter, and the airflow path**
+
+The Pi 5 carries an active cooler and a **PCIe-FPC-only NVMe adapter mounted underneath on
+standoffs** — never a GPIO-header HAT, whose ID EEPROM would claim GPIO0/1 and whose body would
+occupy the header the ribbon needs (spec §4.1). Position the Pi and drive **downstream of the
+analog section in the airflow**, so their 10–15 W of exhaust does not wash over the analog front
+ends or the difference amplifiers. Intake and exhaust are panel cutouts, so they belong in the
+mechanical drawing from the start. If a fan is fitted, keep it away from the microphone preamp
+and photodiode front ends — its motor is an electrical noise source as well as an acoustic one.
+
 - [ ] **Step 2: Write the constraint set**
 
 Board stack-up 4-layer (signal / GND / power / signal). ≥2.5 mm clearance slot under every
