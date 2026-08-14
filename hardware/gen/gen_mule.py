@@ -27,6 +27,54 @@ from kicad_sch import Sch, pin_pos, write_project_stub
 OUT = Path(__file__).resolve().parent.parent / "mule"
 
 # ---------------------------------------------------------------------------
+# Footprint assignments -- the single source of truth hardware/gen/gen_mule_pcb.py
+# imports (via Sch.footprints, populated as a side effect of every place() call below)
+# rather than re-deriving.
+#
+# Task 2's review flagged that several parts are placed via a stand-in lib_id/Value pair
+# (74xx:74LS541 valued SN74LVC541APW; Regulator_Linear:AP1117-15 valued LD1117S33TR --
+# see kicad_sch.py's module docstring, gotcha 4, for why: the real part's own KiCad symbol
+# uses `(extends ...)` and carries no pin geometry). That stand-in's ki_fp_filters would
+# suggest the WRONG package for the part actually being fitted -- 74LS541's filter is
+# "DIP?20*" (its Value's real part, SN74LVC541APW, is TSSOP-20/"PW"); AP1117-15's own
+# footprint happens to be right (SOT-223-3_TabPin2, confirmed pin-for-pin identical to
+# LD1117S33TR's real datasheet pinout: GND/VOUT(tab)/VIN -- see task-3-report.md) but that's
+# a coincidence of this specific pair, not something to rely on for the next stand-in.
+# Every footprint below is picked from the part actually being ordered, checked against its
+# own datasheet or KiCad's own footprint recommendation for that exact part (not the
+# stand-in symbol's filters) -- see task-3-report.md for the checks performed per part.
+FOOTPRINT_TSSOP20 = "Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm"  # SN74LVC541APW/SN74HCT541PW -- TI's own "PW" package code is literally TSSOP-20
+FOOTPRINT_DIP8 = "Package_DIP:DIP-8_W7.62mm"  # HCPL-4661 -- unsuffixed Broadcom part number defaults to through-hole DIP-8 (SO-8 variants carry a package suffix)
+FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"  # LD1117S33TR -- ST datasheet: pin1 GND, pin2 VOUT (=tab), pin3 VIN
+FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"  # BAT54S -- this IS the real part (no stand-in), so its own recommended footprint is trustworthy as-is
+FOOTPRINT_SIP7 = "Converter_DCDC:Converter_DCDC_TRACO_TMA-05xxS_12xxS_Single_THT"  # TMA-0505S -- also the real part directly, no stand-in
+FOOTPRINT_R = "Resistor_SMD:R_0603_1608Metric"
+FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"  # 100nF decoupling/bypass
+FOOTPRINT_C_BULK = "Capacitor_SMD:C_0805_2012Metric"  # 10uF bulk -- one size up from the 0603 floor for a comfortable hand-solder joint at this capacitance
+# J1, J2 -- bare 2x20 pin header, not a shrouded IDC box header: its pad numbering is the
+# same odd/even (row1 odd, row2 even) scheme Conn_02x20_Odd_Even already assumes, same as
+# a shrouded header's would be, but its courtyard is 9.9x51.81mm versus the shrouded
+# part's 9.9x59.46mm -- the difference that makes the board's height requirement (see
+# hardware/mule/floorplan.md) 90mm instead of the ~100mm a shrouded header would force.
+# A bare header is also mechanically what it's mating with: the mule's Pi-side connector
+# reproduces the real Pi 5's own physical GPIO pin positions specifically so a standard
+# Pi ribbon cable (built for a bare, unshrouded 40-pin header) can connect directly.
+FOOTPRINT_IDC40 = "Connector_PinHeader_2.54mm:PinHeader_2x20_P2.54mm_Vertical"
+FOOTPRINT_HDR1X04 = "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+FOOTPRINT_HDR1X02 = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+FOOTPRINT_SCREW1X04 = "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-4_1x04_P5.00mm_Horizontal"
+# CUI/Same Sky PJ-102AH -- re-confirmed pin mapping directly against the manufacturer's own
+# current datasheet (sameskydevices.com/product/resource/pj-102ah.pdf, "SCHEMATIC" block,
+# p.2): terminal 1 = sleeve, terminal 2 = tip (its PCB pad sits nearest the barrel's own
+# center-pin axis in the recommended layout, terminals 1/3 are grouped together well away
+# from it), terminal 3 = normally-closed power-detect switch (unused here, left NC). This
+# matches Task 2's inference from the schematic symbol's own pin geometry exactly: pin 1
+# (solid rectangle+arc shape) = sleeve = DGND, pin 2 (zigzag spring-contact shape) = tip =
+# +5V. Footprint pad 3 (the switch) simply carries no net below -- a real, unused pad, not
+# an error.
+FOOTPRINT_BARRELJACK = "Connector_BarrelJack:BarrelJack_CUI_PJ-102AH_Horizontal"
+
+# ---------------------------------------------------------------------------
 # Layout grid -- every coordinate must be an exact multiple of 1.27mm (the KiCad
 # schematic connection grid), or a pin landing on a non-grid point produces an
 # `endpoint_off_grid` ERC warning even though the label-based net is still
@@ -105,13 +153,18 @@ PI_GND_PHYSICAL_PINS = (6, 9, 14, 20, 25, 30, 34, 39)
 GPIO0_1_SERIES_OHMS = "330"  # exact value from the plan's Task 9 Step 2, reused here
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2):
-    """Place a 2-pin part (Device:R or Device:C) between two labeled nets."""
-    pins = sch.place(libname, symname, sch.next_ref(ref_prefix), value, x, y)
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
+    """Place a 2-pin part (Device:R or Device:C) between two labeled nets. Returns its
+    reference designator so callers building up build()'s `refs` map (consumed by
+    hardware/gen/gen_mule_pcb.py to know which physical part plays which role, rather than
+    guessing from reference numbers) can record it."""
+    ref = sch.next_ref(ref_prefix)
+    pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint)
     x1, y1 = pin_pos(x, y, pins["1"])
     sch.label(net1, x1, y1)
     x2, y2 = pin_pos(x, y, pins["2"])
     sch.label(net2, x2, y2)
+    return ref
 
 
 def bidirectional_clamp(sch, x, y, net_signal, net_hi, net_lo):
@@ -156,13 +209,15 @@ def bidirectional_clamp(sch, x, y, net_signal, net_hi, net_lo):
     around 5.3-5.4V, comfortably under the LVC541A's 6.5V absolute-maximum input rating,
     so a genuine overvoltage fault beyond the signal's normal range is still clamped.
     """
-    pins = sch.place("Diode", "BAT54S", sch.next_ref("D"), "BAT54S", x, y)
+    ref = sch.next_ref("D")
+    pins = sch.place("Diode", "BAT54S", ref, "BAT54S", x, y, footprint=FOOTPRINT_SOT23)
     px, py = pin_pos(x, y, pins["1"])  # anode only -> low rail
     sch.label(net_lo, px, py)
     px, py = pin_pos(x, y, pins["3"])  # COM, the genuine series midpoint -> signal
     sch.label(net_signal, px, py)
     px, py = pin_pos(x, y, pins["2"])  # cathode only -> high rail
     sch.label(net_hi, px, py)
+    return ref
 
 
 def place_541(sch, value, x, y, rail, channels: dict[int, tuple[str, str]]):
@@ -176,6 +231,7 @@ def place_541(sch, value, x, y, rail, channels: dict[int, tuple[str, str]]):
     ref = sch.next_ref("U")
     pins = sch.place(
         "74xx", "74LS541", ref, value, x, y,
+        footprint=FOOTPRINT_TSSOP20,
         extra_props={"Description": "8-bit buffer/line driver, 3-state outputs"},
     )
     for i in range(8):
@@ -199,8 +255,8 @@ def place_541(sch, value, x, y, rail, channels: dict[int, tuple[str, str]]):
     vx, vy = pin_pos(x, y, pins["20"])
     sch.label(rail, vx, vy)
     # 100nF decoupling right at the IC, per brief step 4.
-    two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND")
-    return ref
+    cap_ref = two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND", footprint=FOOTPRINT_C_SMALL)
+    return ref, cap_ref
 
 
 def header_pin(sch, pins, hdr_x, hdr_y, num, net):
@@ -215,17 +271,32 @@ def header_nc_remaining(sch, pins, hdr_x, hdr_y, used_numbers):
             sch.no_connect(x, y)
 
 
-def build() -> Sch:
+def build() -> tuple[Sch, dict]:
+    """Returns (sch, refs). `refs` maps a role name to the reference designator(s) that
+    play it -- hardware/gen/gen_mule_pcb.py's single source of truth for "which physical
+    part is this", so the PCB layout never has to guess a part's role from its bare
+    reference number (fragile: reference numbers are an artifact of generation order, not
+    a stable contract) or hand-duplicate the placement order above."""
     sch = Sch(project="mule")
+    refs: dict = {
+        "r_in": [], "clamp_diode": [], "gpio01_series_r": [],
+        "buffers_3v3": [], "buffer_3v3_decouple_c": [],
+        "opto_pkg": [], "opto_led_r": [], "opto_pullup_r": [], "opto_bypass_c": [],
+        "spare_header": [], "dcdc_bypass_c": [], "bulk_c": [],
+    }
 
     # === Step 1: inbound path, task PC -> Pi (17 lines) =====================
+    refs["tpc_header"] = sch.next_ref("J")
     tpc_pins = sch.place(
-        "Connector_Generic", "Conn_02x20_Odd_Even", sch.next_ref("J"),
+        "Connector_Generic", "Conn_02x20_Odd_Even", refs["tpc_header"],
         "IDC-40 task-PC event bus", X_TPC_HDR, ROW0 + 8 * ROW_PITCH,
+        footprint=FOOTPRINT_IDC40,
     )
+    refs["pi_header"] = sch.next_ref("J")
     pi_pins = sch.place(
-        "Connector_Generic", "Conn_02x20_Odd_Even", sch.next_ref("J"),
+        "Connector_Generic", "Conn_02x20_Odd_Even", refs["pi_header"],
         "IDC-40 Pi event bus", X_PI_HDR, ROW0 + 8 * ROW_PITCH,
+        footprint=FOOTPRINT_IDC40,
     )
     tpc_used, pi_used = set(), set()
 
@@ -262,7 +333,9 @@ def build() -> Sch:
             data_name = f"EVT_D{i}" if i < 16 else "EVT_STROBE"
             pi_net = f"{data_name}_PI"
             channels[local_ch] = (f"{data_name}_CLAMP", buffer_output_net(i, data_name, pi_net))
-        place_541(sch, "SN74LVC541APW", X_IC541, y_ic, "+3V3", channels)
+        buf_ref, buf_cap_ref = place_541(sch, "SN74LVC541APW", X_IC541, y_ic, "+3V3", channels)
+        refs["buffers_3v3"].append(buf_ref)
+        refs["buffer_3v3_decouple_c"].append(buf_cap_ref)
 
     for i in range(17):
         y = ROW0 + i * ROW_PITCH
@@ -271,11 +344,13 @@ def build() -> Sch:
         clamp_net = f"{data_name}_CLAMP"
         pi_net = f"{data_name}_PI"
 
-        two_pin(sch, "Device", "R", "R", "100", X_R_IN, y, tpc_net, clamp_net)
+        r_in_ref = two_pin(sch, "Device", "R", "R", "100", X_R_IN, y, tpc_net, clamp_net, footprint=FOOTPRINT_R)
+        refs["r_in"].append(r_in_ref)
         # FIX ROUND 2: high side clamps to +5V, not +3V3 -- see bidirectional_clamp()'s
         # docstring. +3V3 sits below the signal's normal 5V high, so a clamp referenced
         # to it would conduct continuously in normal operation, not just on a fault.
-        bidirectional_clamp(sch, X_CLAMP, y, clamp_net, "+5V", "DGND")
+        clamp_ref = bidirectional_clamp(sch, X_CLAMP, y, clamp_net, "+5V", "DGND")
+        refs["clamp_diode"].append(clamp_ref)
 
         # Task-PC side stays sequential (coordinator fix round 1: accepted as-is -- only
         # the Pi side needs to match a real physical header, since nothing on the task-PC
@@ -291,9 +366,11 @@ def build() -> Sch:
 
         if i in (0, 1):
             buf_net = buffer_output_net(i, data_name, pi_net)
-            two_pin(
+            gpio_r_ref = two_pin(
                 sch, "Device", "R", "R", GPIO0_1_SERIES_OHMS, X_GPIO01_R, y, buf_net, pi_net,
+                footprint=FOOTPRINT_R,
             )
+            refs["gpio01_series_r"].append(gpio_r_ref)
 
     for line_idx, line in enumerate([
         "GPIO0/GPIO1 -- physical pins 27/28 -- are probed by the Pi as I2C at boot,",
@@ -324,13 +401,15 @@ def build() -> Sch:
     header_nc_remaining(sch, pi_pins, X_PI_HDR, ROW0 + 8 * ROW_PITCH, pi_used)
 
     # === Step 2: outbound path, Pi -> 5V equipment ===========================
-    place_541(
+    refs["buffer_5v"], refs["buffer_5v_decouple_c"] = place_541(
         sch, "SN74HCT541PW", X_IC541, Y_U4, "+5V",
         {0: ("BARCODE_PI", "BARCODE_OUT")},
     )
+    refs["barcode_header"] = sch.next_ref("J")
     barcode_hdr_pins = sch.place(
-        "Connector_Generic", "Conn_01x04", sch.next_ref("J"),
+        "Connector_Generic", "Conn_01x04", refs["barcode_header"],
         "BARCODE_OUT test points", X_BARCODE_HDR, Y_OUTBOUND,
+        footprint=FOOTPRINT_HDR1X04,
     )
     for num in barcode_hdr_pins:
         x, y = pin_pos(X_BARCODE_HDR, Y_OUTBOUND, barcode_hdr_pins[num])
@@ -391,14 +470,20 @@ def build() -> Sch:
         ("OPTO_SPARE1_IN", "OPTO_SPARE1_ISO", "3", "330"),   # bench-injected, unknown V
         ("OPTO_SPARE2_IN", "OPTO_SPARE2_ISO", "4", "330"),
     ]
+    refs["screw_terminal"] = sch.next_ref("J")
     screw_pins = sch.place(
-        "Connector", "Screw_Terminal_01x04", sch.next_ref("J"),
+        "Connector", "Screw_Terminal_01x04", refs["screw_terminal"],
         "Isolated-domain outputs", X_SCREW, Y_SCREW,
+        footprint=FOOTPRINT_SCREW1X04,
     )
     for pkg in range(2):  # two physical HCPL-4661 packages, two channels each
         pkg_y = Y_OPTO + pkg * OPTO_PKG_PITCH
         pkg_ref = sch.next_ref("U")
-        pkg_pins = sch.place("Isolator", "HCPL-263A", pkg_ref, "HCPL-4661", X_OPTO, pkg_y)
+        refs["opto_pkg"].append(pkg_ref)
+        pkg_pins = sch.place(
+            "Isolator", "HCPL-263A", pkg_ref, "HCPL-4661", X_OPTO, pkg_y,
+            footprint=FOOTPRINT_DIP8,
+        )
         for ch in (1, 2):
             src_net, iso_net, screw_num, led_r_ohms = opto_channels[pkg * 2 + (ch - 1)]
             a_num, c_num = OPTO_LED_PINS[ch]
@@ -406,10 +491,12 @@ def build() -> Sch:
             led_net = f"{pkg_ref}_LED{ch}"
             ch_dy = -2.54 if ch == 1 else 2.54  # keep the 2 channels' passives from overlapping
 
-            two_pin(
+            led_r_ref = two_pin(
                 sch, "Device", "R", "R", led_r_ohms,
                 X_OPTO - 30.48, pkg_y + ch_dy, src_net, led_net,
+                footprint=FOOTPRINT_R,
             )
+            refs["opto_led_r"].append(led_r_ref)
             ax, ay = pin_pos(X_OPTO, pkg_y, pkg_pins[a_num])
             sch.label(led_net, ax, ay)
             cx, cy = pin_pos(X_OPTO, pkg_y, pkg_pins[c_num])
@@ -418,7 +505,11 @@ def build() -> Sch:
             # 1k pull-up, not the original 4k7: HCPL-4661 is a 10Mbd-class logic output: a
             # lower pull-up gives a faster, more representative edge for exactly the
             # propagation-delay/edge-quality measurement this fix is about.
-            two_pin(sch, "Device", "R", "R", "1k", X_OPTO + 30.48, pkg_y + ch_dy, "ISO_5V", iso_net)
+            pullup_ref = two_pin(
+                sch, "Device", "R", "R", "1k", X_OPTO + 30.48, pkg_y + ch_dy, "ISO_5V", iso_net,
+                footprint=FOOTPRINT_R,
+            )
+            refs["opto_pullup_r"].append(pullup_ref)
             vox, voy = pin_pos(X_OPTO, pkg_y, pkg_pins[vo_num])
             sch.label(iso_net, vox, voy)
 
@@ -435,24 +526,31 @@ def build() -> Sch:
         # take (bring-up checks 5-6), and Task 11 reuses this topology verbatim. Placed
         # right next to the package in the schematic; Task 3 (layout) needs to keep it
         # within ~7mm of the package on the real board, same as the datasheet asks.
-        two_pin(
+        opto_bypass_ref = two_pin(
             sch, "Device", "C", "C", "100nF", X_OPTO, pkg_y + 20.32, "ISO_5V", "ISO_GND",
+            footprint=FOOTPRINT_C_SMALL,
         )
+        refs["opto_bypass_c"].append(opto_bypass_ref)
 
     for spare_idx in (1, 2):
+        spare_ref = sch.next_ref("J")
+        refs["spare_header"].append(spare_ref)
         hp = sch.place(
-            "Connector_Generic", "Conn_01x02", sch.next_ref("J"),
+            "Connector_Generic", "Conn_01x02", spare_ref,
             f"Opto spare {spare_idx} bench injection", X_SPARE_HDR,
             Y_SPARE + (spare_idx - 1) * SPARE_HDR_DY,
+            footprint=FOOTPRINT_HDR1X02,
         )
         x1, y1 = pin_pos(X_SPARE_HDR, Y_SPARE + (spare_idx - 1) * SPARE_HDR_DY, hp["1"])
         sch.label(f"OPTO_SPARE{spare_idx}_IN", x1, y1)
         x2, y2 = pin_pos(X_SPARE_HDR, Y_SPARE + (spare_idx - 1) * SPARE_HDR_DY, hp["2"])
         sch.label("DGND", x2, y2)
 
+    refs["dcdc"] = sch.next_ref("U")
     dcdc_pins = sch.place(
-        "Converter_DCDC_Isolated", "TMA-0505S", sch.next_ref("U"), "TMA-0505S",
+        "Converter_DCDC_Isolated", "TMA-0505S", refs["dcdc"], "TMA-0505S",
         X_DCDC, Y_DCDC,
+        footprint=FOOTPRINT_SIP7,
     )
     dcdc_map = {"1": "+5V", "2": "DGND", "4": "ISO_GND", "6": "ISO_5V"}
     for num, net in dcdc_map.items():
@@ -461,12 +559,21 @@ def build() -> Sch:
     # CRITICAL fix (coordinator review, brief Step 4's "100nF per IC" -- U7 had none):
     # local bypass on both the DC-DC's input and output sides, right at the package, in
     # addition to the 10uF bulk caps already placed elsewhere on +5V/ISO_5V.
-    two_pin(sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC - 20.32, "+5V", "DGND")
-    two_pin(sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC + 20.32, "ISO_5V", "ISO_GND")
+    dcdc_in_bypass_ref = two_pin(
+        sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC - 20.32, "+5V", "DGND",
+        footprint=FOOTPRINT_C_SMALL,
+    )
+    dcdc_out_bypass_ref = two_pin(
+        sch, "Device", "C", "C", "100nF", X_DCDC, Y_DCDC + 20.32, "ISO_5V", "ISO_GND",
+        footprint=FOOTPRINT_C_SMALL,
+    )
+    refs["dcdc_bypass_c"] = [dcdc_in_bypass_ref, dcdc_out_bypass_ref]
 
+    refs["iso_tp"] = sch.next_ref("J")
     iso_tp_pins = sch.place(
-        "Connector_Generic", "Conn_01x02", sch.next_ref("J"),
+        "Connector_Generic", "Conn_01x02", refs["iso_tp"],
         "ISO_5V/ISO_GND test point", X_ISO_TP, Y_ISO_TP,
+        footprint=FOOTPRINT_HDR1X02,
     )
     x1, y1 = pin_pos(X_ISO_TP, Y_ISO_TP, iso_tp_pins["1"])
     sch.label("ISO_5V", x1, y1)
@@ -474,8 +581,10 @@ def build() -> Sch:
     sch.label("ISO_GND", x2, y2)
 
     # === Step 4: power ========================================================
+    refs["jack"] = sch.next_ref("J")
     jack_pins = sch.place(
-        "Connector", "Barrel_Jack", sch.next_ref("J"), "+5V DC in", X_BARREL, Y_BARREL,
+        "Connector", "Barrel_Jack", refs["jack"], "+5V DC in", X_BARREL, Y_BARREL,
+        footprint=FOOTPRINT_BARRELJACK,
     )
     # Pin/contact mapping read from the symbol's own graphic, not assumed: pin 1's lead
     # (at y=+2.54) traces to the solid rectangle+arc shape (the sleeve/ring contact);
@@ -487,21 +596,31 @@ def build() -> Sch:
     x2, y2 = pin_pos(X_BARREL, Y_BARREL, jack_pins["2"])  # tip
     sch.label("+5V", x2, y2)
 
+    refs["ldo"] = sch.next_ref("U")
     ldo_pins = sch.place(
-        "Regulator_Linear", "AP1117-15", sch.next_ref("U"), "LD1117S33TR", X_LDO, Y_LDO,
+        "Regulator_Linear", "AP1117-15", refs["ldo"], "LD1117S33TR", X_LDO, Y_LDO,
+        footprint=FOOTPRINT_SOT223,
     )
     ldo_map = {"3": "+5V", "1": "DGND", "2": "+3V3"}  # VI, GND, VO
     for num, net in ldo_map.items():
         x, y = pin_pos(X_LDO, Y_LDO, ldo_pins[num])
         sch.label(net, x, y)
-    two_pin(sch, "Device", "C", "C", "100nF", X_LDO, Y_LDO + DECOUPLE_DX, "+3V3", "DGND")
-
-    two_pin(sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS, "+5V", "DGND")
-    two_pin(sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS + DECOUPLE_DX, "+3V3", "DGND")
-    two_pin(
-        sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS + 2 * DECOUPLE_DX,
-        "ISO_5V", "ISO_GND",
+    refs["ldo_decouple_c"] = two_pin(
+        sch, "Device", "C", "C", "100nF", X_LDO, Y_LDO + DECOUPLE_DX, "+3V3", "DGND",
+        footprint=FOOTPRINT_C_SMALL,
     )
+
+    refs["bulk_c"].append(
+        two_pin(sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS, "+5V", "DGND", footprint=FOOTPRINT_C_BULK)
+    )
+    refs["bulk_c"].append(two_pin(
+        sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS + DECOUPLE_DX, "+3V3", "DGND",
+        footprint=FOOTPRINT_C_BULK,
+    ))
+    refs["bulk_c"].append(two_pin(
+        sch, "Device", "C", "C", "10uF", X_CAPS, Y_CAPS + 2 * DECOUPLE_DX,
+        "ISO_5V", "ISO_GND", footprint=FOOTPRINT_C_BULK,
+    ))
 
     # Power-driven assertions for ERC (see kicad_sch.Sch.power_flag docstring) -- only for
     # +5V and DGND. +3V3, ISO_5V and ISO_GND are each already driven by a genuine
@@ -514,17 +633,18 @@ def build() -> Sch:
     sch.power_flag("+5V", X_PWR, Y_PWR)
     sch.power_flag("DGND", X_PWR + GRID(15.24), Y_PWR)
 
-    return sch
+    return sch, refs
 
 
 def main():
-    sch = build()
+    sch, refs = build()
     OUT.mkdir(parents=True, exist_ok=True)
     sch_path = OUT / "mule.kicad_sch"
     sch_path.write_text(sch.render())
     write_project_stub(OUT / "mule.kicad_pro")
     print(f"wrote {sch_path} ({sch_path.stat().st_size} bytes)")
     print(f"reference counters: {sch.ref_counters}")
+    return refs
 
 
 if __name__ == "__main__":

@@ -75,6 +75,33 @@ ISO_NETS = [
 ]
 NON_ISO_NETS = ["+5V", "+3V3", "DGND"]
 
+# Bypass/decoupling capacitors -- carried forward from Task 2's review: nothing previously
+# caught a future accidental removal of a decoupling cap from gen_mule.py. This can only
+# check TOPOLOGY (a capacitor really is wired straight across the rail pair, the two_pin()
+# pattern every decoupling/bulk cap in this design uses) -- not physical placement or the
+# <=7mm datasheet proximity the HCPL-4661s need, which is a PCB-layout property this
+# generator's netlist has no coordinates to speak of (see hardware/mule/floorplan.md for
+# the physical placement requirement instead). A capacitor's specific identity can't be
+# pinned to "the one decoupling U1" this way either -- every cap tied straight across a
+# given rail pair is topologically identical to every other one on that same pair -- so
+# this asserts a per-rail-pair COUNT, which is exactly the granularity a deleted or
+# accidentally-moved cap would change.
+RAIL_BYPASS_EXPECTED = {
+    # rail, ground -> expected capacitor count wired directly across the pair
+    ("+3V3", "DGND"): 5,       # U1, U2, U3 (541s) + U8 (LDO output) local decouplers, + 1 bulk 10uF
+    ("+5V", "DGND"): 3,        # U4 (541) local decoupler + U7 (DC-DC) input-side bypass, + 1 bulk 10uF
+    ("ISO_5V", "ISO_GND"): 4,  # U5, U6 (optos) local bypass + U7 (DC-DC) output-side bypass, + 1 bulk 10uF
+}
+
+
+def _rail_bypass_cap_count(nets: dict[str, list[Node]], rail_net: str, gnd_net: str) -> int:
+    """Count capacitor references with one pin on `rail_net` and the other on `gnd_net` --
+    the two_pin() decoupling/bulk-cap pattern gen_mule.py uses throughout."""
+    rail_caps = {n.ref for n in nets.get(rail_net, []) if n.ref.startswith("C")}
+    gnd_caps = {n.ref for n in nets.get(gnd_net, []) if n.ref.startswith("C")}
+    return len(rail_caps & gnd_caps)
+
+
 _NET_RE = re.compile(r'\(net\s*\(code\s+"(\d+)"\)\s*\(name\s+"([^"]*)"\)')
 _NODE_RE = re.compile(
     r'\(node\s+\(ref\s+"([^"]+)"\)\s+\(pin\s+"([^"]+)"\)'
@@ -374,6 +401,24 @@ def verify(nets: dict[str, list[Node]]) -> list[str]:
         f"{NON_ISO_NETS} (checked at pin level, not reference level)."
     )
 
+    # --- Bypass/decoupling caps: every rail pair carries exactly the expected number of
+    # capacitors wired straight across it (fix round 3 required these caps to exist for
+    # U5/U6/U7; this is the regression guard a later review flagged as still missing -- a
+    # future edit that silently drops one now fails loudly here instead of only showing up
+    # as a bench measurement anomaly on hardware that's already been fabbed). ---
+    for (rail, gnd), expected in RAIL_BYPASS_EXPECTED.items():
+        found = _rail_bypass_cap_count(nets, rail, gnd)
+        check(
+            found == expected,
+            f"{rail}/{gnd}: expected {expected} bypass/bulk capacitor(s) wired directly "
+            f"across this rail pair, found {found} -- a decoupling or bulk cap was added, "
+            f"removed, or moved off this rail pair",
+        )
+    summary.append(
+        "Bypass/decoupling capacitor counts intact on all three rail pairs: "
+        + ", ".join(f"{r}/{g}={n}" for (r, g), n in RAIL_BYPASS_EXPECTED.items())
+    )
+
     # --- Locked Pi-sourced / power net names exist at all (existence + non-triviality). ---
     for name in ("BARCODE_PI", "BARCODE_OUT", "+5V", "+3V3", "DGND", "ISO_5V", "ISO_GND"):
         check(name in nets, f"missing locked-contract net: {name!r}")
@@ -457,6 +502,18 @@ def self_test(good_nets: dict[str, list[Node]]) -> list[str]:
     shorted["DGND"] = shorted["DGND"] + [phantom]
     msg = _assert_fails(shorted, "isolation barrier violated", "ISO_GND/DGND short")
     results.append(f"Isolation barrier short (ISO_GND tied to DGND via one shared pin): caught -- {msg}")
+
+    # Bypass-cap negative control: drop one capacitor's two nodes from ISO_5V/ISO_GND
+    # (simulating an accidental deletion of a decoupling cap in a future edit) and confirm
+    # the new rail-bypass-count check catches it.
+    dropped = copy.deepcopy(good_nets)
+    iso_5v_caps = {n.ref for n in dropped["ISO_5V"] if n.ref.startswith("C")}
+    iso_gnd_caps = {n.ref for n in dropped["ISO_GND"] if n.ref.startswith("C")}
+    victim = sorted(iso_5v_caps & iso_gnd_caps)[0]
+    dropped["ISO_5V"] = [n for n in dropped["ISO_5V"] if n.ref != victim]
+    dropped["ISO_GND"] = [n for n in dropped["ISO_GND"] if n.ref != victim]
+    msg = _assert_fails(dropped, "bypass/bulk capacitor", f"{victim} dropped from ISO_5V/ISO_GND")
+    results.append(f"Bypass cap removal ({victim} dropped from ISO_5V/ISO_GND): caught -- {msg}")
 
     return results
 

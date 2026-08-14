@@ -173,12 +173,26 @@ class Sch:
     lib_symbol_blocks: dict[str, str] = None  # type: ignore[assignment]
     body: list[str] = None  # type: ignore[assignment]
     ref_counters: dict[str, int] = None  # type: ignore[assignment]
+    footprints: dict[str, str] = None  # type: ignore[assignment]
+    instance_uuid: dict[str, str] = None  # type: ignore[assignment]
+    values: dict[str, str] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         self.root_uuid = uid()
         self.lib_symbol_blocks = {}
         self.body = []
         self.ref_counters = {}
+        # ref -> footprint lib id, ref -> this symbol instance's own uuid, and ref -> Value
+        # text, recorded as a side effect of place() so a companion PCB generator
+        # (hardware/gen/gen_mule_pcb.py, using hardware/gen/kicad_pcb.py) can consume them
+        # as the single source of truth for "which real footprint does this reference use",
+        # "which schematic symbol instance does this PCB footprint correspond to" (the
+        # `path` field pcbnew's own "Update PCB from Schematic" reads), and "what value
+        # should the PCB footprint display" -- instead of hand-maintaining a second,
+        # driftable copy of any of the three.
+        self.footprints = {}
+        self.instance_uuid = {}
+        self.values = {}
 
     def next_ref(self, prefix: str) -> str:
         n = self.ref_counters.get(prefix, 0) + 1
@@ -229,6 +243,10 @@ class Sch:
                     f"\t\t)"
                 )
 
+        instance_uuid = uid()
+        self.footprints[ref] = footprint
+        self.instance_uuid[ref] = instance_uuid
+        self.values[ref] = value
         self.body.append(
             f"""\t(symbol
 \t\t(lib_id "{lib_id}")
@@ -238,7 +256,7 @@ class Sch:
 \t\t(in_bom yes)
 \t\t(on_board yes)
 \t\t(dnp no)
-\t\t(uuid "{uid()}")
+\t\t(uuid "{instance_uuid}")
 \t\t(property "Reference" "{ref}"
 \t\t\t(at {x + 2.032} {y} 0)
 \t\t\t(effects (font (size 1.27 1.27)))

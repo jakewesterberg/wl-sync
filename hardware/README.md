@@ -26,7 +26,10 @@ material.
   mux-to-Intan, comparators, opto-to-NI, opto-to-Intan, USB/I²C control).
 
 As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_sch`, produced
-by `hardware/gen/gen_mule.py`); `hardware/breakout/` does not exist yet.
+by `hardware/gen/gen_mule.py`) and a generated, placed-but-unrouted board (`mule.kicad_pcb`,
+produced by `hardware/gen/gen_mule_pcb.py`) — see `hardware/mule/floorplan.md` for the
+placement rationale and the constraints a router must respect. `hardware/breakout/` does not
+exist yet.
 
 ## Toolchain
 
@@ -37,18 +40,35 @@ by `hardware/gen/gen_mule.py`); `hardware/breakout/` does not exist yet.
   KiCad libraries this design draws parts from: `Device`, `74xx`, `Amplifier_Operational`,
   `Comparator`, `Isolator`, `Interface_UART`, `Connector`, `power`. Extend it, don't replace it,
   if a later sheet needs a stock library not yet listed.
+- **`hardware/mule/fp-lib-table`** — the same idea, one level down and for footprints: a
+  project-scoped footprint library table registering the stock KiCad `.pretty` libraries the
+  layout draws footprints from. It must sit beside `mule.kicad_pro`, same constraint as
+  `sym-lib-table` (see gotchas below) — a per-project copy, not the root `hardware/` directory.
 - **`hardware/lib/wl-sync.kicad_sym`** and **`hardware/lib/wl-sync.pretty/`** — this project's
   own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR connector, mini-XLR
   TA4M/TA5M, the 4-pin mini-DIN, the ACCESIO D-sub, and the Pi 5 GPIO header. Both are empty
   skeletons until the symbols/footprints task populates them.
-- **`hardware/gen/`** — a reusable Python framework (`kicad_sch.py`) for generating `.kicad_sch`
-  files programmatically: pull a symbol's definition out of a stock KiCad library, place symbol
-  instances on a grid, and attach a global label at each pin's connection point so connectivity
-  is by label name rather than wire geometry. `gen_mule.py` uses it to produce
-  `hardware/mule/mule.kicad_sch`; `check_mule_netlist.py` parses the exported netlist back out
-  and asserts the contract nets are actually correct, not just ERC-clean (see the gotchas below
-  for why that distinction matters). Later schematic-capture tasks can import `kicad_sch.py`
-  directly rather than re-deriving the technique.
+- **`hardware/gen/`** — a reusable Python framework for generating KiCad files programmatically,
+  in two halves that mirror each other:
+  - `kicad_sch.py` builds `.kicad_sch` files: pull a symbol's definition out of a stock KiCad
+    library, place symbol instances on a grid, and attach a global label at each pin's
+    connection point so connectivity is by label name rather than wire geometry. `gen_mule.py`
+    uses it to produce `hardware/mule/mule.kicad_sch`; `check_mule_netlist.py` parses the
+    exported netlist back out and asserts the contract nets are actually correct, not just
+    ERC-clean (see the gotchas below for why that distinction matters).
+  - `kicad_pcb.py` builds `.kicad_pcb` files the same way, applied to layout instead of
+    schematic capture: pull a footprint's definition out of a stock KiCad `.pretty` library,
+    place instances at a floorplan's coordinates, and assign each pad's net directly from the
+    schematic's own exported netlist (via `check_mule_netlist.parse_netlist()`, imported rather
+    than re-implemented) so the ratsnest pcbnew computes at load time matches the schematic
+    exactly. `gen_mule_pcb.py` uses it to produce `hardware/mule/mule.kicad_pcb` — board
+    outline, isolation slot, every footprint placed, netlist imported, but **not routed**:
+    `kicad-cli` has no netlist-import or Specctra-DSN subcommand, so there is no headless path
+    to routing a board from the command line. See `hardware/mule/floorplan.md` for the
+    placement rationale.
+
+  Later schematic-capture and layout tasks can import either module directly rather than
+  re-deriving the technique.
 
 ## KiCad gotchas found the hard way
 
@@ -97,10 +117,67 @@ generated — don't rediscover them.
   specifically the embedded newline, not "special characters" in general. `Sch.text()`
   (`hardware/gen/kicad_sch.py`) now asserts against this; call it once per line for a
   multi-line note instead.
+- **A `.kicad_pcb` has no `lib_symbols`-style shared library section.** Every placed
+  footprint carries its *entire* graphic definition (silkscreen, courtyard, fab-layer
+  outline, pads) inline, copied verbatim from the library `.kicad_mod` file — confirmed
+  against a real pcbnew-saved board before writing `hardware/gen/kicad_pcb.py`, not
+  assumed from the schematic side's different behavior. Coordinates inside a placed
+  footprint stay in the footprint's own local frame; only the top-level `(at X Y ROT)`
+  moves and rotates it, which is the opposite of a schematic symbol's pins needing a
+  manual offset for each label (`kicad_sch.py`'s `pin_pos()`).
+- **A quoted string in a `.kicad_mod` file can contain literal, individually-balanced
+  parentheses** — e.g. `Resistor_SMD:R_0603_1608Metric`'s own `descr` field: `"...square
+  (rectangular) end terminal... (Body size source: ...)"`. A paren-depth scanner that
+  doesn't treat `"..."` as opaque still happens to balance correctly here (each string's
+  parens pair within themselves), which is a property of today's specific strings, not
+  something safe to rely on — `hardware/gen/kicad_pcb.py`'s `_find_balanced()` is
+  quote-aware for exactly this reason. (The schematic side has the identical latent gap —
+  several stock symbols' `Description` fields contain literal parentheses too — untouched
+  here since it has not caused an actual failure; flagged for whoever next edits
+  `kicad_sch.py`.)
+- **Some newer footprint-generator output uses a `(point ...)` element** (a pin-1 anchor
+  marker, e.g. `Package_DIP:DIP-8_W7.62mm`) that needs the same fresh per-instance `uuid` as
+  every `fp_line`/`fp_rect`/`fp_circle`/`fp_poly`/`fp_arc`/`fp_text`/`pad` child — omitting
+  it produced a `lib_footprint_mismatch` DRC warning on every DIP-8 instance. Found by
+  running `kicad-cli pcb drc` and reading exactly what it reported, not by inspection.
+- **`kicad-cli pcb drc`'s `lib_footprint_mismatch` check appears to be sensitive to
+  rotation, independent of any content difference.** A footprint placed at a non-zero
+  rotation can trigger it even when its embedded copy is byte-for-byte identical to the
+  library master (confirmed with a minimal standalone test: the identical extracted
+  `DIP-8_W7.62mm` block placed at `rot=0` shows no warning; at `rot=270` it does, with the
+  library-comparison DRC check only active at all when a project's `fp-lib-table` can
+  resolve the footprint's library — an empty test directory with no `fp-lib-table` doesn't
+  run the check either way). Warning-severity only; no electrical or mechanical
+  consequence. Recorded here rather than chased further.
+
+## Byte-reproducibility
+
+Regenerating `mule.kicad_sch` or `mule.kicad_pcb` from the same generator and inputs
+produces a file that is **semantically identical but not byte-identical** to the one
+already checked in. Every placed symbol, footprint, pad, and graphic element gets a fresh
+random UUID on each run (`uuid.uuid4()`, `hardware/gen/kicad_sch.py`'s and
+`kicad_pcb.py`'s `uid()`), and KiCad has no notion of a "canonical" UUID a generator could
+reuse instead. A `git diff` after regenerating will show the whole file as changed even
+when nothing about the design did — this is expected, not a sign the generator is broken
+or non-deterministic in any way that matters: net names, pin/pad connectivity, placement
+coordinates, and part values are all fully determined by the generator's own code and
+inputs, and `hardware/gen/check_mule_netlist.py`'s job is exactly to verify that the
+*meaning* reproduces, independent of the UUIDs a run happens to mint.
 
 ## Regenerating fab outputs
 
-Once a track has a schematic and layout, the standard `kicad-cli` invocations are:
+For the mule, the generators run in this order — the PCB generator reads the schematic's
+own exported netlist as its source of connectivity (see `hardware/gen/gen_mule_pcb.py`'s
+module docstring), so it depends on a fresh export existing, not just a fresh schematic:
+
+```bash
+python3 hardware/gen/gen_mule.py
+kicad-cli sch export netlist --format kicadsexpr -o hardware/mule/mule.net hardware/mule/mule.kicad_sch
+python3 hardware/gen/check_mule_netlist.py hardware/mule/mule.net   # verifies the netlist, not just that ERC passed
+python3 hardware/gen/gen_mule_pcb.py
+```
+
+Then the standard `kicad-cli` invocations, once a track has a schematic and layout:
 
 ```bash
 # Electrical rules check
@@ -116,6 +193,10 @@ kicad-cli pcb export drill -o hardware/<track>/fab/ hardware/<track>/<track>.kic
 # Bill of materials
 kicad-cli sch export bom -o hardware/<track>/<track>-bom.csv hardware/<track>/<track>.kicad_sch
 ```
+
+`hardware/mule/mule.net` itself is not committed — see `.gitignore` and the
+byte-reproducibility note above for why a mechanically-regenerable, driftable-if-stale
+artifact stays out of the tree the same way `mule.kicad_sch`'s netlist export always has.
 
 `<track>` is `mule` or `breakout`. All of these are deterministic from the checked-in source
 files, and fab outputs (`fab/`, BOM CSVs) are committed alongside them so a board can be
