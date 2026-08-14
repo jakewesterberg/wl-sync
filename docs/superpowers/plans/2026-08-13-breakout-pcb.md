@@ -655,8 +655,16 @@ then a BNC.
 - [ ] **Step 5: Comparators**
 
 One `LM339` quad. Channels: `A_PD1`→`PD1_COMP`, `A_PD2`→`PD2_COMP`, `A_ACC`→`ACC_TRIG`, fourth
-brought to `A_MISC1` unpopulated. 10 kΩ pull-ups; hysteresis by 1 MΩ feedback to the
-non-inverting input. Threshold on each inverting input comes from an `MCP4728` quad I²C DAC.
+brought to `A_MISC1` unpopulated. Hysteresis by 1 MΩ feedback to the non-inverting input.
+Threshold on each inverting input comes from an `MCP4728` quad I²C DAC.
+
+**Open-collector pull-ups go to `+3V3`, never `+5V`, and this is a destroy-the-module
+constraint.** All three comparator outputs reach the sync module's GPIO, which is 3.3 V and not
+5 V tolerant. Pulled up to +5 V they would destroy it. Pulled to +3V3 the module path is safe by
+construction **and the task-PC path still works**, because Task 8's outbound `SN74HCT541` runs on
++5 V and HCT reads 3.3 V as a valid high — so the up-shift happens in the buffer that already
+exists. Assert the pull-up rail in the checker; this is exactly the class of error that passes
+ERC and is found by smoke.
 
 - [ ] **Step 6: Run ERC and commit**
 
