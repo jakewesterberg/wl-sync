@@ -11,5 +11,5 @@
 	(lib (name "Interface_UART") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Interface_UART.kicad_sym") (options "") (descr "UART interface symbols"))
 	(lib (name "Connector") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Connector.kicad_sym") (options "") (descr "Connector symbols (Examples: Terminal Block, D-SUB, DIN, USB...)"))
 	(lib (name "power") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/power.kicad_sym") (options "") (descr "Power symbols, special power flags"))
-	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.kicad_sym") (options "") (descr "wl-sync custom symbols: MDR68, mini-XLR TA4M/TA5M, mini-DIN, ACCES I/O DB37, Raspberry Pi 5 GPIO header"))
+	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.kicad_sym") (options "") (descr "wl-sync custom symbols: MDR68, mini-XLR TA4M/TA5M, M12A_5, ACCES I/O DB37, Raspberry Pi 5 GPIO header"))
 )

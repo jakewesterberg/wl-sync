@@ -15,14 +15,19 @@ nine sheets can just re-emit the same label text to consume, with no hierarchica
 pins needed on the `(sheet ...)` symbol gen_breakout.py already placed for "power".
 
 Four stages, matching the brief's own step numbering. TASK 7 FIX ROUND 1
-(task-7-report.md, "Fix round 1") revised stages 1 and 2 -- noted inline below, and see
-that report section for the full defect writeups and the numbers behind each decision:
+(task-7-report.md, "Fix round 1") revised stages 1 and 2, and TASK 7 FIX ROUND 2
+(task-7-report.md, "Fix round 2") revised the inlet CONNECTOR (not its electrical
+design -- see _place_inlet()'s own docstring) -- noted inline below, and see those
+report sections for the full defect writeups and the numbers behind each decision:
 
-  1. Analog inlet: 5-pin mini-DIN (widened from 4 pins at fix round 1 -- was +12V/-12V/
-     GND/shield, now also carries +5V), one reverse-polarity Schottky diode per rail
-     (oriented per rail -- see _place_inlet()'s docstring for the derivation), bulk
-     10uF+100nF at entry on all three rails, and the AGND/DGND star point (exactly one
-     NetTie_2).
+  1. Analog inlet: 5-position M12 connector, IEC 61076-2-101 A-coded, keyed and
+     screw-locking (widened from a 4-pin mini-DIN at fix round 1 to carry +12V/-12V/
+     GND/shield plus +5V; the mini-DIN itself replaced at fix round 2 -- its footprint
+     modelled an evenly-spaced ring the real Same Sky part's own datasheet diagram
+     contradicts, and that part is discontinued besides), one reverse-polarity Schottky
+     diode per rail (oriented per rail -- see _place_inlet()'s docstring for the
+     derivation), bulk 10uF+100nF at entry on all three rails, and the AGND/DGND star
+     point (exactly one NetTie_2).
   2. The +3V3 logic rail: LD1117S33TR_SOT223 (+5V->+3V3) only. Originally this stage
      also regulated +12V down to +5V via a TPS7A4901; FIX ROUND 1 REMOVED THAT
      REGULATOR -- the brief's own worst-case optocoupler-LED budget (~180-260mA) exceeds
@@ -100,10 +105,13 @@ FOOTPRINT_FERRITE = "Inductor_SMD:L_0805_2012Metric_Pad1.05x1.20mm_HandSolder"
 # for the one component on this whole board whose entire job is being visibly, individually
 # verifiable as either bridged or open.
 FOOTPRINT_NETTIE = "NetTie:NetTie-2_SMD_Pad2.0mm"
-FOOTPRINT_MINIDIN5 = "wl-sync:MiniDIN_5_Panel"  # hardware/README.md's own custom footprint
-# -- widened from the 4-pin MiniDIN_4_Panel at Task 7 fix round 1 (+5V now needs its own
-# inlet pin; see task-7-report.md's "Fix round 1" and gen_wl_sync_lib.py's MiniDIN_5
-# comment block for the real part and sourcing).
+FOOTPRINT_M12A5 = "wl-sync:M12A_5_Panel"  # hardware/README.md's own custom footprint --
+# a 5-position, IEC 61076-2-101 A-coded (keyed), screw-locking M12 connector (Amphenol
+# LTW M12A-05PFFP-SF8001), replacing the mini-DIN inlet at Task 7 fix round 2: the real
+# Same Sky MD-40SN/MD-50SN datasheet's own diagrams show a CLUSTERED contact layout, not
+# the even ring the mini-DIN footprints modelled, and that part is discontinued besides.
+# See task-7-report.md's "Fix round 2" and gen_wl_sync_lib.py's M12A_5 comment block for
+# the full selection rationale and sourcing.
 FOOTPRINT_DCDC = "Converter_DCDC:Converter_DCDC_XP_POWER-IHxxxxD_THT"  # IH1215D's own stock Footprint property
 FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"  # LD1117S33TR -- identical to gen_mule.py's own usage
 # HVSSOP-8-1EP, generic (not TI's own DGN0008[B/D/G] mechanical-suffix-specific footprint
@@ -127,7 +135,7 @@ def GRID(v: float) -> float:
 # its own stage's anchor by the helper functions below, so the coordinate arithmetic for
 # "does this overlap the next stage" only has to be checked between anchors, not between
 # every individual passive.
-X_J1, Y_J1 = GRID(20), GRID(95.25)               # mini-DIN inlet
+X_J1, Y_J1 = GRID(20), GRID(95.25)               # M12 inlet (fix round 2)
 X_DIODE = GRID(66.04)
 Y_D_P12, Y_D_N12 = GRID(53.34), GRID(137.16)     # +12V / -12V protection diode rows
 Y_D_P5 = GRID(20.32)                             # +5V protection diode row (fix round 1)
@@ -237,25 +245,27 @@ def place_tps7a49_family(sch, symname, footprint, x, y, in_net, gnd_net, out_net
 
 
 def _place_inlet(sch, refs):
-    """Step 1 (revised, Task 7 fix round 1 -- task-7-report.md's "Fix round 1"): 5-pin
-    mini-DIN inlet (widened from 4 pins -- was +12V/-12V/GND/shield; now also carries
+    """Step 1 (revised, Task 7 fix round 1 -- task-7-report.md's "Fix round 1", and fix
+    round 2 -- "Fix round 2"): 5-position M12 connector inlet (widened from a 4-pin
+    mini-DIN to 5 positions at fix round 1 -- was +12V/-12V/GND/shield; now also carries
     +5V directly from the external supply, since the on-board TPS7A4901 that used to
     derive +5V from +12V was undersized and has been removed -- see
-    _place_logic_rails()), one reverse-polarity Schottky per rail (now three: +12V,
-    -12V, +5V), bulk 10uF+100nF on each rail, and the single AGND/DGND star-point net
-    tie.
+    _place_logic_rails(). Fix round 2 replaced the mini-DIN connector ITSELF with a
+    currently-stocked, keyed, screw-locking M12 part -- see FOOTPRINT_M12A5's own
+    comment and hardware/README.md; this fix changed the connector, not the electrical
+    design below, which is otherwise unchanged), one reverse-polarity Schottky per rail
+    (three: +12V, -12V, +5V), bulk 10uF+100nF on each rail, and the single AGND/DGND
+    star-point net tie.
 
-    Mini-DIN pin-to-rail assignment (hardware/lib/wl-sync.kicad_sym's own MiniDIN_5
-    symbol is deliberately generic -- "Pin-to-rail assignment... is made where this is
-    placed", per its Description property, same convention MiniDIN_4 used before it --
-    this is that assignment, made once, here): pin 1 = +12V (raw), pin 2 = -12V (raw),
-    pin 3 = +5V (raw, new at fix round 1), pin 4 = GND, pin 5 = shield. Shield and GND
-    both tie directly to AGND at this same inlet point rather than getting their own
-    nets -- a cable shield and the external supply's own return terminated at the
-    single-point star ground already established here, not a second or third competing
-    reference next to it (GND/shield's own AGND assignment is unchanged in substance
-    from the 4-pin version; only their pin NUMBERS shifted, from 3/4 to 4/5, to make
-    room for +5V at pin 3).
+    Pin-to-rail assignment (hardware/lib/wl-sync.kicad_sym's own M12A_5 symbol is
+    deliberately generic -- "Pin-to-rail assignment... is made where this is placed",
+    per its Description property, same convention every connector in this file uses --
+    this is that assignment, made once, here, and unchanged in substance by fix round
+    2's connector swap): pin 1 = +12V (raw), pin 2 = -12V (raw), pin 3 = +5V (raw), pin
+    4 = GND, pin 5 = shield. Shield and GND both tie directly to AGND at this same inlet
+    point rather than getting their own nets -- a cable shield and the external
+    supply's own return terminated at the single-point star ground already established
+    here, not a second or third competing reference next to it.
 
     Reverse-polarity protection: ONE series Schottky per rail (SS14, 40V/1A), oriented so
     each rail's own NORMAL current direction forward-biases its diode and a wiring fault
@@ -295,15 +305,16 @@ def _place_inlet(sch, refs):
 
     +5V is budgeted for 400mA (fix round 1) -- see task-7-report.md: the brief's own
     28-channel worst-case draw is ~180-260mA, so this is comfortable headroom, under D3
-    (SS14, 1A-rated) and this connector's own 2A/contact rating (Same Sky MD-SN
-    datasheet) alike, with enough margin that a downstream digital sheet's real load
-    should not need to reopen this budget.
+    (SS14, 1A-rated) and this connector's own 4A/contact rating (Amphenol LTW's own
+    M12A-05PFFP-SF8001 spec, fix round 2 -- more headroom than the mini-DIN's own
+    2A/contact this replaced) alike, with enough margin that a downstream digital
+    sheet's real load should not need to reopen this budget.
     """
     refs["inlet_diode"] = []
     refs["inlet_cap"] = []
 
     j1_ref = sch.next_ref("J")
-    j1_pins = sch.place("wl-sync", "MiniDIN_5", j1_ref, "MiniDIN_5", X_J1, Y_J1, footprint=FOOTPRINT_MINIDIN5)
+    j1_pins = sch.place("wl-sync", "M12A_5", j1_ref, "M12A_5", X_J1, Y_J1, footprint=FOOTPRINT_M12A5)
     j1_map = {"1": "P12_RAW", "2": "N12_RAW", "3": "P5_RAW", "4": "AGND", "5": "AGND"}
     for num, net in j1_map.items():
         x, y = pin_pos(X_J1, Y_J1, j1_pins[num])

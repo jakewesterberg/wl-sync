@@ -16,6 +16,19 @@ only material change is recording the MD-40SN/MD-50SN discontinued-part fact pul
 the manufacturer's datasheet while researching the 5-pin part -- see MiniDIN_5_Panel's own
 note below and hardware/README.md).
 
+Task 7 fix round 2 (task-7-report.md, "Fix round 2") DELETED both mini-DIN footprints and
+build_minidin() entirely, replacing the inlet with M12A_5_Panel. Reviewer finding: the
+Same Sky MD-SN datasheet's own small per-pin-count diagrams show a CLUSTERED contact
+layout for both MD-40SN and MD-50SN, not the even ring build_minidin() drew -- a real
+topology defect that would very likely fail to mate as fabbed. Rather than re-drawing
+against a part already confirmed discontinued (MD-40SN rev 1.06 2022-09-26, MD-50SN rev
+1.07 2023-10-04 -- both verified word-for-word against the manufacturer PDF, see the old
+docstring text preserved in git history), the inlet was moved to a currently-stocked,
+keyed, locking, PCB-mount panel connector: Amphenol LTW M12A-05PFFP-SF8001, a 5-position
+IEC 61076-2-101 A-coded M12 receptacle. See M12A_5_Panel's own note below and
+hardware/README.md's "Custom connector footprints" section for the full selection
+rationale and per-dimension sourcing.
+
 Written as raw .kicad_mod text (there is no stock footprint to extract from), following
 the exact low-level shape kicad_pcb.py's extract_footprint()/Board.place() expect to read
 back -- confirmed against a real pcbnew/kicad-footprint-generator-authored file
@@ -58,37 +71,54 @@ built from, not an alternate source of truth -- keep the two in sync if either c
   angular offset) rather than a dimensional one. See hardware/README.md's "Contact
   arrangement" note -- verify against a physical sample before fab, don't just tweak the
   angle.
-- MiniDIN_4_Panel / MiniDIN_5_Panel: panel envelope, mounting-hole spacing/diameter, and
-  through-panel bushing diameter are all read directly off a real, dimensioned
-  manufacturer CAD drawing (Same Sky/CUI MD-SN series datasheet) -- the best-sourced of
-  the footprints in this file. Task 7 fix round 1 pulled the datasheet's own mechanical
-  drawing page directly (rather than citing "the MD-40SN row" secondhand, as the original
-  4-pin-only version of this docstring did) and confirmed the panel envelope, mounting-ear
-  spacing/diameter, AND bushing diameter are IDENTICAL across every pin count from
-  MD-30SN through MD-80SN (only the 9-pin MD-90SN differs) -- so MiniDIN_5_Panel reuses
-  every one of MiniDIN_4_Panel's own dimensions, at higher confidence than before since
-  this is now confirmed rather than assumed to carry over. Contact-circle diameter (7.0mm)
-  is the mini-DIN family's own well-established standard (this connector class is only
-  useful because it interoperates across manufacturers on a fixed contact geometry); exact
-  per-pin angular position was approximated as N evenly-spaced positions rather than
-  measured off the drawing's own small pin diagram -- same possible-topology-error caveat
-  as the mini-XLR pins above, not just an angular tolerance; see hardware/README.md. (The
-  same datasheet page's own small per-pin-count diagrams visibly show a CLUSTERED, not
-  evenly-spaced, arrangement for every pin count -- MD-50SN's own diagram reads as two
-  pins upper-right, one pin left, two pins lower-right, not five points on a ring -- which
-  is worth recording as a strengthening of that existing caveat, not a new one: this
-  generator still uses the even-spacing approximation rather than hand-transcribing exact
-  angles off a diagram too small to read precisely, per hardware/README.md's own "verify
-  against a physical sample, don't speculatively edit the angles" guidance.) Also worth
-  recording plainly (public repo, facts only): the datasheet's own revision history lists
-  MD-40SN and MD-50SN as BOTH discontinued (rev 1.06/1.07, 2022/2023) -- a real
-  procurement-risk fact, not a redesign trigger; see hardware/README.md.
+- M12A_5_Panel (Task 7 fix round 2, replacing MiniDIN_4_Panel/MiniDIN_5_Panel): the real
+  part is Amphenol LTW M12A-05PFFP-SF8001 -- a 5-position, IEC 61076-2-101 A-coded M12
+  connector, female sockets, PCB solder-pin termination, front-fastened panel mount,
+  M12x1 threaded coupling (locking), IP68/IP69K. Confirmed ACTIVE/current-production with
+  real stock at BOTH DigiKey (811 units, part status "Active") and Mouser (1,081 units) --
+  checked directly against each distributor's own product page, not assumed. A-coding is
+  a physical keying feature (this is the entire reason "coding" exists in the M12 spec):
+  the connector cannot mate rotated. The screw-thread coupling is a true lock, not
+  friction -- the panel this part sits on is rack-mounted and slides in and out.
+  Contact geometry (four contacts on a 5.0mm-diameter pitch circle at 90 degree spacing,
+  rotated 45 degrees off the keyway reference, plus a fifth contact at the exact centre;
+  individual contact diameter 1.0mm nominal) is the IEC 61076-2-101 A-coding STANDARD
+  geometry, not a per-manufacturer or per-footprint guess -- confirmed three ways: (1) the
+  IEC 61076-2-101:2012 standard document itself (Table 1: A-coding, 5-way style, 5
+  contacts -> 60V/4A, exactly matching every A-coded 5-position part found in this
+  research, confirming this part is a genuine member of that standardised class); (2) a
+  real, current Bulgin M12-series datasheet's own dimensioned "5 pole 'A' Code Front View"
+  drawing (Ø5 contact circle, Ø1.0+-0.03 contact diameter, 45 degree +-30' angular
+  reference -- a different manufacturer's real part in the SAME standardised class, since
+  A-coding's whole purpose is cross-manufacturer interoperability on one fixed geometry);
+  (3) an independent secondary description of the same standard ("four pins at the
+  corners of a square... pin 5 in the centre"). This is a fundamentally different kind of
+  claim than the mini-DIN's even-ring guess: A-coding is a real interoperability standard
+  every A-coded M12 part must share, not an assumption about one manufacturer's unpublished
+  layout. What is NOT independently confirmed against Amphenol LTW's own drawing
+  specifically (JS-gated download, blocked by every automated fetch tried -- a real, human-
+  operable 2D/3D CAD download exists on the product page and via DigiKey's own EDA/CAD
+  models tab, satisfying "a real drawing is publicly available", but this generator could
+  not extract its raw numbers): the exact panel cutout diameter (modelled here at 12.5mm,
+  M12x1 thread + standard clearance, consistent across every M12 panel-mount datasheet
+  checked) and the connector's own external shell reference diameter (modelled at 14.5mm,
+  Bulgin's own M12-series housing dimension, repeated across several related drawings in
+  the same datasheet). Both flagged in hardware/README.md for confirmation against
+  Amphenol LTW's own drawing or a physical sample before panel machining -- same
+  discipline as every other Low-confidence dimension in this file, not asserted with false
+  certainty. The pin-1-through-4 ROTATIONAL numbering (which of the four symmetric corners
+  is "1" vs "2" vs "3" vs "4") follows this file's own top-ish/clockwise convention
+  (see build_minixlr()) rather than an independently confirmed manufacturer numbering --
+  unlike the contact ARRANGEMENT (shape), this is safe to get wrong even before physical
+  verification: the shell's own keying still prevents any rotated/wrong mating, and a
+  mislabeled corner is a trivial net-reassignment fix, not a re-machined panel.
 
-No footprint below drills a PCB mounting hole for the mini-XLR/mini-DIN parts: both are
-PANEL-mount (their own flange or bushing nut carries the mechanical load, screwed to the
-sheet-metal panel, not to the board -- confirmed for the mini-DIN from Same Sky's own
-"thin metal mounting ears" + "panel mount" feature list, and for the mini-XLR from
-Switchcraft's "specially designed flange permits close mount on crowded panels" wording),
+No footprint below drills a PCB mounting hole for the mini-XLR/M12 parts: both are
+PANEL-mount (their own flange or threaded coupling nut carries the mechanical load,
+screwed to the sheet-metal panel, not to the board -- confirmed for M12A_5_Panel from
+Amphenol LTW's own "Panel Mount, Through Hole" + "Threaded" fastening-type fields, and for
+the mini-XLR from Switchcraft's "specially designed flange permits close mount on crowded
+panels" wording),
 so their PCB footprint only needs solder pads. MDR68 is different and DOES get two
 mechanical mounting holes: Task 0's own procurement table calls it "PCB mount" (its own
 board anchor resists cable insertion/withdrawal and jackscrew torque, unlike the other
@@ -316,53 +346,75 @@ def build_minixlr(n_pins: int, modname: str, real_part: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 4/4b. MiniDIN_4_Panel / MiniDIN_5_Panel -- Same Sky/CUI MD-40SN / MD-50SN, real
-#    dimensioned drawing (see docstring). Generalized to build_minidin(n_pins, ...) at
-#    Task 7 fix round 1 (task-7-report.md, "Fix round 1") to add the 5-pin variant the
-#    +5V-rail fix needs -- same parameterize-by-pin-count shape build_minixlr() above
-#    already uses, not a new pattern. BUSHING_D stays a fixed 10.0mm default for both:
-#    pulled directly from the Same Sky MD-SN family datasheet while building this fix
-#    (sameskydevices.com/product/resource/md-sn.pdf) and confirmed, not assumed, that
-#    the panel envelope, mounting-ear spacing/diameter, AND through-panel bushing
-#    diameter are identical across every pin count from MD-30SN through MD-80SN (only
-#    the 9-pin MD-90SN differs, with a larger 10.25/10.9mm shell) -- one mechanical
-#    drawing serves the whole family up to 8 pins, just a different contact
-#    count/arrangement stamped into the same shell.
+# 4. M12A_5_Panel -- Amphenol LTW M12A-05PFFP-SF8001, real current-production part
+#    (Task 7 fix round 2, task-7-report.md's "Fix round 2" -- replaces the deleted
+#    MiniDIN_4_Panel/MiniDIN_5_Panel/build_minidin(), see module docstring and
+#    hardware/README.md for the full selection rationale). Deliberately NOT
+#    parameterized by pin count/coding the way build_minixlr()/the old build_minidin()
+#    were: this generator has sourced numbers for exactly one real, chosen part, and
+#    generalizing beyond that evidence (e.g. a would-be build_m12(n_pins, coding, ...))
+#    would silently invite the same "plausible but unsourced" gap this whole fix exists
+#    to close -- same one-real-part-at-a-time discipline build_mdr68() already follows.
 # ---------------------------------------------------------------------------
-def build_minidin(n_pins: int, modname: str, real_part: str, bushing_d: float = 10.0) -> str:
-    CONTACT_CIRCLE_D = 7.0  # mini-DIN family standard, shared across pin counts
+def build_m12a_5pos() -> str:
+    # IEC 61076-2-101 A-coding standard geometry (NOT a per-part guess -- A-coding's
+    # entire purpose is cross-manufacturer mating interoperability on one fixed
+    # contact layout, confirmed against the IEC 61076-2-101:2012 standard document
+    # itself -- Table 1: A-coding, 5-way style, 5 contacts -> 60V/4A, matching this
+    # exact part -- and independently corroborated by a real, current Bulgin M12-series
+    # datasheet's own dimensioned "5 pole 'A' Code Front View" drawing: Ø5 contact
+    # circle, Ø1.0+-0.03 contact diameter, 45 degree +-30' angular reference. See
+    # hardware/README.md for the full three-way cross-check.):
+    PCD = 5.0            # pitch circle diameter for the 4 outer contacts
+    PIN_ANGLE0 = 45.0    # contact 1 sits 45 deg off the keyway reference (Bulgin's own
+    # "45+-30'" callout); contacts 2-4 follow at 90 deg increments, clockwise -- a
+    # diamond (NE/SE/SW/NW), not an N/E/S/W square. Pin 5 is the exact geometric centre.
+    PAD_SIZE, DRILL = 2.0, 1.3   # real contact is 1.0mm dia nominal (IEC 61076-2-101
+    # Sec.1 / Bulgin's own Ø1.0+-0.03); enlarged for a comfortable hand-solder joint,
+    # same discipline as every other connector in this file.
+    PANEL_CUTOUT = 12.5  # M12x1 thread + standard clearance -- consistent across every
+    # M12 panel-mount datasheet checked; NOT independently confirmed against Amphenol
+    # LTW's own drawing specifically (JS-gated download blocked every automated fetch
+    # tried) -- flagged in hardware/README.md, verify before panel machining.
 
-    r = CONTACT_CIRCLE_D / 2
+    r = PCD / 2
     els = []
-    for i in range(n_pins):
-        angle = math.radians(90 - i * (360 / n_pins))
+    # Contacts 1-4: NE, SE, SW, NW, clockwise -- this file's own top-ish/clockwise pin-1
+    # convention (see build_minixlr()), adapted for a 4-fold-symmetric diamond that has
+    # no point due north. This ROTATIONAL numbering (which corner is "1") is NOT
+    # independently confirmed against the manufacturer's own printed pin marking -- but
+    # unlike the mini-DIN's contact-ARRANGEMENT error, getting this label wrong is safe:
+    # the shell's own A-coding keying still makes a rotated/wrong mating physically
+    # impossible, and a mislabeled corner is a net-reassignment fix, not a re-machined
+    # panel. See hardware/README.md.
+    for i in range(4):
+        angle = math.radians(PIN_ANGLE0 - i * 90)
         x, y = r * math.cos(angle), -r * math.sin(angle)
-        els.append(fp_pad(str(i + 1), x, y, 1.2, 0.7, "rect" if i == 0 else "circle"))
+        els.append(fp_pad(str(i + 1), x, y, PAD_SIZE, DRILL, "rect" if i == 0 else "circle"))
+    els.append(fp_pad("5", 0, 0, PAD_SIZE, DRILL, "circle"))  # centre contact
 
-    els.append(fp_circle(0, 0, bushing_d / 2, "F.SilkS", 0.12))
-    els.append(fp_circle(0, 0, bushing_d / 2 + 0.5, "F.CrtYd", 0.05))
-    els.append(fp_circle(0, 0, bushing_d / 2, "F.Fab", 0.1))
-    els.append(fp_text_ref(0, -(bushing_d / 2 + 1.5)))
-    els.append(fp_text_val(0, bushing_d / 2 + 1.5, modname))
+    els.append(fp_circle(0, 0, PANEL_CUTOUT / 2, "F.SilkS", 0.12))
+    els.append(fp_circle(0, 0, PANEL_CUTOUT / 2 + 0.5, "F.CrtYd", 0.05))
+    els.append(fp_circle(0, 0, PANEL_CUTOUT / 2, "F.Fab", 0.1))
+    els.append(fp_text_ref(0, -(PANEL_CUTOUT / 2 + 1.5)))
+    els.append(fp_text_val(0, PANEL_CUTOUT / 2 + 1.5, "M12A_5_Panel"))
 
     return assemble(
-        modname,
-        f"{n_pins}-pin mini-DIN, panel mount, Same Sky (CUI) {real_part} -- discontinued "
-        f"per the manufacturer's own datasheet revision history (rev 1.06/1.07, "
-        f"2022-2023; see hardware/README.md) -- flagged here as a real procurement fact, "
-        f"not a reason this generator substitutes a different part on its own. "
-        f"Through-panel bushing diameter ({bushing_d:g}mm) from the manufacturer's own "
-        f"dimensioned drawing (sameskydevices.com/product/resource/md-sn.pdf), confirmed "
-        f"shared across MD-30SN through MD-80SN, not just the row this specific part "
-        f"number sits on; panel flange envelope 38.5x15.25mm and 2x M? mounting ears at "
-        f"30.0mm centres, 3.05mm dia, are on the same drawing but are panel-side "
-        f"hardware, not part of this PCB footprint (see hardware/README.md). "
-        f"Contact-circle diameter (7.0mm) is the mini-DIN family's own standard; exact "
-        f"per-pin angle is an even-spacing approximation, not measured off the "
-        f"drawing's own small pin diagram, and may be a topology error rather than a "
-        f"tolerance one -- see hardware/README.md; verify against a physical sample "
-        f"before fab.",
-        f"connector mini-DIN power inlet panel {real_part}",
+        "M12A_5_Panel",
+        "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate "
+        "rotated), screw-locking M12x1 coupling, panel mount, PCB solder-pin "
+        "termination. Real part: Amphenol LTW M12A-05PFFP-SF8001 (female sockets, "
+        "front-fastened, IP68/IP69K) -- confirmed active/current-production with real "
+        "stock at DigiKey and Mouser (see hardware/README.md). Contact geometry (Ø5.0mm "
+        "pitch circle for 4 outer contacts at 90deg spacing, 45deg off the keyway "
+        "reference, 1 contact at centre) is the IEC 61076-2-101 A-coding STANDARD "
+        "geometry, cross-confirmed against the standard itself and a real Bulgin M12 "
+        "datasheet, not modelled as an even ring the way the mini-DIN this replaces was. "
+        "Panel cutout (12.5mm, M12x1 thread + standard clearance) is consistent across "
+        "every M12 panel-mount datasheet checked but not independently confirmed against "
+        "this specific part's own drawing -- verify before panel machining, see "
+        "hardware/README.md.",
+        "connector M12 power inlet panel locking keyed A-coded",
         els,
     )
 
@@ -373,8 +425,7 @@ def main() -> None:
         ("MDR68_Male_RightAngle.kicad_mod", build_mdr68(), 68),
         ("MiniXLR_TA4M_Panel.kicad_mod", build_minixlr(4, "MiniXLR_TA4M_Panel", "TB4M"), 4),
         ("MiniXLR_TA5M_Panel.kicad_mod", build_minixlr(5, "MiniXLR_TA5M_Panel", "TB5M"), 5),
-        ("MiniDIN_4_Panel.kicad_mod", build_minidin(4, "MiniDIN_4_Panel", "MD-40SN"), 4),
-        ("MiniDIN_5_Panel.kicad_mod", build_minidin(5, "MiniDIN_5_Panel", "MD-50SN"), 5),
+        ("M12A_5_Panel.kicad_mod", build_m12a_5pos(), 5),
     ]
     for filename, text, n_pads in parts:
         modname = filename[: -len(".kicad_mod")]

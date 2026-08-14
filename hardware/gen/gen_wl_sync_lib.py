@@ -28,6 +28,16 @@ Task 7 fix round 1 also added an eighth (schematic) symbol, MiniDIN_5 -- the 5-p
 mini-DIN inlet connector the +5V fix needs (see MiniDIN_5's own comment block below for
 why a fifth inlet pin is required and the real part it models).
 
+Task 7 fix round 2 (task-7-report.md, "Fix round 2") DELETED MiniDIN_4 and MiniDIN_5
+entirely -- a reviewer confirmed the real Same Sky MD-40SN/MD-50SN datasheet's own
+per-pin-count diagrams show a CLUSTERED contact layout, not the even ring the matching
+footprints drew, and that part is discontinued besides. Replaced with a single new
+symbol, M12A_5: a currently-stocked, keyed (cannot mate rotated), screw-locking M12
+connector (Amphenol LTW M12A-05PFFP-SF8001). See M12A_5's own comment block below and
+hardware/README.md's "Custom connector footprints" section for the full selection
+rationale. Total custom symbol count is eight after this fix (nine minus the two deleted
+mini-DIN symbols, plus the one new M12A_5).
+
 These are hand-designed from scratch (no stock symbol to extract from), so this module
 writes raw s-expression text directly rather than using kicad_sch.py's extract_symbol()
 -- but it follows the exact same low-level format kicad_sch.py's extract_symbol()/
@@ -58,7 +68,8 @@ Judgment call, stated once here rather than per symbol: only the Raspberry Pi 5 
 pins are named for a specific real-world function (GPIO numbers, per the brief and spec
 Sec.4 -- a fixed, public, hardware-defined mapping that exists independent of this board).
 The other four connectors' pin-to-signal assignment is NOT yet fixed anywhere in the spec
-or plan -- Task 7 (mini-DIN rail assignment), Task 8/10 (MDR68 per-pin channel
+or plan -- Task 7 (power inlet rail assignment -- M12A_5 as of fix round 2, was mini-DIN
+through fix round 1), Task 8/10 (MDR68 per-pin channel
 assignment -- spec Sec.9.2 fixes which of the two 68-pin connectors carries which signal
 range (closed 2026-08-13, formerly open item 3), but no spec table assigns a specific
 physical pin number to a specific signal within either connector), and Task 10 (mini-XLR
@@ -362,72 +373,67 @@ SYM_TA5M = build_symbol(
 )
 
 # ---------------------------------------------------------------------------
-# 4. 4-pin mini-DIN, panel mount -- +-12V inlet. Generic pin-to-rail assignment (a
-#    Task 7 decision; see module docstring). Real part: Same Sky (CUI) MD-40SN.
+# 4. 5-position M12 connector, A-coded, panel mount -- +-12V/+5V supply inlet. Task 7
+#    fix round 2 (task-7-report.md, "Fix round 2") DELETED MiniDIN_4 and MiniDIN_5
+#    (formerly here) and this symbol entirely.
 #
-#    SUPERSEDED at the inlet as of Task 7 fix round 1 (task-7-report.md): the +5V rail
-#    moved from an on-board TPS7A4901 regulated off +12V to coming directly off a FIFTH
-#    inlet pin (see MiniDIN_5 below), so gen_breakout_power.py now places that symbol,
-#    not this one. Left defined and in the library rather than deleted -- nothing else
-#    references it, but it is a real, harmless, still-correct 4-pin part definition, and
-#    removing it is not something this fix's own scope (the +5V undersizing and the
-#    instances-path defect) calls for.
-# ---------------------------------------------------------------------------
-SYM_MINIDIN4 = build_symbol(
-    "MiniDIN_4",
-    "J",
-    "MiniDIN_4",
-    "4-pin mini-DIN, panel mount (Same Sky/CUI MD-40SN) -- analog +-12V supply inlet. "
-    "Pin-to-rail assignment (+12V/-12V/GND/shield) is made where this is placed. "
-    "Superseded at the inlet by MiniDIN_5 as of Task 7 fix round 1 -- see that symbol.",
-    "connector mini-DIN power inlet panel",
-    "https://www.sameskydevices.com/product/resource/md-sn.pdf",
-    [(str(n), str(n)) for n in range(1, 5)],
-)
-
-# ---------------------------------------------------------------------------
-# 4b. 5-pin mini-DIN, panel mount -- Task 7 fix round 1 (task-7-report.md, "Fix round
-#    1"): the board's +5V logic rail is undersized regulating it down from +12V on
-#    board (a worst-case ~26 simultaneous optocoupler LEDs need ~180-260mA, the
-#    TPS7A4901 caps at 150mA), and the fix is bringing +5V in directly from the
-#    external supply instead -- which needs a fifth inlet pin. Real part: Same Sky
-#    (CUI) MD-50SN, same MD-SN family and the SAME primary-source mechanical drawing
-#    as MD-40SN above (sameskydevices.com/product/resource/md-sn.pdf, pulled directly
-#    for this fix, not assumed to carry over unchanged from the 4-pin row): panel
-#    envelope (38.5x15.25mm), mounting-ear spacing/diameter (30.0mm centres, 3.05mm
-#    dia) and through-panel bushing diameter (10.0mm) are confirmed IDENTICAL across
-#    every pin count from MD-30SN through MD-80SN (only the 9-pin MD-90SN differs,
-#    with a larger 10.25/10.9mm shell) -- one shared mechanical drawing, just a
-#    different contact count/arrangement stamped into the same shell. Generic
-#    pin-to-rail assignment, same convention as MiniDIN_4 and every other connector in
-#    this file (see module docstring) -- gen_breakout_power.py makes that assignment.
+#    WHY: a reviewer independently pulled the Same Sky MD-SN datasheet's own
+#    per-pin-count mechanical diagrams and confirmed both MD-40SN and MD-50SN show a
+#    CLUSTERED contact layout, not the even ring MiniDIN_4_Panel/MiniDIN_5_Panel drew --
+#    a real topology defect, not a tolerance one, that would very likely fail to mate as
+#    fabbed. MD-40SN/MD-50SN are also both discontinued (rev 1.06/1.07, 2022/2023,
+#    verified word-for-word against the manufacturer PDF), so redrawing against that
+#    part would have been wasted work regardless.
 #
-#    Sourcing note worth recording plainly (public repo, electrical/mechanical facts
-#    only): the datasheet's OWN revision history (rev 1.06, 2022-09-26) lists MD-50SN
-#    among five pin-counts discontinued that day (MD-30SN/50SN/60SN/80SN/90SN), and a
-#    later revision (1.07, 2023-10-04) discontinued MD-40SN too -- so BOTH the 4-pin
-#    part this repo already cites elsewhere and the 5-pin part this fix adds share the
-#    same real procurement risk (only MD-70SN is not listed as discontinued in either
-#    entry). Not a reason to pick a different part here -- re-qualifying the mini-DIN
-#    inlet part number against current distributor stock is squarely Task 0's own
-#    procurement-verification job (the same "buy one physical sample before panel
-#    machining" step hardware/README.md already calls for), not a redesign this
-#    generator gets to make -- but silently citing a discontinued part number without
-#    saying so would be exactly the kind of overclaimed-confidence this repo's own
-#    footprint-sourcing table (hardware/README.md) otherwise takes care to avoid.
+#    WHAT REPLACED IT, and why: Amphenol LTW M12A-05PFFP-SF8001, selected against the
+#    brief's own priority order --
+#      1. Current production and stocked: confirmed ACTIVE with real stock at BOTH
+#         DigiKey (811 units) and Mouser (1,081 units), checked directly against each
+#         distributor's own product page, not assumed.
+#      2. Real manufacturer drawing/CAD publicly available: Amphenol LTW's own product
+#         page and DigiKey's EDA/CAD models tab both offer 2D drawing + 3D STEP/IGS
+#         downloads for this exact part (hard requirement, not a nice-to-have -- the
+#         whole point is to stop guessing geometry).
+#      3. >=5 contacts: 5-position (4 outer + 1 centre), carrying +12V/-12V/+5V/GND/
+#         shield -- see gen_breakout_power.py's _place_inlet() for the pin-to-rail
+#         assignment (unchanged in substance from the mini-DIN's own -- this fix is
+#         about the CONNECTOR, not the electrical design, per the brief).
+#      4. Keyed: IEC 61076-2-101 A-coding is a physical keying feature -- the shell
+#         cannot mate rotated. This is a power connector feeding +-12V into analog
+#         circuitry; that has to be structurally impossible, not merely unlikely.
+#      5. Locking: M12x1 threaded coupling nut, a true mechanical lock (not friction) --
+#         this chassis is rack-mounted and slides in and out.
+#      6. PCB-mount, panel-facing: front-fastened panel mount with PCB solder pins,
+#         consistent with every other connector on this board.
+#      7. Modest panel footprint: an M12 shell is a similar order of size to the
+#         mini-DIN bushing it replaces, comfortably modest next to this panel's 31 BNC
+#         positions and four 68-pin MDR connectors.
+#
+#    Contact geometry is the IEC 61076-2-101 A-coding STANDARD (4 contacts on a Ø5.0mm
+#    pitch circle at 90deg spacing, 45deg off the keyway reference, 1 at dead centre) --
+#    confirmed against the IEC standard document itself and cross-checked against a
+#    real, current Bulgin M12 datasheet's own dimensioned front-view drawing, not
+#    modelled as an even ring the way the mini-DIN was. See
+#    hardware/gen/gen_wl_sync_footprints.py's build_m12a_5pos() and
+#    hardware/README.md's "Custom connector footprints" section for the full sourcing,
+#    including the two dimensions (panel cutout, external shell reference) that could
+#    not be independently confirmed against Amphenol LTW's own drawing specifically
+#    (JS-gated download) and are flagged for verification before panel machining.
+#
+#    Generic pin-to-rail assignment, same convention as every other connector in this
+#    file (see module docstring) -- gen_breakout_power.py makes that assignment.
 # ---------------------------------------------------------------------------
-SYM_MINIDIN5 = build_symbol(
-    "MiniDIN_5",
+SYM_M12A_5 = build_symbol(
+    "M12A_5",
     "J",
-    "MiniDIN_5",
-    "5-pin mini-DIN, panel mount (Same Sky/CUI MD-50SN -- discontinued per the "
-    "manufacturer's own datasheet revision history, same as MD-40SN; see "
-    "hardware/README.md) -- +12V/-12V/+5V supply inlet (Task 7 fix round 1: +5V now "
-    "comes directly from the external supply rather than being regulated down from "
-    "+12V on board). Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where "
-    "this is placed.",
-    "connector mini-DIN power inlet panel",
-    "https://www.sameskydevices.com/product/resource/md-sn.pdf",
+    "M12A_5",
+    "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), "
+    "screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- "
+    "confirmed active/current-production, in stock at DigiKey and Mouser; see "
+    "hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment "
+    "(+12V/-12V/+5V/GND/shield) is made where this is placed.",
+    "connector M12 power inlet panel locking keyed A-coded",
+    "https://www.amphenolltw.com/product-info/Metric+Circular+Connector/M-Series.M12.ACode/M12A-05PFFP-SF8001.html",
     [(str(n), str(n)) for n in range(1, 6)],
 )
 
@@ -580,16 +586,16 @@ SYM_TPS7A3001 = build_ic_symbol(
 )
 
 SYMBOLS = [
-    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_MINIDIN4, SYM_MINIDIN5, SYM_ACCESIO, SYM_PI5_HEADER,
+    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_M12A_5, SYM_ACCESIO, SYM_PI5_HEADER,
     SYM_TPS7A4901, SYM_TPS7A3001,
 ]
 _SYMBOL_NAMES = [
-    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "MiniDIN_4", "MiniDIN_5",
+    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "M12A_5",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
     "TPS7A4901", "TPS7A3001",
 ]
 _EXPECTED_PIN_COUNTS = {
-    "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "MiniDIN_4": 4, "MiniDIN_5": 5,
+    "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "M12A_5": 5,
     "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
     "TPS7A4901": 8, "TPS7A3001": 8,
 }

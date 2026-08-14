@@ -1045,138 +1045,7 @@
 		)
 		(embedded_fonts no)
 	)
-	(symbol "MiniDIN_4"
-		(pin_names
-			(offset 1.016)
-			(hide yes)
-		)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(duplicate_pin_numbers_are_jumpers no)
-		(property "Reference" "J"
-			(at -1.27 7.62 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "MiniDIN_4"
-			(at -1.27 -7.62 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.sameskydevices.com/product/resource/md-sn.pdf"
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "4-pin mini-DIN, panel mount (Same Sky/CUI MD-40SN) -- analog +-12V supply inlet. Pin-to-rail assignment (+12V/-12V/GND/shield) is made where this is placed. Superseded at the inlet by MiniDIN_5 as of Task 7 fix round 1 -- see that symbol."
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "ki_keywords" "connector mini-DIN power inlet panel"
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(symbol "MiniDIN_4_0_1"
-			(rectangle
-				(start -1.27 5.08)
-				(end 1.27 -5.08)
-				(stroke
-					(width 0.254)
-					(type default)
-				)
-				(fill
-					(type background)
-				)
-			)
-		)
-		(symbol "MiniDIN_4_1_1"
-			(pin passive line
-				(at -5.08 3.81 0)
-				(length 3.81)
-				(name "1"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "1"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 1.27 0)
-				(length 3.81)
-				(name "2"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "2"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 -1.27 0)
-				(length 3.81)
-				(name "3"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "3"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 -3.81 0)
-				(length 3.81)
-				(name "4"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "4"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-		)
-		(embedded_fonts no)
-	)
-	(symbol "MiniDIN_5"
+	(symbol "M12A_5"
 		(pin_names
 			(offset 1.016)
 			(hide yes)
@@ -1196,7 +1065,7 @@
 				)
 			)
 		)
-		(property "Value" "MiniDIN_5"
+		(property "Value" "M12A_5"
 			(at -1.27 -8.89 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1217,7 +1086,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.sameskydevices.com/product/resource/md-sn.pdf"
+		(property "Datasheet" "https://www.amphenolltw.com/product-info/Metric+Circular+Connector/M-Series.M12.ACode/M12A-05PFFP-SF8001.html"
 			(at 0 0 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1228,7 +1097,7 @@
 				)
 			)
 		)
-		(property "Description" "5-pin mini-DIN, panel mount (Same Sky/CUI MD-50SN -- discontinued per the manufacturer's own datasheet revision history, same as MD-40SN; see hardware/README.md) -- +12V/-12V/+5V supply inlet (Task 7 fix round 1: +5V now comes directly from the external supply rather than being regulated down from +12V on board). Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where this is placed."
+		(property "Description" "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- confirmed active/current-production, in stock at DigiKey and Mouser; see hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where this is placed."
 			(at 0 0 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1239,7 +1108,7 @@
 				)
 			)
 		)
-		(property "ki_keywords" "connector mini-DIN power inlet panel"
+		(property "ki_keywords" "connector M12 power inlet panel locking keyed A-coded"
 			(at 0 0 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -1250,7 +1119,7 @@
 				)
 			)
 		)
-		(symbol "MiniDIN_5_0_1"
+		(symbol "M12A_5_0_1"
 			(rectangle
 				(start -1.27 6.35)
 				(end 1.27 -6.35)
@@ -1263,7 +1132,7 @@
 				)
 			)
 		)
-		(symbol "MiniDIN_5_1_1"
+		(symbol "M12A_5_1_1"
 			(pin passive line
 				(at -5.08 5.08 0)
 				(length 3.81)
