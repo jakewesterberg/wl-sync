@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A fabricated, assembled and bench-verified 2U breakout board that carries every rig
-signal between the behavioural task PC, the Pi 5 sync box, the recording NI card and the Intan
+signal between the behavioural task PC, the CM5-based sync box, the recording NI card and the Intan
 RHS — plus a small event-path mule board fabbed first to de-risk the protocol early.
 
 **Architecture:** One 430 × 240 mm 4-layer mixed-signal board. Digital crossings into ephys
@@ -367,7 +367,7 @@ measured value:
 | 4 | Isolation barrier | >10 MΩ between DGND and the isolated ground |
 | 5 | Optocoupler propagation delay | recorded; constant across channels within 10 µs |
 | 6 | Strobe edge quality | rise and fall <5 µs, monotonic, no ringing above logic thresholds |
-| 7 | **PIO capture** | with `wl_sync` running on a Pi 5, 10-minute run with **zero dropped words** and timestamps within ±100 µs |
+| 7 | **PIO capture** | with `wl_sync` running on the sync-box module (CM5 or Pi 5 — same RP1, so either is valid), 10-minute run with **zero dropped words** and timestamps within ±100 µs |
 
 - [ ] **Step 2: Run checks 1–6 with a scope.** Record every measured value in the file.
 - [ ] **Step 3: Run check 7 against the existing `wl_sync` code.** This is the same acceptance
@@ -808,11 +808,17 @@ own rear corner.
 
 - [ ] **Step 1b: Place the Pi, its NVMe adapter, and the airflow path**
 
-The Pi 5 carries an active cooler and a **PCIe-FPC-only NVMe adapter mounted underneath on
-standoffs** — never a GPIO-header HAT, whose ID EEPROM would claim GPIO0/1 and whose body would
-occupy the header the ribbon needs (spec §4.1). Position the Pi and drive **downstream of the
-analog section in the airflow**, so their 10–15 W of exhaust does not wash over the analog front
-ends or the difference amplifiers. Intake and exhaust are panel cutouts, so they belong in the
+The sync box is a **CM5 Lite on the official CM5 IO Board**, booting from that board's onboard
+M.2 socket — no PCIe flex cable, and never a GPIO-header HAT, whose ID EEPROM would claim GPIO0/1
+and whose body would occupy the header the ribbon needs (spec §4.1). Position it **downstream of
+the analog section in the airflow**, so its 10–15 W of exhaust does not wash over the analog
+front ends or the difference amplifiers.
+
+**This step decides whether the CM5 choice survives.** The IO Board is 160 × 90 mm against a Pi
+5's 85 × 56 — about three times the shadow over a 430 × 240 mm board. It must sit over the rear
+digital region only. **If it cannot, revert to a Pi 5 plus a PCIe-FPC NVMe adapter** and record
+that in the floorplan. Either way the answer must precede panel machining, since the two options
+place Ethernet, USB and power cutouts differently. Intake and exhaust are panel cutouts, so they belong in the
 mechanical drawing from the start. If a fan is fitted, keep it away from the microphone preamp
 and photodiode front ends — its motor is an electrical noise source as well as an acoustic one.
 

@@ -1,7 +1,7 @@
 # Sync-box breakout PCB — design
 
 **Written 2026-08-13.** The board that sits between the behavioural task PC, the sync box
-(Raspberry Pi 5), and everything that records. It is a hub: every rig signal terminates here,
+(a Raspberry Pi Compute Module 5 on its official IO Board — §4.1), and everything that records. It is a hub: every rig signal terminates here,
 is conditioned once, and is fanned to each destination that needs it.
 
 **This repository is public.** The routing requirements originate in a private design spec in
@@ -31,7 +31,8 @@ signal nobody recorded a decision about.
 | # | Decision | Rationale |
 |---|---|---|
 | 1 | One board, two rigs, fully populated | Rigs are identical; a depopulation strategy would be insurance against variability that does not exist |
-| 2 | Pi 5 inside the same enclosure | Frees GPIO0/1 (no HAT ID EEPROM), which is what makes the contiguous capture range and two hardware-PWM triggers coexist |
+| 2 | Sync-box board inside the same enclosure | Frees GPIO0/1 — no HAT is fitted, so nothing supplies an ID EEPROM — which is what makes the contiguous capture range and two hardware-PWM triggers coexist |
+| 2a | **CM5 Lite + official CM5 IO Board**, not a Pi 5 | Onboard M.2 removes the PCIe flex cable, which is a mechanical failure mode in a rack chassis that gets slid in and out while carrying the boot device. Production committed to ≥ Jan 2036. **Conditional on floorplan — see §9.4** |
 | 3 | **Optocouplers** on digital, **not** capacitive/magnetic digital isolators | Digital isolators transmit by modulating an RF carrier — a deliberate RF source beside headstages. Optocouplers have no carrier. Speed is irrelevant at this timing budget |
 | 4 | **Difference amplifiers** on analog, not isolation amplifiers | 33 analog stages cannot be galvanically isolated affordably, and isolation amplifiers degrade the signals most needing fidelity |
 | 5 | NI analog driven **NRSE**, not per-channel differential | All sources share one reference by construction, so AISENSE tied to AGND gives the same rejection while keeping 32 channels instead of 16 |
@@ -156,9 +157,22 @@ GPIO-header-mounted HAT.
 conforming HAT or HAT+ carries its ID EEPROM on ID_SD/ID_SC — which *are* GPIO0 and GPIO1, and
 which carry event-code bits 0 and 1. Fitting one collides with the event bus. Mechanically it is
 worse: the 40-pin header carries the ribbon to this board, so a header-mounted adapter has
-nowhere to sit. **The adapter must connect solely through the Pi 5's PCIe flex connector and
-mount underneath on standoffs.** Verify any candidate does not touch the 40-pin header before
-purchase — the popular official M.2 HAT+ style does.
+nowhere to sit.
+
+**The CM5 IO Board's onboard M.2 M-key socket (PCIe Gen 2 x1) is the answer**, and it is the main
+reason the module choice landed on CM5 rather than a Pi 5: it removes the PCIe flex cable
+entirely. A flex ribbon carrying the boot device, inside a chassis that gets slid in and out of
+a rack for a decade, is a mechanical failure mode worth designing out.
+
+> **Host and HAT are not the same thing, and conflating them cost a wrong conclusion once.** The
+> ID EEPROM lives on the **HAT**, not on the host — ID_SD/ID_SC are how a host reads a HAT that
+> brings its own. That is why an M.2 HAT+ is disqualified: it *is* a HAT, so it supplies the
+> EEPROM and occupies the header. A CM5 IO Board is the host, so GPIO0/1 are as free there as on
+> a Pi 5, and the same mitigation applies to both.
+
+**Boot from the M.2 drive, with a CM5 Lite** (no eMMC). Reflashing is then identical to booting a
+Pi 5 from NVMe; an eMMC variant would need `rpiboot` over USB for every reimage, which is a
+worse morning for whoever maintains the rig.
 
 **Throughput is not why.** The Pi logs its own camera-trigger edges at 500 Hz, a photodiode flip
 patch at the display refresh rate, a barcode frame per second and a handful of behavioural
@@ -172,7 +186,7 @@ the **sole recorder on training days**, so its storage failing does not degrade 
 loses one entirely. **Boot from the NVMe rather than merely mounting it for data** — leaving the
 SD card in the boot path preserves exactly the failure mode being designed out.
 
-**Active cooler fitted.** The Pi 5 wants it, and it sits in a closed chassis beside analog
+**Active cooler fitted.** The module wants it, and it sits in a closed chassis beside analog
 circuitry that would rather not be warmed. See §9.4.
 
 ---
@@ -340,7 +354,7 @@ isolators for their RF carrier and then adding a switcher to the same board woul
 
 | Rail | Source |
 |---|---|
-| Pi 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Substituting is a false economy on a Pi 5 |
+| Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Substituting is a false economy on a CM5-class board |
 | ±12 V analog | External linear supply, panel inlet |
 | +5 V, +3.3 V | LDOs from +12 V |
 | NI domain | +5 V from NI's 68-pin connector, **250 mA per connector** — switcher-free and already referenced to NI's ground. See §8.1 |
@@ -473,7 +487,7 @@ keeping the barcode line short — it carries a high edge density and must be ro
 headstage cables.
 
 **Thermal, which is a mechanical requirement nobody had written down.** The enclosure contains a
-Pi 5 with its active cooler and an NVMe drive (§4.1) — call it 10–15 W of deliberate heat —
+CM5 with its active cooler and an M.2 drive (§4.1) — call it 10–15 W of deliberate heat —
 sharing a sealed chassis with 33 analog stages whose offset drift is temperature-dependent, and
 with comparator thresholds that gate task progression. Three consequences for the panel and
 floorplan, all of which must be settled **before panels are machined**:
@@ -485,6 +499,20 @@ floorplan, all of which must be settled **before panels are machined**:
 - **Fans are a noise source in both senses.** If a fan is fitted it wants to be a quiet one on
   the rack-facing panel, and its motor is an electrical noise source that should not sit beside
   the microphone preamp or the photodiode front ends.
+
+**The CM5 decision is conditional on this floorplan, and the condition is footprint.** The CM5 IO
+Board is **160 × 90 mm** against a Pi 5's 85 × 56 — roughly **three times the shadow** cast over
+a 430 × 240 mm main board. It must sit over the **rear digital region**, never over the analog
+front ends or across the airflow path serving them.
+
+If placement cannot achieve that, **the decision reverts to a Pi 5 with a PCIe-FPC NVMe adapter**,
+accepting the flex cable to recover the smaller footprint. That is a Task 14 determination and it
+must be settled **before panels are machined**, since both options change the panel cutouts for
+Ethernet, USB and power.
+
+**Nothing in the software depends on which is chosen.** CM5 and Pi 5 carry the same BCM2712 and
+the same RP1 southbridge, so PIO, the GPIO numbering and `wl_sync` are identical either way. The
+bench acceptance test is valid on whichever board runs it.
 
 ---
 
