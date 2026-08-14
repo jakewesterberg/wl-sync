@@ -531,8 +531,16 @@ task PC.
 
 - [ ] **Step 4: Reward OR**
 
-`RWD_CMD` and `RWD_BTN` into a `74HCT32`. `RWD_BTN` is first debounced: 10 kΩ pull-up, 100 nF to
-DGND, into a `74HCT14` Schmitt inverter pair. OR output becomes `RWD_DLVR`, which drives the
+`RWD_CMD` and `RWD_BTN` into a `74HCT32`. `RWD_BTN` is first debounced: 10 kΩ pull-up, button to
+ground, 100 nF to DGND, into a **single** `74HCT14` Schmitt inverter.
+
+**A single inverter, not a pair — corrected 2026-08-14.** This step originally said "inverter
+pair". Trace it: button open → pull-up → HIGH → inverter → LOW → inverter → **HIGH**. Two
+inversions restore the polarity, so the debounced button would idle HIGH, and `HIGH OR anything`
+is HIGH — **`RWD_DLVR` asserted continuously, the reward driver permanently open, and the
+delivered line stuck true in every recording.** One inverter gives idle-low, active-high, which
+is what an OR with an active-high `RWD_CMD` requires. State `RWD_CMD`'s assumed polarity on the
+sheet so it is visible rather than inherited. OR output becomes `RWD_DLVR`, which drives the
 reward-driver BNC and is buffered to Pi, NI and Intan.
 
 - [ ] **Step 5: Run ERC and commit**
