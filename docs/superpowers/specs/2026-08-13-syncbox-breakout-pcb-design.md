@@ -434,7 +434,7 @@ isolators for their RF carrier and then adding a switcher to the same board woul
 | Rail | Source |
 |---|---|
 | Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Separate from the board's +5 V rail. Substituting is a false economy on a CM5-class board |
-| ±12 V analog, **+5 V** | External linear supply, panel inlet — **5-pin mini-DIN**: +12 V, −12 V, +5 V, GND, shield |
+| ±12 V analog, **+5 V** | External linear supply, panel inlet — **5-position M12 A-coded**: +12 V, −12 V, +5 V, GND, shield |
 | +3.3 V | LDO. **+5 V is NOT derived on board** — see §8.2 |
 | NI domain | +5 V from NI's 68-pin connector, **250 mA per connector** — switcher-free and already referenced to NI's ground. See §8.1 |
 | **Intan domain** | **One isolated ±12 V DC-DC**, pi-filtered with LDO post-regulation |
@@ -506,7 +506,7 @@ Every panel input carries series resistance and clamp diodes.
 | Display sync in | BNC | 1, unpopulated |
 | Photodiodes ×2, ambient, accelerometer, joystick X/Y, microphone | **BNC** | 7 |
 | Manual reward | panel momentary button + remote jack | 1 + 1 |
-| Supply in (±12 V, +5 V) | **5-pin mini-DIN** | 1 | — see §8.2 and the sourcing note below |
+| Supply in (±12 V, +5 V) | **M12 A-coded, 5-pos**, screw-locking | 1 | `M12A-05PFFP-SF8001`; see §8.2 |
 | Pi ports | cutouts: USB-C, Ethernet, USB-A | — |
 
 > **All rig-facing sensors are BNC — mini-XLR removed entirely, 2026-08-13.** This section

@@ -52,7 +52,7 @@ task is marked:
 | Path | Responsibility |
 |---|---|
 | `hardware/README.md` | Electrical facts, board overview, how to rebuild fab outputs |
-| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, mini-DIN, ACCESIO DB37, GPIO header) |
+| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, M12 A-coded, ACCESIO DB37, GPIO header) |
 | `hardware/lib/wl-sync.pretty/` | Custom footprints for the same |
 | `hardware/mule/` | Event-path mule: project, schematic, layout, fab, bring-up procedure |
 | `hardware/breakout/breakout.kicad_sch` | Root sheet — hierarchy only |
@@ -121,11 +121,11 @@ checked in `hardware/procurement-check.md`.
 | 68-pin MDR male, right-angle PCB mount | 4 | The risk item — 4–8 wk if unstocked |
 | BNC, right-angle PCB mount, **isolated** | 30 | Volume makes even a short lead time matter. Isolated shells are required — see spec §5.6 |
 | 3.5 mm TRS, PCB mount | 1 | remote reward button |
-| **5-pin** mini-DIN, PCB mount | 1 | ±12 V + 5 V inlet. **MD-40SN and MD-50SN are both discontinued** — an equivalent must be sourced |
+| **M12 A-coded 5-pos**, PCB solder, panel mount | 1 | `M12A-05PFFP-SF8001`. Keyed and screw-locking. Replaced the mini-DIN, which was discontinued **and** whose footprint was geometrically wrong |
 
 - [ ] **Step 2b: Order ONE physical sample of each custom-footprint connector, now**
 
-MDR68 male right-angle and the **5-pin** mini-DIN. (The mini-XLR samples are no longer needed — all rig-facing sensors became BNC once the Faraday cage was known about, which deleted those footprints and the topology risk with them.) These are the only
+MDR68 male right-angle and the **M12 A-coded 5-position** inlet. (The mini-XLR samples are no longer needed — all rig-facing sensors became BNC once the Faraday cage was known about, which deleted those footprints and the topology risk with them.) These are the only
 parts on the board with **custom footprints drawn from secondary sources** rather than from a
 manufacturer CAD drawing, and they are the parts whose panel cutouts are machined to match. A
 footprint error here scraps a panel rather than causing a rework.
@@ -134,18 +134,18 @@ Two dimensions could not be closed from any retrievable document and must be **m
 the physical part** before Task 14 finalises placement: MDR68 row and mounting-hole spacing, and
 the mini-XLR panel-cutout diameter.
 
-**The topology risk is no longer hypothetical for the mini-DIN.** Task 7 found the manufacturer's
-own datasheet diagram shows its contacts **clustered in an arc, not evenly spaced around a full
-circle** — which is exactly the failure mode flagged earlier, now visually confirmed rather than
-suspected. The 5-pin footprint was drawn from that datasheet; **the older `MiniDIN_4_Panel`
-footprint, drawn on the even-spacing assumption, is therefore presumed wrong.** It is unused
-after the inlet went 5-pin, but a wrong footprint left in the library is a trap for a later task
-— delete it or mark it deprecated. Measure the 5-pin part against a physical sample regardless:
-a footprint wrong in kind is not saved by tolerance margin.
+**The topology risk was confirmed real and then designed out.** Task 7 pulled the manufacturer's
+own datasheet and found the mini-DIN contacts **clustered in an arc, not evenly spaced** — the
+exact failure mode flagged earlier as hypothetical. Both mini-DIN footprints had been drawn on
+the even-spacing assumption and would very likely have failed to mate. The part was also
+discontinued, so rather than redraw geometry for something nobody can buy, the inlet was
+**re-selected**: an `M12A-05PFFP-SF8001`, A-coded and screw-locking, contact geometry taken from
+IEC 61076-2-101 itself. Both wrong footprints and the even-spacing generator function were
+deleted rather than deprecated.
 
-**Procurement, and it needs resolving before layout:** `MD-40SN` and `MD-50SN` are **both
-discontinued**. A current equivalent must be sourced and its drawing used, since the footprint
-follows the part rather than the other way round.
+**Still verify the M12 against a physical sample before machining.** Its panel cutout and shell
+dimensions could not be pulled from Amphenol's own drawing, which is behind a scripted viewer, so
+they carry the same low-confidence flag every other custom footprint here does.
 
 Samples cost a few dollars and arrive long before the production order. Buying them with the
 stock check costs nothing and closes the largest remaining fab risk.
@@ -426,7 +426,7 @@ declares the nets it produces so later sheets can consume them.
 
 - [ ] **Step 1: Draw the custom symbols**
 
-Not in KiCad's stock libraries: 68-pin MDR male, mini-XLR TB4M, mini-XLR TB5M, 4-pin mini-DIN,
+Not in KiCad's stock libraries: 68-pin MDR male, M12 A-coded 5-position,
 the ACCESIO 37-pin D source, the Pi 5 40-pin header (with GPIO numbers as pin names, not BCM
 positions — this is what makes the map in spec §4 checkable by eye).
 
@@ -467,7 +467,7 @@ git commit -m "feat(hw): breakout symbols, footprints, sheet hierarchy"
 
 - [ ] **Step 1: Analog inlet and rails**
 
-4-pin mini-DIN carrying +12 V, −12 V, GND, shield. Reverse-polarity protection per rail, bulk
+5-position M12 A-coded carrying +12 V, −12 V, +5 V, GND, shield. Reverse-polarity protection per rail, bulk
 10 µF + 100 nF at entry.
 
 - [ ] **Step 2: Derive the logic rails**
