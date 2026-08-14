@@ -507,10 +507,9 @@ git commit -m "feat(hw): power sheet — linear rails, one isolated supply, AGND
 
 - [ ] **Step 1: Place the two MDR68 connectors**
 
-Connector 0 for analog + AISENSE, Connector 1 for digital. Assign pins from the 6363 pinout
-confirmed in spec §12 open item 3 — **do not proceed on the assumed split**; confirm it first
-against NI's device pinout document and record the source in a schematic text field.
-
+Connector 0 for analog + AISENSE, Connector 1 for digital. Assign physical pins from **NI's X Series User Manual (370784K-01), Figure A-5** — the task PC
+carries a **PCIe-6343** (spec §9.3), not the 6363 an earlier draft named. The two figures are
+pin-identical on every signal this design uses, but cite the one for the part actually fitted.
 - [ ] **Step 2: Inbound buffers — 19 channels**
 
 `SN74LVC541APW` on +3V3 for the 16 data lines, strobe, `RWD_CMD` and `STIM_TRIG` — 19 channels,
