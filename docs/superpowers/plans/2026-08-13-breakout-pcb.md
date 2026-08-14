@@ -52,7 +52,7 @@ task is marked:
 | Path | Responsibility |
 |---|---|
 | `hardware/README.md` | Electrical facts, board overview, how to rebuild fab outputs |
-| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, TB4M/TB5M, sensor heads) |
+| `hardware/lib/wl-sync.kicad_sym` | Custom symbols (MDR68, mini-DIN, ACCESIO DB37, GPIO header) |
 | `hardware/lib/wl-sync.pretty/` | Custom footprints for the same |
 | `hardware/mule/` | Event-path mule: project, schematic, layout, fab, bring-up procedure |
 | `hardware/breakout/breakout.kicad_sch` | Root sheet — hierarchy only |
@@ -119,15 +119,13 @@ checked in `hardware/procurement-check.md`.
 | Part | Qty/board | Note |
 |---|---|---|
 | 68-pin MDR male, right-angle PCB mount | 4 | The risk item — 4–8 wk if unstocked |
-| BNC, right-angle PCB mount, isolated | 23 | Volume makes even a short lead time matter |
-| Mini-XLR **TB4M** panel/PCB | 4 | TA4M is obsolete and cable-mount only |
-| Mini-XLR **TB5M** panel/PCB | 1 | same |
-| 3.5 mm TRS, PCB mount | 2 | mic + remote reward button |
+| BNC, right-angle PCB mount, **isolated** | 30 | Volume makes even a short lead time matter. Isolated shells are required — see spec §5.6 |
+| 3.5 mm TRS, PCB mount | 1 | remote reward button |
 | 4-pin mini-DIN, PCB mount | 1 | ±12 V inlet |
 
 - [ ] **Step 2b: Order ONE physical sample of each custom-footprint connector, now**
 
-MDR68 male right-angle, mini-XLR TB4M and TB5M, and the 4-pin mini-DIN. These four are the only
+MDR68 male right-angle and the 4-pin mini-DIN. (The mini-XLR samples are no longer needed — all rig-facing sensors became BNC once the Faraday cage was known about, which deleted those footprints and the topology risk with them.) These four are the only
 parts on the board with **custom footprints drawn from secondary sources** rather than from a
 manufacturer CAD drawing, and they are the parts whose panel cutouts are machined to match. A
 footprint error here scraps a panel rather than causing a rework.

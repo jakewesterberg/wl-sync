@@ -89,11 +89,11 @@ delivered reward would otherwise become a silent confound.
 |---|---|---|---|---|---|
 | Eye X/Y, both eyes | 4 | ACCESIO USB-AO16-8A | ✓ | ✓ | mux |
 | Eye pupil, both eyes | 2 | ACCESIO USB-AO16-8A | — | ✓ | mux |
-| Photodiode ×2 | 2 | powered sensor head | — | ✓ | mux |
-| Ambient light | 1 | powered sensor head | — | ✓ | mux |
-| Accelerometer motion energy | 1 | custom device, single analog out | — | ✓ | mux |
-| Joystick X/Y | 2 | joystick | ✓ | ✓ | mux |
-| Microphone | 1 | powered mic, line level | — | ✓ | mux |
+| Photodiode ×2 | 2 | **passive diode**, coax | — | ✓ | mux |
+| Ambient light | 1 | battery-powered, in booth | — | ✓ | mux |
+| Accelerometer motion energy | 1 | battery-powered custom device | — | ✓ | mux |
+| Joystick X/Y | 2 | battery-powered, in booth | ✓ | ✓ | mux |
+| Microphone | 1 | battery-powered, in booth | — | ✓ | mux |
 | Misc analog | 3 | panel BNC, ÷1/÷2 selectable | ✓ | ✓ | mux |
 | **Totals** | **16** | | **9** | **16 of 32** | **8 of 8** |
 
@@ -255,6 +255,40 @@ section does not see it.
 earth noise reaching the analog channels, isolating those lines is the fix — and it would be a
 respin, not a populate option, because 19 optocouplers is real board area.
 
+### 5.6 The Faraday cage, and why rig-facing inputs are received differentially
+
+**The rig sits inside a Faraday cage sound booth.** Sensors inside it are battery powered so that
+no mains conductor crosses the cage wall; only signals pass, through BNC bulkhead feedthroughs.
+Runs are **2–3 m sensor to bulkhead, 1–2 m bulkhead to this board.**
+
+Battery power makes each sensor genuinely floating: its only ground path is its own coax shield,
+so no loop can form at the sensor. That is stronger than the claim §5.3 makes for the analog
+island, not weaker.
+
+**But the shield cannot simply be lifted at this end, because it is the signal return.** Open it
+and the signal has no path. So flexibility about the bulkhead cannot be a ground-lift jumper.
+
+**Whether the bulkhead bonds each shield to the cage shell is undecided, and this board is
+designed not to care.** The tension is real and has no free answer:
+
+- **EMC says bond at the penetration.** An unbonded conductor crossing a shield wall is an
+  aperture, degrading the thing the cage exists to do.
+- **Loop reasoning says do not**, so each shield references only AGND.
+
+**Resolution: receive every rig-facing sensor differentially.** The shield ties to AGND through
+~10 Ω, providing the return and a DC reference, and the input stage senses **centre against
+shield at the connector** rather than assuming the shield sits at AGND. If the cage also bonds
+the shield, circulating current develops a voltage across that 10 Ω which the difference
+amplifier rejects as common mode instead of adding to signal.
+
+This uses the part family already specified for the Intan side, so it costs stages rather than
+new parts — and it means the bulkhead decision can be made, or reversed, without touching the
+board.
+
+**Rig-level, above this board:** if shields do bond at the bulkhead, the cage and the rack should
+be bonded to each other at **one deliberate point**, so there is a single ground system rather
+than two competing ones with the signal shields arbitrating between them.
+
 ### 5.5 Why NI and Intan are treated differently
 
 Not symmetry for its own sake; it falls out of the two receivers' input topologies.
@@ -298,6 +332,25 @@ into the amplifier's high-impedance input and charge injection appears only at s
 never during a recording.
 
 The selected routing is software state the Pi holds and can write into the session record.
+
+### 6.3.1 Photodiode transimpedance stage
+
+The photodiodes are **passive**, so the transimpedance amplifier is on this board and the coax
+capacitance sits at its summing junction: 3–5 m of coax is roughly **300–500 pF**.
+
+With a 1 MΩ feedback resistor and a 10 MHz op-amp, compensation lands bandwidth near **57 kHz** —
+comfortably above the ~10 kHz these channels need. The cost is noise-gain peaking, mitigated by
+the post-TIA low-pass wanted for anti-aliasing regardless.
+
+**Design for 6 m; tested range 3–5 m.** Cable length is an electrical parameter of the stimulus-
+onset timing reference, so it is specified rather than assumed, and a substantially longer cable
+is a change to be verified rather than a swap.
+
+**Photovoltaic (zero-bias) mode**, forced by the constraint that there is no power in the booth.
+Lower dark current and lower noise; slightly slower, which is irrelevant against millisecond
+display transitions. Reverse bias is achievable by offsetting the TIA's non-inverting input and
+would need no supply at the sensor, but it buys speed this application does not need and costs
+dark current.
 
 ### 6.4 Microphone anti-alias filter
 
@@ -423,21 +476,23 @@ Every panel input carries series resistance and clamp diodes.
 | Camera triggers | BNC | 5 (1 eye, 4 behavior) |
 | Reward driver out | BNC | 1 |
 | Display sync in | BNC | 1, unpopulated |
-| Photodiodes, ambient, accelerometer | mini-XLR **TB4M** | 4 |
-| Joystick | mini-XLR **TB5M** | 1 |
-| Microphone | 3.5 mm TRS | 1 |
+| Photodiodes ×2, ambient, accelerometer, joystick X/Y, microphone | **BNC** | 7 |
 | Manual reward | panel momentary button + remote jack | 1 + 1 |
 | Analog supply in | 4-pin mini-DIN | 1 |
 | Pi ports | cutouts: USB-C, Ethernet, USB-A | — |
 
-> **TB, not TA — corrected 2026-08-13.** This section originally specified TA4M/TA5M.
-> **TA4M is obsolete and cable-mount only**; the panel-mount part in the TB series is TB4M/TB5M.
-> Confirmed against DigiKey, Switchcraft and Farnell. Ordering to the original naming would buy
-> a connector that cannot be panel-mounted.
+> **All rig-facing sensors are BNC — mini-XLR removed entirely, 2026-08-13.** This section
+> previously specified powered sensor heads on TB4M/TB5M. **The rig sits inside a Faraday cage
+> sound booth**: every sensor inside it is battery powered precisely so that no mains conductor
+> crosses the cage wall, and only signals pass through the bulkhead. Nothing needs power from
+> this board, so nothing needs more than a coax. This deleted the two custom footprints whose
+> contact arrangement was the largest known fab risk.
 
-**24 BNC positions, 23 populated** — the display-sync footprint and its panel cutout exist, the
-connector is not fitted. Different mini-XLR pin counts prevent cross-plugging sensor classes;
-every input is clamped, so a mis-plug costs wrong data rather than hardware.
+**31 BNC positions, 30 populated** — the display-sync footprint and its panel cutout exist, the
+connector is not fitted. Every input is clamped, so a mis-plug costs wrong data rather than
+hardware; with a uniform connector type, clear panel labelling is what prevents it instead of
+mechanical keying. **Isolated BNCs throughout**, so each shell lands on its own pad rather than
+being bonded to the shield plane by the connector body — that is what makes §5.6 possible.
 
 ### 9.2 NI connector choice
 
