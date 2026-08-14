@@ -253,7 +253,7 @@ git commit -m "chore(hw): KiCad project skeleton and library paths"
 
 Seventeen lines. `SN74LVC541APW` on +3V3, **three packages** — the '541 is an *octal* buffer, so
 a package carries 8 channels, not the 20 its pin count suggests; two packages cover 16 of the 17
-lines and strand the strobe. Each input gets 100 Ω series and a BAV99 clamp to +3V3/DGND, wired
+lines and strand the strobe. Each input gets 100 Ω series and a BAT54S clamp to +3V3/DGND, wired
 as the series pair it is: signal on the midpoint, low side to DGND, **high side to +5V — not
 to +3V3**. The '541 is an LVC part precisely because its inputs tolerate 5.5 V independent of
 its supply, and that is what lets a 5 V DAQ drive a 3.3 V-powered buffer at all. A clamp to
@@ -603,7 +603,7 @@ git commit -m "feat(hw): Pi interface sheet — GPIO map, boot-contention resist
 
 - [ ] **Step 1: Front ends — 16 sources**
 
-Per source: **isolated** BNC, 1 kΩ series, BAV99 clamps to ±12 V, then a **difference-receiving
+Per source: **isolated** BNC, 1 kΩ series, BAT54S clamps to ±12 V, then a **difference-receiving
 input stage** — not a plain buffer to `AGND`. Sensor connectors per spec §9.1; all rig-facing
 sensors are BNC.
 
