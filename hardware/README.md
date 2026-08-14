@@ -84,10 +84,33 @@ wired on this sheet (the same physical-pin source above), since only the file th
 a symbol can label its pins and Task 10 does not exist yet. See `task-8-report.md`'s own
 "Fix round 1" section for the full retrieval/verification method and the reasoning behind
 each fix.
-The remaining eight hierarchical sheet symbols (`pi-interface`, `analog-frontend`,
-`analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`, `control-usb-i2c`) each
-still reference a `sheets/<name>.kicad_sch` child file that does not exist yet — later
-tasks each create and populate their own (see "Sheet symbols referencing a child file that
+And `sheets/pi-interface.kicad_sch` (produced by `hardware/gen/gen_breakout_pi_interface.py`,
+Task 9) — the sync-module (Raspberry Pi 5 / Compute Module 5 IO Board, see this file's own
+opening paragraph) 40-pin GPIO header, wired to spec Sec.4's own GPIO map (transcribed
+verbatim as an on-sheet text block); the GPIO0/GPIO1 boot-contention 330Ω series resistors;
+a `SN74HCT541PW` output buffer for the three module-sourced signals this sheet produces
+(`BARCODE_PI` fanned to 5 loads — 2 Task-11 placeholders + 3 spare; `CAM_TRIG_EYE`/
+`CAM_TRIG_BEH` fanned to 5 real panel BNC positions, 1 eye + 4 behavior); and the internal
+2.54mm 1×4 USB header for Task 12's own USB-I²C bridge. Also, NOT in the brief's own literal
+step list: one more `SN74LVC541APW` channel on +3V3, level-shifting `RWD_DLVR` — produced on
+`taskpc-digital.kicad_sch` by a `74HCT32` OR gate powered from **+5V** — down to a
+module-safe level before it reaches GPIO23. This project's own global constraint (the plan's
+own "Pi GPIO is 3.3V and not 5V tolerant... never one part for both") makes wiring `RWD_DLVR`
+to GPIO23 directly a real hazard, not a style nit — the same class of catch-and-fix-beyond-
+the-literal-brief Task 8 fix round 1 already made for its own reward-OR polarity defect (see
+above), applied here to a defect that never made it into a committed sheet in the first
+place. See that generator's own module docstring and
+`check_breakout_pi_interface_netlist.py` for the design and its verification — including the
+GPIO-physical-pin walk (independently re-derived, not imported from the generator) this
+task's own brief specifically asked for, with a negative control that moves one GPIO signal
+to a wrong pin and confirms the checker fires (this defect class is invisible to ERC: a
+transposed physical pin is still a fully-connected, 0-error netlist, and only fails on a
+bench during PIO capture bring-up).
+
+The remaining seven hierarchical sheet symbols (`analog-frontend`, `analog-ni`,
+`mux-intan`, `comparators`, `opto-ni`, `opto-intan`, `control-usb-i2c`) each still
+reference a `sheets/<name>.kicad_sch` child file that does not exist yet — later tasks
+each create and populate their own (see "Sheet symbols referencing a child file that
 doesn't exist yet" below for why the root sheet doesn't pre-create them).
 
 ## Toolchain
@@ -110,7 +133,12 @@ doesn't exist yet" below for why the root sheet doesn't pre-create them).
   `wl-sync` once a sheet places a custom footprint). Each must sit beside its own `.kicad_pro`,
   same constraint as `sym-lib-table` (see gotchas below) — a per-project copy, not the root
   `hardware/` directory. Task 7 added `Diode_SMD`, `Inductor_SMD` (the pi filters' ferrite
-  beads), and `NetTie` (the AGND/DGND star point) to `hardware/breakout/fp-lib-table`.
+  beads), and `NetTie` (the AGND/DGND star point) to `hardware/breakout/fp-lib-table`; Task 9
+  added `Connector_Coaxial` (`BNC_PanelMountable_Vertical`, for the 5 camera-trigger panel
+  positions on `pi-interface.kicad_sch`) — a real stock KiCad footprint, not a placeholder,
+  though (like every connector in this project not yet locked to a specific ordered MPN) the
+  exact manufacturer part is a layout-stage/procurement decision this schematic-capture task
+  does not make.
 - **`hardware/lib/wl-sync.kicad_sym`** and **`hardware/lib/wl-sync.pretty/`** — this project's
   own symbols and footprints for parts KiCad doesn't ship: the 68-pin MDR male connector,
   mini-XLR TA4M/TA5M, the M12A_5 power inlet (Task 7 fix round 2 — see below; a 4-pin then
@@ -591,6 +619,41 @@ generated — don't rediscover them.
   ICs on `+5V`/`+3V3`, an expected consequence of that function's own project-wide scope,
   not a one-time fix.
 
+  **Extended at Task 9, exactly as flagged above**: `pi-interface.kicad_sch` is this
+  project's THIRD real child sheet (after `power.kicad_sch` and `taskpc-digital.kicad_sch`,
+  both already committed), so seeding past only one of them is no longer sufficient —
+  `find_max_refs()` itself still only reads ONE sheet's text (unchanged), but
+  `kicad_sch.py` gained a new `merge_max_refs(*ref_maps)` helper that takes the per-prefix
+  MAXIMUM across as many `find_max_refs()` results as are passed in, so
+  `gen_breakout_pi_interface.py`'s own `build()` seeds
+  `Sch(..., ref_start=merge_max_refs(find_max_refs(power_text), find_max_refs(taskpc_text)))`
+  — generic machinery in `kicad_sch.py`, not a sheet-specific workaround, so Tasks 10-12
+  extend the same call with their own additional sibling(s) rather than re-solving this.
+  Also updated `check_breakout_power_netlist.py`'s own `RAIL_BYPASS_EXPECTED` again, the
+  same way Task 8 already did once: `pi-interface.kicad_sch` adds two more ICs on the
+  shared `+5V`/`+3V3` rails (the `RWD_DLVR` level-shifter and the trigger-output buffer,
+  one 100nF decoupler each), so `+5V`/`DGND` moved 8→9 and `+3V3`/`DGND` moved 5→6 —
+  flagged there, again, as needing the SAME update once Tasks 10-12 add their own.
+- **Two satellite components placed at a fixed offset from TWO DIFFERENT pins of the same
+  multi-column connector can land on the exact same coordinate, even when the two pins
+  themselves are visibly apart.** Found placing `pi-interface.kicad_sch`'s own GPIO0/GPIO1
+  330Ω series resistors (Task 9): `wl-sync:RaspberryPi5_GPIO_Header`'s left (odd-numbered)
+  and right (even-numbered) pin columns are built from ONE shared per-row Y coordinate list
+  (`gen_wl_sync_lib.py`'s own `build_symbol()` — `ys[i]` indexes both `left[i]` and
+  `right[i]`), so GPIO0 (physical pin 27, left column) and GPIO1 (physical pin 28, right
+  column) — consecutive odd/even numbers — sit on the SAME row, differing only in X, not Y.
+  Placing both resistors at one fixed `(X, y)` (`y` taken from the header pin's own Y,
+  reused for both) stacked them on an identical point: `kicad-cli sch erc` reported
+  `multiple_net_names` ("Both GPIO0_HDR and GPIO1_HDR are attached to the same items") on
+  the first generation attempt. A first fix attempt (a per-instance Y offset between the
+  two resistors) picked exactly 7.62mm — `Device:R`'s own pin-to-pin span (pin 1 at local Y
+  +3.81, pin 2 at −3.81, confirmed via `unit_pins()`) — which moved the COLLISION one
+  component over instead of removing it (R\<n\>'s own pin 2 landed exactly on R\<n+1\>'s own
+  pin 1). An offset comfortably larger than the part's own pin span (12.7mm, this project's
+  own `LOAD_DY` constant reused) cleared both. Worth checking for any future generator
+  placing more than one satellite part per row of a two-column connector, not just this
+  one header.
+
 ## Byte-reproducibility
 
 Regenerating `mule.kicad_sch` or `mule.kicad_pcb` from the same generator and inputs
@@ -620,32 +683,51 @@ python3 hardware/gen/gen_mule_pcb.py
 kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
 
-For the breakout board's own library, root sheet, and (Tasks 7-8) its power and
-task-PC-digital child sheets. Order matters here in a way it didn't before Task 7 fix
-round 1: `gen_breakout_power.py` now *reads* `hardware/breakout/breakout.kicad_sch` (to
-compute its own components' real root+sheet-symbol ancestor path -- see the "KiCad
-gotchas" entry above and `gen_breakout_power.py`'s own `build()`), so `gen_breakout.py`
-must have already run and written that file, not merely conceptually precede it in the
-hierarchy -- running `gen_breakout_power.py` first raises `FileNotFoundError`, loudly,
-not silently. `gen_breakout_taskpc_digital.py` (Task 8) reads BOTH
-`hardware/breakout/breakout.kicad_sch` (same reason) AND
-`hardware/breakout/sheets/power.kicad_sch` (to seed its own reference counters past
-whatever `power.kicad_sch` already used -- see the "KiCad gotchas" entry above,
-"duplicate reference designators"), so it must run after BOTH of those:
+For the breakout board's own library, root sheet, and (Tasks 7-9) its power,
+task-PC-digital, and pi-interface child sheets. Order matters here in a way it didn't
+before Task 7 fix round 1: `gen_breakout_power.py` now *reads*
+`hardware/breakout/breakout.kicad_sch` (to compute its own components' real
+root+sheet-symbol ancestor path -- see the "KiCad gotchas" entry above and
+`gen_breakout_power.py`'s own `build()`), so `gen_breakout.py` must have already run and
+written that file, not merely conceptually precede it in the hierarchy -- running
+`gen_breakout_power.py` first raises `FileNotFoundError`, loudly, not silently.
+`gen_breakout_taskpc_digital.py` (Task 8) reads BOTH `hardware/breakout/breakout.kicad_sch`
+(same reason) AND `hardware/breakout/sheets/power.kicad_sch` (to seed its own reference
+counters past whatever `power.kicad_sch` already used -- see the "KiCad gotchas" entry
+above, "duplicate reference designators"), so it must run after BOTH of those.
+`gen_breakout_pi_interface.py` (Task 9) reads `hardware/breakout/breakout.kicad_sch`
+(same reason again) AND BOTH `hardware/breakout/sheets/power.kicad_sch` AND
+`hardware/breakout/sheets/taskpc-digital.kicad_sch` (to seed its own reference counters
+past EVERY already-committed sibling's own maxima via the new `merge_max_refs()` -- see
+the "KiCad gotchas" entry above, "Extended at Task 9"), so it must run after all three:
 
 ```bash
 python3 hardware/gen/gen_wl_sync_lib.py                             # hardware/lib/wl-sync.kicad_sym
 python3 hardware/gen/gen_wl_sync_footprints.py                      # hardware/lib/wl-sync.pretty/*.kicad_mod
-python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before the next two lines
-python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch -- must run before the next line
-python3 hardware/gen/gen_breakout_taskpc_digital.py                 # hardware/breakout/sheets/taskpc-digital.kicad_sch
+python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before the next three lines
+python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch -- must run before the next two lines
+python3 hardware/gen/gen_breakout_taskpc_digital.py                 # hardware/breakout/sheets/taskpc-digital.kicad_sch -- must run before the next line
+python3 hardware/gen/gen_breakout_pi_interface.py                   # hardware/breakout/sheets/pi-interface.kicad_sch
 kicad-cli sch upgrade hardware/breakout/breakout.kicad_sch           # see "Format upgrade" below
 kicad-cli sch upgrade hardware/breakout/sheets/power.kicad_sch       # ditto -- a child sheet is its own .kicad_sch file
 kicad-cli sch upgrade hardware/breakout/sheets/taskpc-digital.kicad_sch  # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/pi-interface.kicad_sch    # ditto
 kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net hardware/breakout/breakout.kicad_sch
 python3 hardware/gen/check_breakout_power_netlist.py /tmp/breakout.net  # verifies the power sheet's own netlist AND (reading breakout.kicad_sch/power.kicad_sch directly, not the netlist -- see its own module docstring) the instance-path fix, not just that ERC passed
 python3 hardware/gen/check_taskpc_digital_netlist.py /tmp/breakout.net  # verifies the task-PC digital sheet's own netlist end to end (both buffer banks) AND its own instance-path fix
+python3 hardware/gen/check_breakout_pi_interface_netlist.py /tmp/breakout.net  # verifies the sync-module interface sheet's own netlist end to end (every GPIO on its real physical pin) AND its own instance-path fix
 ```
+
+Regenerating `breakout.kicad_sch`, `power.kicad_sch`, and `taskpc-digital.kicad_sch` mints
+fresh UUIDs on every one of their own components too (same byte-reproducibility caveat
+below), which is harmless in isolation but means a LATER child sheet generated against a
+freshly-regenerated parent embeds THAT run's UUIDs in its own `(instances (path ...))`
+chain -- regenerating only `pi-interface.kicad_sch` against the ALREADY-COMMITTED (not
+freshly regenerated) `breakout.kicad_sch`/`power.kicad_sch`/`taskpc-digital.kicad_sch` is
+the one that reproduces the actually-committed state; regenerating all four together (as
+the recipe above does) is equally correct but changes every earlier file's own bytes too,
+which is real churn to commit unless those earlier sheets are ALSO meant to change this
+run.
 
 The library generators each run a structural self-check (round-tripping every symbol/
 footprint through `kicad_sch.py`'s/`kicad_pcb.py`'s own parser) before writing anything to

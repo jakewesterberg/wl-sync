@@ -140,19 +140,30 @@ NON_ISO_NETS = [
 # HCT541 + the 74HCT32 OR gate + the 74HCT14 debounce inverter, all +5V-powered) and 3
 # more on +3V3/DGND (the 3 LVC541 packages). Confirmed directly against the regenerated
 # whole-project netlist (not guessed), same discipline the rest of this dict already
-# follows. WILL need updating again once Tasks 9-12 add their own decoupling to these
-# same two shared rails -- not a one-time fix, an expected consequence of
-# `_rail_bypass_cap_count()`'s own project-wide scope every later child sheet inherits.
+# follows.
+#
+# RECOMPUTED AGAIN AT TASK 9: pi-interface.kicad_sch adds two more ICs on these same
+# shared rails, each with its own place_octal_buffer()-style 100nF decoupler -- the
+# RWD_DLVR level-shift SN74LVC541APW (+3V3, +1 -> 6) and the BARCODE_PI/CAM_TRIG_EYE/
+# CAM_TRIG_BEH output SN74HCT541PW (+5V, +1 -> 9). Confirmed directly against the
+# regenerated whole-project netlist. WILL need updating again once Tasks 10-12 add their
+# own decoupling to these same two shared rails -- not a one-time fix, an expected
+# consequence of `_rail_bypass_cap_count()`'s own project-wide scope every later child
+# sheet inherits.
 RAIL_BYPASS_EXPECTED = {
     ("+12V", "AGND"): 2,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1
     ("-12V", "AGND"): 2,          # C3, C4 -- ditto, -12V rail
-    ("+5V", "DGND"): 8,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
-                                   # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8)
+    ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+                                   # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
+                                   # + 1 from pi-interface.kicad_sch's own trigger buffer
+                                   # (Task 9)
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
-    ("+3V3", "DGND"): 5,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
+    ("+3V3", "DGND"): 6,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
                                    # (power.kicad_sch); + 3 from taskpc-digital.kicad_sch's
-                                   # own 3 LVC541 packages (Task 8)
+                                   # own 3 LVC541 packages (Task 8); + 1 from
+                                   # pi-interface.kicad_sch's own RWD_DLVR level-shift
+                                   # (Task 9)
     ("ISO_P12", "INTAN_GND"): 2,  # C14, C15 -- U3 COUT + extra HF bypass
     ("ISO_N12", "INTAN_GND"): 2,  # C20, C21 -- U4 COUT + extra HF bypass
     ("ISO_P15_RAW", "INTAN_GND"): 1,   # C10 -- positive pi filter's first 10uF

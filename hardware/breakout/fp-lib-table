@@ -2,6 +2,7 @@
 	(version 7)
 	(lib (name "Capacitor_SMD") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Capacitor_SMD.pretty") (options "") (descr "Capacitor, surface mount"))
 	(lib (name "Connector_BarrelJack") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_BarrelJack.pretty") (options "") (descr "(DC) barrel jack connector footprints"))
+	(lib (name "Connector_Coaxial") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_Coaxial.pretty") (options "") (descr "Coaxial connector footprints (incl. BNC)"))
 	(lib (name "Connector_Dsub") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_Dsub.pretty") (options "") (descr "D-Sub connector footprints"))
 	(lib (name "Connector_IDC") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_IDC.pretty") (options "") (descr "IDC connector footprints"))
 	(lib (name "Connector_PinHeader_2.54mm") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_PinHeader_2.54mm.pretty") (options "") (descr "Pin headers, 2.54mm pitch"))

@@ -795,3 +795,29 @@ def find_max_refs(sch_text: str) -> dict[str, int]:
         if n > maxes.get(prefix, 0):
             maxes[prefix] = n
     return maxes
+
+
+def merge_max_refs(*ref_maps: dict[str, int]) -> dict[str, int]:
+    """Per-prefix maximum across MULTIPLE already-committed sibling sheets' own
+    find_max_refs() results -- extends that function's "seed past one sibling" fix
+    (see its own docstring, and hardware/README.md's "duplicate reference designators"
+    gotcha) to "seed past however many siblings already exist". find_max_refs() itself
+    only ever reads ONE sheet's text, which was exactly sufficient at Task 8 (this
+    project's first two-sibling case, seeding only past power.kicad_sch) but stops being
+    enough the moment a THIRD real sheet exists alongside two prior ones -- Task 9 is
+    that sheet (power.kicad_sch AND taskpc-digital.kicad_sch both already committed), and
+    the README's own gotcha entry already flagged this exact extension as needed "once
+    Tasks 9-12" arrived, not a hypothetical.
+
+    A prefix absent from every map passed in is simply absent from the result -- Sch's
+    own ref_start already treats a missing prefix as "start at 1" (unchanged pre-existing
+    behaviour), and a prefix used by only SOME siblings behaves as if the others used it
+    zero times, which is exactly correct: the seed only needs to clear the highest number
+    any sibling actually used, not accumulate a sum across them.
+    """
+    merged: dict[str, int] = {}
+    for ref_map in ref_maps:
+        for prefix, n in ref_map.items():
+            if n > merged.get(prefix, 0):
+                merged[prefix] = n
+    return merged
