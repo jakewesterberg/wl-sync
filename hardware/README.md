@@ -139,16 +139,33 @@ generated — don't rediscover them.
   marker, e.g. `Package_DIP:DIP-8_W7.62mm`) that needs the same fresh per-instance `uuid` as
   every `fp_line`/`fp_rect`/`fp_circle`/`fp_poly`/`fp_arc`/`fp_text`/`pad` child — omitting
   it produced a `lib_footprint_mismatch` DRC warning on every DIP-8 instance. Found by
-  running `kicad-cli pcb drc` and reading exactly what it reported, not by inspection.
-- **`kicad-cli pcb drc`'s `lib_footprint_mismatch` check appears to be sensitive to
-  rotation, independent of any content difference.** A footprint placed at a non-zero
-  rotation can trigger it even when its embedded copy is byte-for-byte identical to the
-  library master (confirmed with a minimal standalone test: the identical extracted
-  `DIP-8_W7.62mm` block placed at `rot=0` shows no warning; at `rot=270` it does, with the
-  library-comparison DRC check only active at all when a project's `fp-lib-table` can
-  resolve the footprint's library — an empty test directory with no `fp-lib-table` doesn't
-  run the check either way). Warning-severity only; no electrical or mechanical
-  consequence. Recorded here rather than chased further.
+  running `kicad-cli pcb drc` and reading exactly what it reported, not by inspection. It
+  also needs its **position** rewritten: `point` is the one footprint child whose `(at X Y)`
+  in a placed instance is in absolute BOARD coordinates rather than the footprint's local
+  frame, at `rot=0` as much as under rotation. Copied through verbatim it lands at its
+  local offset from the board origin — on this board, both DIP-8 markers stacked in the
+  top-left corner. Established by measuring every point-bearing instance in KiCad's own
+  demo boards (all in `demos/pic_programmer`): each equals the library-local point put
+  through the footprint's placement transform.
+- **In a placed footprint, a pad's or text element's `(at X Y ANGLE)` angle is ABSOLUTE,
+  even though its X/Y stay in the footprint's local frame.** Placing a footprint at a
+  non-zero rotation means writing `library angle + rotation` (normalised into 0–360) on
+  every pad, `fp_text` and property, not copying the library's angles through. In KiCad's
+  `demos/pic_programmer`, a `DIP-14_W7.62mm_LongPads` at `rot=90` has all 14 pads at
+  `(at LX LY 90)` while the library master has no pad angle at all, and its
+  `fp_text "${REFERENCE}"` (library angle 90) is written as 180; a `DSUB-9` at `rot=-90`
+  writes pad angle 270. Getting this wrong is silent for a pad whose shape is invariant
+  under the rotation (a circle at any angle, a square roundrect at multiples of 90°) and is
+  a real geometry error otherwise — an oval, rectangular, keyed or chamfered pad is laid
+  down in the wrong orientation at the right centre. Proof, from the gerbers of the same
+  footprint plotted both ways at `rot=90`: `%ADD11O,1.600000X2.400000` with the offset
+  applied against `%ADD11O,2.400000X1.600000` without it, i.e. the oval pad's long axis in
+  the wrong direction. It is also exactly what `kicad-cli pcb drc` reports as
+  `lib_footprint_mismatch` on rotated instances — the check re-orients the library master
+  to the instance's rotation before comparing, so a pad left at its library angle differs
+  from the master by precisely the rotation. (That check only runs at all when a project's
+  `fp-lib-table` can resolve the footprint's library; an empty directory with no
+  `fp-lib-table` reports nothing either way, which is what makes it easy to mis-attribute.)
 
 ## Byte-reproducibility
 
@@ -172,10 +189,28 @@ module docstring), so it depends on a fresh export existing, not just a fresh sc
 
 ```bash
 python3 hardware/gen/gen_mule.py
+kicad-cli sch upgrade hardware/mule/mule.kicad_sch                  # see "Format upgrade" below
 kicad-cli sch export netlist --format kicadsexpr -o hardware/mule/mule.net hardware/mule/mule.kicad_sch
 python3 hardware/gen/check_mule_netlist.py hardware/mule/mule.net   # verifies the netlist, not just that ERC passed
 python3 hardware/gen/gen_mule_pcb.py
+kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
+
+**Format upgrade.** Each generator writes the file-format version its grammar was written
+against and validated on — `20231120` for the schematic, `20241229` for the board, both
+stamped `generator "wl-sync-gen"`. The committed `mule.kicad_sch` and
+`mule.kicad_pcb` are the upgraded files — `kicad-cli sch upgrade` / `kicad-cli pcb upgrade`
+re-save them in the current format (`generator "eeschema"` / `"pcbnew"`), which is what
+KiCad itself would write the first time a person opens and saves either file. The upgrade
+steps are part of the recipe, not optional polish: skip them and regeneration produces a
+semantically identical file that differs from the committed artifact in its version stamp,
+its generator name, and a set of formatting normalisations KiCad applies (for instance a
+footprint placed at `rot=270` is re-saved as `-90`).
+
+Order matters in one place: `gen_mule_pcb.py` reads the exported netlist for both
+connectivity and the schematic cross-link UUIDs each footprint's `(path ...)` points at, so
+the netlist export has to come from the same `mule.kicad_sch` that is being committed.
+Export it before running the PCB generator, not after.
 
 Then the standard `kicad-cli` invocations, once a track has a schematic and layout:
 

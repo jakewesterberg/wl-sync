@@ -28,13 +28,18 @@ placement code below is written against role names throughout -- never against a
 assumptions about generation order -- so a future edit to gen_mule.py's internal ordering
 can't silently misplace a part here.
 """
+import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gen_mule import build  # noqa: E402
-from check_mule_netlist import DEFAULT_NET_PATH, parse_netlist  # noqa: E402
-from kicad_pcb import Board  # noqa: E402
+from check_mule_netlist import (  # noqa: E402
+    DEFAULT_NET_PATH, parse_component_uuids, parse_netlist,
+)
+from kicad_pcb import (  # noqa: E402
+    Board, footprint_courtyard, footprint_pads, place_point, read_placed_pads,
+)
 
 OUT = Path(__file__).resolve().parent.parent / "mule"
 PCB_PATH = OUT / "mule.kicad_pcb"
@@ -66,6 +71,18 @@ BOARD_H = 90.0
 SLOT_X0, SLOT_X1 = 6.0, 94.0
 SLOT_Y0, SLOT_Y1 = 65.0, 67.5
 
+# HCPL-4661 datasheet: a 0.1uF bypass capacitor between pin 8 (VCC) and pin 5 (GND),
+# "within 7mm" of the package. Applied here as a hard limit on BOTH legs of the loop --
+# the VCC-side pad-to-pin distance and the GND-side one -- because the return leg carries
+# the same transient current as the supply leg, and this board exists to measure
+# optocoupler propagation delay and edge quality (bring-up checks 5-6). A generous supply
+# leg paired with a long return leg is the same loop area as two mediocre legs.
+OPTO_BYPASS_MAX_MM = 7.0
+# Edge-to-edge gap left between the bypass cap's courtyard and the optocoupler's when the
+# cap is dropped as close under the package as it will go. Not a DRC minimum (the board
+# has no courtyard clearance rule beyond overlap); just a hand-assembly margin.
+OPTO_BYPASS_COURTYARD_GAP = 0.4
+
 # ---------------------------------------------------------------------------
 # Footprint envelope reference (courtyard, mm, from the actual libraries this board uses --
 # see task-3-report.md for how these were measured): TSSOP-20 7.8x7.0, DIP-8 9.73x10.66,
@@ -89,7 +106,15 @@ def main():
             "hardware/mule/mule.kicad_sch"
         )
         raise SystemExit(1)
-    nets = parse_netlist(net_path.read_text())
+    net_text = net_path.read_text()
+    nets = parse_netlist(net_text)
+    # Schematic cross-link uuids come from the netlist too, for the same reason the nets do:
+    # it is the schematic FILE's own exported view of itself. Reading them off the in-process
+    # `sch` object instead is what the first version of this generator did, and it produced
+    # 72 footprints whose `(path "/UUID")` pointed at uuids that existed only in that
+    # process -- gen_mule.py and gen_mule_pcb.py run as separate processes and each mints a
+    # fresh uuid4 per symbol, so not one of the 72 matched the committed .kicad_sch.
+    comp_uuids = parse_component_uuids(net_text)
     net_by_pin: dict[tuple[str, str], str] = {}
     for net_name, nodes in nets.items():
         for node in nodes:
@@ -113,20 +138,110 @@ def main():
 
     b = Board(project="mule", width=BOARD_W, height=BOARD_H, sch_filename="mule.kicad_sch")
 
-    def lay(ref, x, y, rot=0):
+    def lay(ref, x, y, rot=0, ref_at=None):
         """Place `ref` at (x, y). libname/modname come from sch.footprints[ref]
         ("Libname:Modname", populated as a side effect of gen_mule.py's own place() calls
         -- the single source of truth for which real footprint this reference uses, so it
         can never drift from what the schematic itself carries), value from sch.values,
-        net-per-pad from the exported netlist, and the schematic cross-link from
-        sch.instance_uuid."""
+        net-per-pad and the schematic cross-link uuid both from the exported netlist."""
         lib_id = sch.footprints[ref]
         assert lib_id, f"{ref} has no footprint assigned in gen_mule.py"
         libname, modname = lib_id.split(":", 1)
+        sch_uuid = comp_uuids.get(ref)
+        assert sch_uuid, (
+            f"{ref} has no component uuid in {net_path} -- the netlist export is stale "
+            f"relative to gen_mule.py; re-export it before running this generator"
+        )
         b.place(
             libname, modname, ref, sch.values.get(ref, ""),
-            x, y, rot=rot, pad_nets=pad_nets_for(ref), sch_uuid=sch.instance_uuid.get(ref),
+            x, y, rot=rot, pad_nets=pad_nets_for(ref), sch_uuid=sch_uuid, ref_at=ref_at,
         )
+
+    def bypass_legs(cap_ref: str, ic_ref: str) -> dict[str, str]:
+        """{cap pad number: the IC pin number carrying the same net}, derived from the
+        exported netlist rather than from "pad 1 is the positive one".
+
+        Which cap serves which IC is the one thing the netlist cannot say: C5 and C6 are
+        both wired straight across ISO_5V/ISO_GND and are therefore topologically
+        interchangeable (the same limitation check_mule_netlist.py documents for its
+        bypass-count check). That pairing comes from gen_mule.py's build order -- the same
+        loop appends the package to refs["opto_pkg"] and its own bypass cap to
+        refs["opto_bypass_c"], so index i of each is index i of the other -- and is asserted
+        below to at least be electrically possible for the pair it was handed."""
+        cap_nets = pad_nets_for(cap_ref)
+        ic_nets = pad_nets_for(ic_ref)
+        legs = {}
+        for cap_pad, net in cap_nets.items():
+            pins = [p for p, n in ic_nets.items() if n == net]
+            assert len(pins) == 1, (
+                f"{cap_ref} pad {cap_pad} is on net {net!r}, which {ic_ref} touches on "
+                f"{len(pins)} pins ({pins}) -- can't say which pin this leg has to reach"
+            )
+            legs[cap_pad] = pins[0]
+        assert len(legs) == 2, f"{cap_ref} is not a two-terminal part ({legs})"
+        return legs
+
+    def place_opto_bypass(cap_ref: str, opto_ref: str) -> None:
+        """Place `cap_ref` under `opto_ref` so BOTH of its legs are inside
+        OPTO_BYPASS_MAX_MM of the pin they have to reach.
+
+        Everything here is read off the optocoupler as actually placed -- b.pad_pos() and
+        b.courtyard() are computed in Board.place() from the library footprint's own pad
+        and courtyard geometry put through the rotation -- so this cannot drift from the
+        board file the way a hand-written "VCC is at (20, 70.12)" comment can. (It did:
+        the first version of this file asserted U5's GND pin sat at (27.62, 70.12) when
+        rot=270 actually puts it at (12.38, 70.12), mirrored about the package, and both
+        caps were placed at the midpoint of that wrong pair -- 3.85mm from VCC and 12.4mm
+        from GND, i.e. the return leg of the very loop this cap exists to close was nearly
+        twice the datasheet's limit.)
+
+        The cap goes at the X midpoint of the two pins it bridges and as close under the
+        package as the two courtyards allow, then is rotated to whichever of 0/180 puts
+        each pad on the side of its own pin. For a symmetric two-pad chip part that makes
+        both legs equal, which is the best a single cap can do for two pins at opposite
+        ends of the DIP-8's secondary row.
+        """
+        legs = bypass_legs(cap_ref, opto_ref)
+        pins = {cap_pad: b.pad_pos(opto_ref, ic_pin) for cap_pad, ic_pin in legs.items()}
+
+        cap_lib, cap_mod = sch.footprints[cap_ref].split(":", 1)
+        cap_pads = footprint_pads(cap_lib, cap_mod)
+        cap_crtyd = footprint_courtyard(cap_lib, cap_mod)
+        assert cap_crtyd, f"{cap_ref} ({cap_lib}:{cap_mod}) draws no courtyard"
+
+        cx = sum(p[0] for p in pins.values()) / len(pins)
+
+        def worst_leg(x, y, rot):
+            return max(
+                math.dist(place_point(x, y, rot, *cap_pads[cap_pad][0][:2]), pin)
+                for cap_pad, pin in pins.items()
+            )
+
+        best_rot, cy, reach = None, None, None
+        for rot in (0, 180):
+            # How far above and below its own centre this rotation puts the cap's
+            # courtyard, so the cap can be dropped until its courtyard just clears the
+            # optocoupler's -- and so its silkscreen label can be put clear of its own body.
+            ys = [
+                place_point(0, 0, rot, ex, ey)[1]
+                for ex in (cap_crtyd[0], cap_crtyd[2]) for ey in (cap_crtyd[1], cap_crtyd[3])
+            ]
+            y = b.courtyard(opto_ref)[3] + OPTO_BYPASS_COURTYARD_GAP - min(ys)
+            if best_rot is None or worst_leg(cx, y, rot) < worst_leg(cx, cy, best_rot):
+                best_rot, cy, reach = rot, y, max(ys)
+
+        # Label goes BELOW this cap, not above it: above is where its own optocoupler's
+        # secondary pad row now is, tucked that close on purpose.
+        lay(cap_ref, round(cx, 3), round(cy, 3), rot=best_rot,
+            ref_at=(round(cx, 3), round(cy + reach + 0.8, 3)))
+        for cap_pad, pin in pins.items():
+            d = math.dist(b.pad_pos(cap_ref, cap_pad), pin)
+            assert d <= OPTO_BYPASS_MAX_MM, (
+                f"{cap_ref} pad {cap_pad} is {d:.2f}mm from {opto_ref} pin "
+                f"{legs[cap_pad]} -- over the {OPTO_BYPASS_MAX_MM}mm the HCPL-4661 "
+                f"datasheet asks for, on a board built to measure this optocoupler's "
+                f"edges"
+            )
 
     # === Board outline and isolation slot ===================================
     b.edge_rect(0, 0, BOARD_W, BOARD_H)
@@ -220,12 +335,11 @@ def main():
     lay(refs["opto_pullup_r"][1], U5_X, 77)
     lay(refs["opto_pullup_r"][2], U6_X, 73)
     lay(refs["opto_pullup_r"][3], U6_X, 77)
-    # Positioned at the midpoint between each package's VCC (pad 8) and GND (pad 5) pins
-    # -- both post-rotation pin positions computed and checked in task-3-report.md -- so
-    # each cap sits ~4.5mm from both pins, comfortably inside the HCPL-4661 datasheet's
-    # ~7mm bypass-placement requirement (not just "close enough to the package").
-    lay(refs["opto_bypass_c"][0], 23.8, 72.5)  # U5: VCC (20,70.12), GND (27.62,70.12)
-    lay(refs["opto_bypass_c"][1], 47.8, 72.5)  # U6: VCC (44,70.12), GND (51.62,70.12)
+    # Local bypass caps: placed from the optocoupler's OWN placed geometry, never from
+    # hand-copied pin coordinates. See place_opto_bypass() -- the whole point is that the
+    # generator cannot state a pin position the board file then disagrees with.
+    for cap_ref, opto_ref in zip(refs["opto_bypass_c"], refs["opto_pkg"]):
+        place_opto_bypass(cap_ref, opto_ref)
 
     # === Isolated DC-DC (TMA-0505S) also straddles the slot ===================
     # rot=0 (its native pinout): pins 1/2 (+Vin/-Vin, primary) at local y=0/2.54; pins
@@ -246,6 +360,26 @@ def main():
     PCB_PATH.write_text(b.render())
     print(f"wrote {PCB_PATH} ({PCB_PATH.stat().st_size} bytes)")
     print(f"{len(b.net_codes) - 1} nets, {len(b.footprints_text)} footprints placed")
+
+    # Read the file back and re-measure the one distance this board's purpose depends on.
+    # read_placed_pads() re-parses each footprint's `(at ...)` and each pad's own local
+    # `(at ...)` out of the text just written and applies KiCad's transform itself, so this
+    # measures the artifact rather than the arithmetic that produced it -- if place() ever
+    # wrote a rotation it didn't apply to the pads, or wrote a coordinate it didn't
+    # compute, these numbers would not agree with the ones asserted during placement.
+    placed = read_placed_pads(PCB_PATH.read_text())
+    print(f"HCPL-4661 bypass legs, measured from {PCB_PATH.name} "
+          f"(limit {OPTO_BYPASS_MAX_MM}mm):")
+    for cap_ref, opto_ref in zip(refs["opto_bypass_c"], refs["opto_pkg"]):
+        for cap_pad, ic_pin in bypass_legs(cap_ref, opto_ref).items():
+            net = pad_nets_for(cap_ref)[cap_pad]
+            d = math.dist(placed[(cap_ref, cap_pad)], placed[(opto_ref, ic_pin)])
+            assert d <= OPTO_BYPASS_MAX_MM, (
+                f"{cap_ref} pad {cap_pad} -> {opto_ref} pin {ic_pin} is {d:.2f}mm in the "
+                f"written board file"
+            )
+            print(f"  {cap_ref} pad {cap_pad} -> {opto_ref} pin {ic_pin:>2} "
+                  f"({net:<7}): {d:.2f} mm")
 
 
 if __name__ == "__main__":

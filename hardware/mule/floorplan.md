@@ -95,26 +95,76 @@ connects directly, without an adapter.
 
 ## Bypass-cap proximity (HCPL-4661s)
 
-The HCPL-4661 datasheet requires a 100 nF bypass capacitor close to the package's VCC/GND
-pins. C5 (serving U5) and C6 (serving U6) are placed at the midpoint between each
-package's VCC (pad 8) and GND (pad 5) post-rotation positions:
+The HCPL-4661 datasheet requires a 100 nF bypass capacitor between the package's VCC
+(pin 8) and GND (pin 5) pins, within about 7 mm. Both legs of that loop matter, not just
+the supply-side one: the return leg carries the same transient current, and this board
+exists to measure optocoupler propagation delay and edge quality (mule bring-up checks 5–6).
 
-| Cap | Package | Distance to VCC | Distance to GND |
+At rot=270°, a DIP-8 placed at (X, Y) puts pin 8 at (X, Y + 7.62) and pin 5 at
+(X − 7.62, Y + 7.62) — the two pins sit at the same Y, 7.62 mm apart in X, both on the
+isolated side of the slot. C5 and C6 are placed on the X midpoint of that pair and dropped
+until their courtyard just clears the optocoupler's, then rotated 180° so the pad on ISO_5V
+faces pin 8 and the pad on ISO_GND faces pin 5. Measured pad-centre to pin-centre, read
+back out of `mule.kicad_pcb` itself:
+
+| Cap | Package | VCC-side leg (cap pad 1 → pin 8) | GND-side leg (cap pad 2 → pin 5) |
 |---|---|---|---|
-| C5 | U5 | 4.48 mm | 4.50 mm |
-| C6 | U6 | 4.48 mm | 4.50 mm |
+| C5 | U5 | 3.74 mm | 3.74 mm |
+| C6 | U6 | 3.74 mm | 3.74 mm |
 
-Both comfortably inside the ~7 mm requirement. This board's purpose is measuring
-optocoupler edge quality (mule bring-up checks 5–6 in the plan), so this placement was
-checked by computing the actual post-rotation pin coordinates, not eyeballed — the
-computation is in `hardware/gen/gen_mule_pcb.py`'s comment at the two `lay(refs["opto_bypass_c"]...)`
-call sites.
+Pin and pad positions behind those numbers: U5 pin 8 (20.00, 70.12), pin 5 (12.38, 70.12),
+C5 at (16.19, 72.30) rot 180 — pad 1 (16.965, 72.30), pad 2 (15.415, 72.30). U6 pin 8
+(44.00, 70.12), pin 5 (36.38, 70.12), C6 at (40.19, 72.30) rot 180.
+
+None of those coordinates is written down in the generator. `hardware/gen/kicad_pcb.py`
+derives every placed pad position from the library footprint's own pad geometry put
+through the placement rotation (`place_point()`, `Board.pad_pos()`), and
+`gen_mule_pcb.py`'s `place_opto_bypass()` places each cap from the optocoupler's placed
+geometry, asserts both legs are inside 7 mm, and then — after the board file is written —
+re-reads the file and re-measures both legs from the text on disk
+(`read_placed_pads()`). Regeneration fails loudly rather than silently producing a board
+whose decoupling loop is too long.
+
+Each cap's reference designator is placed **below** it rather than above: above is where
+its own optocoupler's secondary pad row now sits, which is the point of tucking it there.
 
 Decoupling for the four 74x541 buffers (C1–C4) and the LDO (C9) is placed adjacent to its
-IC but was not held to the same explicit distance target — the brief states the ~7 mm
-requirement specifically for the HCPL-4661s, and only those two parts (VCC/GND on opposite
-corners of the DIP-8, 11 mm apart) make single-cap placement inherently a matter of
-minimizing rather than eliminating trace length to both pins.
+IC but was not held to the same explicit distance target — the ~7 mm requirement is
+specific to the HCPL-4661s, and only those two parts (VCC and GND at opposite ends of the
+DIP-8's secondary row, 7.62 mm apart) make single-cap placement inherently a matter of
+minimising rather than eliminating trace length to both pins.
+
+## Supply polarity — check with a meter before first power-on
+
+**Bring-up step 0, before the board is ever powered: confirm the barrel jack's polarity
+with a multimeter.** J8 is a 5.5/2.1 mm DC jack (Same Sky/CUI PJ-102AH). The schematic
+wires terminal 2 (tip) to +5V and terminal 1 (sleeve) to DGND, taken from the
+manufacturer's datasheet — its schematic block and recommended PCB layout put terminal 2 on
+the barrel's centre-pin axis and group terminals 1 and 3 (sleeve plus the normally-closed
+power-detect switch) opposite — together with the centre-positive convention these plugs
+follow. Two independent readings settle it on the bench in under a minute:
+
+1. With the supply plugged into nothing, meter the plug itself: the centre pin must read
+   positive with respect to the barrel.
+2. With the supply still disconnected from the board, meter continuity from the jack's tip
+   terminal to the +5V net (the +5V side of C10, or U8 pin 3) and from the sleeve terminal
+   to DGND.
+
+Only then apply power. There is no reverse-polarity protection on this board: reversing the
+supply drives the +5V net below DGND, and every one of the 17 input lines' BAT54S clamps,
+the LDO, the four 74x541s and the isolated DC-DC's input side conduct or sit reverse-biased.
+
+**Why no series protection diode.** A series diode would cost 0.3–0.4 V (Schottky) or
+~0.7 V (silicon) off the +5V rail, and on this board that rail is not incidental: it is the
+clamp reference for all 17 input lines, the supply for the 5 V outbound buffer whose output
+swing is one of the things being measured, and the input to the TMA-0505S, whose specified
+input range is 5 V ±10 % (4.5–5.5 V). A 0.4 V drop moves the clamp threshold, moves the
+measured output amplitude, and consumes most of the DC-DC's lower input margin — it changes
+the quantities this board exists to measure, which is the one thing a mule must not do. A
+P-channel MOSFET in series gives the same protection for tens of millivolts and is the
+right answer for the main board if reverse protection is wanted there; it is an added part
+and an added failure mode on a board with a single supply input, so the meter check above
+is the mitigation here.
 
 ## Back-powering through the input clamps — bring-up note
 
@@ -135,21 +185,26 @@ kicad-cli pcb drc --exit-code-violations -o hardware/mule/drc.rpt hardware/mule/
 kicad-cli pcb render --side top -o /tmp/mule-top.png hardware/mule/mule.kicad_pcb
 ```
 
-DRC reports 210 `unconnected_items` (expected — nothing is routed yet) and 10 further
-warnings, all investigated and expected, none of them a courtyard overlap:
+DRC reports 210 `unconnected_items` (expected — nothing is routed yet) and 8 further
+warnings, all of one kind:
 
 - **8× `silk_edge_clearance`, all on U5/U6/U7's own silkscreen outline against the slot
-  edge.** Inherent to straddling: a package whose body spans the barrier necessarily has
-  silkscreen close to the slot boundary. Not present on any non-straddling part.
-- **2× `lib_footprint_mismatch`, both on U5/U6 (the two rot=270° instances).** Investigated
-  directly: a standalone board placing the identical, byte-for-byte library footprint at
-  rot=0° in the same project context (same `fp-lib-table`) shows no such warning; the same
-  footprint at rot=270° does. This reproduces independent of any content this generator
-  adds (net assignment, added uuids) — it is specific to KiCad's own library-comparison
-  check under rotation, not a defect in the embedded footprint. Zero electrical or
-  mechanical consequence.
+  edge** (3 on U5, 3 on U6, 2 on U7). Inherent to straddling: a package whose body spans
+  the barrier necessarily has silkscreen close to the slot boundary. Not present on any
+  non-straddling part.
 
-No `courtyards_overlap`, `clearance`, or `solder_mask_bridge` violations.
+No `courtyards_overlap`, `clearance`, `solder_mask_bridge`, or `lib_footprint_mismatch`
+violations.
+
+The two `lib_footprint_mismatch` warnings this board used to report on U5/U6 were a real
+defect in the generator, not a KiCad quirk. In a placed footprint, each pad's and each text
+element's `(at X Y ANGLE)` angle is absolute (board frame), so a rotated instance must be
+written with `library angle + rotation` on every pad and text child; the generator was
+copying the library's angles through unchanged. On this board that was invisible in copper
+— every DIP-8 pad is a circle except pin 1, which is a square roundrect, and both are
+unchanged by a 90° step — but on any oval, rectangular, keyed or chamfered pad it lays the
+pad down in the wrong orientation at the right centre. Fixed in
+`hardware/gen/kicad_pcb.py`; the warnings went to zero and no copper on this board moved.
 
 ## What this generator does not do
 

@@ -149,6 +149,38 @@ def parse_netlist(text: str) -> dict[str, list[Node]]:
     return nets
 
 
+_COMP_RE = re.compile(r'\(comp\s+\(ref\s+"([^"]+)"\)', re.S)
+_COMP_TSTAMP_RE = re.compile(r'\(tstamps\s+"([0-9a-fA-F-]{36})"\)')
+
+
+def parse_component_uuids(text: str) -> dict[str, str]:
+    """Return {reference: schematic symbol instance uuid}, from each component's own
+    `(tstamps ...)` in the exported netlist.
+
+    This is the schematic file's real, on-disk uuid for that symbol -- exported by
+    `kicad-cli` out of the .kicad_sch itself -- as opposed to whatever uuid a fresh
+    in-process `gen_mule.build()` happens to mint, which exists only in that process.
+    A .kicad_pcb footprint's `(path "/UUID")` cross-link has to use the former or it points
+    at nothing (see gen_mule_pcb.py, where it did).
+    """
+    out: dict[str, str] = {}
+    matches = list(_COMP_RE.finditer(text))
+    for idx, m in enumerate(matches):
+        ref = m.group(1)
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        # The component's own tstamps is the one 36-char uuid in its block; the
+        # `(sheetpath ... (tstamps "/"))` above it is a sheet path, not a uuid, and does
+        # not match.
+        found = _COMP_TSTAMP_RE.findall(text[m.end():end])
+        assert len(found) == 1, (
+            f"{ref}: expected exactly one component (tstamps ...) uuid in its netlist "
+            f"block, found {found}"
+        )
+        assert ref not in out, f"duplicate component reference in netlist: {ref!r}"
+        out[ref] = found[0]
+    return out
+
+
 class CheckFailure(AssertionError):
     pass
 
