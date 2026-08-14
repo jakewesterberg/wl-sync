@@ -55,16 +55,35 @@ M12A-05PFFP-SF8001, current production, 811 units in stock directly confirmed at
 per-dimension sourcing.
 And `sheets/taskpc-digital.kicad_sch` (produced by
 `hardware/gen/gen_breakout_taskpc_digital.py`, Task 8) — both task-PC MDR68 connectors
-(Connector 1 fully wired with the 23 digital lines, Connector 0 placed but left entirely
-unpopulated pending Task 10's own analog channels), the 19-channel inbound protected/
-buffered path (100Ω + BAT54S clamp per channel, high side +5V never +3V3, fanned out in
-parallel to a 3.3V `SN74LVC541APW` bank and a 5V `SN74HCT541PW` `_BUF` bank for Task 11's
-optocouplers), the 4-channel outbound path, and the reward OR (`74HCT32` + debounced
-`74HCT14` Schmitt pair); see that generator's own module docstring and
+(Connector 1 wired with the 23 digital lines; Connector 0 carries its 9 task-PC analog
+channels plus the AISENSE-to-AGND tie, everything else no_connect pending Task 10's own
+front-end/buffer circuitry), the 19-channel inbound protected/buffered path (100Ω +
+BAT54S clamp per channel, high side +5V never +3V3, fanned out in parallel to a 3.3V
+`SN74LVC541APW` bank and a 5V `SN74HCT541PW` `_BUF` bank for Task 11's optocouplers), the
+4-channel outbound path, and the reward OR (`74HCT32` + a single debounced `74HCT14`
+Schmitt inverter); see that generator's own module docstring and
 `check_taskpc_digital_netlist.py` for the design and its verification. Task 8 is this
 project's first case of two REAL sibling child sheets coexisting, which surfaced a
 cross-sheet reference-collision gotcha `kicad_sch.py` needed a generic fix for — see the
 "KiCad gotchas" entry below.
+
+**Task 8 fix round 1** (`task-8-report.md`'s own "Fix round 1") corrected three findings
+raised by the implementer's own report, all disclosed concerns the implementer was right
+to flag: (1) **critical** — the reward-OR debounce stage placed a `74HCT14` Schmitt
+*pair* (task-8-brief.md's own literal, incorrect text); two series inversions cancel, so
+the debounced button would idle HIGH into an OR gate against an active-HIGH `RWD_CMD`,
+asserting `RWD_DLVR` continuously. Fixed to a *single* inverter (idle-LOW/active-HIGH,
+matching an OR gate's actual requirement); `RWD_CMD`'s assumed active-HIGH polarity is
+now stated explicitly on-sheet, and the checker asserts the OR's two inputs are
+same-polarity. (2) Connector 1's physical MDR68 pin assignment was this sheet's own
+sequential guess; it is now sourced from NI's own "X Series User Manual" (National
+Instruments 370784K-01, May 2019), Figure A-5 "NI PCIe-6323/6343 Pinout" — the task PC's
+own card — for every P0.x and D GND position. (3) Connector 0's 9 task-PC analog channels
+(`A_EYE_LX_TPC` etc., plan.md's own net-naming table) and its AISENSE-to-AGND tie are now
+wired on this sheet (the same physical-pin source above), since only the file that places
+a symbol can label its pins and Task 10 does not exist yet. See `task-8-report.md`'s own
+"Fix round 1" section for the full retrieval/verification method and the reasoning behind
+each fix.
 The remaining eight hierarchical sheet symbols (`pi-interface`, `analog-frontend`,
 `analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`, `control-usb-i2c`) each
 still reference a `sheets/<name>.kicad_sch` child file that does not exist yet — later

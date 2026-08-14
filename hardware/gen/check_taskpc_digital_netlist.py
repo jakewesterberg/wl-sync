@@ -78,14 +78,44 @@ TASKPC_SHEETFILE = "sheets/taskpc-digital.kicad_sch"  # exactly as breakout.kica
 # discipline check_breakout_power_netlist.py's own CONTRACT_NETS establishes: a checker
 # that trusted the generator's own list would only be checking the generator against
 # itself.
+#
+# ANALOG_CONTRACT_NETS (fix round 1, finding 3): the 9 task-PC analog channel names,
+# redefined here from plan.md's own net-naming table + Task 10 Step 3's own text -- same
+# discipline as CONTRACT_NETS above, not imported from gen_breakout_taskpc_digital.py.
+ANALOG_CONTRACT_NETS = (
+    [f"A_EYE_{s}_TPC" for s in ("LX", "LY", "RX", "RY")]
+    + ["A_JOY_X_TPC", "A_JOY_Y_TPC"]
+    + [f"A_MISC{n}_TPC" for n in (1, 2, 3)]
+)
+assert len(ANALOG_CONTRACT_NETS) == 9
+
 CONTRACT_NETS = (
     [f"EVT_D{i}_TPC" for i in range(16)] + ["EVT_STROBE_TPC"]
     + [f"EVT_D{i}_PI" for i in range(16)] + ["EVT_STROBE_PI"]
     + [f"EVT_D{i}_BUF" for i in range(16)] + ["EVT_STROBE_BUF"]
     + ["RWD_CMD", "RWD_CMD_BUF", "RWD_BTN", "RWD_DLVR", "STIM_TRIG", "STIM_TRIG_BUF"]
     + ["PD1_COMP", "PD2_COMP", "ACC_TRIG", "RHS_STIM_OUT"]
+    + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 61
+assert len(CONTRACT_NETS) == 70
+
+# Real physical MDR68 pin assignment -- redefined here from gen_breakout_taskpc_digital.py
+# (same discipline as CONTRACT_NETS above), sourced from NI's own "X Series User Manual:
+# NI 632x/634x/635x/636x/637x/638x/639x Devices" (370784K-01, May 2019, ni.com/manuals),
+# Figure A-5 "NI PCIe-6323/6343 Pinout" -- see that generator's own module-level comment
+# and task-8-report.md's "Fix round 1" for the retrieval/cross-check method.
+MDR1_PIN_BY_P0 = {
+    8: "52", 9: "17", 10: "49", 11: "47", 12: "19", 13: "51", 14: "16", 15: "48",
+    16: "11", 17: "10", 18: "43", 19: "42", 20: "41", 21: "6", 22: "5", 23: "38",
+    24: "37", 25: "3", 26: "45", 27: "46", 28: "2", 29: "40", 30: "1", 31: "39",
+}
+MDR1_DGND_PINS = ["4", "7", "9", "12", "13", "15", "18", "35", "36", "44", "50", "53"]
+MDR0_AI_PIN = {
+    0: "68", 1: "33", 2: "65", 3: "30", 4: "28", 5: "60", 6: "25", 7: "57", 8: "34",
+}
+MDR0_AISENSE_PIN = "62"
+ANALOG_CHANNELS = list(zip(ANALOG_CONTRACT_NETS, range(9)))
+assert len(ANALOG_CHANNELS) == 9
 
 # The 19 inbound channels, exactly as gen_breakout_taskpc_digital.py's own
 # INBOUND_CHANNELS/_inbound_channel_specs() build them -- redefined here rather than
@@ -105,12 +135,13 @@ INBOUND_CHANNELS = _inbound_channel_specs()
 assert len(INBOUND_CHANNELS) == 19
 
 # The 4 outbound channels: (input net this sheet consumes from elsewhere, this sheet's own
-# MDR68-side output net, Connector 1 physical pin).
+# MDR68-side output net, Connector 1 physical pin). Pins are P0.27-30 via MDR1_PIN_BY_P0
+# (fix round 1, finding 2) -- was the sequential "20"-"23" pre-fix-round-1.
 OUTBOUND_CHANNELS = [
-    ("PD1_COMP", "PD1_COMP_TPC", "20"),
-    ("PD2_COMP", "PD2_COMP_TPC", "21"),
-    ("ACC_TRIG", "ACC_TRIG_TPC", "22"),
-    ("RHS_STIM_OUT", "RHS_STIM_OUT_TPC", "23"),
+    ("PD1_COMP", "PD1_COMP_TPC", MDR1_PIN_BY_P0[27]),
+    ("PD2_COMP", "PD2_COMP_TPC", MDR1_PIN_BY_P0[28]),
+    ("ACC_TRIG", "ACC_TRIG_TPC", MDR1_PIN_BY_P0[29]),
+    ("RHS_STIM_OUT", "RHS_STIM_OUT_TPC", MDR1_PIN_BY_P0[30]),
 ]
 
 # TEMPORARY, given Tasks 9/10/11 don't exist yet -- two distinct directions, both
@@ -128,8 +159,12 @@ OUTBOUND_CHANNELS = [
 #     output pin is currently the only node. RWD_CMD is the one exception in this family
 #     that is NOT pending: it is ALSO consumed locally, by this same sheet's own reward-
 #     OR gate (see _place_reward_or()), so it already carries 2 nodes.
+#   - PENDING_ANALOG_NETS (fix round 1, finding 3): the 9 A_*_TPC analog channels this
+#     sheet's own Connector 0 now names (see _place_connector0()) but Task 10's own
+#     front-end/buffer sheets -- the real drivers -- don't exist yet, so each currently
+#     terminates at exactly the one Connector-0 MDR68 pin node this sheet itself provides.
 # Excluded from the generic "contract net populated" floor below for exactly this reason,
-# not because any of these 41 nets are unimportant -- see verify()'s own summary line,
+# not because any of these 50 nets are unimportant -- see verify()'s own summary line,
 # which names all of them.
 PENDING_UPSTREAM_NETS = {"PD1_COMP", "PD2_COMP", "ACC_TRIG", "RHS_STIM_OUT"}
 PENDING_DOWNSTREAM_NETS = (
@@ -137,8 +172,9 @@ PENDING_DOWNSTREAM_NETS = (
     | {f"EVT_D{i}_BUF" for i in range(16)} | {"EVT_STROBE_BUF", "RWD_CMD_BUF", "STIM_TRIG_BUF"}
     | {"STIM_TRIG"}
 )
-PENDING_NETS = PENDING_UPSTREAM_NETS | PENDING_DOWNSTREAM_NETS
-assert len(PENDING_NETS) == 41, len(PENDING_NETS)
+PENDING_ANALOG_NETS = set(ANALOG_CONTRACT_NETS)
+PENDING_NETS = PENDING_UPSTREAM_NETS | PENDING_DOWNSTREAM_NETS | PENDING_ANALOG_NETS
+assert len(PENDING_NETS) == 50, len(PENDING_NETS)
 
 CHAN_A = {i: str(2 + i) for i in range(8)}
 CHAN_Y = {i: str(18 - i) for i in range(8)}
@@ -166,9 +202,12 @@ def _walk_inbound_channel(
     right-part-in-right-role).
     """
     ch_idx, raw_net, clamp_net, pi_net, buf_net = spec
-    mdr_pin = str(ch_idx + 1)
+    # Real, sourced physical pin (fix round 1, finding 2) -- P0.(8+ch_idx) via
+    # MDR1_PIN_BY_P0, NOT the sequential str(ch_idx+1) this checker used pre-fix-round-1.
+    mdr_pin = MDR1_PIN_BY_P0[8 + ch_idx]
 
-    # Hop 1: Connector 1 pin (sequential position ch_idx+1) -> series resistor.
+    # Hop 1: Connector 1 pin (NI's own sourced physical position for P0.(8+ch_idx)) ->
+    # series resistor.
     check(raw_net in nets, f"missing net: {raw_net!r}")
     raw_nodes = nets[raw_net]
     check(len(raw_nodes) == 2, f"{raw_net}: expected 2 nodes (MDR68 pin + series R), found {raw_nodes}")
@@ -178,8 +217,9 @@ def _walk_inbound_channel(
     check(len(mdr_nodes) == 1, f"{raw_net}: expected exactly 1 MDR68-connector node, found {raw_nodes}")
     check(
         mdr_nodes[0].pin == mdr_pin,
-        f"{raw_net}: lands on Connector 1 pin {mdr_nodes[0].pin}, expected sequential "
-        f"pin {mdr_pin} (channel index {ch_idx})",
+        f"{raw_net}: lands on Connector 1 pin {mdr_nodes[0].pin}, expected pin {mdr_pin} "
+        f"(NI's own sourced position for P0.{8 + ch_idx}, channel index {ch_idx} -- "
+        f"Figure A-5, NI X Series User Manual 370784K-01)",
     )
     r_ref = r_nodes[0].ref
 
@@ -429,15 +469,32 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         any(n.ref == deb_ref and n.pin == "1" for n in nets["RWD_BTN"]),
         f"RWD_BTN: expected {deb_ref} pin 1, found {nets['RWD_BTN']}",
     )
-    check("RWD_BTN_INV1" in nets, "missing net: 'RWD_BTN_INV1'")
-    inv1_pins = {n.pin for n in nets["RWD_BTN_INV1"] if n.ref == deb_ref}
-    check(
-        inv1_pins == {"2", "3"},
-        f"RWD_BTN_INV1: expected {deb_ref} pins {{2, 3}} (gate 1 output -> gate 2 input), "
-        f"found {inv1_pins}",
-    )
+
+    # --- SAME-POLARITY structural check (fix round 1, finding 1 -- CRITICAL). RWD_CMD
+    # reaches the OR gate via SN74LVC541APW, a NON-inverting buffer (0 inversions,
+    # already confirmed above: the "right part in the right role" check pins down
+    # SN74LVC541APW is a '541-family octal buffer, and place_octal_buffer()'s own Ai->Yi
+    # pairing this file's inbound walk already verifies never inverts). RWD_BTN_DEB must
+    # therefore ALSO reach the OR gate via an ODD number of inversions from its own
+    # active-LOW raw source (RWD_BTN idles HIGH via the 10k pull-up, reads LOW while
+    # pressed) for the two OR inputs to share one active-HIGH convention -- exactly ONE
+    # Schmitt inversion, deb_ref's own pin 1 (input) directly to pin 2 (output, SAME
+    # unit), not a second series stage through a middle net (the pre-fix-round-1 defect:
+    # a PAIR of inversions would leave RWD_BTN_DEB idle-HIGH, and `HIGH OR anything` is
+    # permanently HIGH -- see place_debounce_inverter()'s own docstring). Checking pin 2
+    # specifically (not merely "RWD_BTN_DEB is driven by deb_ref somewhere") is what
+    # catches a reintroduced second stage: a PAIR's own final output lands on pin 4 of
+    # the SAME reference, one gate further downstream.
     deb_out = [n for n in nets.get("RWD_BTN_DEB", []) if n.ref == deb_ref]
-    check(len(deb_out) == 1 and deb_out[0].pin == "4", f"RWD_BTN_DEB: expected {deb_ref} pin 4, found {deb_out}")
+    check(
+        len(deb_out) == 1 and deb_out[0].pin == "2",
+        f"RWD_BTN_DEB: expected {deb_ref} pin 2 (ONE Schmitt inversion from RWD_BTN's "
+        f"own pin 1 -- same polarity as RWD_CMD's non-inverting SN74LVC541APW path), "
+        f"found {deb_out}. Landing on pin 4 (or any pin besides 2) would mean a SECOND "
+        f"series inversion is back in the debounce path -- the exact defect that makes "
+        f"RWD_DLVR assert permanently (`HIGH OR anything` = HIGH); see "
+        f"place_debounce_inverter()'s own docstring.",
+    )
 
     pullup_refs = {n.ref for n in nets["RWD_BTN"] if n.ref.startswith("R")}
     check(len(pullup_refs) == 1, f"RWD_BTN: expected exactly 1 pull-up resistor node, found {nets['RWD_BTN']}")
@@ -459,8 +516,12 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary.append(
         f"Reward OR confirmed: RWD_CMD (A) + RWD_BTN_DEB (B) -> {or_ref} (SN74HCT32D) "
         f"pin 3 -> RWD_DLVR. Debounce confirmed: RWD_BTN (button {sorted(btn_hdr_refs)} + "
-        f"10k pull-up {pullup_ref} to +5V) -> {deb_ref} (SN74HCT14D) gate 1 -> "
-        f"RWD_BTN_INV1 -> gate 2 -> RWD_BTN_DEB (2 series Schmitt stages, non-inverting)."
+        f"10k pull-up {pullup_ref} to +5V, idle-HIGH/active-LOW) -> {deb_ref} (SN74HCT14D) "
+        f"pin 1 -> ONE Schmitt inversion -> pin 2 -> RWD_BTN_DEB (idle-LOW/active-HIGH). "
+        f"Same-polarity confirmed: RWD_CMD arrives via SN74LVC541APW (non-inverting, 0 "
+        f"inversions) and RWD_BTN_DEB arrives via exactly 1 inversion of an active-LOW "
+        f"source -- both idle-LOW/active-HIGH at the OR gate's own inputs, so `HIGH OR "
+        f"anything` cannot latch RWD_DLVR permanently (fix round 1, finding 1)."
     )
 
     # --- No unused logic-gate input left floating: every unused gate of U8 (74HCT32,
@@ -474,13 +535,15 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     )
     deb_dgnd_pins = sorted((int(p) for r, p in _pins_on(nets, "DGND") if r == deb_ref))
     check(
-        set(deb_dgnd_pins) >= {5, 7, 9, 11, 13},
-        f"{deb_ref} (74HCT14): expected unused-gate inputs {{5,9,11,13}} plus GND(7) tied "
-        f"to DGND, found {deb_dgnd_pins}",
+        set(deb_dgnd_pins) >= {3, 5, 7, 9, 11, 13},
+        f"{deb_ref} (74HCT14): expected unused-gate inputs {{3,5,9,11,13}} (5 unused "
+        f"gates -- only gate 1 is used, fix round 1's single-inversion fix; a PAIR would "
+        f"leave gate 2's own input {{3}} NOT tied to DGND) plus GND(7) tied to DGND, "
+        f"found {deb_dgnd_pins}",
     )
     summary.append(
-        f"No floating logic-gate inputs: {or_ref}'s 3 unused OR gates and {deb_ref}'s 4 "
-        f"unused inverters all have their inputs tied to DGND."
+        f"No floating logic-gate inputs: {or_ref}'s 3 unused OR gates and {deb_ref}'s 5 "
+        f"unused inverters (only gate 1 is used) all have their inputs tied to DGND."
     )
 
     # --- Right part in the right role. ---
@@ -494,6 +557,53 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     for ref, expected in expected_families.items():
         check(values.get(ref) == expected, f"{ref}: expected Value {expected!r}, found {values.get(ref)!r}")
     summary.append(f"Component values confirmed for the right part in the right role: {expected_families}.")
+
+    # --- Connector 0: 9 analog channels + AISENSE-to-AGND tie (fix round 1, finding 3).
+    # Each analog channel walk is deliberately shallow compared to the digital inbound/
+    # outbound walks above: Task 10 (the real driver of every A_*_TPC net) does not exist
+    # yet, so all this sheet itself contributes is ONE node per net -- the Connector 0
+    # MDR68 pin, at the real sourced physical position (MDR0_AI_PIN). ---
+    conn0_ref = None
+    for net_name, ai_chan in ANALOG_CHANNELS:
+        check(net_name in nets, f"missing net: {net_name!r}")
+        mdr_pin = MDR0_AI_PIN[ai_chan]
+        mdr_nodes = [n for n in nets[net_name] if n.ref.startswith("J")]
+        check(
+            len(mdr_nodes) == 1,
+            f"{net_name}: expected exactly 1 Connector-0 MDR68-connector node, found "
+            f"{nets[net_name]}",
+        )
+        check(
+            mdr_nodes[0].pin == mdr_pin,
+            f"{net_name}: lands on Connector 0 pin {mdr_nodes[0].pin}, expected pin "
+            f"{mdr_pin} (AI{ai_chan}'s own sourced position -- Figure A-5, NI X Series "
+            f"User Manual 370784K-01) -- a permuted analog-channel assignment",
+        )
+        conn0_ref = mdr_nodes[0].ref
+    summary.append(
+        f"All 9 Connector-0 analog channels ({[c[0] for c in ANALOG_CHANNELS]}) land on "
+        f"their own sourced MDR68 pins on {conn0_ref} (MDR0_AI_PIN, NI Figure A-5) -- "
+        f"single-node for now, awaiting Task 10's own front-end/buffer sheets."
+    )
+
+    # --- AISENSE (Connector 0 pin 62) tied directly to AGND -- spec Decision 5 / Task 10
+    # Step 3's own text, and the finding's own "easiest thing on the board to omit by
+    # accident" -- so checked explicitly rather than left to the generic per-net floor
+    # above (AGND is a rail, not a CONTRACT_NETS entry). ---
+    check("AGND" in nets, "missing net: 'AGND' (AISENSE tie requires this rail present)")
+    aisense_nodes = [n for n in nets["AGND"] if n.ref == conn0_ref and n.pin == MDR0_AISENSE_PIN]
+    check(
+        len(aisense_nodes) == 1,
+        f"Connector 0 ({conn0_ref}) pin {MDR0_AISENSE_PIN} (AISENSE) is not on AGND -- "
+        f"found AGND nodes on {conn0_ref}: "
+        f"{[n.pin for n in nets['AGND'] if n.ref == conn0_ref]}. Without this tie NRSE "
+        f"does not work on the NI side (spec Decision 5) -- exactly the omission the "
+        f"finding named as easiest to make by accident.",
+    )
+    summary.append(
+        f"AISENSE confirmed: Connector 0 ({conn0_ref}) pin {MDR0_AISENSE_PIN} is tied "
+        f"directly to AGND (NRSE reference, spec Decision 5 / Task 10 Step 3)."
+    )
 
     # --- No two of the named nets checked have collapsed onto the same physical net.
     # Every *_CLAMP net (c[2], never in CONTRACT_NETS) plus the two raw *_TPC nets
@@ -584,7 +694,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     swapped_mdr["EVT_D2_TPC"][d2_hdr_idx], swapped_mdr["EVT_D4_TPC"][d4_hdr_idx] = (
         swapped_mdr["EVT_D4_TPC"][d4_hdr_idx], swapped_mdr["EVT_D2_TPC"][d2_hdr_idx],
     )
-    msg = _assert_fails(swapped_mdr, good_values, "expected sequential", "channel 2/4 Connector-1 pin swap")
+    msg = _assert_fails(swapped_mdr, good_values, "expected pin", "channel 2/4 Connector-1 pin swap")
     results.append(f"MDR68 physical-pin permutation (EVT_D2_TPC/EVT_D4_TPC Connector-1 pins swapped): caught -- {msg}")
 
     # Clamp rail regression: one channel's clamp diode gains a pin on +3V3 -- the exact
@@ -628,7 +738,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # sets (simulating two labels resolving to the same physical net -- constraint 1's
     # own signature failure mode, "two labels, one real net"). NOT expected to surface as
     # verify()'s own dedicated "IDENTICAL node sets" check specifically: EVERY one of
-    # this design's 61 contract nets is ALREADY walked by a more specific, earlier check
+    # this design's 70 contract nets is ALREADY walked by a more specific, earlier check
     # (the per-channel Ai+Yi=20 pairing, for this pair -- both EVT_D9_PI and EVT_D11_PI
     # are LVC541-bank outputs, and forcing one to literally BE the other's node list
     # breaks that pairing for whichever channel's own input pin no longer matches), so
@@ -650,6 +760,64 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
         "collapsed net's own channel necessarily also fails that more specific check -- "
         f"{msg}"
     )
+
+    # --- NEW (fix round 1, finding 1 -- CRITICAL): reward-OR polarity regression.
+    # Simulate the exact pre-fix-round-1 defect reintroduced by accident -- a second
+    # series Schmitt stage back in the debounce path -- by moving RWD_BTN_DEB's own node
+    # from deb_ref pin 2 (one inversion) to pin 4 (where a PAIR's own final output would
+    # land). This is precisely the "OR's two inputs are same-polarity" control the
+    # finding asked for: it proves the same-polarity check actually fires on a genuine
+    # polarity regression, not just a wrong-pin-number typo.
+    deb_ref_for_test = next(
+        n.ref for n in good_nets["RWD_BTN"] if good_values.get(n.ref) == "SN74HCT14D"
+    )
+    repolarized = copy.deepcopy(good_nets)
+    dlvr_idx = next(i for i, n in enumerate(repolarized["RWD_BTN_DEB"]) if n.ref == deb_ref_for_test)
+    repolarized["RWD_BTN_DEB"][dlvr_idx] = Node(
+        ref=deb_ref_for_test, pin="4", pinfunction="4Y", pintype="output",
+    )
+    msg = _assert_fails(
+        repolarized, good_values, "expected", "reward debounce repolarized (pair reintroduced)",
+    )
+    results.append(
+        f"Reward-OR same-polarity regression (RWD_BTN_DEB moved from {deb_ref_for_test} "
+        f"pin 2 to pin 4, simulating a reintroduced second Schmitt stage / the exact "
+        f"pre-fix-round-1 permanent-assert defect): caught -- {msg}"
+    )
+
+    # --- NEW (fix round 1, finding 3): analog-channel permutation on Connector 0 -- the
+    # same permutation class the MDR68 physical-pin self-test above exercises for
+    # Connector 1's digital lines, applied to the 9 new analog channels: swap two
+    # channels' own Connector-0 MDR68 pin nodes.
+    swapped_analog = copy.deepcopy(good_nets)
+    lx_idx = next(i for i, n in enumerate(swapped_analog["A_EYE_LX_TPC"]) if n.ref.startswith("J"))
+    joy_idx = next(i for i, n in enumerate(swapped_analog["A_JOY_X_TPC"]) if n.ref.startswith("J"))
+    swapped_analog["A_EYE_LX_TPC"][lx_idx], swapped_analog["A_JOY_X_TPC"][joy_idx] = (
+        swapped_analog["A_JOY_X_TPC"][joy_idx], swapped_analog["A_EYE_LX_TPC"][lx_idx],
+    )
+    msg = _assert_fails(
+        swapped_analog, good_values, "expected pin", "A_EYE_LX_TPC/A_JOY_X_TPC Connector-0 pin swap",
+    )
+    results.append(
+        f"Connector-0 analog-channel permutation (A_EYE_LX_TPC/A_JOY_X_TPC MDR68 pins "
+        f"swapped): caught -- {msg}"
+    )
+
+    # --- NEW (fix round 1, finding 3): AISENSE-to-AGND tie dropped -- "the easiest thing
+    # on the board to omit by accident" (the finding's own words), simulated by deleting
+    # Connector 0's own AISENSE node from the AGND net entirely.
+    conn0_ref_for_test = next(
+        n.ref for net_name, _ in ANALOG_CHANNELS for n in good_nets[net_name] if n.ref.startswith("J")
+    )
+    dropped_aisense = copy.deepcopy(good_nets)
+    dropped_aisense["AGND"] = [
+        n for n in dropped_aisense["AGND"]
+        if not (n.ref == conn0_ref_for_test and n.pin == MDR0_AISENSE_PIN)
+    ]
+    msg = _assert_fails(
+        dropped_aisense, good_values, "AISENSE", "Connector 0 AISENSE-to-AGND tie dropped",
+    )
+    results.append(f"AISENSE-to-AGND tie dropped ({conn0_ref_for_test} pin 62 removed from AGND): caught -- {msg}")
 
     return results
 

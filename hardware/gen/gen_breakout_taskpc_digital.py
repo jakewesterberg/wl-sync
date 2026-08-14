@@ -18,15 +18,26 @@ Four stages, matching the brief's own step numbering:
      which physical connector) is CONFIRMED, not re-derived here -- spec Sec.9.2 (closed
      2026-08-13, formerly open item 3), restated in a schematic text block per the
      brief's own "record the source in a schematic text field": Connector 0 = AI0-15 +
-     P0.0-7 + P1.0-7 (analog + AISENSE; Task 10 wires it, this file only places the
-     connector and leaves every pin no_connect -- see _place_connector0()'s own
-     docstring for why that split of labour, not an electrical decision, is the right
-     one here); Connector 1 = AI16-31 + P0.8-31 + P2.0-7, of which this design uses only
-     the digital range (P0.8-30, 23 lines) -- all 23 of the task PC's own digital lines,
-     leaving connector 0 exclusively analog. See _place_connector1()'s own docstring for
-     the physical-MDR-pin assignment (this board's OWN sequential choice, since no
-     source -- spec or NI's own device manual -- fixes individual pin positions; only the
-     PORT-LEVEL split is sourced) and the P0.8-P0.23 event-code offset MonkeyLogic needs.
+     P0.0-7 + P1.0-7 (analog + AISENSE); Connector 1 = AI16-31 + P0.8-31 + P2.0-7, of
+     which this design uses only the digital range (P0.8-30, 23 lines) -- all 23 of the
+     task PC's own digital lines, leaving connector 0 exclusively analog.
+
+     FIX ROUND 1 (task-8-report.md, finding 2): the PHYSICAL pin assigned to each P0.x
+     line on Connector 1, and to each AI channel + AISENSE on Connector 0, is now SOURCED
+     -- NI's own "X Series User Manual: NI 632x/634x/635x/636x/637x/638x/639x Devices"
+     (National Instruments part number 370784K-01, May 2019 edition, ni.com/manuals),
+     Figure A-5 "NI PCIe-6323/6343 Pinout" -- the task PC's own card, named explicitly,
+     not inferred from a similar model. This SHEET'S pre-fix-round-1 self, and every
+     generator/checker constant below that used to read "sequential (this board's own
+     choice)", instead now reads MDR1_PIN_BY_P0/MDR1_DGND_PINS/MDR0_AI_PIN/
+     MDR0_AISENSE_PIN, transcribed verbatim from that figure (see those constants' own
+     comments for the retrieval method and a cross-check note). Connector 0's 9
+     task-PC analog channels (A_EYE_LX/LY/RX/RY, A_JOY_X/Y, A_MISC1/2/3 -- plan.md's own
+     net-naming table + Task 10 Step 3, not invented here) and its AISENSE-to-AGND tie
+     are wired on THIS sheet too (fix round 1, finding 3): KiCad only lets the file that
+     PLACES a symbol instance attach labels to its pins, and Task 10 (which does not
+     exist yet) will need Connector 0's AI pins live now that its own generator can name
+     them by contract -- see _place_connector0()'s own docstring.
   2. Inbound path -- 19 channels (16 event data + strobe + RWD_CMD + STIM_TRIG), each:
      MDR68 pin -> 100R series -> BAT54S clamp (signal on the series midpoint, low side
      DGND, HIGH SIDE +5V -- never +3V3, see _bidirectional_clamp()'s own docstring for
@@ -47,12 +58,26 @@ Four stages, matching the brief's own step numbering:
      specifically about INBOUND (to-the-board) signals; these are OUR OWN buffer's
      push-pull outputs driving INTO the task PC's DAQ input pins, not an externally
      sourced signal this board needs to protect itself against.
-  4. Reward OR: RWD_CMD (already produced in stage 2, the LVC541 bank's own 3.3V output)
-     and a manual panel button (RWD_BTN, its own 10k pull-up + 100nF debounce + 74HCT14
-     Schmitt PAIR -- 2 series inversions, net non-inverting) combine in a 74HCT32 OR
-     gate to produce RWD_DLVR, which drives a reward-driver BNC (placeholder -- see
+  4. Reward OR: RWD_CMD (already produced in stage 2, the LVC541 bank's own 3.3V output,
+     ASSUMED active-HIGH -- idle-LOW, pulses HIGH on delivery, this design's other event
+     lines' own convention; SN74LVC541APW does not invert) and a manual panel button
+     (RWD_BTN, its own 10k pull-up + 100nF debounce) combine in a 74HCT32 OR gate to
+     produce RWD_DLVR, which drives a reward-driver BNC (placeholder -- see
      _place_reward_or()'s own docstring) and is available by name for Task 11's
      NI/Intan optocouplers.
+
+     FIX ROUND 1 (task-8-report.md, finding 1 -- CRITICAL): the debounce stage places a
+     SINGLE 74HCT14 Schmitt inverter, not the task-8-brief.md-specified "Schmitt inverter
+     PAIR" -- that literal brief text was wrong, confirmed by tracing the circuit it
+     describes: 10k pull-up to +5V + switch to DGND idles RWD_BTN HIGH/reads LOW while
+     pressed; a PAIR of series inversions cancels (net non-inverting), so the debounced
+     copy would ALSO idle HIGH/read LOW while pressed -- ORed against an active-HIGH
+     RWD_CMD, `HIGH OR anything` is permanently HIGH, so RWD_DLVR would assert
+     CONTINUOUSLY (reward driver stuck open, "delivered" stuck true in every recording),
+     not pulse on delivery. A SINGLE inversion instead makes the debounced copy idle-LOW/
+     active-HIGH -- the polarity an OR combination with an active-HIGH RWD_CMD actually
+     needs. See place_debounce_inverter()'s own docstring (singular now, was plural) and
+     _place_reward_or()'s own polarity note.
 
 Run directly: `python3 hardware/gen/gen_breakout_taskpc_digital.py` (writes
 hardware/breakout/sheets/taskpc-digital.kicad_sch). hardware/breakout/sym-lib-table
@@ -92,16 +117,83 @@ TASKPC_DIGITAL_SHEETFILE = "sheets/taskpc-digital.kicad_sch"  # exactly as break
 # ---------------------------------------------------------------------------
 # Contract nets (task-8-brief.md's own net list, as handed down for this task -- every
 # other sheet, and check_taskpc_digital_netlist.py, depend on these exact names). Rails
-# consumed from Task 7: +5V, +3V3, DGND.
+# consumed from Task 7: +5V, +3V3, DGND, AGND (AGND added fix round 1, for AISENSE).
+#
+# ANALOG_CONTRACT_NETS (fix round 1, finding 3): the 9 task-PC analog channel names are
+# NOT this sheet's own invention -- plan.md's own net-naming table ("Analog sources: `A_`
+# prefix ... A_EYE_LX, A_EYE_LY, A_EYE_RX, A_EYE_RY, ... A_JOY_X, A_JOY_Y ...  A_MISC1
+# ...A_MISC3", "Analog destinations: `_NI`, `_TPC` suffix") plus Task 10 Step 3's own text
+# ("Same topology to the task PC's Connector 0. Channels: A_EYE_LX, A_EYE_LY, A_EYE_RX,
+# A_EYE_RY, A_JOY_X, A_JOY_Y, A_MISC1, A_MISC2, A_MISC3. AISENSE tied to AGND here too")
+# fix the exact 9 base names and the AISENSE instruction; the `_TPC` suffix is this net's
+# own domain marker (the buffered copy landing at the task-PC-facing MDR68 pin, same
+# convention EVT_D0_TPC etc. already establish for digital).
 # ---------------------------------------------------------------------------
+ANALOG_CONTRACT_NETS = (
+    [f"A_EYE_{s}_TPC" for s in ("LX", "LY", "RX", "RY")]
+    + ["A_JOY_X_TPC", "A_JOY_Y_TPC"]
+    + [f"A_MISC{n}_TPC" for n in (1, 2, 3)]
+)
+assert len(ANALOG_CONTRACT_NETS) == 9
+
 CONTRACT_NETS = (
     [f"EVT_D{i}_TPC" for i in range(16)] + ["EVT_STROBE_TPC"]
     + [f"EVT_D{i}_PI" for i in range(16)] + ["EVT_STROBE_PI"]
     + [f"EVT_D{i}_BUF" for i in range(16)] + ["EVT_STROBE_BUF"]
     + ["RWD_CMD", "RWD_CMD_BUF", "RWD_BTN", "RWD_DLVR", "STIM_TRIG", "STIM_TRIG_BUF"]
     + ["PD1_COMP", "PD2_COMP", "ACC_TRIG", "RHS_STIM_OUT"]
+    + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 == 61
+assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 9 == 70
+
+# ---------------------------------------------------------------------------
+# Real physical MDR68 pin assignment, SOURCED (fix round 1; task-8-report.md's own "Fix
+# round 1" section documents full retrieval/verification method) -- NOT this sheet's own
+# sequential guess, which is what fix round 1 replaces. Source: National Instruments, "X
+# Series User Manual: NI 632x/634x/635x/636x/637x/638x/639x Devices", part number
+# 370784K-01 (May 2019 edition, ni.com/manuals), Figure A-5 "NI PCIe-6323/6343 Pinout" --
+# the task PC's own card (PCIe-6343), named explicitly in that figure's own title, not
+# inferred from a similar model. Every value below is transcribed verbatim from that
+# figure's own two 68-pin tables (Connector 0 = "(AI 0-15)", Connector 1 = "(AI 16-31)"),
+# cross-checked by two independent parses of the source PDF's extracted text (one by hand,
+# one script-driven) that agreed exactly before either was used here.
+# ---------------------------------------------------------------------------
+MDR1_PIN_BY_P0 = {  # Connector 1: P0.x (x = 8..31) -> physical MDR68 pin, per Figure A-5.
+    8: "52", 9: "17", 10: "49", 11: "47", 12: "19", 13: "51", 14: "16", 15: "48",
+    16: "11", 17: "10", 18: "43", 19: "42", 20: "41", 21: "6", 22: "5", 23: "38",
+    24: "37", 25: "3", 26: "45", 27: "46", 28: "2", 29: "40", 30: "1", 31: "39",
+}
+assert set(MDR1_PIN_BY_P0) == set(range(8, 32))
+# Every physical pin Figure A-5 itself labels "D GND" on Connector 1 -- all 12 tied to
+# this design's own DGND net (not an arbitrary 2, this sheet's own PRE-fix-round-1
+# choice): a real cable's every ground pin carries return current for the 19 digital
+# lines riding the same connector, and there is no reason to leave any of them unused.
+MDR1_DGND_PINS = ["4", "7", "9", "12", "13", "15", "18", "35", "36", "44", "50", "53"]
+assert len(MDR1_DGND_PINS) == 12
+
+# Connector 0: AIn (n = 0..8, the first 9 of the 16 available -- this design's own 9
+# task-PC analog channels use only these; which of the 9 SIGNALS maps to which AI channel
+# NUMBER is this sheet's own arbitrary-but-declared choice, same class of decision as
+# spec open item 6's mux default -- AI channels are electrically interchangeable ADC mux
+# inputs, unlike a P0.x digital line's fixed event-code bit weight, so no source needs to
+# fix this the way Finding 2 needed for Connector 1) -> physical MDR68 pin, per Figure
+# A-5. NRSE mode (spec Decision 5/Sec.9.2): each AIn is used as an independent
+# single-ended channel referenced to AISENSE, so only the PRIMARY "AI n" reading applies
+# here -- the parenthetical differential alt-name Figure A-5 also prints for these same
+# physical pins (e.g. physical pin 34 reads "AI 8 (AI 0-)") is a DIFFERENTIAL-mode
+# alternative this design does not use, not a second physical pin.
+MDR0_AI_PIN = {
+    0: "68", 1: "33", 2: "65", 3: "30", 4: "28", 5: "60", 6: "25", 7: "57", 8: "34",
+}
+assert set(MDR0_AI_PIN) == set(range(9))
+MDR0_AISENSE_PIN = "62"  # Connector 0's own "AI SENSE" (not "AI SENSE 2", which is
+# Connector 1's -- this design uses only Connector 0's analog bank; see spec Decision 5.
+
+# The 9 task-PC analog channels in the fixed order they consume MDR0_AI_PIN's AI0..AI8
+# (this sheet's own arbitrary channel-number assignment, declared here once rather than
+# implied positionally) -- (contract net name, AI channel number).
+ANALOG_CHANNELS = list(zip(ANALOG_CONTRACT_NETS, range(9)))
+assert len(ANALOG_CHANNELS) == 9
 
 # ---------------------------------------------------------------------------
 # Footprints -- picked from the part actually being ordered (same discipline
@@ -319,7 +411,7 @@ def place_reward_or_gate(sch, x, y, dy, in_a_net, in_b_net, out_net, rail, gnd, 
     return ref
 
 
-def place_debounce_inverters(sch, x, y, dy, in_net, mid_net, out_net, rail, gnd, refs):
+def place_debounce_inverter(sch, x, y, dy, in_net, out_net, rail, gnd, refs):
     """One 74HC14-rooted hex Schmitt-trigger inverter (no stock '74HCT14' symbol exists
     either -- see module docstring; 74HC14 is itself extends-free -- 74LS14 is the one
     that extends IT, confirmed directly against the raw library text -- so this places
@@ -327,12 +419,21 @@ def place_debounce_inverters(sch, x, y, dy, in_net, mid_net, out_net, rail, gnd,
     the six independent inverters, unit 7 carries VCC(14)/GND(7) -- confirmed directly
     against the raw library text, same convention as the OR gate above.
 
-    Units 1 and 2 (pins 1->2, then 3->4) are wired in SERIES -- task-8-brief.md's own
-    "Schmitt inverter PAIR", not a single stage: two inversions cancel, so the debounced
-    copy keeps -- does not flip -- RWD_BTN's own raw polarity, the standard technique for
-    a clean, non-inverting, Schmitt-buffered debounce. Units 3-6 are genuinely unused:
-    input tied to `gnd`, output no-connected, same discipline as every other unused gate
-    on this sheet.
+    FIX ROUND 1 (task-8-report.md, finding 1 -- CRITICAL, corrects this function's own
+    former plural name and behaviour): a SINGLE inverter (unit 1, pin 1->2), not the
+    task-8-brief.md-specified "Schmitt inverter PAIR" this function used to place (two
+    series units, net non-inverting). Traced from the actual circuit: RWD_BTN idles HIGH
+    (10k pull-up to +5V, button shorts to DGND when pressed) and reads LOW while pressed.
+    Two series inversions cancel, so a PAIR would leave the debounced copy ALSO idle-HIGH/
+    read-LOW-while-pressed -- ORed downstream against an active-HIGH RWD_CMD (idle-LOW,
+    pulses HIGH), `HIGH OR anything` is permanently HIGH: RWD_DLVR would assert
+    CONTINUOUSLY (reward driver stuck open, "delivered" stuck true in every recording),
+    not pulse only on an actual delivery. A SINGLE inversion instead makes the debounced
+    copy idle-LOW/active-HIGH -- matching RWD_CMD's own assumed polarity, which is what
+    an OR combination actually needs (see _place_reward_or()'s own polarity note, and
+    check_taskpc_digital_netlist.py's own same-polarity structural check). Units 2-6 are
+    genuinely unused: input tied to `gnd`, output no-connected, same discipline as every
+    other unused gate on this sheet.
     """
     ref = sch.next_ref("U")
     p1 = sch.place(
@@ -342,16 +443,11 @@ def place_debounce_inverters(sch, x, y, dy, in_net, mid_net, out_net, rail, gnd,
     ix, iy = pin_pos(x, y, p1["1"])
     sch.label(in_net, ix, iy)
     ox, oy = pin_pos(x, y, p1["2"])
-    sch.label(mid_net, ox, oy)
+    sch.label(out_net, ox, oy)
 
-    y2 = y + dy
-    p2 = sch.place("74xx", "74HC14", ref, "SN74HCT14D", x, y2, unit=2, footprint=FOOTPRINT_SOIC14)
-    ix2, iy2 = pin_pos(x, y2, p2["3"])
-    sch.label(mid_net, ix2, iy2)
-    ox2, oy2 = pin_pos(x, y2, p2["4"])
-    sch.label(out_net, ox2, oy2)
-
-    for unum, in_p, out_p in ((3, "5", "6"), (4, "9", "8"), (5, "11", "10"), (6, "13", "12")):
+    for unum, in_p, out_p in (
+        (2, "3", "4"), (3, "5", "6"), (4, "9", "8"), (5, "11", "10"), (6, "13", "12"),
+    ):
         uy = y + (unum - 1) * dy
         up = sch.place("74xx", "74HC14", ref, "SN74HCT14D", x, uy, unit=unum, footprint=FOOTPRINT_SOIC14)
         px, py = pin_pos(x, uy, up[in_p])
@@ -409,32 +505,82 @@ OUTBOUND_CHANNELS = [
 
 def _place_connector0(sch, refs):
     """Step 1, Connector 0: analog + AISENSE, per spec Sec.9.2's own confirmed split
-    (AI0-15 + P0.0-7 + P1.0-7). Placed here (both task-PC MDR68 connectors are the
-    physical pair on ONE device, and Step 1 explicitly asks for both), but left ENTIRELY
-    UNPOPULATED -- every one of its 68 pins no_connect -- because this sheet has no
-    analog content or channel list to assign it (Task 10 owns the 9 task-PC analog
-    channels: A_EYE_LX/LY/RX/RY, A_JOY_X/Y, A_MISC1/2/3, per the plan's own Task 10 Step
-    3). This is a real, deliberate placeholder, not an oversight: a KiCad symbol
-    instance's pins can only be labelled from the SAME .kicad_sch file that places it,
-    so Connector 0's own physical wiring has to happen wherever this specific J
-    instance lives -- flagged in this task's own report as a cross-task consideration
-    for whoever implements Task 10, the same way gen_breakout.py's own root sheet
-    leaves 9 child sheet files for later tasks to create.
+    (AI0-15 + P0.0-7 + P1.0-7).
+
+    FIX ROUND 1 (task-8-report.md, finding 3): pre-fix-round-1, this placed Connector 0
+    with EVERY pin no_connect, reasoning that Task 10 (which owns the front-end/buffer
+    circuitry the 9 task-PC analog channels need) should wire it. That is wrong division
+    of labour, not just incomplete: KiCad only lets the .kicad_sch file that PLACES a
+    symbol instance attach labels to its own pins, so if this sheet leaves Connector 0's
+    AI pins unlabelled, Task 10's own generator (a DIFFERENT file) can never name them --
+    the same constraint _place_connector1() already has to respect for Connector 1.
+    Since this project's connectivity is entirely label-based (module docstring), the fix
+    is straightforward: attach the 9 task-PC analog channels' own GLOBAL LABELS to
+    Connector 0's AI pins HERE, now, using the plan's own fixed contract names
+    (ANALOG_CONTRACT_NETS/ANALOG_CHANNELS above) -- Task 10 simply drives the same names
+    from its own buffer outputs when it exists, exactly like every other cross-sheet net
+    in this design already works. This sheet still does not build any analog circuitry
+    (no op-amps, no series R, no clamps -- that is genuinely Task 10's own front-end/
+    buffer work, per plan.md Task 10 Steps 1-3); it only makes the 10 pins Task 10 will
+    need (9 AI channels + AISENSE) nameable from outside this file.
+
+    Also ties AISENSE (MDR0_AISENSE_PIN, physical pin 62) directly to AGND -- spec
+    Decision 5 and Task 10 Step 3's own text ("AISENSE tied to AGND here too"): this
+    single wire is what makes NRSE work on the NI side (every AI channel reads against
+    this one shared reference instead of needing 16 dedicated differential pairs), and is
+    named in the finding as "the easiest thing on the board to omit by accident" --
+    checked explicitly by check_taskpc_digital_netlist.py's own verify().
+
+    Every one of Connector 0's other 58 pins (P0.0-7/P1.0-7/P2.x-on-this-connector, the
+    7 spare AI channels AI9-AI15, D GND, +5V, AO0/AO1/AOGND, NC -- see MDR1_PIN_BY_P0's
+    sibling table in this file's own "Fix round 1" report section for the full Connector
+    0 pinout) stays no_connect, unchanged: none of them are in this task's own contract,
+    and reaching for them now would be inventing wiring nobody has asked this sheet to
+    carry. If Task 10 later needs one of those (say, a second DGND reference), it will
+    hit the identical "only the placing file can label this pin" constraint this fix
+    round resolves for the analog channels -- flagged here for whoever hits it next.
     """
     ref = sch.next_ref("J")
     pins = sch.place(
         "wl-sync", "MDR68_Male", ref,
-        "Connector 0 (analog + AISENSE, task PC NI) -- reserved for Task 10",
+        "Connector 0 (analog + AISENSE, task PC NI)",
         X_CONN0, Y_CONN0, footprint=FOOTPRINT_MDR68,
     )
-    for n in range(1, 69):
-        x, y = pin_pos(X_CONN0, Y_CONN0, pins[str(n)])
-        sch.no_connect(x, y)
     refs["conn0"] = ref
+    used = set()
+
+    for net_name, ai_chan in ANALOG_CHANNELS:
+        pin_num = MDR0_AI_PIN[ai_chan]
+        x, y = pin_pos(X_CONN0, Y_CONN0, pins[pin_num])
+        sch.label(net_name, x, y)
+        used.add(pin_num)
+
+    x, y = pin_pos(X_CONN0, Y_CONN0, pins[MDR0_AISENSE_PIN])
+    sch.label("AGND", x, y)
+    used.add(MDR0_AISENSE_PIN)
+
+    for n in range(1, 69):
+        num = str(n)
+        if num not in used:
+            x, y = pin_pos(X_CONN0, Y_CONN0, pins[num])
+            sch.no_connect(x, y)
+
     for line_idx, line in enumerate([
-        "Connector 0 (analog + AISENSE): placed here, left fully unpopulated.",
-        "Task 10 wires the 9 task-PC analog channels (A_EYE_LX/LY/RX/RY, A_JOY_X/Y,",
-        "A_MISC1/2/3, spec Sec.3.2) onto this same J{} instance.".format(ref),
+        "Connector 0 (analog + AISENSE): 9 task-PC analog channels + AISENSE wired here",
+        "(fix round 1, finding 3); Task 10 drives these SAME contract net names from its",
+        "own front-end/buffer outputs (plan.md Task 10 Step 3) -- no buffer/series-R/",
+        "clamp circuitry lives on THIS sheet, only the labelled connection point does.",
+        "Physical pins sourced from NI's X Series User Manual (370784K-01), Figure A-5",
+        "\"NI PCIe-6323/6343 Pinout\", same source as Connector 1 below -- see this",
+        "generator's own MDR0_AI_PIN/MDR0_AISENSE_PIN and task-8-report.md \"Fix round 1\".",
+        "AI0=pin68=A_EYE_LX_TPC  AI1=pin33=A_EYE_LY_TPC  AI2=pin65=A_EYE_RX_TPC",
+        "AI3=pin30=A_EYE_RY_TPC  AI4=pin28=A_JOY_X_TPC   AI5=pin60=A_JOY_Y_TPC",
+        "AI6=pin25=A_MISC1_TPC  AI7=pin57=A_MISC2_TPC  AI8=pin34=A_MISC3_TPC",
+        "AISENSE=pin62 -> AGND (NRSE reference -- spec Decision 5; the easiest wire on",
+        "this board to omit by accident, so check_taskpc_digital_netlist.py asserts it).",
+        "Remaining 58 pins (spare AI9-15, P0.0-7/P1.0-7/P2.x, D GND, +5V, AO*, NC) stay",
+        "no_connect: outside this task's own contract -- see _place_connector0()'s own",
+        "docstring.",
     ]):
         sch.text(line, X_NOTE2, Y_NOTE2 + line_idx * NOTE_DY)
 
@@ -445,18 +591,21 @@ def _place_connector1(sch, refs):
     Sec.3.1) all ride here, on the P0.8-P0.30 range of the 24 available on P0.8-31 --
     leaving P0.31 and all 8 of P2.0-7 spare.
 
-    Physical MDR68 pin assignment (pins "1".."23" for the 23 signals, "24"/"25" for two
-    DGND references, everything else no_connect) is THIS SHEET'S OWN sequential choice,
-    not sourced from an NI connector-pinout diagram: confirmed directly against
-    gen_wl_sync_lib.py's own MDR68_Male docstring, no source anywhere in this project's
-    spec or plan fixes which PHYSICAL SCSI/MDR pin carries which individual P0.x/P2.x
-    line -- only the PORT-LEVEL (connector 0 vs 1) split is sourced (spec Sec.9.2). Same
-    precedent as gen_mule.py's own task-PC header ("Task-PC side stays sequential...
-    only the Pi side needs to match a real physical header" -- nothing on the task PC
-    side of THIS board reads a contiguous hardware pin range either). Confirm against
-    NI's own device pinout/SHC68-68-EPM cable documentation before this connector is
-    cabled at commissioning -- same open-item class as hardware/README.md's own MDR68
-    row-spacing/mounting-hole flags.
+    FIX ROUND 1 (task-8-report.md, finding 2): physical MDR68 pin assignment is now
+    SOURCED, not this sheet's own PRE-fix-round-1 sequential guess (pins "1".."23" for
+    the 23 signals, "24"/"25" for two arbitrary DGND references) -- that guess was
+    flagged, correctly, as a real risk: "wrong means the cable delivers every event-code
+    bit to the wrong DAQ line, and it would pass ERC, pass the channel-walk checker, and
+    fail only on a bench." NI's own device pinout DOES exist and does fix this: "X Series
+    User Manual: NI 632x/634x/635x/636x/637x/638x/639x Devices" (National Instruments
+    370784K-01, May 2019, ni.com/manuals), Figure A-5 "NI PCIe-6323/6343 Pinout" -- naming
+    the task PC's own card (PCIe-6343) explicitly. Every P0.x position and every D GND
+    position below (MDR1_PIN_BY_P0/MDR1_DGND_PINS, module-level above) is transcribed
+    verbatim from that figure, cross-checked by two independent parses of the source
+    PDF's own extracted text that agreed exactly -- see task-8-report.md's "Fix round 1"
+    for the retrieval method. This is no longer an open item needing bench confirmation
+    before cabling; it is sourced from the same manual spec Sec.9.2/9.3 already cites for
+    the connector-level split, just extended to the individual pin level.
     """
     ref = sch.next_ref("J")
     pins = sch.place(
@@ -474,28 +623,33 @@ def _place_connector1(sch, refs):
         "All 23 task-PC digital lines (19 out + 4 in) ride Connector 1, P0.8-P0.30 of",
         "the 24 available on P0.8-31. Event data bits occupy P0.8-P0.23, NOT P0.0-",
         "P0.15 -- MonkeyLogic must be configured for this non-zero-based line range.",
-        "This sheet assigns Connector 1's own physical MDR68 pins 1-23 SEQUENTIALLY to",
-        "these 23 lines (pin1=P0.8/EVT_D0 ... pin16=P0.23/EVT_D15, pin17=P0.24/STROBE,",
-        "pin18=P0.25/RWD_CMD, pin19=P0.26/STIM_TRIG, pin20-23=P0.27-30/PD1_COMP,",
-        "PD2_COMP,ACC_TRIG,RHS_STIM_OUT) -- this board's OWN choice, not yet confirmed",
-        "against NI's SCSI/MDR pin-position diagram for the real SHC68-68-EPM cable;",
-        "see this generator's own _place_connector1() docstring.",
+        "Physical MDR68 pin per P0.x line is SOURCED (fix round 1, finding 2), not",
+        "sequential -- NI's own X Series User Manual (370784K-01), Figure A-5 \"NI",
+        "PCIe-6323/6343 Pinout\": P0.8=pin52 P0.9=pin17 P0.10=pin49 P0.11=pin47",
+        "P0.12=pin19 P0.13=pin51 P0.14=pin16 P0.15=pin48 P0.16=pin11 P0.17=pin10",
+        "P0.18=pin43 P0.19=pin42 P0.20=pin41 P0.21=pin6 P0.22=pin5 P0.23=pin38",
+        "P0.24=pin37(STROBE) P0.25=pin3(RWD_CMD) P0.26=pin45(STIM_TRIG)",
+        "P0.27=pin46(PD1_COMP) P0.28=pin2(PD2_COMP) P0.29=pin40(ACC_TRIG)",
+        "P0.30=pin1(RHS_STIM_OUT) P0.31=pin39 (spare, no_connect). D GND (all 12 real",
+        "pins tied, not an arbitrary 2): 4,7,9,12,13,15,18,35,36,44,50,53.",
+        "See this generator's own MDR1_PIN_BY_P0/MDR1_DGND_PINS and",
+        "task-8-report.md \"Fix round 1\" for the full retrieval/cross-check method.",
     ]):
         sch.text(line, X_NOTE1, Y_NOTE1 + line_idx * NOTE_DY)
 
-    for i, (ch_idx, raw_net, _clamp, _pi, _buf) in enumerate(INBOUND_CHANNELS):
-        pin_num = str(ch_idx + 1)
+    for ch_idx, raw_net, _clamp, _pi, _buf in INBOUND_CHANNELS:
+        pin_num = MDR1_PIN_BY_P0[8 + ch_idx]
         x, y = pin_pos(X_CONN1, Y_CONN1, pins[pin_num])
         sch.label(raw_net, x, y)
         used.add(pin_num)
 
     for i, (_in_net, raw_out_net) in enumerate(OUTBOUND_CHANNELS):
-        pin_num = str(20 + i)
+        pin_num = MDR1_PIN_BY_P0[27 + i]
         x, y = pin_pos(X_CONN1, Y_CONN1, pins[pin_num])
         sch.label(raw_out_net, x, y)
         used.add(pin_num)
 
-    for gnd_pin in ("24", "25"):
+    for gnd_pin in MDR1_DGND_PINS:
         x, y = pin_pos(X_CONN1, Y_CONN1, pins[gnd_pin])
         sch.label("DGND", x, y)
         used.add(gnd_pin)
@@ -616,19 +770,24 @@ def _place_reward_or(sch, refs):
     it to resolve, unlike the MDR68/M12A_5 connectors that DID get dedicated custom
     footprints because their panel-cutout tolerance is the tightest on the board).
 
-    POLARITY, stated explicitly because it is not free of a real judgment call: the
-    literal circuit above (pull-up to +5V, switch to DGND, two SERIES Schmitt inverters
-    -- net non-inverting) makes the debounced signal read LOW while the button is held
-    (idle HIGH via the pull-up). A plain 74HCT32 OR gate only produces a sensible
-    "either-input-asserts" result if BOTH inputs share one active-level convention; this
-    design's other event signals (EVT_STROBE, event data bits) are idle-LOW/pulse-HIGH,
-    the standard DAQ/TTL convention, and RWD_CMD -- an unmodified copy of the task PC's
-    own raw line, since SN74LVC541APW is a NON-inverting buffer -- almost certainly
-    shares it. Implemented here exactly as specified (10k PULL-UP, not pull-down, and a
-    Schmitt PAIR, not a single inverting stage) rather than silently "corrected" against
-    an assumption this task cannot verify independently -- flagged on-sheet (see the
-    text block below) and in this task's own report for confirmation against the task
-    PC/MonkeyLogic's actual RWD_CMD polarity before commissioning.
+    POLARITY -- FIX ROUND 1 (task-8-report.md, finding 1, CRITICAL), stated explicitly
+    on-sheet per the finding's own instruction rather than left implicit: the debounce
+    stage now places a SINGLE Schmitt inversion (place_debounce_inverter(), was a PAIR
+    pre-fix-round-1). Traced: RWD_BTN idles HIGH (10k pull-up to +5V) and reads LOW while
+    pressed; ONE inversion makes RWD_BTN_DEB idle-LOW and read HIGH while pressed --
+    active-HIGH. RWD_CMD is ASSUMED ACTIVE-HIGH (idle-LOW, pulses HIGH on delivery) --
+    this design's other event lines' own convention (EVT_STROBE, event data bits), and
+    RWD_CMD is an unmodified copy of the task PC's own raw line since SN74LVC541APW is a
+    NON-inverting buffer. Stating the assumption here, explicitly, is the point: a plain
+    OR gate only produces a sensible "either-input-asserts" result if BOTH inputs share
+    ONE active-level convention, and this sheet cannot verify the task PC/MonkeyLogic
+    side of that assumption independently. If RWD_CMD is active-HIGH as assumed, this OR
+    gate is correct. If RWD_CMD instead turns out active-LOW, this circuit needs a
+    redesign regardless of the button side's own inverter count -- an OR gate cannot
+    correctly combine one active-HIGH and one active-LOW input, so flagged on-sheet (see
+    the text block below), in this task's own report, and enforced by
+    check_taskpc_digital_netlist.py's own same-polarity structural check: CONFIRM
+    RWD_CMD's actual polarity against MonkeyLogic before commissioning.
 
     RWD_DLVR also drives a reward-driver BNC -- placeholder Conn_01x02 for the same
     reason as the button/jack above -- and is available by name (no further buffering
@@ -679,8 +838,8 @@ def _place_reward_or(sch, refs):
     place_reward_or_gate(
         sch, X_U8, Y_U8, GATE_DY, "RWD_CMD", "RWD_BTN_DEB", "RWD_DLVR", "+5V", "DGND", refs,
     )
-    place_debounce_inverters(
-        sch, X_U9, Y_U9, GATE_DY, "RWD_BTN", "RWD_BTN_INV1", "RWD_BTN_DEB", "+5V", "DGND", refs,
+    place_debounce_inverter(
+        sch, X_U9, Y_U9, GATE_DY, "RWD_BTN", "RWD_BTN_DEB", "+5V", "DGND", refs,
     )
 
     bnc_ref = sch.next_ref("J")
@@ -700,14 +859,19 @@ def _place_reward_or(sch, refs):
     refs["reward_debounce_c"] = debounce_c_ref
 
     for line_idx, line in enumerate([
-        "Reward OR polarity: RWD_BTN idles HIGH (10k pull-up to +5V), reads LOW while",
-        "pressed. The 74HCT14 pair is NON-inverting (2 series Schmitt stages), so",
-        "RWD_BTN_DEB also reads LOW while pressed. RWD_CMD is assumed idle-LOW/pulse-",
-        "HIGH (this design's other event lines' convention, and SN74LVC541APW does not",
-        "invert). VERIFY RWD_CMD's actual polarity against MonkeyLogic before",
-        "commissioning: if RWD_CMD is active-HIGH as assumed, this OR gate is correct;",
-        "if RWD_CMD instead turns out active-LOW, RWD_DLVR would read HIGH almost",
-        "continuously instead of pulsing on delivery.",
+        "Reward OR polarity (fix round 1, finding 1 -- CRITICAL, corrected here):",
+        "RWD_BTN idles HIGH (10k pull-up to +5V), reads LOW while pressed. A SINGLE",
+        "74HCT14 Schmitt inverter (NOT a pair -- a pair was this task's own pre-fix-",
+        "round-1 defect: 2 series stages cancel, leaving RWD_BTN_DEB idle-HIGH, which",
+        "ORed with an active-HIGH RWD_CMD asserts RWD_DLVR permanently) inverts ONCE,",
+        "so RWD_BTN_DEB idles LOW and reads HIGH while pressed -- active-HIGH.",
+        "RWD_CMD polarity is ASSUMED ACTIVE-HIGH (idle-LOW, pulses HIGH on delivery --",
+        "this design's other event lines' own convention, and SN74LVC541APW does not",
+        "invert): stated explicitly because this sheet cannot verify the task PC/",
+        "MonkeyLogic side independently. VERIFY RWD_CMD's actual polarity against",
+        "MonkeyLogic before commissioning: if active-HIGH as assumed, this OR gate is",
+        "correct; an OR gate cannot correctly combine one active-HIGH and one active-",
+        "LOW input regardless of the button side's own inverter count.",
     ]):
         sch.text(line, X_NOTE3, Y_NOTE3 + line_idx * NOTE_DY)
 
