@@ -123,7 +123,12 @@ CONSUMED_CONTRACT_NETS = [f"EVT_D{i}_PI" for i in range(16)] + [
     "EVT_STROBE_PI", "RWD_CMD", "RWD_DLVR", "STIM_TRIG", "PD1_COMP", "PD2_COMP", "ACC_TRIG",
 ]
 assert len(CONSUMED_CONTRACT_NETS) == 23
-PRODUCED_CONTRACT_NETS = ["BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH"]
+PRODUCED_CONTRACT_NETS = [
+    "BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH",
+    # The two dedicated optocoupler legs, added with the "one LED per driver pin"
+    # fix -- see gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS.
+    "BARCODE_BUF", "BARCODE_INTAN_BUF",
+]
 
 
 def _pins_on(nets: dict[str, list[Node]], net: str) -> set[tuple[str, str]]:
@@ -208,30 +213,41 @@ def _walk_buffered_channel(
     OUTPUT pin (Ai+Yi=20, the 74x541 family's fixed pairing every other checker in this
     project already relies on) -> `out_net`. Returns the buffer's own reference for the
     caller's aggregate checks (same-package confirmation, right-part-in-right-role).
+
+    WALKED OUTPUT-FIRST, deliberately. The obvious direction (find the ONE buffer input
+    pin on `raw_net`, then look for its partner output) stopped working when BARCODE_RAW
+    gained two more channels off the same package -- BARCODE_BUF and BARCODE_INTAN_BUF,
+    the dedicated optocoupler legs that keep one LED per driver pin (see
+    gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS). A source feeding several
+    parallel buffered copies is legitimate and is the established idiom on this board
+    (taskpc-digital's own *_CLAMP nodes have fed two independent buffer banks since Task
+    8). An OUTPUT net, by contrast, must have exactly one driver -- so anchoring the walk
+    there keeps the check exact and one-to-one without caring how many channels share the
+    input. Every guarantee is unchanged: same physical package at both ends, Ai+Yi=20.
     """
     check(raw_net in nets, f"missing net: {raw_net!r}")
-    in_nodes = [n for n in nets[raw_net] if values.get(n.ref) == buf_value]
-    check(
-        len(in_nodes) == 1,
-        f"{raw_net}: expected exactly 1 {buf_value} input node, found "
-        f"{[(n.ref, n.pin, values.get(n.ref)) for n in nets[raw_net]]}",
-    )
-    ref, a_pin = in_nodes[0].ref, int(in_nodes[0].pin)
-
     check(out_net in nets, f"missing net: {out_net!r}")
-    out_nodes = [n for n in nets[out_net] if n.ref == ref and "tri_state" in n.pintype]
+    out_nodes = [
+        n for n in nets[out_net]
+        if values.get(n.ref) == buf_value and "tri_state" in n.pintype
+    ]
     check(
         len(out_nodes) == 1,
-        f"{out_net}: expected exactly 1 tri_state output pin belonging to {ref} (the "
-        f"same {buf_value} whose input is on {raw_net}), found {len(out_nodes)} -- if a "
-        f"different buffer drives this net, the channel has crossed ICs",
+        f"{out_net}: expected exactly 1 {buf_value} tri_state output pin driving this "
+        f"net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
     )
-    y_pin = int(out_nodes[0].pin)
+    ref, y_pin = out_nodes[0].ref, int(out_nodes[0].pin)
+    a_pin = 20 - y_pin
+
+    on_raw = [n for n in nets[raw_net] if n.ref == ref and n.pin == str(a_pin)]
     check(
-        a_pin + y_pin == 20,
-        f"{raw_net}->{out_net}: {ref}'s input pin {a_pin} and output pin {y_pin} don't "
-        f"satisfy the 74x541 family's fixed Ai<->Yi pairing (input+output must equal 20) "
-        f"-- this channel has been permuted within the buffer",
+        len(on_raw) == 1,
+        f"{raw_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
+        f"74x541 family's fixed Ai<->Yi pairing (input+output must equal 20) its partner "
+        f"input pin {a_pin} must sit on {raw_net} -- it does not. "
+        f"This channel has been permuted within the buffer, or is fed from a "
+        f"different signal than it should be. Nodes on {raw_net}: "
+        f"{[(n.ref, n.pin) for n in nets[raw_net]]}",
     )
     return ref
 
@@ -332,46 +348,91 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     barcode_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_PI", "SN74HCT541PW")
     eye_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE", "SN74HCT541PW")
     beh_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH", "SN74HCT541PW")
+    # The two dedicated optocoupler legs -- BARCODE_RAW's own second and third buffered
+    # copies (gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS). Walked exactly like
+    # the three above, from the SAME input net and the SAME package, because that is the
+    # whole point: a parallel buffered copy of one signal, not a re-derived one.
+    barcode_ni_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_BUF", "SN74HCT541PW")
+    barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74HCT541PW")
     check(
-        barcode_buf == eye_buf == beh_buf,
-        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH should share the SAME physical "
-        f"SN74HCT541PW package, found {barcode_buf}/{eye_buf}/{beh_buf}",
+        barcode_buf == eye_buf == beh_buf == barcode_ni_buf == barcode_intan_buf,
+        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF should share "
+        f"the SAME physical SN74HCT541PW package, found {barcode_buf}/{eye_buf}/{beh_buf}/"
+        f"{barcode_ni_buf}/{barcode_intan_buf}",
     )
     trig_buf = barcode_buf
+    # Five DISTINCT channels of that one package -- not, say, two names accidentally
+    # labelled onto one output pin (which would put both LEDs back on one driver pin,
+    # the exact defect BARCODE_OPTO_LEGS exists to fix).
+    barcode_out_pins = {
+        out_net: next(int(n.pin) for n in nets[out_net] if n.ref == trig_buf and "tri_state" in n.pintype)
+        for out_net in ("BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH", "BARCODE_BUF", "BARCODE_INTAN_BUF")
+    }
+    check(
+        len(set(barcode_out_pins.values())) == 5,
+        f"{trig_buf}: expected 5 DISTINCT output pins across "
+        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF, found "
+        f"{barcode_out_pins} -- two contract nets sharing one output pin would put both "
+        f"optocoupler LEDs back on a single driver pin",
+    )
     on_5v = [n for n in nets.get("+5V", []) if n.ref == trig_buf]
     check(len(on_5v) == 1, f"{trig_buf} (trigger buffer): expected a pin on +5V, found {on_5v}")
     summary.append(
-        f"Trigger buffer confirmed: {trig_buf} (SN74HCT541PW, +5V) drives all three of "
+        f"Trigger buffer confirmed: {trig_buf} (SN74HCT541PW, +5V) drives all five of "
         f"BARCODE_RAW->BARCODE_PI, CAM_TRIG_EYE_RAW->CAM_TRIG_EYE, "
-        f"CAM_TRIG_BEH_RAW->CAM_TRIG_BEH from the SAME package, each pairing confirmed "
-        f"via the 74x541 family's fixed Ai<->Yi=20."
+        f"CAM_TRIG_BEH_RAW->CAM_TRIG_BEH, BARCODE_RAW->BARCODE_BUF and "
+        f"BARCODE_RAW->BARCODE_INTAN_BUF from the SAME package on 5 DISTINCT channels "
+        f"{barcode_out_pins}, each pairing confirmed via the 74x541 family's fixed "
+        f"Ai<->Yi=20."
     )
 
-    # --- Barcode fan-out reaches exactly 7 loads (this task's own brief: "5 loads -- NI
+    # --- Barcode fan-out reaches exactly 5 loads (this task's own brief: "5 loads -- NI
     # opto, Intan opto, and three spare positions" -- this sheet's own 5 placeholder
-    # headers, Task 9's own commit; PLUS, as of Task 11, BOTH opto-ni.kicad_sch's own
-    # REAL ACSL-6400 LED cathode pin (5->6) AND opto-intan.kicad_sch's own REAL
-    # ACSL-6400 LED cathode pin (6->7) -- the two placeholder POSITIONS Task 9's own
-    # on-sheet text already named "NI opto"/"Intan opto" now both carry a real driven
-    # load rather than a bare probe point. Not a scope overrun on Task 11's own part --
-    # the identical "a later real sheet adds a real load onto an already-fanned-out net"
-    # situation Task 8's own RAIL_BYPASS_EXPECTED and Task 10d's own PWR_FLAG cleanup
-    # both already established a precedent for in this project), each a DISTINCT
-    # reference. ---
+    # headers, Task 9's own commit), each a DISTINCT reference, AND NOT ONE OF THEM AN
+    # OPTOCOUPLER LED.
+    #
+    # This count was briefly 7. When Task 11 built the real optocoupler sheets, it hung
+    # opto-ni's own ACSL-6400 LED cathode (5->6) and opto-intan's own (6->7) directly on
+    # BARCODE_PI, on top of the 5 headers -- the two placeholder POSITIONS this sheet's
+    # own on-sheet text named "NI opto"/"Intan opto" acquiring real loads. That looked
+    # like the net simply gaining real consumers, and this check was widened to 7 to
+    # match. It was actually a defect: each LED draws ~7.33mA from +5V through 430R, so
+    # the trigger buffer's own Y0 pin was sinking 14.7mA against SN74HCT541's 6mA IOL.
+    # Both LEDs now have their own dedicated channel off this same package (BARCODE_BUF,
+    # BARCODE_INTAN_BUF -- gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS), so
+    # BARCODE_PI is back to exactly the 5 headers and drives no LED at all. The cathode
+    # assertion below is what keeps the widening from silently happening again: a future
+    # sheet that hangs another LED here fails, instead of prompting the count to be
+    # bumped to 6. ---
     barcode_loads = [n for n in nets["BARCODE_PI"] if n.ref != trig_buf]
     check(
-        len(barcode_loads) == 7,
-        f"BARCODE_PI: expected exactly 7 loads besides the driving buffer {trig_buf}, "
-        f"found {len(barcode_loads)}: {barcode_loads}",
+        len(barcode_loads) == 5,
+        f"BARCODE_PI: expected exactly 5 loads besides the driving buffer {trig_buf} "
+        f"(this sheet's own 5 placeholder headers, and nothing else), found "
+        f"{len(barcode_loads)}: {barcode_loads}",
     )
     barcode_load_refs = {n.ref for n in barcode_loads}
     check(
-        len(barcode_load_refs) == 7,
-        f"BARCODE_PI: expected 7 DISTINCT load references, found {len(barcode_load_refs)}: "
+        len(barcode_load_refs) == 5,
+        f"BARCODE_PI: expected 5 DISTINCT load references, found {len(barcode_load_refs)}: "
         f"{barcode_load_refs} (a repeated reference would mean one 2-pin placeholder's "
         f"OWN two pins both landed on BARCODE_PI, not two independent loads)",
     )
-    summary.append(f"BARCODE_PI fans out to exactly 7 distinct loads: {sorted(barcode_load_refs)}.")
+    barcode_cathodes = [n for n in barcode_loads if (n.pinfunction or "").startswith("CATHODE")]
+    check(
+        not barcode_cathodes,
+        f"BARCODE_PI: carries optocoupler LED cathode pin(s) "
+        f"{[(n.ref, n.pin) for n in barcode_cathodes]}. This net drives 5 placeholder "
+        f"headers already; an LED on top of them costs ~7.33mA on the trigger buffer's "
+        f"own Y0 pin, and two of them costs 14.7mA against SN74HCT541's 6mA IOL. Each "
+        f"optocoupler LED gets its OWN buffered leg -- BARCODE_BUF and BARCODE_INTAN_BUF "
+        f"(BARCODE_OPTO_LEGS)",
+    )
+    summary.append(
+        f"BARCODE_PI fans out to exactly 5 distinct loads ({sorted(barcode_load_refs)}) "
+        f"and carries no optocoupler LED cathode -- both real LEDs are on their own "
+        f"dedicated buffered legs (BARCODE_BUF, BARCODE_INTAN_BUF)."
+    )
 
     # --- Camera triggers fan out to 5 real BNC positions -- 1 eye, 4 behavior. ---
     eye_loads = {n.ref for n in nets["CAM_TRIG_EYE"] if n.ref != trig_buf}
@@ -566,8 +627,23 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     dropped = copy.deepcopy(good_nets)
     victim_ref = sorted({n.ref for n in dropped["BARCODE_PI"] if n.ref.startswith("J")})[0]
     dropped["BARCODE_PI"] = [n for n in dropped["BARCODE_PI"] if n.ref != victim_ref]
-    msg = _assert_fails(dropped, good_values, "expected exactly 7 loads", f"BARCODE_PI load {victim_ref} dropped")
+    msg = _assert_fails(dropped, good_values, "expected exactly 5 loads", f"BARCODE_PI load {victim_ref} dropped")
     results.append(f"Barcode fan-out regression ({victim_ref} dropped, 7 loads -> 6): caught -- {msg}")
+
+    # An optocoupler LED hung back onto BARCODE_PI -- exactly what Task 11 did, and what
+    # made the trigger buffer's own Y0 pin sink 14.7mA against a 6mA IOL. The load-count
+    # check above would also fire on this (6 != 5), but only by accident of arithmetic: a
+    # future edit that legitimately retires one placeholder header and adds an LED would
+    # keep the count at 5 and slip straight through. This control targets the cathode
+    # assertion specifically, so the "5" and the "no LEDs" halves are each proven to fire
+    # on their own.
+    with_led = copy.deepcopy(good_nets)
+    a_header = sorted({n.ref for n in with_led["BARCODE_PI"] if n.ref.startswith("J")})[0]
+    with_led["BARCODE_PI"] = [n for n in with_led["BARCODE_PI"] if n.ref != a_header] + [
+        Node(ref="U60", pin="4", pinfunction="CATHODE2_4", pintype="passive")
+    ]
+    msg = _assert_fails(with_led, good_values, "carries optocoupler LED cathode pin", "an optocoupler LED cathode hung back onto BARCODE_PI")
+    results.append(f"Optocoupler LED hung directly on BARCODE_PI (opto-ni's own U60 cathode, replacing a header so the load COUNT still reads 5): caught -- {msg}")
 
     # USB header pin-order regression: D+/D- swapped (a real, easy-to-make placement
     # mistake -- USB D+/D- polarity matters).

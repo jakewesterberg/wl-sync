@@ -34,9 +34,12 @@ the module's own substrate diode at ~1.5mA continuous; the same three nets reach
 SN74HCT541 inputs (absolute minimum -0.5V likewise); and PD1_COMP/PD2_COMP formerly reached
 an ACSL-6400 LED cathode (opto-ni.kicad_sch's own U61) whose anode sits on +5V through
 430R, which at a -11.9V cathode is I_F ~ 36mA against a 20mA absolute maximum. (That LED
-is a separate defect on its own -- it puts +5V-through-an-LED onto a 3.3V-only GPIO even
-with the rail correct -- and is fixed separately, on opto-ni's own sheet; the rail is what
-made it lethal rather than merely marginal.) It also silently corrupted the hysteresis: the
+was a separate defect on its own -- it put +5V-through-an-LED onto a 3.3V-only GPIO even
+with the rail correct -- and was fixed separately, in the same round: opto-ni's own U61
+LEDs now hang on PD1_COMP_BUF/PD2_COMP_BUF, dedicated buffered legs off the task-PC
+sheet's own outbound HCT541, so nothing but the comparator, its pull-up and its consumers
+sits on PD1_COMP/PD2_COMP at all. The rail is what made it lethal rather than merely
+marginal.) It also silently corrupted the hysteresis: the
 derivation below assumes a 0->3.3V output swing, and the real swing was 15.2V, giving a
 ~150mV band and a ~118mV offset from the commanded threshold -- 12% at V_DAC = 1V, against
 a 2% bring-up acceptance criterion.

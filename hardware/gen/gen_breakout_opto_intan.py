@@ -265,14 +265,27 @@ PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6
 # LOCAL Intan-side net (RHS_STIM_RAW, downstream of its own BNC/clamp) and "final_net" is
 # RHS_STIM_OUT, the ALREADY-ESTABLISHED bare DGND-domain contract net (Task 8).
 # ---------------------------------------------------------------------------
+# EVERY SOURCE NET BELOW IS THIS SHEET'S OWN DEDICATED BUFFERED LEG, and it is the
+# `_INTAN_BUF` one, never the bare/NI-side name. Before the "one optocoupler LED per
+# driver pin" fix, all five outbound channels here shared a source net with their NI
+# twin on opto-ni.kicad_sch -- so one 74HCT541 output pin (or, for RWD_DLVR, one 74HCT32
+# gate output) drove TWO ACSL LEDs at ~7.33mA each: 14.7mA against a 6mA IOL, and against
+# 4mA for the HCT32. See gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS (which
+# spends that package's last 5 spare channels producing exactly the three *_INTAN_BUF
+# nets below plus both RWD_DLVR legs) and gen_breakout_pi_interface.py's own
+# BARCODE_OPTO_LEGS. Nothing on this sheet may share a source net with opto-ni again.
 OUTBOUND_CHANNELS = [
-    ("EVT_STROBE_BUF", "EVT_STROBE_INTAN"),
-    ("BARCODE_PI", "BARCODE_INTAN"),
-    ("RWD_CMD_BUF", "RWD_CMD_INTAN"),
-    ("RWD_DLVR", "RWD_DLVR_INTAN"),
+    ("EVT_STROBE_INTAN_BUF", "EVT_STROBE_INTAN"),
+    ("BARCODE_INTAN_BUF", "BARCODE_INTAN"),
+    ("RWD_CMD_INTAN_BUF", "RWD_CMD_INTAN"),
+    ("RWD_DLVR_INTAN_BUF", "RWD_DLVR_INTAN"),
 ]
 assert len(OUTBOUND_CHANNELS) == 4
-STIM_TRIG_CHANNEL = ("STIM_TRIG_BUF", "STIM_TRIG_INTAN")
+STIM_TRIG_CHANNEL = ("STIM_TRIG_INTAN_BUF", "STIM_TRIG_INTAN")
+assert all(src.endswith("_INTAN_BUF") for src, _final in OUTBOUND_CHANNELS + [STIM_TRIG_CHANNEL]), (
+    "every outbound LED on this sheet must be driven by its OWN _INTAN_BUF leg, never by "
+    "a net shared with opto-ni.kicad_sch's own LED for the same signal"
+)
 RHS_STIM_CHANNEL = ("RHS_STIM_RAW", "RHS_STIM_OUT")  # inbound: source=Intan-side, final=DGND-side
 
 

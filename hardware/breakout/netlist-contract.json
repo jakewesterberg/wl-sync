@@ -1732,10 +1732,18 @@
       ["R37", "1", "", "passive"],
       ["U22", "5", "+_5", "input"]
     ],
+    "BARCODE_BUF": [
+      ["U15", "15", "Y3_15", "tri_state"],
+      ["U60", "4", "CATHODE2_4", "passive"]
+    ],
     "BARCODE_INTAN": [
       ["J47", "1", "In_1", "passive"],
       ["R174", "2", "", "passive"],
       ["U64", "13", "VO2_13", "open_collector"]
+    ],
+    "BARCODE_INTAN_BUF": [
+      ["U15", "14", "Y4_14", "tri_state"],
+      ["U64", "4", "CATHODE2_4", "passive"]
     ],
     "BARCODE_INTAN_LEDA": [
       ["R173", "2", "", "passive"],
@@ -1756,13 +1764,13 @@
       ["J10", "1", "Pin_1_1", "passive"],
       ["J11", "1", "Pin_1_1", "passive"],
       ["J12", "1", "Pin_1_1", "passive"],
-      ["U15", "18", "Y0_18", "tri_state"],
-      ["U60", "4", "CATHODE2_4", "passive"],
-      ["U64", "4", "CATHODE2_4", "passive"]
+      ["U15", "18", "Y0_18", "tri_state"]
     ],
     "BARCODE_RAW": [
       ["J7", "11", "GPIO17_11", "passive"],
-      ["U15", "2", "A0_2", "input"]
+      ["U15", "2", "A0_2", "input"],
+      ["U15", "5", "A3_5", "input"],
+      ["U15", "6", "A4_6", "input"]
     ],
     "CAM_TRIG_BEH": [
       ["J14", "1", "In_1", "passive"],
@@ -1883,16 +1891,9 @@
       ["U9", "10", "GND_10", "power_in"],
       ["U9", "19", "G2_19", "input"],
       ["U10", "1", "G1_1", "input"],
-      ["U10", "5", "A3_5", "input"],
-      ["U10", "6", "A4_6", "input"],
-      ["U10", "7", "A5_7", "input"],
-      ["U10", "8", "A6_8", "input"],
-      ["U10", "9", "A7_9", "input"],
       ["U10", "10", "GND_10", "power_in"],
       ["U10", "19", "G2_19", "input"],
       ["U11", "1", "G1_1", "input"],
-      ["U11", "6", "A4_6", "input"],
-      ["U11", "7", "A5_7", "input"],
       ["U11", "8", "A6_8", "input"],
       ["U11", "9", "A7_9", "input"],
       ["U11", "10", "GND_10", "power_in"],
@@ -1921,8 +1922,6 @@
       ["U14", "10", "GND_10", "power_in"],
       ["U14", "19", "G2_19", "input"],
       ["U15", "1", "G1_1", "input"],
-      ["U15", "5", "A3_5", "input"],
-      ["U15", "6", "A4_6", "input"],
       ["U15", "7", "A5_7", "input"],
       ["U15", "8", "A6_8", "input"],
       ["U15", "9", "A7_9", "input"],
@@ -2373,19 +2372,23 @@
     ],
     "EVT_STROBE_BUF": [
       ["U10", "18", "Y0_18", "tri_state"],
-      ["U60", "2", "CATHODE1_2", "passive"],
-      ["U64", "2", "CATHODE1_2", "passive"]
+      ["U60", "2", "CATHODE1_2", "passive"]
     ],
     "EVT_STROBE_CLAMP": [
       ["D20", "3", "COM_3", "passive"],
       ["R21", "2", "", "passive"],
       ["U7", "2", "A0_2", "input"],
-      ["U10", "2", "A0_2", "input"]
+      ["U10", "2", "A0_2", "input"],
+      ["U10", "5", "A3_5", "input"]
     ],
     "EVT_STROBE_INTAN": [
       ["J46", "1", "In_1", "passive"],
       ["R172", "2", "", "passive"],
       ["U64", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_STROBE_INTAN_BUF": [
+      ["U10", "15", "Y3_15", "tri_state"],
+      ["U64", "2", "CATHODE1_2", "passive"]
     ],
     "EVT_STROBE_INTAN_LEDA": [
       ["R171", "2", "", "passive"],
@@ -2963,7 +2966,11 @@
       ["R112", "1", "", "passive"],
       ["R113", "2", "", "passive"],
       ["U11", "2", "A0_2", "input"],
-      ["U54", "2", "", "open_collector"],
+      ["U11", "6", "A4_6", "input"],
+      ["U54", "2", "", "open_collector"]
+    ],
+    "PD1_COMP_BUF": [
+      ["U11", "14", "Y4_14", "tri_state"],
       ["U61", "6", "CATHODE3_6", "passive"]
     ],
     "PD1_COMP_FB": [
@@ -2993,7 +3000,11 @@
       ["R115", "1", "", "passive"],
       ["R116", "2", "", "passive"],
       ["U11", "3", "A1_3", "input"],
-      ["U54", "1", "", "open_collector"],
+      ["U11", "7", "A5_7", "input"],
+      ["U54", "1", "", "open_collector"]
+    ],
+    "PD2_COMP_BUF": [
+      ["U11", "13", "Y5_13", "tri_state"],
       ["U61", "8", "CATHODE4_8", "passive"]
     ],
     "PD2_COMP_FB": [
@@ -3068,19 +3079,23 @@
     ],
     "RWD_CMD_BUF": [
       ["U10", "17", "Y1_17", "tri_state"],
-      ["U60", "6", "CATHODE3_6", "passive"],
-      ["U64", "6", "CATHODE3_6", "passive"]
+      ["U60", "6", "CATHODE3_6", "passive"]
     ],
     "RWD_CMD_CLAMP": [
       ["D21", "3", "COM_3", "passive"],
       ["R22", "2", "", "passive"],
       ["U7", "3", "A1_3", "input"],
-      ["U10", "3", "A1_3", "input"]
+      ["U10", "3", "A1_3", "input"],
+      ["U10", "6", "A4_6", "input"]
     ],
     "RWD_CMD_INTAN": [
       ["J48", "1", "In_1", "passive"],
       ["R176", "2", "", "passive"],
       ["U64", "12", "VO3_12", "open_collector"]
+    ],
+    "RWD_CMD_INTAN_BUF": [
+      ["U10", "14", "Y4_14", "tri_state"],
+      ["U64", "6", "CATHODE3_6", "passive"]
     ],
     "RWD_CMD_INTAN_LEDA": [
       ["R175", "2", "", "passive"],
@@ -3101,15 +3116,23 @@
     ],
     "RWD_DLVR": [
       ["J6", "1", "Pin_1_1", "passive"],
+      ["U10", "8", "A6_8", "input"],
+      ["U10", "9", "A7_9", "input"],
       ["U12", "3", "", "output"],
-      ["U14", "2", "A0_2", "input"],
-      ["U60", "8", "CATHODE4_8", "passive"],
-      ["U64", "8", "CATHODE4_8", "passive"]
+      ["U14", "2", "A0_2", "input"]
+    ],
+    "RWD_DLVR_BUF": [
+      ["U10", "12", "Y6_12", "tri_state"],
+      ["U60", "8", "CATHODE4_8", "passive"]
     ],
     "RWD_DLVR_INTAN": [
       ["J49", "1", "In_1", "passive"],
       ["R178", "2", "", "passive"],
       ["U64", "11", "VO4_11", "open_collector"]
+    ],
+    "RWD_DLVR_INTAN_BUF": [
+      ["U10", "11", "Y7_11", "tri_state"],
+      ["U64", "8", "CATHODE4_8", "passive"]
     ],
     "RWD_DLVR_INTAN_LEDA": [
       ["R177", "2", "", "passive"],
@@ -3134,19 +3157,23 @@
     ],
     "STIM_TRIG_BUF": [
       ["U10", "16", "Y2_16", "tri_state"],
-      ["U61", "2", "CATHODE1_2", "passive"],
-      ["U65", "6", "CATHODE1_6", "passive"]
+      ["U61", "2", "CATHODE1_2", "passive"]
     ],
     "STIM_TRIG_CLAMP": [
       ["D22", "3", "COM_3", "passive"],
       ["R23", "2", "", "passive"],
       ["U7", "4", "A2_4", "input"],
-      ["U10", "4", "A2_4", "input"]
+      ["U10", "4", "A2_4", "input"],
+      ["U10", "7", "A5_7", "input"]
     ],
     "STIM_TRIG_INTAN": [
       ["J50", "1", "In_1", "passive"],
       ["R180", "2", "", "passive"],
       ["U65", "11", "VO1_11", "open_collector"]
+    ],
+    "STIM_TRIG_INTAN_BUF": [
+      ["U10", "13", "Y5_13", "tri_state"],
+      ["U65", "6", "CATHODE1_6", "passive"]
     ],
     "STIM_TRIG_INTAN_LEDA": [
       ["R179", "2", "", "passive"],
@@ -3808,27 +3835,6 @@
     "unconnected-(U7-Y7-Pad11)": [
       ["U7", "11", "Y7_11", "tri_state+no_connect"]
     ],
-    "unconnected-(U10-Y3-Pad15)": [
-      ["U10", "15", "Y3_15", "tri_state+no_connect"]
-    ],
-    "unconnected-(U10-Y4-Pad14)": [
-      ["U10", "14", "Y4_14", "tri_state+no_connect"]
-    ],
-    "unconnected-(U10-Y5-Pad13)": [
-      ["U10", "13", "Y5_13", "tri_state+no_connect"]
-    ],
-    "unconnected-(U10-Y6-Pad12)": [
-      ["U10", "12", "Y6_12", "tri_state+no_connect"]
-    ],
-    "unconnected-(U10-Y7-Pad11)": [
-      ["U10", "11", "Y7_11", "tri_state+no_connect"]
-    ],
-    "unconnected-(U11-Y4-Pad14)": [
-      ["U11", "14", "Y4_14", "tri_state+no_connect"]
-    ],
-    "unconnected-(U11-Y5-Pad13)": [
-      ["U11", "13", "Y5_13", "tri_state+no_connect"]
-    ],
     "unconnected-(U11-Y6-Pad12)": [
       ["U11", "12", "Y6_12", "tri_state+no_connect"]
     ],
@@ -3879,12 +3885,6 @@
     ],
     "unconnected-(U14-Y7-Pad11)": [
       ["U14", "11", "Y7_11", "tri_state+no_connect"]
-    ],
-    "unconnected-(U15-Y3-Pad15)": [
-      ["U15", "15", "Y3_15", "tri_state+no_connect"]
-    ],
-    "unconnected-(U15-Y4-Pad14)": [
-      ["U15", "14", "Y4_14", "tri_state+no_connect"]
     ],
     "unconnected-(U15-Y5-Pad13)": [
       ["U15", "13", "Y5_13", "tri_state+no_connect"]

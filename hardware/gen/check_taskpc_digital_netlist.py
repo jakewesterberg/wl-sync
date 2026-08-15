@@ -95,9 +95,13 @@ CONTRACT_NETS = (
     + [f"EVT_D{i}_BUF" for i in range(16)] + ["EVT_STROBE_BUF"]
     + ["RWD_CMD", "RWD_CMD_BUF", "RWD_BTN", "RWD_DLVR", "STIM_TRIG", "STIM_TRIG_BUF"]
     + ["PD1_COMP", "PD2_COMP", "ACC_TRIG", "RHS_STIM_OUT"]
+    # One optocoupler LED per driver pin -- the 7 dedicated legs (see
+    # SECOND_LEG_CHANNELS/COMPARATOR_OPTO_LEGS below).
+    + ["EVT_STROBE_INTAN_BUF", "RWD_CMD_INTAN_BUF", "STIM_TRIG_INTAN_BUF"]
+    + ["RWD_DLVR_BUF", "RWD_DLVR_INTAN_BUF", "PD1_COMP_BUF", "PD2_COMP_BUF"]
     + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 70
+assert len(CONTRACT_NETS) == 77
 
 # Real physical MDR68 pin assignment -- redefined here from gen_breakout_taskpc_digital.py
 # (same discipline as CONTRACT_NETS above), sourced from NI's own "X Series User Manual:
@@ -142,6 +146,43 @@ OUTBOUND_CHANNELS = [
     ("PD2_COMP", "PD2_COMP_TPC", MDR1_PIN_BY_P0[28]),
     ("ACC_TRIG", "ACC_TRIG_TPC", MDR1_PIN_BY_P0[29]),
     ("RHS_STIM_OUT", "RHS_STIM_OUT_TPC", MDR1_PIN_BY_P0[30]),
+]
+
+# ---------------------------------------------------------------------------
+# ONE OPTOCOUPLER LED PER DRIVER PIN -- re-derived here from the electrical requirement,
+# not imported from gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS/
+# COMPARATOR_OPTO_LEGS (the same "a checker that trusted the generator would only be
+# checking the generator against itself" discipline every table in this file follows).
+#
+# Each ACSL-6400/6420 LED on this board is fed from +5V through 430R and draws ~7.33mA,
+# a value pinned between the part's own 7-15mA recommended band and its 7.0mA worst-case
+# switching threshold -- so it cannot be lowered to suit a driver. TWO on one pin is
+# 14.7mA, against SN74HCT541's 6mA IOL and SN74HCT32's 4mA. The `_BUF` bank named 19
+# SIGNALS for what is really a 30-LED board, and the 11 unnamed LEDs landed doubled up.
+#
+# (input net, output net) for each dedicated leg. The three *_INTAN_BUF entries take the
+# same *_CLAMP node their NI twin takes -- a parallel buffered copy off the established
+# fan-out point, exactly as the LVC541 and HCT541 banks have shared it since Task 8.
+SECOND_LEG_CHANNELS = [
+    ("EVT_STROBE_CLAMP", "EVT_STROBE_INTAN_BUF"),
+    ("RWD_CMD_CLAMP", "RWD_CMD_INTAN_BUF"),
+    ("STIM_TRIG_CLAMP", "STIM_TRIG_INTAN_BUF"),
+    ("RWD_DLVR", "RWD_DLVR_BUF"),
+    ("RWD_DLVR", "RWD_DLVR_INTAN_BUF"),
+]
+# Clamp nodes that legitimately carry a THIRD buffer input (the LVC541, the HCT541 _BUF
+# leg, and one *_INTAN_BUF leg) rather than the usual two -- derived from the table above
+# so the two cannot drift apart.
+CLAMP_NETS_WITH_SECOND_LEG = {src for src, _out in SECOND_LEG_CHANNELS if src.endswith("_CLAMP")}
+assert len(CLAMP_NETS_WITH_SECOND_LEG) == 3
+
+# The two comparator outputs whose NI optocoupler LED used to hang directly off the LM339
+# -- and, through that LED's own 430R to +5V, put ~3.6-3.8V (LED off) onto GPIO20/GPIO21,
+# which are 3.3V-only and wired to those nets DIRECTLY. Buffered off the outbound HCT541's
+# own spare channels now. Output-only: no MDR68 pin, unlike OUTBOUND_CHANNELS.
+COMPARATOR_OPTO_LEGS = [
+    ("PD1_COMP", "PD1_COMP_BUF"),
+    ("PD2_COMP", "PD2_COMP_BUF"),
 ]
 
 # TEMPORARY, given Tasks 9/10/11 don't exist yet -- two distinct directions, both
@@ -229,10 +270,17 @@ def _walk_inbound_channel(
     # ONE protected node rather than two separate (and possibly cross-wired) ones.
     check(clamp_net in nets, f"missing net: {clamp_net!r}")
     clamp_nodes = nets[clamp_net]
+    # 4 normally; 5 on the three clamp nodes that also feed an *_INTAN_BUF leg -- a THIRD
+    # parallel buffered copy off the same protected node, which is exactly what this
+    # fan-out point is for (the LVC541 and HCT541 banks have shared it since Task 8; see
+    # CLAMP_NETS_WITH_SECOND_LEG). Still an EXACT count, not a floor: a stray extra load
+    # on a protected node is precisely the class of thing this hop exists to catch.
+    expected_nodes = 5 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 4
+    extra = " + one *_INTAN_BUF second leg" if expected_nodes == 5 else ""
     check(
-        len(clamp_nodes) == 4,
-        f"{clamp_net}: expected exactly 4 nodes (series R, clamp diode, LVC541 input, "
-        f"HCT541_BUF input), found {len(clamp_nodes)}: {clamp_nodes}",
+        len(clamp_nodes) == expected_nodes,
+        f"{clamp_net}: expected exactly {expected_nodes} nodes (series R, clamp diode, "
+        f"LVC541 input, HCT541_BUF input{extra}), found {len(clamp_nodes)}: {clamp_nodes}",
     )
     r_here = [n for n in clamp_nodes if n.ref == r_ref]
     check(
@@ -259,20 +307,50 @@ def _walk_inbound_channel(
     )
     check(len(on_dgnd) == 1, f"{clamp_net}: clamp diode {diode_ref} has no pin on DGND")
 
-    # Hop 3: the two buffer-input nodes -- one LVC541 (the +3V3 bank), one HCT541 (the
-    # +5V _BUF bank), identified by Value (not by reference number, which this checker
-    # does not assume an ordering for).
+    # Hop 3: the buffer-input nodes -- one LVC541 (the +3V3 bank) and one HCT541 (the +5V
+    # _BUF bank), identified by Value (not by reference number, which this checker does
+    # not assume an ordering for), PLUS a second HCT541 input on the three clamp nodes
+    # that also feed an *_INTAN_BUF leg.
     u_nodes = [n for n in clamp_nodes if n.ref.startswith("U")]
-    check(len(u_nodes) == 2, f"{clamp_net}: expected exactly 2 buffer-input nodes, found {clamp_nodes}")
+    expected_u = 3 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 2
+    check(
+        len(u_nodes) == expected_u,
+        f"{clamp_net}: expected exactly {expected_u} buffer-input nodes, found {clamp_nodes}",
+    )
     lvc_nodes = [n for n in u_nodes if values.get(n.ref) == "SN74LVC541APW"]
     buf_nodes = [n for n in u_nodes if values.get(n.ref) == "SN74HCT541PW"]
     check(
-        len(lvc_nodes) == 1 and len(buf_nodes) == 1,
-        f"{clamp_net}: expected exactly 1 SN74LVC541APW input node and 1 SN74HCT541PW "
-        f"input node, found values {[values.get(n.ref) for n in u_nodes]} on {u_nodes}",
+        len(lvc_nodes) == 1 and len(buf_nodes) == expected_u - 1,
+        f"{clamp_net}: expected exactly 1 SN74LVC541APW input node and {expected_u - 1} "
+        f"SN74HCT541PW input node(s), found values {[values.get(n.ref) for n in u_nodes]} "
+        f"on {u_nodes}",
     )
     lvc_ref, lvc_a_pin = lvc_nodes[0].ref, int(lvc_nodes[0].pin)
-    buf_ref, buf_a_pin = buf_nodes[0].ref, int(buf_nodes[0].pin)
+    # WHICH of the (possibly two) HCT541 inputs belongs to THIS channel is decided from
+    # the OUTPUT side, not by picking the only candidate: find the single driver of
+    # `buf_net` and derive its partner input pin from the 74x541 family's fixed Ai+Yi=20.
+    # That keeps the walk exactly one-to-one whether or not this clamp node also feeds a
+    # second leg, and it is a strictly stronger statement than "the one HCT541 here" was
+    # -- an output net must have exactly one driver, always.
+    check(buf_net in nets, f"missing net: {buf_net!r}")
+    buf_drivers = [
+        n for n in nets[buf_net]
+        if values.get(n.ref) == "SN74HCT541PW" and "tri_state" in n.pintype
+    ]
+    check(
+        len(buf_drivers) == 1,
+        f"{buf_net}: expected exactly 1 SN74HCT541PW tri_state output pin driving this "
+        f"net, found {[(n.ref, n.pin) for n in nets[buf_net]]}",
+    )
+    buf_ref, buf_a_pin = buf_drivers[0].ref, 20 - int(buf_drivers[0].pin)
+    check(
+        any(n.ref == buf_ref and n.pin == str(buf_a_pin) for n in buf_nodes),
+        f"{clamp_net}: {buf_ref} drives {buf_net} from output pin {buf_drivers[0].pin}, so "
+        f"its partner input pin {buf_a_pin} must sit on this clamp node -- it does not "
+        f"(HCT541 inputs here: {[(n.ref, n.pin) for n in buf_nodes]}). This channel's "
+        f"_BUF data has been permuted within the buffer, or is fed from a different "
+        f"channel's protected node.",
+    )
     check(
         lvc_a_pin == buf_a_pin,
         f"{clamp_net}: LVC541 ({lvc_ref}) input lands on pin {lvc_a_pin} but HCT541_BUF "
@@ -322,43 +400,121 @@ def _walk_inbound_channel(
 
 
 def _check_outbound_channel(
-    nets: dict[str, list[Node]], values: dict[str, str], in_net: str, out_net: str, mdr_pin: str,
+    nets: dict[str, list[Node]], values: dict[str, str], in_net: str, out_net: str,
+    mdr_pin: str | None,
 ) -> str:
-    """Walk one of the 4 outbound channels: input net (produced elsewhere, consumed here
-    by name) -> this sheet's own SN74HCT541PW's input pin -> the SAME reference's own
-    output pin (Ai+Yi=20) -> Connector 1's own pin. Returns the outbound buffer's own
-    reference for the caller's aggregate checks.
+    """Walk one channel of the outbound SN74HCT541PW: input net (produced elsewhere,
+    consumed here by name) -> this sheet's own buffer input pin -> the SAME reference's
+    own output pin (Ai+Yi=20) -> Connector 1's own pin. Returns the buffer's own reference
+    for the caller's aggregate checks.
+
+    `mdr_pin=None` walks a channel that does NOT reach Connector 1 -- the two
+    comparator-optocoupler legs (COMPARATOR_OPTO_LEGS), which exist only to give
+    opto-ni's own PD1/PD2 LEDs a buffered driver instead of hanging them on the
+    comparator output that wires straight into GPIO20/21. Identical walk otherwise, and
+    that case additionally asserts the net reaches NO connector pin at all.
+
+    WALKED OUTPUT-FIRST, deliberately -- see the identical note in
+    check_breakout_pi_interface_netlist.py's own _walk_buffered_channel(). PD1_COMP and
+    PD2_COMP each feed TWO channels of this package now (the Connector-1 leg and the
+    optocoupler leg), so "the one buffer input on this net" is no longer a well-defined
+    anchor. An OUTPUT net always has exactly one driver, so anchoring there keeps the
+    walk exactly one-to-one and is strictly the stronger statement.
     """
     check(in_net in nets, f"missing net: {in_net!r}")
-    in_nodes = [n for n in nets[in_net] if values.get(n.ref) == "SN74HCT541PW"]
-    check(
-        len(in_nodes) == 1,
-        f"{in_net}: expected exactly 1 SN74HCT541PW input node, found "
-        f"{[(n.ref, n.pin, values.get(n.ref)) for n in nets[in_net]]}",
-    )
-    ref, a_pin = in_nodes[0].ref, int(in_nodes[0].pin)
-
     check(out_net in nets, f"missing net: {out_net!r}")
-    out_nodes = [n for n in nets[out_net] if n.ref == ref and "tri_state" in n.pintype]
+    out_nodes = [
+        n for n in nets[out_net]
+        if values.get(n.ref) == "SN74HCT541PW" and "tri_state" in n.pintype
+    ]
     check(
         len(out_nodes) == 1,
-        f"{out_net}: expected exactly 1 tri_state output pin belonging to {ref} (the "
-        f"same buffer whose input is on {in_net}), found {len(out_nodes)}",
+        f"{out_net}: expected exactly 1 SN74HCT541PW tri_state output pin driving this "
+        f"net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
     )
-    y_pin = int(out_nodes[0].pin)
+    ref, y_pin = out_nodes[0].ref, int(out_nodes[0].pin)
+    a_pin = 20 - y_pin
     check(
-        a_pin + y_pin == 20,
-        f"{out_net}: {ref}'s input pin {a_pin} (on {in_net}) and output pin {y_pin} don't "
-        f"satisfy the 74x541 family's fixed Ai<->Yi pairing -- this outbound channel has "
-        f"been permuted within the buffer",
+        any(n.ref == ref and n.pin == str(a_pin) for n in nets[in_net]),
+        f"{in_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
+        f"74x541 family's fixed Ai<->Yi pairing its partner input pin {a_pin} must sit on "
+        f"{in_net} -- it does not. This outbound channel has been permuted within the "
+        f"buffer, or is fed from the wrong signal. Nodes on {in_net}: "
+        f"{[(n.ref, n.pin) for n in nets[in_net]]}",
     )
     mdr_nodes = [n for n in nets[out_net] if n.ref.startswith("J")]
-    check(len(mdr_nodes) == 1, f"{out_net}: expected exactly 1 MDR68-connector node, found {nets[out_net]}")
-    check(
-        mdr_nodes[0].pin == mdr_pin,
-        f"{out_net}: lands on Connector 1 pin {mdr_nodes[0].pin}, expected pin {mdr_pin}",
-    )
+    if mdr_pin is None:
+        check(
+            not mdr_nodes,
+            f"{out_net}: reaches connector pin(s) {[(n.ref, n.pin) for n in mdr_nodes]} -- "
+            f"this is an optocoupler-drive leg only (COMPARATOR_OPTO_LEGS); it must not "
+            f"land on Connector 1",
+        )
+    else:
+        check(len(mdr_nodes) == 1, f"{out_net}: expected exactly 1 MDR68-connector node, found {nets[out_net]}")
+        check(
+            mdr_nodes[0].pin == mdr_pin,
+            f"{out_net}: lands on Connector 1 pin {mdr_nodes[0].pin}, expected pin {mdr_pin}",
+        )
     return ref
+
+
+def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+    """No logic output pin on this sheet drives more than one optocoupler LED.
+
+    Stated over EVERY driver pin belonging to this sheet's own packages, not over a list
+    of nets known to have LEDs: the defect this catches is a net GAINING a second LED
+    from a sheet that does not exist yet, which no enumerated list can anticipate. Each
+    ACSL LED draws ~7.33mA from +5V through 430R (a value pinned between the part's own
+    7-15mA recommended band and its 7.0mA worst-case switching threshold, so it cannot be
+    lowered to suit a driver); two on one pin is 14.7mA, against SN74HCT541's 6mA IOL and
+    SN74HCT32's 4mA. The 74HCT32 case is the one with a failure mode rather than just a
+    margin: RWD_DLVR's LOW level is read by the +3V3 LVC541 level-shifter (V_IL,max 0.8V)
+    on the way to the sync module, and an HCT gate's VOL at 3.7x its rated sink plausibly
+    exceeds that -- RWD_DLVR_PI stuck HIGH, the module recording reward-delivered
+    continuously.
+
+    Also asserts the 74HCT32 reward-OR drives NO LED at all. It is the weakest driver on
+    the sheet and the one whose output is level-critical; buffered legs exist for that
+    job (SECOND_LEG_CHANNELS' own RWD_DLVR_BUF/RWD_DLVR_INTAN_BUF)."""
+    own_values = {"SN74HCT541PW", "SN74HCT32D", "SN74LVC541APW", "SN74HCT14D"}
+    own_refs = {r for r, v in values.items() if v in own_values}
+    offenders = []
+    or_gate_leds = []
+    for net, nodes in nets.items():
+        cathodes = [n for n in nodes if (n.pinfunction or "").startswith("CATHODE")]
+        if not cathodes:
+            continue
+        drivers = [
+            n for n in nodes
+            if n.ref in own_refs and ("tri_state" in n.pintype or "output" in n.pintype)
+        ]
+        for d in drivers:
+            if len(cathodes) > 1:
+                offenders.append((d.ref, d.pin, values.get(d.ref), net, len(cathodes)))
+            if values.get(d.ref) == "SN74HCT32D":
+                or_gate_leds.append((d.ref, d.pin, net, len(cathodes)))
+    check(
+        not offenders,
+        f"driver pin(s) sinking more than one optocoupler LED: {offenders} (ref, pin, "
+        f"part, net, LED count). Each LED is ~7.33mA, so two is 14.7mA -- against "
+        f"SN74HCT541's 6mA IOL or SN74HCT32's 4mA. Give the second LED its own buffered "
+        f"leg; gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS spends the _BUF "
+        f"bank's last 5 spare channels on exactly that.",
+    )
+    check(
+        not or_gate_leds,
+        f"the 74HCT32 reward-OR gate drives optocoupler LED(s) directly: {or_gate_leds}. "
+        f"It is rated IOL=4mA, and its LOW level is read by the +3V3 LVC541 level-shifter "
+        f"(V_IL,max 0.8V) on the way to the sync module -- an out-of-spec VOL here means "
+        f"RWD_DLVR_PI stuck HIGH, i.e. reward-delivered recorded continuously. Drive LEDs "
+        f"from RWD_DLVR_BUF/RWD_DLVR_INTAN_BUF instead.",
+    )
+    return (
+        "One optocoupler LED per driver pin: no logic output belonging to this sheet "
+        "sinks more than one LED cathode anywhere in the whole netlist, and the 74HCT32 "
+        "reward-OR drives none at all."
+    )
 
 
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
@@ -446,6 +602,40 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"to end on the single outbound buffer {next(iter(outbound_refs))}, each landing "
         f"on Connector 1's own pins 20-23."
     )
+
+    # --- Walk the 7 dedicated optocoupler-drive legs: 5 second legs off the _BUF bank's
+    # own third package (SECOND_LEG_CHANNELS) and 2 off the outbound package
+    # (COMPARATOR_OPTO_LEGS). Identical walks; none of them reaches Connector 1. ---
+    second_leg_refs: set[str] = set()
+    for in_net, out_net in SECOND_LEG_CHANNELS:
+        second_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None))
+    check(
+        len(second_leg_refs) == 1 and second_leg_refs.isdisjoint(outbound_refs),
+        f"expected all 5 second legs on ONE SN74HCT541PW package, distinct from the "
+        f"outbound one ({outbound_refs}) -- found {second_leg_refs}",
+    )
+    second_leg_ref = next(iter(second_leg_refs))
+    check(
+        second_leg_ref in buf_refs,
+        f"the 5 second legs sit on {second_leg_ref}, which is not one of the three _BUF "
+        f"bank packages {buf_refs} -- they are meant to spend that bank's own last spare "
+        f"channels, not to add a package",
+    )
+    comparator_leg_refs: set[str] = set()
+    for in_net, out_net in COMPARATOR_OPTO_LEGS:
+        comparator_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None))
+    check(
+        comparator_leg_refs == outbound_refs,
+        f"expected both comparator-optocoupler legs on the SAME package as the 4 outbound "
+        f"channels ({outbound_refs}) -- found {comparator_leg_refs}",
+    )
+    summary.append(
+        f"All 7 dedicated optocoupler-drive legs walked end to end: 5 on {second_leg_ref} "
+        f"(the _BUF bank's own third package, now 8 of 8 channels) and 2 on "
+        f"{next(iter(outbound_refs))} (the outbound package, now 6 of 8), none of them "
+        f"reaching Connector 1."
+    )
+    summary.append(_check_one_led_per_driver_pin(nets, values))
 
     # --- Reward OR: RWD_CMD (already the LVC541 bank's own output, walked above) and the
     # debounced RWD_BTN combine in the 74HCT32 OR gate to produce RWD_DLVR. ---
@@ -656,6 +846,41 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     each corruption below is a minimal, targeted mutation of that known-good structure.
     """
     results = []
+
+    # --- ONE OPTOCOUPLER LED PER DRIVER PIN: three controls, one per assertion. ---
+
+    # (a) A second LED landing on a net that already has one -- the shape the real defect
+    # had on five nets at once. Uses EVT_STROBE_BUF (an HCT541 leg) so it exercises the
+    # generic "any driver pin of any of this sheet's packages" scan, not a hard-coded list.
+    doubled = copy.deepcopy(good_nets)
+    doubled["EVT_STROBE_BUF"] = list(doubled["EVT_STROBE_BUF"]) + [
+        Node("U64", "2", "CATHODE1_2", "passive")
+    ]
+    msg = _assert_fails(doubled, good_values, "more than one optocoupler LED", "a second LED cathode added to EVT_STROBE_BUF")
+    results.append(f"Two optocoupler LEDs on one driver pin (EVT_STROBE_BUF gains a second cathode): caught -- {msg}")
+
+    # (b) An LED hung back on the 74HCT32 reward-OR output -- the ORIGINAL defect, and
+    # the one with a real failure mode rather than a margin (RWD_DLVR_PI stuck HIGH). Only
+    # ONE cathode is added, so control (a)'s "more than one" assertion does NOT fire here:
+    # this proves the 4mA-gate assertion stands on its own.
+    or_led = copy.deepcopy(good_nets)
+    or_led["RWD_DLVR"] = list(or_led["RWD_DLVR"]) + [
+        Node("U60", "8", "CATHODE4_8", "passive")
+    ]
+    msg = _assert_fails(or_led, good_values, "74HCT32 reward-OR gate drives optocoupler LED", "one LED hung directly on the 74HCT32 output")
+    results.append(f"Optocoupler LED driven directly by the 4mA 74HCT32 reward-OR (a SINGLE LED, so the 'more than one' check cannot be what fires): caught -- {msg}")
+
+    # (c) A comparator-optocoupler leg wired to Connector 1 -- i.e. someone turning
+    # PD1_COMP_BUF into a fifth outbound channel. It is an LED driver, not a DAQ line;
+    # letting it reach the connector would put the LED's own load back in series with a
+    # task-PC input.
+    leg_on_mdr = copy.deepcopy(good_nets)
+    conn1_ref = next(r for r, v in good_values.items() if v == "Connector 1 (digital, task PC NI)")
+    leg_on_mdr["PD1_COMP_BUF"] = list(leg_on_mdr["PD1_COMP_BUF"]) + [
+        Node(conn1_ref, "1", "Pin_1_1", "passive")
+    ]
+    msg = _assert_fails(leg_on_mdr, good_values, "optocoupler-drive leg only", "PD1_COMP_BUF wired to Connector 1")
+    results.append(f"Optocoupler-drive leg landing on Connector 1 (PD1_COMP_BUF): caught -- {msg}")
 
     # THE central negative control this task's own brief asks for: swap two DATA
     # channels' buffer-output nodes on the _PI fork -- exactly the mule-board permutation

@@ -48,11 +48,19 @@ Four stages, matching the brief's own step numbering:
      NI optocouplers consume (ruling F2, .superpowers/sdd/2026-08-13-breakout-pcb/
      progress.md -- without this second bank, 22 LED loads would sit directly on the
      task PC's own DAQ pins).
+
+     THAT RULING WAS APPLIED INCOMPLETELY, and this sheet's own third HCT541 package now
+     carries the rest of it: the `_BUF` bank named 19 SIGNALS for what is really a 30-LED
+     problem, and the 11 unnamed LEDs got doubled onto pins that already had one. See
+     SECOND_LEG_CHANNELS below for the full account and the numbers; the short version is
+     that one HCT541 output pin may drive exactly one ACSL-6400 LED (~7.33mA), never two.
   3. Outbound path -- 4 channels (PD1_COMP, PD2_COMP, ACC_TRIG, RHS_STIM_OUT -- each
      produced ELSEWHERE, by Task 10's comparators sheet or Task 11's opto-intan sheet,
      and consumed here BY NAME as this bank's own buffer inputs) through one more
-     SN74HCT541PW on +5V (4 of 8 channels used), driving Connector 1's own remaining 4
-     digital pins back to the task PC. No input protection network here (unlike step 2)
+     SN74HCT541PW on +5V (6 of 8 channels used: those 4, plus 2 more producing
+     PD1_COMP_BUF/PD2_COMP_BUF for opto-ni's own LEDs -- see COMPARATOR_OPTO_LEGS below,
+     the second half of the same incompletely-applied ruling), driving Connector 1's own
+     remaining 4 digital pins back to the task PC. No input protection network here (unlike step 2)
      -- brief Step 3 does not ask for one, and the general principle stated right before
      spec Sec.9 ("every panel input carries series resistance and clamp diodes") is
      specifically about INBOUND (to-the-board) signals; these are OUR OWN buffer's
@@ -142,9 +150,15 @@ CONTRACT_NETS = (
     + [f"EVT_D{i}_BUF" for i in range(16)] + ["EVT_STROBE_BUF"]
     + ["RWD_CMD", "RWD_CMD_BUF", "RWD_BTN", "RWD_DLVR", "STIM_TRIG", "STIM_TRIG_BUF"]
     + ["PD1_COMP", "PD2_COMP", "ACC_TRIG", "RHS_STIM_OUT"]
+    # One optocoupler LED per driver pin (see SECOND_LEG_CHANNELS/COMPARATOR_OPTO_LEGS):
+    # 5 second legs off U10's own spare channels + 2 comparator legs off the outbound
+    # HCT541's own spares. Every one of these is a net this sheet PRODUCES and the opto
+    # sheets consume, exactly like the *_BUF nets above.
+    + ["EVT_STROBE_INTAN_BUF", "RWD_CMD_INTAN_BUF", "STIM_TRIG_INTAN_BUF"]
+    + ["RWD_DLVR_BUF", "RWD_DLVR_INTAN_BUF", "PD1_COMP_BUF", "PD2_COMP_BUF"]
     + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 9 == 70
+assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 7 + 9 == 77
 
 # ---------------------------------------------------------------------------
 # Real physical MDR68 pin assignment, SOURCED (fix round 1; task-8-report.md's own "Fix
@@ -243,7 +257,8 @@ Y_LVC1, Y_LVC2, Y_LVC3 = GRID(60.96), GRID(137.16), GRID(213.36)
 X_HCTBUF = GRID(310)
 Y_HCTBUF1, Y_HCTBUF2, Y_HCTBUF3 = GRID(60.96), GRID(137.16), GRID(213.36)
 
-# Outbound HCT541 (+5V), 1 package, 4 of 8 channels used.
+# Outbound HCT541 (+5V), 1 package, 6 of 8 channels used (4 outbound + 2 comparator-opto
+# legs -- see COMPARATOR_OPTO_LEGS).
 X_OUTBUF, Y_OUTBUF = GRID(220), GRID(260)
 
 # Reward OR block.
@@ -262,6 +277,9 @@ DECOUPLE_DX = GRID(15.24)
 X_NOTE1, Y_NOTE1 = GRID(20), GRID(15)     # connector split source + P0.x offset
 X_NOTE2, Y_NOTE2 = GRID(20), GRID(545)    # Connector 0 placeholder
 X_NOTE3, Y_NOTE3 = GRID(20), GRID(390)    # reward-OR polarity concern
+X_NOTE4, Y_NOTE4 = GRID(400), GRID(15)    # one LED per driver pin -- its own column,
+# right of the HCT541 _BUF bank at X=310 (a TSSOP-20 symbol plus its own labels reaches
+# well short of X=400), so nothing here overlaps a part or another note block.
 NOTE_DY = GRID(5.08)
 
 CHAN_A = {i: str(2 + i) for i in range(8)}   # 74x541 unit-1 pin numbers: A0..A7
@@ -502,6 +520,60 @@ OUTBOUND_CHANNELS = [
     ("RHS_STIM_OUT", "RHS_STIM_OUT_TPC"),
 ]
 
+# ---------------------------------------------------------------------------
+# ONE OPTOCOUPLER LED PER DRIVER PIN -- the second leg of each doubled load.
+#
+# THE DEFECT THIS FIXES: the 19-channel `_BUF` bank above names 19 signals, but the board
+# carries 30 optocoupler LEDs. The 11 unnamed ones ended up doubled onto driver pins that
+# already had a leg: EVT_STROBE_BUF, RWD_CMD_BUF and STIM_TRIG_BUF each fed BOTH an NI
+# ACSL-6400 LED and an Intan one from a single HCT541 output, and bare RWD_DLVR fed both
+# of ITS optocouplers straight off the reward-OR gate. Each ACSL-6400 LED draws
+# (5V - VOL - VF)/430R ~ 7.33mA (gen_breakout_opto_ni.py's own derivation), so a doubled
+# pin sinks 14.7mA -- against SN74HCT541's own 6mA IOL, and against SN74HCT32's 4mA. The
+# 74HCT32 case was the dangerous one: its LOW level is read by U14 (SN74LVC541APW,
+# V_IL,max 0.8V), and an HCT gate's VOL at 3.7x its rated sink plausibly exceeds that,
+# leaving RWD_DLVR_PI stuck HIGH -- the sync module recording reward-delivered
+# continuously. That is the same failure signature as the reward-OR polarity defect this
+# sheet already caught once at fix round 1.
+#
+# THE FIX: U10 (the _BUF bank's own third package, 3 of 8 channels used) has exactly 5
+# spare channels, and this table spends all 5 of them -- one dedicated buffer pin per LED.
+# The three *_INTAN_BUF legs tap the SAME *_CLAMP node their NI twin already taps (the
+# established fan-out point: one protection network, N independent buffered copies -- see
+# _place_inbound()), so they are genuinely parallel copies, not a re-derived signal. The
+# two RWD_DLVR legs tap RWD_DLVR itself, which afterwards drives only CMOS inputs and a
+# panel header -- ~0mA DC out of the 74HCT32.
+#
+# (channel index on U10, input net, output net, which optocoupler it drives)
+SECOND_LEG_CHANNELS = [
+    (3, "EVT_STROBE_CLAMP", "EVT_STROBE_INTAN_BUF", "opto-intan U64 channel 1"),
+    (4, "RWD_CMD_CLAMP", "RWD_CMD_INTAN_BUF", "opto-intan U64 channel 3"),
+    (5, "STIM_TRIG_CLAMP", "STIM_TRIG_INTAN_BUF", "opto-intan U65 channel 1"),
+    (6, "RWD_DLVR", "RWD_DLVR_BUF", "opto-ni U60 channel 4"),
+    (7, "RWD_DLVR", "RWD_DLVR_INTAN_BUF", "opto-intan U64 channel 4"),
+]
+assert len(SECOND_LEG_CHANNELS) == 5
+assert {c[0] for c in SECOND_LEG_CHANNELS} == {3, 4, 5, 6, 7}, "must use exactly U10's 5 spare channels"
+
+# The two comparator outputs whose NI optocoupler LED used to hang directly off the LM339
+# -- a SECOND, independent defect on the same nets, and the one that survives even with
+# the LM339's own supply rail correct. PD1_COMP/PD2_COMP wire DIRECTLY into the sync
+# module's GPIO20/GPIO21 (pi-interface.kicad_sch, kind="direct"), and opto-ni.kicad_sch
+# hung an ACSL-6400 LED on each of them whose anode sits on +5V through 430R. With the LED
+# off, that node idles at ~3.6-3.8V (the LED's own leakage against the 10k pull-up to
+# +3V3) -- ABOVE the 3.3V rail, held only by the module's ESD clamp; and with this board
+# powered while the sync box is off, ~7mA is injected into an unpowered pad. These were
+# the only 2 of the 24 NI optocoupler LEDs not driven from a buffered leg. They are now,
+# from 2 of the outbound HCT541's own 4 spare channels -- the same package that already
+# buffers these exact two nets toward the task PC, so no new part and no new protection
+# network is involved. (output-only: no MDR68 pin, unlike OUTBOUND_CHANNELS.)
+#
+# (channel index on the outbound HCT541, input net, output net)
+COMPARATOR_OPTO_LEGS = [
+    (4, "PD1_COMP", "PD1_COMP_BUF"),
+    (5, "PD2_COMP", "PD2_COMP_BUF"),
+]
+
 
 def _place_connector0(sch, refs):
     """Step 1, Connector 0: analog + AISENSE, per spec Sec.9.2's own confirmed split
@@ -692,16 +764,63 @@ def _place_inbound(sch, refs):
         )
 
     # HCT541 _BUF bank (+5V): U4 data0-7_BUF, U5 data8-15_BUF, U6 strobe/RWD_CMD/
-    # STIM_TRIG _BUF (3 of 8) -- same channel grouping, input taps the SAME *_CLAMP net.
+    # STIM_TRIG _BUF + the 5 second legs (8 of 8) -- same channel grouping, input taps the
+    # SAME *_CLAMP net.
     buf_channels = [{}, {}, {}]
     for ch_idx, _raw, clamp_net, _pi, buf_net in INBOUND_CHANNELS:
         bank, local = divmod(ch_idx, 8)
         buf_channels[bank][local] = (clamp_net, buf_net)
+    # One LED per driver pin -- see SECOND_LEG_CHANNELS' own comment for the defect these
+    # five channels fix. They all land on the third package, which this fills to 8 of 8.
+    for local, in_net, out_net, _dest in SECOND_LEG_CHANNELS:
+        assert local not in buf_channels[2], f"second-leg channel {local} collides with an inbound channel"
+        buf_channels[2][local] = (in_net, out_net)
+    assert len(buf_channels[2]) == 8, f"expected the third _BUF package fully used, got {sorted(buf_channels[2])}"
     for bank_idx, (x, y) in enumerate([(X_HCTBUF, Y_HCTBUF1), (X_HCTBUF, Y_HCTBUF2), (X_HCTBUF, Y_HCTBUF3)]):
         place_octal_buffer(
             sch, "74xx", "74HCT541", "SN74HCT541PW", x, y, "+5V",
             buf_channels[bank_idx], refs, "hct541_buf", FOOTPRINT_TSSOP20,
         )
+
+    for line_idx, line in enumerate([
+        "ONE OPTOCOUPLER LED PER DRIVER PIN.",
+        "",
+        "Each ACSL-6400/6420 LED on this board is fed from +5V through 430R and draws",
+        "~7.33mA (gen_breakout_opto_ni.py's own derivation: the value is chosen to sit",
+        "inside the part's 7-15mA recommended band and clear of its 7.0mA worst-case",
+        "switching threshold, so it cannot simply be reduced). A driver pin with TWO of",
+        "them sinks 14.7mA.",
+        "",
+        "The _BUF bank names 19 SIGNALS, but the board carries 30 LEDs. The 11 unnamed",
+        "ones were doubled up: EVT_STROBE_BUF, RWD_CMD_BUF and STIM_TRIG_BUF each fed",
+        "an NI LED AND an Intan LED from one HCT541 output (14.7mA vs 6mA IOL), and",
+        "bare RWD_DLVR fed both of its optocouplers straight off the 74HCT32 reward-OR",
+        "gate (14.7mA vs 4mA IOL). That last one was the dangerous one: RWD_DLVR's LOW",
+        "is read by the LVC541 level-shifter (V_IL,max 0.8V), and an HCT gate's VOL at",
+        "3.7x its rated sink plausibly exceeds that -- leaving RWD_DLVR_PI stuck HIGH,",
+        "the sync module recording reward-delivered continuously. Same failure",
+        "signature as the reward-OR polarity defect caught here at fix round 1.",
+        "",
+        "The third _BUF package's 5 spare channels are now spent, one LED per pin:",
+        "  ch3 EVT_STROBE_CLAMP -> EVT_STROBE_INTAN_BUF   (opto-intan U64 ch1)",
+        "  ch4 RWD_CMD_CLAMP    -> RWD_CMD_INTAN_BUF      (opto-intan U64 ch3)",
+        "  ch5 STIM_TRIG_CLAMP  -> STIM_TRIG_INTAN_BUF    (opto-intan U65 ch1)",
+        "  ch6 RWD_DLVR         -> RWD_DLVR_BUF           (opto-ni    U60 ch4)",
+        "  ch7 RWD_DLVR         -> RWD_DLVR_INTAN_BUF     (opto-intan U64 ch4)",
+        "",
+        "The three *_INTAN_BUF legs tap the SAME *_CLAMP node their NI twin already",
+        "taps -- the established fan-out point, one protection network with N buffered",
+        "copies hanging off it, exactly as the LVC541 and HCT541 banks already share",
+        "it. The two RWD_DLVR legs tap RWD_DLVR itself, which afterwards drives only",
+        "CMOS inputs and a panel header: ~0mA DC out of the 74HCT32.",
+        "",
+        "Residual, deliberate, and unchanged by this fix: one LED is 7.33mA against",
+        "SN74HCT541's own 6mA rated IOL. It cannot be brought under 6mA without taking",
+        "the LED below its own switching threshold, and it is far inside the part's",
+        "25mA per-pin absolute maximum; SN74AHCT541 (8mA IOL, same pinout) is the",
+        "drop-in if full IOL compliance is ever wanted.",
+    ]):
+        sch.text(line, X_NOTE4, Y_NOTE4 + line_idx * NOTE_DY)
 
 
 def _place_outbound(sch, refs):
@@ -756,6 +875,14 @@ def _place_outbound(sch, refs):
     STILL_PENDING_OUTBOUND is now empty -- all 4 outbound channels have a real driver.
     """
     channels = {i: (in_net, out_net) for i, (in_net, out_net) in enumerate(OUTBOUND_CHANNELS)}
+    # Plus the 2 comparator-optocoupler legs -- see COMPARATOR_OPTO_LEGS' own comment.
+    # These take the same 2 input nets channels 0/1 already take (PD1_COMP/PD2_COMP) and
+    # produce a SECOND buffered copy each, for opto-ni.kicad_sch's own U61 LEDs, so that
+    # nothing hangs an LED (and, through it, +5V) on a net that wires straight into the
+    # sync module's own 3.3V-only GPIO. 6 of 8 channels used after this.
+    for local, in_net, out_net in COMPARATOR_OPTO_LEGS:
+        assert local not in channels, f"comparator-opto leg {local} collides with an outbound channel"
+        channels[local] = (in_net, out_net)
     # STILL_PENDING_OUTBOUND -- the subset of OUTBOUND_CHANNELS' own input nets that
     # genuinely have no real driver yet. Empty as of Task 11 (see "TASK 11 UPDATE"
     # above) -- kept as a named, empty set rather than removing the loop entirely, so a
@@ -779,6 +906,17 @@ def _place_outbound(sch, refs):
         "Task 11's ACSL-6420 for RHS_STIM_OUT) -- no PWR_FLAGs remain on this sheet for",
         "any of them. See _place_outbound()'s own docstring ('TASK 11 UPDATE') for the",
         "deletion history.",
+        "",
+        "CHANNELS 4/5 (PD1_COMP_BUF, PD2_COMP_BUF) ARE NOT OUTBOUND -- they do not reach",
+        "Connector 1 at all. They exist so opto-ni's own U61 LEDs are driven from a",
+        "buffered leg instead of hanging directly on PD1_COMP/PD2_COMP, which wire",
+        "STRAIGHT into the sync module's GPIO20/GPIO21 (3.3V, not 5V tolerant). An LED",
+        "there means +5V through 430R and the LED reaches that pin: idling ~3.6-3.8V",
+        "with the LED off (above the 3.3V rail, held only by the module's ESD clamp),",
+        "and injecting ~7mA into an unpowered pad whenever this board is on and the sync",
+        "box is not. These were the only 2 of 24 NI optocoupler LEDs not driven from a",
+        "buffered leg. Same input net as channels 0/1 -- a second buffered copy, not a",
+        "re-derived signal.",
     ]):
         sch.text(line, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + 30 + line_idx * 5.08))
 

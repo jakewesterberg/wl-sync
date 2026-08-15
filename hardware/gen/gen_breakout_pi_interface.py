@@ -208,8 +208,32 @@ CONTRACT_NETS_CONSUMED = [
 ] + ["EVT_STROBE_PI", "RWD_CMD", "RWD_DLVR", "STIM_TRIG", "PD1_COMP", "PD2_COMP", "ACC_TRIG"]
 assert len(CONTRACT_NETS_CONSUMED) == 23
 
+# ---------------------------------------------------------------------------
+# ONE OPTOCOUPLER LED PER DRIVER PIN -- barcode's own two second legs.
+#
+# BARCODE_PI drove SEVEN loads: 5 placeholder panel headers (Step 3's own fan-out) AND,
+# once Task 11 existed, an NI ACSL-6400 LED (opto-ni U60 channel 2) plus an Intan one
+# (opto-intan U64 channel 2). Each LED is ~7.33mA from +5V through 430R, so this sheet's
+# own trigger buffer was sinking 14.7mA on one pin against SN74HCT541's 6mA IOL -- the
+# same "the _BUF bank named 19 signals for a 30-LED problem" defect
+# gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS documents in full, reaching
+# this sheet too because barcode is produced HERE, not there.
+#
+# This buffer had 5 spare channels; 2 of them now each drive exactly one LED, from the
+# SAME BARCODE_RAW input channel 0 already takes -- parallel buffered copies of one
+# signal, not a re-derived one. BARCODE_PI itself keeps the 5 panel headers (high-
+# impedance placeholder positions, ~0mA) and drives no LED at all.
+#
+# (channel index on the trigger buffer, input net, output net)
+BARCODE_OPTO_LEGS = [
+    (3, "BARCODE_RAW", "BARCODE_BUF"),          # -> opto-ni U60 channel 2
+    (4, "BARCODE_RAW", "BARCODE_INTAN_BUF"),    # -> opto-intan U64 channel 2
+]
+
 # CONTRACT_NETS_PRODUCED -- task's own net contract, "Produces".
-CONTRACT_NETS_PRODUCED = ["BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH"]
+CONTRACT_NETS_PRODUCED = [
+    "BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH", "BARCODE_BUF", "BARCODE_INTAN_BUF",
+]
 
 # ---------------------------------------------------------------------------
 # Footprints -- picked from the part actually being ordered / the stock footprint the
@@ -495,6 +519,10 @@ def _place_trigger_buffer_and_fanout(sch, refs):
         1: ("CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE"),
         2: ("CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH"),
     }
+    # ONE OPTOCOUPLER LED PER DRIVER PIN -- see BARCODE_OPTO_LEGS.
+    for local, in_net, out_net in BARCODE_OPTO_LEGS:
+        assert local not in channels, f"barcode opto leg {local} collides with an existing channel"
+        channels[local] = (in_net, out_net)
     place_octal_buffer(
         sch, "74xx", "74HCT541", "SN74HCT541PW", X_TRIGBUF, Y_TRIGBUF, "+5V",
         channels, refs, "trigger_buf", FOOTPRINT_TSSOP20,
@@ -535,6 +563,15 @@ def _place_trigger_buffer_and_fanout(sch, refs):
         "11's own NI/Intan optocouplers (not built yet -- same placeholder-connector",
         "precedent gen_breakout_taskpc_digital.py's own reward-button/jack/BNC",
         "placeholders established) plus 3 genuinely spare positions.",
+        "",
+        "TASK 11 EXISTS NOW, AND ITS LEDs ARE NOT ON BARCODE_PI. The two 'Task 11",
+        "placeholder' positions above are only headers; the REAL optocoupler LEDs are",
+        "driven from this same buffer's own channels 3/4 (BARCODE_BUF -> opto-ni U60",
+        "ch2, BARCODE_INTAN_BUF -> opto-intan U64 ch2), one LED per driver pin. Both",
+        "on BARCODE_PI is 2 x 7.33mA = 14.7mA on one pin against SN74HCT541's 6mA IOL.",
+        "All five headers stay on BARCODE_PI, which now drives no LED at all -- see",
+        "BARCODE_OPTO_LEGS in this sheet's own generator.",
+        "",
         "CAM_TRIG_EYE/CAM_TRIG_BEH fan out to 5 REAL panel BNC positions (spec Sec.9.1:",
         "'Camera triggers | BNC | 5 (1 eye, 4 behavior)') -- 1 eye camera, 4 behavior",
         "positions sharing ONE trigger rate (spec Sec.9.4: only GPIO18/19 survive the",

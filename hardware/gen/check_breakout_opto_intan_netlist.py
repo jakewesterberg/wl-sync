@@ -117,12 +117,12 @@ PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6
 # ACSL-6420's own shared datasheet RL-max (4k). See module docstring, risk 3.
 
 OUTBOUND_CHANNELS = [
-    ("EVT_STROBE_BUF", "EVT_STROBE_INTAN"),
-    ("BARCODE_PI", "BARCODE_INTAN"),
-    ("RWD_CMD_BUF", "RWD_CMD_INTAN"),
-    ("RWD_DLVR", "RWD_DLVR_INTAN"),
+    ("EVT_STROBE_INTAN_BUF", "EVT_STROBE_INTAN"),
+    ("BARCODE_INTAN_BUF", "BARCODE_INTAN"),
+    ("RWD_CMD_INTAN_BUF", "RWD_CMD_INTAN"),
+    ("RWD_DLVR_INTAN_BUF", "RWD_DLVR_INTAN"),
 ]
-STIM_TRIG_CHANNEL = ("STIM_TRIG_BUF", "STIM_TRIG_INTAN")
+STIM_TRIG_CHANNEL = ("STIM_TRIG_INTAN_BUF", "STIM_TRIG_INTAN")
 RHS_STIM_CHANNEL = ("RHS_STIM_RAW", "RHS_STIM_OUT")
 
 ALL_SOURCE_NETS = {c[0] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[0]}  # DGND-side sources
@@ -414,8 +414,45 @@ def _check_no_coordinate_collisions(sch_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _check_one_led_per_source_net(nets, sheet_label: str, source_nets) -> str:
+    """Every LED cathode net named by this sheet's own channel table carries EXACTLY ONE
+    optocoupler LED cathode pin, BOARD-WIDE.
+
+    Not a stylistic check. Each ACSL LED here is fed from +5V (or ISO_5V) through 430R and
+    draws ~7.33mA -- a value chosen to sit inside the part's own 7-15mA recommended band
+    and clear of its 7.0mA worst-case switching threshold, so it cannot simply be lowered.
+    Two LEDs on one net means two LEDs on one driver pin: 14.7mA against SN74HCT541's 6mA
+    IOL, or against SN74HCT32's 4mA. This board shipped that defect on five nets at once
+    (EVT_STROBE_BUF, RWD_CMD_BUF, STIM_TRIG_BUF, BARCODE_PI, RWD_DLVR -- each feeding an
+    NI LED and an Intan LED from one pin), and it is INVISIBLE to any check that reasons
+    about one sheet at a time: opto-ni sees one LED on the net, opto-intan sees one LED on
+    the net, and neither can see the other. So this check deliberately counts across the
+    WHOLE exported netlist, not just this sheet's own references.
+
+    See gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS for the fix and the
+    per-pin numbers.
+    """
+    for source in sorted(source_nets):
+        check(source in nets, f"{sheet_label}: missing source net {source!r}")
+        cathodes = [n for n in nets[source] if (n.pinfunction or "").startswith("CATHODE")]
+        check(
+            len(cathodes) == 1,
+            f"{source}: carries {len(cathodes)} optocoupler LED cathode pin(s) board-wide "
+            f"({[(n.ref, n.pin) for n in cathodes]}), expected exactly 1. Two LEDs on one "
+            f"net is two LEDs on one driver pin -- ~14.7mA against a 6mA (SN74HCT541) or "
+            f"4mA (SN74HCT32) IOL. Give the second one its own buffered leg "
+            f"(gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS).",
+        )
+    return (
+        f"{sheet_label}: all {len(source_nets)} LED source nets carry exactly one LED "
+        f"cathode pin board-wide -- one optocoupler LED per driver pin, counted across "
+        f"the whole netlist rather than this sheet alone."
+    )
+
+
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary = []
+    summary.append(_check_one_led_per_source_net(nets, "opto-intan", ALL_SOURCE_NETS))
     a_summary, a_refs = _check_package_a(nets, values)
     summary.append(a_summary)
     b_summary, pkg_b_ref, b_refs = _check_package_b(nets, values)
@@ -452,6 +489,17 @@ def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
 
 def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> list[str]:
     results = []
+    # (0) THE CROSS-SHEET LOAD DEFECT -- the mirror image of opto-ni's own control of the
+    # same name: an opto-NI LED cathode landing on THIS sheet's source net, which is
+    # exactly the shape of "two LEDs on one driver pin". See
+    # _check_one_led_per_source_net() for why this must be counted board-wide.
+    doubled = copy.deepcopy(good_nets)
+    doubled["STIM_TRIG_INTAN_BUF"] = list(doubled["STIM_TRIG_INTAN_BUF"]) + [
+        Node("U61", "2", "CATHODE1_2", "passive")
+    ]
+    msg = _assert_fails(doubled, good_values, "expected exactly 1", "a second LED cathode added to STIM_TRIG_INTAN_BUF")
+    results.append(f"Two optocoupler LEDs on one driver pin (STIM_TRIG_INTAN_BUF gains opto-ni's own U61 cathode): caught -- {msg}")
+
 
     # (1) Pull-up value drift on an outbound channel -- specifically BACK to this
     # sheet's own former, now-stale, datasheet-RL-max-violating 10k (fix round 2's own

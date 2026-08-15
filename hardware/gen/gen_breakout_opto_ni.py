@@ -302,18 +302,36 @@ NI_CHANNELS = (
     [(f"EVT_D{i}_BUF", f"EVT_D{i}_NI", 8 + i) for i in range(16)]
     + [
         ("EVT_STROBE_BUF", "EVT_STROBE_NI", 24),
-        ("BARCODE_PI", "BARCODE_NI", 25),
+        ("BARCODE_BUF", "BARCODE_NI", 25),
         ("RWD_CMD_BUF", "RWD_CMD_NI", 26),
-        ("RWD_DLVR", "RWD_DLVR_NI", 27),
+        ("RWD_DLVR_BUF", "RWD_DLVR_NI", 27),
         ("STIM_TRIG_BUF", "STIM_TRIG_NI", 28),
         ("RHS_STIM_OUT", "RHS_STIM_OUT_NI", 29),
-        ("PD1_COMP", "PD1_COMP_NI", 30),
-        ("PD2_COMP", "PD2_COMP_NI", 31),
+        ("PD1_COMP_BUF", "PD1_COMP_NI", 30),
+        ("PD2_COMP_BUF", "PD2_COMP_NI", 31),
     ]
 )
 assert len(NI_CHANNELS) == 24
+assert len({c[0] for c in NI_CHANNELS}) == 24, (
+    "every one of the 24 LEDs must have its OWN source net -- two LEDs sharing one means "
+    "two LEDs on one driver pin, ~14.7mA against a 6mA (HCT541) or 4mA (HCT32) IOL. See "
+    "gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS."
+)
 assert len({c[1] for c in NI_CHANNELS}) == 24
 assert sorted(c[2] for c in NI_CHANNELS) == list(range(8, 32))
+# EVERY SOURCE NET IS A BUFFERED LEG WITH ONE LED ON IT -- except RHS_STIM_OUT, whose
+# driver is structurally different and correct as-is: it is an ACSL-6420 output on the
+# opto-intan sheet (a signal ORIGINATING inside the Intan domain and crossing INTO this
+# one), specified at IOL=13mA, so its 7.33mA LED plus its own 3.9k pull-up's 1.28mA is
+# comfortably inside spec. Every other channel here is driven by a 74HCT541 output pin
+# that drives that LED and nothing else. Four of these source names changed at the
+# "one LED per driver pin" fix -- BARCODE_PI -> BARCODE_BUF, RWD_DLVR -> RWD_DLVR_BUF
+# (both had been doubled onto a pin that also fed the Intan LED), and PD1_COMP/PD2_COMP
+# -> PD1_COMP_BUF/PD2_COMP_BUF, which were worse than a load problem: those two nets wire
+# DIRECTLY into the sync module's own GPIO20/21, so an LED on them put +5V-through-430R-
+# and-an-LED onto a 3.3V-only pin (idling ~3.6-3.8V with the LED off, and injecting ~7mA
+# into an unpowered pad whenever this board is on and the sync box is not). They were the
+# only 2 of these 24 LEDs not driven from a buffered leg.
 
 # Physical MDR68 (Connector 1, recording NI) pins -- see module docstring, MDR68
 # CONNECTOR 1 PIN SOURCING, for the full retrieval/cross-check account.
