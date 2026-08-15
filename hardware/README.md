@@ -18,6 +18,32 @@ This repository is public: documentation here states electrical and mechanical f
 tooling instructions only, and reproduces no text from either linked document's private source
 material.
 
+## Settled facts (record kept here, 2026-08-15)
+
+Three facts a rig operator or firmware author needs and should not have to re-derive from the
+schematic or the private spec:
+
+- **The two photodiode comparator channels have distinct, fixed roles.** `A_PD1` watches the
+  **task patch** — the stimulus-onset signal a behavioural task draws to cue an event.
+  `A_PD2` watches the **flip patch**, a corner region of the display that alternates every
+  refresh, making it a frame clock. Both reach the recorders as a digital edge through their
+  own comparator (`PD1_COMP`/`PD2_COMP`) as well as an analog copy; the comparator lines carry
+  the timing, the analog copies carry waveform and intensity.
+- **The default eight analog channels Intan receives** (of the 16 sources this board carries;
+  Intan's own ceiling is 8, and which eight is a mux setting, not a copper fact — see the
+  ADG1206 mux truth table below): `A_PD1`, `A_EYE_LX`, `A_EYE_LY`, `A_EYE_LP`, `A_JOY_X`,
+  `A_JOY_Y`, `A_MIC`, `A_ACC`. One complete eye (left, position + pupil) rather than partial
+  data from both; the six eye channels are the first candidates to drop if a different set is
+  ever needed, since they have an authoritative record on the eye-tracker PC independent of
+  this board — the photodiode, joystick, accelerometer, and microphone channels do not.
+- **MonkeyLogic's `RewardPolarity` setting must be `HIGH` to match this board.** This board's
+  reward-commanded input (`RWD_CMD`) is active-HIGH by design (idle-LOW, pulses HIGH on
+  delivery — the same convention every other event line on this board uses, and the polarity
+  the reward-OR gate's own same-polarity structural check assumes and enforces on the
+  debounced-button side). `RewardPolarity` is a MonkeyLogic Main Menu setting provided so a
+  rig can match relays that trigger on sinking instead — it is a configuration to set for this
+  board, never an unknown to discover at commissioning time.
+
 ## Two tracks
 
 - **`hardware/mule/`** — the event-path mule. A small, fast board carrying only the 17-line
