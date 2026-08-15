@@ -24,29 +24,66 @@ entry below states explicitly what changed and why. Full fix-round detail:
 spares) — 5 boards' worth of active parts, unless noted.
 
 **Addendum, 2026-08-17 — fan headers (spec §9.5), added to `power.kicad_sch` after this
-file's own Task 13 lock.** Six components not present in the locked 101-row
-`breakout-bom.csv`/`breakout-bom-order.csv`: four `Connector_Generic:Conn_01x03` chassis
-fan headers (`J52`–`J55`), one polyfuse (`F1`, Littelfuse `1206L050/15YR`), and one more
-each of the already-tracked "10uF" and "100nF" rows (the fan feed's own local bulk
-capacitance on `FAN_12V`, after the fuse). Both CSVs are now stale by exactly these six
-rows — re-running the Task 13 export recipe (§1 below) to fold them in is out of scope
-for this addition; this addendum is the record until that next happens.
+file's own Task 13 lock.** Eight new component references not present in the locked
+101-row `breakout-bom.csv`/`breakout-bom-order.csv`: four `Connector_Generic:Conn_01x03`
+chassis fan headers (`J52`–`J55`), one polyfuse (`F1`, Littelfuse `1206L050/15YR`), one
+more each of the already-tracked "10uF" and "100nF" rows (`C147`, `C148` — the fan feed's
+own local bulk capacitance on `FAN_12V`, after the fuse), and a second net tie (`NT2`,
+ties `FAN_RTN` to `DGND` at exactly one point — the same discipline as `NT1`'s own
+AGND/DGND star point). Two more new references, `#PWR9`/`#PWR10` (both `PWR_FLAG`), carry
+no footprint and are not physical components at all.
+
+**Resolved 2026-08-15 — both CSVs regenerated against this exact delta.** Re-running §1's
+own export command folds the eight new references in as **five** new grouped rows, not
+six: `kicad-cli` groups by Value, so `C147` (Value `10uF`) and `C148` (Value `100nF`) fold
+into their respective existing rows' Reference lists rather than adding new ones, and
+`NT2` — sharing the literal Value string `NetTie_2` with `NT1` — folds into that same row
+too, becoming `"NT1,NT2"`. Only `F1`, `J52`, `J53`, `J54`, and `J55` come out as genuinely
+new rows. `#PWR9`/`#PWR10` need no entry in either CSV: confirmed directly against the
+regenerated export that `kicad-cli sch export bom` emits no row for either (power-flag
+symbols carry no footprint and aren't placed on the board). Net result: `breakout-bom.csv`
+101 → 106 grouped rows, re-exported with the unmodified §1 command and diffed
+byte-identical against a fresh run of it; `breakout-bom-order.csv` updated to match,
+row-for-row, using the same Order Code/Note convention every pre-existing row of the same
+component class already uses (`GENERIC` treatment for the fan headers, matching `J7`/`J18`;
+a real Order Code for `F1`, matching every other fully-sourced part; folded into `NT1`'s
+own row for `NT2`, matching how that row already treats net-tie artwork as non-purchasable).
+Cross-checked by set comparison over both files' expanded Reference columns: 265
+references each side, zero only-in-raw, zero only-in-order.
 
 - **`Connector_Generic:Conn_01x03` × 4/board = 20** (`PinHeader_1x03_P2.54mm_Vertical`
   footprint). Same commodity 2.54mm pin-header family as the `Conn_02x03` MISC shunt
-  headers already covered in §5.2's last row — generic, multiple manufacturers (Sullins,
-  TE, Amphenol, Adam Tech), no individual stock check warranted. Mates with any 3- or
-  4-pin PC/Noctua-class fan plug (standard pinout: pin 1 GND, pin 2 +12V, pin 3 tach —
-  pin 3 deliberately unconnected on this board, spec §9.5).
+  headers already covered in §5.2's last row, and the same generic, not-locked-to-one-MPN
+  treatment `breakout-bom-order.csv` already gives `J7`/`J18`. **Checked 2026-08-15,
+  direct DigiKey product-page fetches (not search-snippet level):** two real,
+  current-production, Active-lifecycle 3-position/0.100"(2.54mm)/through-hole SKUs from
+  Sullins alone confirm the family is real and in production — `PRPC003SFAN-RC` (83 units
+  in stock, 4-week mfr lead) and `PRPC003SAAN-RC` (0 in stock at check time, 4-week mfr
+  lead). Per-SKU stock swings low-to-zero the way any one tape-and-reel variant of a
+  fragmented commodity class can; the class itself is carried by at least five
+  manufacturers (Sullins, TE, Molex, Amphenol, Würth) across dozens of interchangeable
+  plating/tail-length SKUs. No supply risk — same conclusion this document already reaches
+  for every other generic 2.54mm header on this board, now backed by a direct distributor
+  check rather than assumed. Mates with any 3- or 4-pin PC/Noctua-class fan plug (standard
+  pinout: pin 1 GND, pin 2 +12V, pin 3 tach — pin 3 deliberately unconnected on this board,
+  spec §9.5).
 - **`F1` polyfuse, Littelfuse `1206L050/15YR` × 1/board = 5.** Real, current, well-stocked
   PPTC resettable fuse: 500 mA hold / 1 A trip / 15 V max / 100 A max fault-interrupt
   rating, 1206 (3216 metric) package, `cURus`/`TUV` approved. **34,076 units in stock at
-  DigiKey** (checked 2026-08-17, direct product-page fetch), Active lifecycle. No risk —
-  well below any 4-week threshold and well-stocked at low volume (5 units needed).
+  DigiKey** (checked 2026-08-17, direct product-page fetch), Active lifecycle. **Re-checked
+  2026-08-15, same method (direct DigiKey product-page fetch): 122,476 units in stock,
+  13-week manufacturer lead time, still Active** — stock is a snapshot and moved up
+  between the two checks, same part and distributor both times. No risk under either
+  reading — both readings are far above any 4-week threshold at the 5-unit volume this run
+  needs.
 - **10uF bulk / 100nF small × 1 more each = 5 more each.** Same `C_0805_2012Metric`/
   `C_0603_1608Metric` footprints and jellybean sourcing as every other instance of these
   two rows (§5.4) — folds into the existing "no individual stock check" treatment, not a
   new part class.
+- **`NT2` net tie × 1/board = 5.** Same `NetTie:NetTie-2_SMD_Pad2.0mm` footprint as `NT1`,
+  which §2/§5.2 already cover as PCB artwork rather than a purchasable part — folds into
+  `NT1`'s own existing BOM row rather than adding a new one, since both share the literal
+  Value `NetTie_2`.
 
 **The external supply's +12 V requirement grows by ~240 mA** (spec §9.5: four fans at
 ~0.06 A each, on the same rail the M12 inlet's own +12 V pin already carries — see

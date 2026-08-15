@@ -129,17 +129,21 @@ Task 13 produced three files together, and they are not interchangeable:
   blank `MPN`/`Manufacturer`). **Do not purchase directly from this file** — several of its
   Value strings are obsolete or packaging-ambiguous order codes (`INA105KU`, `SN74HCT14D`,
   bare `ADG1206YRUZ`), not the currently-orderable SKU.
-- **`hardware/breakout/breakout-bom-order.csv`** — the same 101 rows, with a corrected,
-  actually-orderable part number and a one-line sourcing note added per line (fix round 1).
-  **Purchase from this file.** It intentionally does not carry quantities — cross-reference
-  `hardware/procurement-check.md` §2 for those, so quantities have exactly one source of
-  truth instead of two copies that can drift apart.
+- **`hardware/breakout/breakout-bom-order.csv`** — the same rows as `breakout-bom.csv`
+  (101 at Task 13's own lock, 106 after the fan-header addendum below folded five new rows
+  in), with a corrected, actually-orderable part number and a one-line sourcing note added
+  per line (fix round 1). **Purchase from this file.** It intentionally does not carry
+  quantities — cross-reference `hardware/procurement-check.md` §2 for those, so quantities
+  have exactly one source of truth instead of two copies that can drift apart.
 - **`hardware/procurement-check.md`** — the full audit: corrected per-line quantities (§2,
   since the raw export's own `Qty` column is blank), every Value-overridden symbol checked
   against the real part it names (§3), the bare-vs-orderable-SKU findings in full (§4),
   distributor stock and lead time for every active component (§5), and everything over a
   4-week lead time called out explicitly (§6). Read this before placing an order — the two
-  CSVs above are derived from it, not a replacement for it.
+  CSVs above are derived from it, not a replacement for it. Its dated addendum records the
+  four fan headers (`J52`–`J55`), polyfuse (`F1`), and other fan-related BOM rows added to
+  `power.kicad_sch` after the Task 13 lock, and the distributor checks for the new parts —
+  both CSVs have since been regenerated against that same delta, so all three files agree.
 
 ## Toolchain
 
