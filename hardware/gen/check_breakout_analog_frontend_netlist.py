@@ -81,6 +81,11 @@ assert len(ACCESIO_CHANNELS) == 6 and len(BNC_CHANNELS) == 10
 
 PHOTODIODE_CHANNELS = ["A_PD1", "A_PD2"]
 MIC_CHANNEL = "A_MIC"
+MISC_CHANNELS = ["A_MISC1", "A_MISC2", "A_MISC3"]  # the only 3 of 16 with a jumper-
+# selectable divider on EITHER leg -- see _check_misc_leg_symmetry() (fix round 1).
+assert all(n in ALL_16_NETS for n in MISC_CHANNELS)
+DIVIDER_R_VALUE = "10.0k 0.1%"  # both legs' /1//2 divider resistors (fix round 1) -- must
+# match EXACTLY between legs, or a shield disturbance leaks through in /2 mode again.
 # The 13 channels whose input stage is a plain INA105 unity-gain difference receiver --
 # everything except the 2 photodiodes (transimpedance) and the mic (discrete diff-amp +
 # filter, topologically different even though also a difference receiver).
@@ -166,7 +171,17 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
             f"'~10 Ohm'), found {values.get(r_ref)!r}",
         )
         j_refs = {n.ref for n in nets[shield_net] if n.ref.startswith("J")}
-        check(len(j_refs) == 1, f"{name}: expected exactly 1 connector (J-ref) on {shield_net!r}, found {j_refs}")
+        # MISC channels' own shield leg carries a SECOND J-ref (fix round 1): the shield-
+        # leg's own /1//2 jumper header, whose pin 1 lands directly on this net (the same
+        # relationship the signal leg's own header already has to the CLAMP node) --
+        # _check_misc_leg_symmetry() checks that header's own full topology; this just
+        # widens the connector-count expectation for these 3 channels specifically.
+        expected_j_count = 2 if name in MISC_CHANNELS else 1
+        check(
+            len(j_refs) == expected_j_count,
+            f"{name}: expected exactly {expected_j_count} connector(s) (J-ref) on "
+            f"{shield_net!r}, found {j_refs}",
+        )
 
     r_ref = _find_bridging_resistor(nets, "ACCESIO_AGND", "AGND")
     check(
@@ -182,6 +197,104 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
         f"All 10 BNC channels' own shield nodes reach AGND through a dedicated 10R "
         f"resistor (never directly); the ACCESIO connector's 19-pin AGND bundle is bonded "
         f"to AGND the same way."
+    )
+
+
+def _check_header_pin_roles(nets: dict[str, list[Node]], raw_net: str, mid_net: str, div_net: str, label: str) -> str:
+    """Confirm ONE 3-pin shunt-jumper header genuinely implements "pin 1 = raw node
+    direct, pin 2 = COMMON (to the amplifier), pin 3 = /2 tap" across raw_net/div_net/
+    mid_net -- not just three nets that happen to share a component reference. Used by
+    _check_misc_leg_symmetry() for BOTH legs of every MISC channel (fix round 1); written
+    generically (raw/mid/div, not "clamp/shield") so it applies identically to either.
+    """
+    j_raw = {n.ref for n in nets.get(raw_net, []) if n.ref.startswith("J")}
+    j_mid = {n.ref for n in nets.get(mid_net, []) if n.ref.startswith("J")}
+    j_div = {n.ref for n in nets.get(div_net, []) if n.ref.startswith("J")}
+    common = j_raw & j_mid & j_div
+    check(
+        len(common) == 1,
+        f"{label}: expected exactly 1 shunt-jumper header spanning {raw_net!r}/{div_net!r}/"
+        f"{mid_net!r}, found {common} (raw={j_raw}, div={j_div}, mid={j_mid})",
+    )
+    jref = next(iter(common))
+    check(any(n.ref == jref and n.pin == "1" for n in nets[raw_net]), f"{label}: header {jref}'s pin 1 is not on {raw_net!r}")
+    check(any(n.ref == jref and n.pin == "2" for n in nets[div_net]), f"{label}: header {jref}'s pin 2 is not on {div_net!r}")
+    check(any(n.ref == jref and n.pin == "3" for n in nets[mid_net]), f"{label}: header {jref}'s pin 3 is not on {mid_net!r}")
+    return jref
+
+
+def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+    """FIX ROUND 1's own checker gap, closed: the previous version of this checker
+    verified topology and connectivity but never leg-to-leg GAIN symmetry, so it approved
+    the original defect (MISC1-3's /2 tap dividing the signal leg only) vacuously --
+    every other check here passed cleanly on that broken netlist, because none of them
+    compared the two legs' own attenuation against each other. This is the assertion that
+    closes that gap: for every one of the 3 channels with a jumper-selectable divider
+    (MISC1-3 -- the only channels on this sheet where either leg is anything but a direct
+    wire), confirm BOTH legs divide by the SAME ratio, checked three ways so a future
+    regression cannot slip through any one of them alone:
+
+    (1) The INA105's own "+"/"-" pins are fed by EACH leg's own divider COMMON pin (not
+        the raw clamp/shield node directly, and not the other leg's own common pin by a
+        copy-paste mistake).
+    (2) Both legs' divider resistors (4 total: raw->mid and mid->AGND, per leg) carry the
+        IDENTICAL matched value (DIVIDER_R_VALUE) -- a value drift on just one leg breaks
+        the match even if the topology still looks right.
+    (3) Each leg's own header genuinely implements the "pin 1 = raw, pin 2 = amplifier
+        input, pin 3 = /2 tap" jumper-selector topology (via _check_header_pin_roles()),
+        so both legs really do move together in EITHER jumper position, not just in
+        whichever position happened to be exercised by some other check.
+    """
+    for name in MISC_CHANNELS:
+        clamp_net, mid_net, div_net = f"{name}_CLAMP", f"{name}_MID", f"{name}_DIV"
+        shld_net, shld_mid_net, shld_div_net = f"{name}_SHLD", f"{name}_SHLD_MID", f"{name}_SHLD_DIV"
+        for n in (clamp_net, mid_net, div_net, shld_net, shld_mid_net, shld_div_net):
+            check(n in nets, f"{name}: missing net {n!r} (expected a leg-symmetric /1//2 divider structure, fix round 1)")
+
+        ina_refs = {n.ref for n in nets[name] if values.get(n.ref) == "INA105KU"}
+        check(len(ina_refs) == 1, f"{name}: expected exactly 1 INA105KU driving this net, found {ina_refs}")
+        ina_ref = next(iter(ina_refs))
+
+        plus_here = [n for n in nets[div_net] if n.ref == ina_ref and n.pin == INA105["plus"]]
+        check(
+            len(plus_here) == 1,
+            f"{name}: {ina_ref}'s own '+' pin is not fed by the SIGNAL leg's own divider "
+            f"common ({div_net!r})",
+        )
+        minus_here = [n for n in nets[shld_div_net] if n.ref == ina_ref and n.pin == INA105["minus"]]
+        check(
+            len(minus_here) == 1,
+            f"{name}: {ina_ref}'s own '-' pin is not fed by the SHIELD leg's own divider "
+            f"common ({shld_div_net!r}) -- if it is wired to {shld_net!r} directly instead, "
+            f"this is the ORIGINAL leg-asymmetry defect (fix round 1): the shield leg "
+            f"bypasses its own attenuation while the signal leg still divides, so a shield "
+            f"disturbance is no longer fully cancelled in /2 mode",
+        )
+
+        leg_resistors = {
+            "signal-hi (clamp->mid)": _find_bridging_resistor(nets, clamp_net, mid_net),
+            "signal-lo (mid->AGND)": _find_bridging_resistor(nets, mid_net, "AGND"),
+            "shield-hi (shield->mid)": _find_bridging_resistor(nets, shld_net, shld_mid_net),
+            "shield-lo (mid->AGND)": _find_bridging_resistor(nets, shld_mid_net, "AGND"),
+        }
+        for leg, rref in leg_resistors.items():
+            check(
+                values.get(rref) == DIVIDER_R_VALUE,
+                f"{name}: {leg} divider resistor {rref} should be {DIVIDER_R_VALUE!r} "
+                f"(matched across both legs so a shield disturbance still cancels in /2 "
+                f"mode), found {values.get(rref)!r}",
+            )
+
+        _check_header_pin_roles(nets, clamp_net, mid_net, div_net, f"{name} signal leg")
+        _check_header_pin_roles(nets, shld_net, shld_mid_net, shld_div_net, f"{name} shield leg")
+
+    return (
+        f"All {len(MISC_CHANNELS)} /1//2-switchable channels (MISC1-3) confirmed leg-"
+        f"symmetric: both signal and shield legs feed the INA105 through their own "
+        f"matched ({DIVIDER_R_VALUE}) divider, each selected by a genuine 3-pin jumper "
+        f"header (pin 1 = raw, pin 2 = amplifier input, pin 3 = /2 tap) -- so /2 mode "
+        f"divides both legs equally and a shield disturbance still cancels at the output, "
+        f"in either jumper position."
     )
 
 
@@ -219,7 +332,18 @@ def _check_no_direct_agnd_reference(nets: dict[str, list[Node]], values: dict[st
             f"{name}: {ref}'s own REF pin (1) is not on AGND -- its output would not land "
             f"in the AGND domain",
         )
-        expected_shield = "ACCESIO_AGND" if name in ACCESIO_CHANNELS else f"{name}_SHLD"
+        if name in ACCESIO_CHANNELS:
+            expected_shield = "ACCESIO_AGND"
+        elif name in MISC_CHANNELS:
+            # Fix round 1: MISC's own "-" leg is ALSO divided now (matched to the signal
+            # leg's own divider, see _check_misc_leg_symmetry()), so it no longer lands on
+            # the raw shield node directly -- it lands on that leg's own divider COMMON
+            # pin instead. Landing on the raw node here would mean the shield leg is
+            # bypassing its own divider while the signal leg still divides -- the original
+            # defect this fix exists to close.
+            expected_shield = f"{name}_SHLD_DIV"
+        else:
+            expected_shield = f"{name}_SHLD"
         minus_net_nodes = [n for n in nets.get(expected_shield, []) if n.ref == ref and n.pin == INA105["minus"]]
         check(
             len(minus_net_nodes) == 1,
@@ -363,6 +487,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary = []
     summary.append(_check_16_contract_nets(nets))
     summary.append(_check_bnc_shell_bonds(nets, values))
+    summary.append(_check_misc_leg_symmetry(nets, values))
     summary.append(_check_no_direct_agnd_reference(nets, values))
     summary.append(_check_photodiode_tia_topology(nets, values))
     summary.append(_check_mic_4th_order(nets, values))
@@ -450,10 +575,53 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # a real design constant (sets the DC reference / return-path impedance), not a
     # cosmetic choice.
     drifted = dict(good_values)
-    r_ref = next(n.ref for n in good_nets["A_MISC1_SHLD"] if n.ref.startswith("R"))
+    # NOT "next(... if n.ref.startswith('R'))" -- since fix round 1, A_MISC1_SHLD carries
+    # a SECOND R-ref (the shield leg's own divider-hi resistor, added by that fix), so a
+    # bare "first R-ref found" is ambiguous/order-dependent and could silently drift the
+    # WRONG resistor. _find_bridging_resistor() targets the one that bridges specifically
+    # to AGND (the shell bond) -- the same technique _check_bnc_shell_bonds() itself uses.
+    r_ref = _find_bridging_resistor(good_nets, "A_MISC1_SHLD", "AGND")
     drifted[r_ref] = "100"
     msg = _assert_fails(good_nets, drifted, "should be '10'", f"{r_ref} (A_MISC1 shell-bond resistor) value drift 10R->100R")
     results.append(f"Shell-bond resistor value drift (10R -> 100R): caught -- {msg}")
+
+    # (4b) THE finding this checker exists to catch after fix round 1, reintroduced
+    # synthetically: an INA105 MISC channel's own '-' pin moved from its shield leg's OWN
+    # divider common back onto the raw, undivided shield net directly -- exactly the
+    # original defect (signal leg divided, shield leg not), still a fully-connected
+    # 0-error netlist, and still a netlist _check_no_direct_agnd_reference() alone would
+    # NOT have caught before fix round 1 added leg-symmetry checking (that check only ever
+    # confirmed the '-' pin was on SOME shield-derived node, never that it was attenuated
+    # by the SAME ratio as the '+' leg).
+    leg_asym = copy.deepcopy(good_nets)
+    idx = next(
+        i for i, n in enumerate(leg_asym["A_MISC1_SHLD_DIV"])
+        if n.pin == INA105["minus"] and good_values.get(n.ref) == "INA105KU"
+    )
+    victim = leg_asym["A_MISC1_SHLD_DIV"].pop(idx)
+    leg_asym["A_MISC1_SHLD"] = leg_asym["A_MISC1_SHLD"] + [victim]
+    msg = _assert_fails(
+        leg_asym, good_values, "SHIELD leg's own divider common",
+        "A_MISC1's INA105 '-' pin moved from the shield leg's own divider common back onto "
+        "the raw, undivided shield net (the original leg-asymmetry defect, fix round 1)",
+    )
+    results.append(f"MISC leg-gain asymmetry (shield leg's own attenuator bypassed, signal leg still divided): caught -- {msg}")
+
+    # (4c) A subtler version of the same defect class: both legs still go through A
+    # divider (topology intact), but the SHIELD leg's own divider resistor value has
+    # drifted away from the SIGNAL leg's -- so /2 mode no longer divides both legs by the
+    # same ratio, and a shield disturbance leaks through partially instead of fully (a
+    # quieter, harder-to-notice version of the original bug, not caught by the full-
+    # bypass control above since the topology here is superficially fine).
+    leg_drift = dict(good_values)
+    r_shld_hi = _find_bridging_resistor(good_nets, "A_MISC2_SHLD", "A_MISC2_SHLD_MID")
+    leg_drift[r_shld_hi] = "20.0k 0.1%"
+    msg = _assert_fails(
+        good_nets, leg_drift, f"should be {DIVIDER_R_VALUE!r}",
+        f"{r_shld_hi} (A_MISC2 shield-leg divider-hi resistor) value drift "
+        f"{DIVIDER_R_VALUE}->20.0k 0.1% (breaks leg-to-leg matching without breaking topology)",
+    )
+    results.append(f"MISC shield-leg divider resistor value drift (matched topology, mismatched ratio): caught -- {msg}")
 
     # (5) Photodiode TIA feedback resistor removed entirely (simulating an edit that
     # deletes the feedback path -- an open-loop comparator-like mess, not a TIA).
@@ -501,7 +669,11 @@ def verify_instance_paths(af_sch_text: str, breakout_sch_text: str) -> str:
         len(paths) >= 128,
         f"only found {len(paths)} (instances (path ...)) entries in analog-frontend.kicad_sch "
         f"-- expected >=128 (recomputed directly against this task's own real output: 134 "
-        f"placed instances as committed, not guessed)",
+        f"placed instances as originally committed at 4ecae2f, 143 after fix round 1 added "
+        f"9 more -- 2 divider resistors + 1 header per MISC channel's new shield leg, x3 -- "
+        f"not guessed either time; the >=128 floor itself is intentionally left below both "
+        f"real counts so a future edit that adds or removes a handful of components doesn't "
+        f"need this floor bumped in lockstep)",
     )
     bad = [p for p in paths if p != expected_prefix]
     check(
