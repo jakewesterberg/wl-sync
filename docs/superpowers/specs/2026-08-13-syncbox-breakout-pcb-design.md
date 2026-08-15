@@ -672,10 +672,20 @@ floorplan, all of which must be settled **before panels are machined**:
 connections to them belong on the same face; the task PC and the Faraday-cage booth are both
 reached from the rack's back.
 
-| Face | Carries | Linear |
+| Face | Carries | Rows |
 |---|---|---|
-| **Front** (rack-facing) | 14 Intan BNC · 2× MDR68 recording NI | 394 mm of ~450 |
-| **Back** | 17 BNC (15 rig + reward out + reward remote) · 2× MDR68 task PC · CM5 port cutouts · recessed reward button | 2 rows |
+| **Front** (rack-facing) | 14 Intan BNC · 2× MDR68 recording NI · **recessed reward button + reward remote BNC** · 2× 60 mm intake | 280 / 154 mm, fans right |
+| **Back** | 15 rig BNC · **reward driver out BNC** · 2× MDR68 task PC · CM5 port cutouts | 204 / 300 mm |
+
+**The reward group splits deliberately across both faces.** The *hardware* connection follows the
+animal — the driver output goes to the back, toward the booth. The *human controls* face the
+person operating the rig — button and remote on the front, beside the recording equipment they
+are working with. Splitting them costs nothing electrically and puts each end where its user is.
+
+Two consequences. The back is **less** crowded than before (504 mm across two rows, from 544).
+And the **colour-coding matters more**, not less: a lone reward remote sitting among fourteen
+identical Intan BNCs is exactly the mis-plug that coloured insulators exist to prevent. The
+recessed button also earns its keep on the front, which is where people stand and lean.
 
 The front's spare width is what makes the fans possible: splitting its connectors into two rows on
 the left frees a **170 × 82 mm full-height strip** on the right.
