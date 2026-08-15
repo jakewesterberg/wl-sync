@@ -157,7 +157,7 @@ OUTBOUND_CHANNELS = [
 # Each ACSL-6400/6420 LED on this board is fed from +5V through 430R and draws ~7.33mA,
 # a value pinned between the part's own 7-15mA recommended band and its 7.0mA worst-case
 # switching threshold -- so it cannot be lowered to suit a driver. TWO on one pin is
-# 14.7mA, against SN74HCT541's 6mA IOL and SN74HCT32's 4mA. The `_BUF` bank named 19
+# 14.7mA, against SN74AHCT541's 8mA IOL and SN74HCT32's 4mA. The `_BUF` bank named 19
 # SIGNALS for what is really a 30-LED board, and the 11 unnamed LEDs landed doubled up.
 #
 # (input net, output net) for each dedicated leg. The three *_INTAN_BUF entries take the
@@ -318,11 +318,11 @@ def _walk_inbound_channel(
         f"{clamp_net}: expected exactly {expected_u} buffer-input nodes, found {clamp_nodes}",
     )
     lvc_nodes = [n for n in u_nodes if values.get(n.ref) == "SN74LVC541APW"]
-    buf_nodes = [n for n in u_nodes if values.get(n.ref) == "SN74HCT541PW"]
+    buf_nodes = [n for n in u_nodes if values.get(n.ref) == "SN74AHCT541PW"]
     check(
         len(lvc_nodes) == 1 and len(buf_nodes) == expected_u - 1,
         f"{clamp_net}: expected exactly 1 SN74LVC541APW input node and {expected_u - 1} "
-        f"SN74HCT541PW input node(s), found values {[values.get(n.ref) for n in u_nodes]} "
+        f"SN74AHCT541PW input node(s), found values {[values.get(n.ref) for n in u_nodes]} "
         f"on {u_nodes}",
     )
     lvc_ref, lvc_a_pin = lvc_nodes[0].ref, int(lvc_nodes[0].pin)
@@ -335,11 +335,11 @@ def _walk_inbound_channel(
     check(buf_net in nets, f"missing net: {buf_net!r}")
     buf_drivers = [
         n for n in nets[buf_net]
-        if values.get(n.ref) == "SN74HCT541PW" and "tri_state" in n.pintype
+        if values.get(n.ref) == "SN74AHCT541PW" and "tri_state" in n.pintype
     ]
     check(
         len(buf_drivers) == 1,
-        f"{buf_net}: expected exactly 1 SN74HCT541PW tri_state output pin driving this "
+        f"{buf_net}: expected exactly 1 SN74AHCT541PW tri_state output pin driving this "
         f"net, found {[(n.ref, n.pin) for n in nets[buf_net]]}",
     )
     buf_ref, buf_a_pin = buf_drivers[0].ref, 20 - int(buf_drivers[0].pin)
@@ -403,7 +403,7 @@ def _check_outbound_channel(
     nets: dict[str, list[Node]], values: dict[str, str], in_net: str, out_net: str,
     mdr_pin: str | None,
 ) -> str:
-    """Walk one channel of the outbound SN74HCT541PW: input net (produced elsewhere,
+    """Walk one channel of the outbound SN74AHCT541PW: input net (produced elsewhere,
     consumed here by name) -> this sheet's own buffer input pin -> the SAME reference's
     own output pin (Ai+Yi=20) -> Connector 1's own pin. Returns the buffer's own reference
     for the caller's aggregate checks.
@@ -425,11 +425,11 @@ def _check_outbound_channel(
     check(out_net in nets, f"missing net: {out_net!r}")
     out_nodes = [
         n for n in nets[out_net]
-        if values.get(n.ref) == "SN74HCT541PW" and "tri_state" in n.pintype
+        if values.get(n.ref) == "SN74AHCT541PW" and "tri_state" in n.pintype
     ]
     check(
         len(out_nodes) == 1,
-        f"{out_net}: expected exactly 1 SN74HCT541PW tri_state output pin driving this "
+        f"{out_net}: expected exactly 1 SN74AHCT541PW tri_state output pin driving this "
         f"net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
     )
     ref, y_pin = out_nodes[0].ref, int(out_nodes[0].pin)
@@ -467,7 +467,7 @@ def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str,
     from a sheet that does not exist yet, which no enumerated list can anticipate. Each
     ACSL LED draws ~7.33mA from +5V through 430R (a value pinned between the part's own
     7-15mA recommended band and its 7.0mA worst-case switching threshold, so it cannot be
-    lowered to suit a driver); two on one pin is 14.7mA, against SN74HCT541's 6mA IOL and
+    lowered to suit a driver); two on one pin is 14.7mA, against SN74AHCT541's 8mA IOL and
     SN74HCT32's 4mA. The 74HCT32 case is the one with a failure mode rather than just a
     margin: RWD_DLVR's LOW level is read by the +3V3 LVC541 level-shifter (V_IL,max 0.8V)
     on the way to the sync module, and an HCT gate's VOL at 3.7x its rated sink plausibly
@@ -477,7 +477,7 @@ def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str,
     Also asserts the 74HCT32 reward-OR drives NO LED at all. It is the weakest driver on
     the sheet and the one whose output is level-critical; buffered legs exist for that
     job (SECOND_LEG_CHANNELS' own RWD_DLVR_BUF/RWD_DLVR_INTAN_BUF)."""
-    own_values = {"SN74HCT541PW", "SN74HCT32D", "SN74LVC541APW", "SN74HCT14D"}
+    own_values = {"SN74AHCT541PW", "SN74HCT32D", "SN74LVC541APW", "SN74HCT14D"}
     own_refs = {r for r, v in values.items() if v in own_values}
     offenders = []
     or_gate_leds = []
@@ -498,7 +498,7 @@ def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str,
         not offenders,
         f"driver pin(s) sinking more than one optocoupler LED: {offenders} (ref, pin, "
         f"part, net, LED count). Each LED is ~7.33mA, so two is 14.7mA -- against "
-        f"SN74HCT541's 6mA IOL or SN74HCT32's 4mA. Give the second LED its own buffered "
+        f"SN74AHCT541's 8mA IOL or SN74HCT32's 4mA. Give the second LED its own buffered "
         f"leg; gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS spends the _BUF "
         f"bank's last 5 spare channels on exactly that.",
     )
@@ -567,7 +567,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     )
     check(
         len(buf_refs) == 3,
-        f"expected exactly 3 distinct SN74HCT541PW _BUF-bank references, found "
+        f"expected exactly 3 distinct SN74AHCT541PW _BUF-bank references, found "
         f"{len(buf_refs)}: {buf_refs}",
     )
     check(
@@ -594,7 +594,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         outbound_refs.add(_check_outbound_channel(nets, values, in_net, out_net, mdr_pin))
     check(
         len(outbound_refs) == 1,
-        f"expected all 4 outbound channels on the SAME single SN74HCT541PW package, "
+        f"expected all 4 outbound channels on the SAME single SN74AHCT541PW package, "
         f"found {len(outbound_refs)}: {outbound_refs}",
     )
     summary.append(
@@ -611,7 +611,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         second_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None))
     check(
         len(second_leg_refs) == 1 and second_leg_refs.isdisjoint(outbound_refs),
-        f"expected all 5 second legs on ONE SN74HCT541PW package, distinct from the "
+        f"expected all 5 second legs on ONE SN74AHCT541PW package, distinct from the "
         f"outbound one ({outbound_refs}) -- found {second_leg_refs}",
     )
     second_leg_ref = next(iter(second_leg_refs))
@@ -741,7 +741,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     for ref in lvc_refs:
         expected_families[ref] = "SN74LVC541APW"
     for ref in buf_refs | outbound_refs:
-        expected_families[ref] = "SN74HCT541PW"
+        expected_families[ref] = "SN74AHCT541PW"
     expected_families[or_ref] = "SN74HCT32D"
     expected_families[deb_ref] = "SN74HCT14D"
     for ref, expected in expected_families.items():
@@ -935,7 +935,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # clamp net (simulating an accidental future edit that only fans out to the LVC541
     # bank) -- the exactly-4-nodes check should catch it.
     dropped_fork = copy.deepcopy(good_nets)
-    buf_node = next(n for n in dropped_fork["EVT_D0_CLAMP"] if good_values.get(n.ref) == "SN74HCT541PW")
+    buf_node = next(n for n in dropped_fork["EVT_D0_CLAMP"] if good_values.get(n.ref) == "SN74AHCT541PW")
     dropped_fork["EVT_D0_CLAMP"] = [n for n in dropped_fork["EVT_D0_CLAMP"] if n != buf_node]
     msg = _assert_fails(dropped_fork, good_values, "expected exactly 4 nodes", "EVT_D0_CLAMP loses its _BUF fork")
     results.append(f"Missing _BUF-bank fan-out (EVT_D0_CLAMP's HCT541 input dropped): caught -- {msg}")
@@ -955,9 +955,9 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # copy-paste part mix-up on U8's own footprint/value).
     swapped_part = dict(good_values)
     or_ref = next(n.ref for n in good_nets["RWD_DLVR"] if good_values.get(n.ref) == "SN74HCT32D")
-    swapped_part[or_ref] = "SN74HCT541PW"
+    swapped_part[or_ref] = "SN74AHCT541PW"
     msg = _assert_fails(good_nets, swapped_part, "RWD_DLVR", "reward-OR gate mislabelled as a buffer")
-    results.append(f"Reward-OR part mix-up ({or_ref}: SN74HCT32D -> SN74HCT541PW): caught -- {msg}")
+    results.append(f"Reward-OR part mix-up ({or_ref}: SN74HCT32D -> SN74AHCT541PW): caught -- {msg}")
 
     # Collapsed-net regression: force two distinct contract nets to share identical node
     # sets (simulating two labels resolving to the same physical net -- constraint 1's

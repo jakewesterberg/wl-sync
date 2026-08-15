@@ -83,7 +83,7 @@
 "U3","TPS7A4901","Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm","","",""
 "U4","TPS7A3001","Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm","","",""
 "U5-U7,U14","SN74LVC541APW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","","",""
-"U8-U11,U15","SN74HCT541PW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","","",""
+"U8-U11,U15","SN74AHCT541PW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","","",""
 "U12","SN74HCT32D","Package_SO:SOIC-14_3.9x8.7mm_P1.27mm","","",""
 "U13","SN74HCT14D","Package_SO:SOIC-14_3.9x8.7mm_P1.27mm","","",""
 "U16-U21,U24-U30,U39,U41,U43,U45,U47,U49,U51,U53","INA105KU","Package_SO:SOIC-8_3.9x4.9mm_P1.27mm","","",""

@@ -188,7 +188,7 @@ def _bridging_resistor_refs(nodes: dict[str, list[Node]], net_a: str, net_b: str
     restricted to R-prefixed references specifically, the same `_find_bridging_resistor()`
     -style filtering every hardware/gen/*_netlist.py checker in this project already uses.
     Found necessary the hard way while writing this file, not assumed: an unrestricted
-    "any reference present on both nets" check false-positived on U11 (SN74HCT541PW, the
+    "any reference present on both nets" check false-positived on U11 (SN74AHCT541PW, the
     task-PC's own outbound buffer, taskpc-digital.kicad_sch) -- its OWN pin 20 (VCC)
     legitimately sits on +5V while a DIFFERENT, electrically unrelated pin (one buffer
     channel's own input) legitimately sits on PD1_COMP, and the two are not connected to
@@ -748,21 +748,25 @@ def test_gpio_nets_reach_no_unsafe_rail_does_not_fire_on_12v_comparator_supply(n
 
 # --- 14: per-driver-pin sink load, summed across sheets. --------------------------------
 
-# Maximum sink current this board may ASK OF a given part's output pin, in mA. These are
-# datasheet IOL figures, with exactly one deliberate deviation, recorded here rather than
-# left implicit:
+# Maximum sink current this board may ASK OF a given part's output pin, in mA -- datasheet
+# IOL figures, one per part actually placed:
 #
-#   SN74HCT541PW is rated IOL = 6mA (VOL 0.33V max at VCC 4.5V), and every one of its
-#   LED-driving pins is asked for 7.33mA. That is not an oversight and cannot be designed
-#   away: the LED current is set by the ACSL-6400's own requirements -- 7-15mA recommended,
-#   with a 7.0mA WORST-CASE switching threshold -- so anything at or under 6mA risks a
-#   marginal part not switching at all (gen_breakout_opto_ni.py's own derivation). 7.33mA
-#   is 22% over the rated IOL and far inside the part's 25mA per-pin absolute maximum;
-#   SN74AHCT541 (8mA IOL, identical pinout) is the drop-in if strict compliance is ever
-#   wanted. The budget below is set at 7.5mA so this deviation is bounded and explicit,
-#   and a SECOND LED on the same pin (14.7mA) still fails hard.
+#   SN74AHCT541PW is rated IOL = 8mA, and every one of its LED-driving pins is asked for
+#   7.33mA -- fully compliant, with margin. The LED current itself is not a free choice
+#   (the ACSL-6400's own requirements: 7-15mA recommended, 7.0mA WORST-CASE switching
+#   threshold, so anything much lower risks a marginal part not switching at all --
+#   gen_breakout_opto_ni.py's own derivation), so the part is what had to give: the
+#   original SN74HCT541PW (6mA rated IOL) put 7.33mA 22% over its own rated sink, still
+#   far inside its 25mA per-pin absolute maximum but past the datasheet's own guaranteed-
+#   VOL condition -- and self-consistently against the part's own ~55 ohm output
+#   impedance (not the single 6mA test point), the real current is closer to ~7.18mA,
+#   uncomfortably close to the LED's own 7.0mA floor. SN74AHCT541PW -- identical pinout
+#   and TSSOP-20 footprint, a Value/MPN swap with zero refdes churn -- is what is placed
+#   on U8-U11 (taskpc-digital.kicad_sch) and U15 (pi-interface.kicad_sch) now. The budget
+#   below is kept at 7.5mA (comfortably under the new 8mA rating, not loosened to it) so
+#   a SECOND LED on the same pin (14.7mA) still fails hard either way.
 MAX_SINK_MA = {
-    "SN74HCT541PW": 7.5,
+    "SN74AHCT541PW": 7.5,
     "SN74HCT32D": 4.0,
     "SN74HCT14D": 4.0,
     "SN74LVC541APW": 24.0,
@@ -772,7 +776,7 @@ MAX_SINK_MA = {
 }
 
 LED_VF_V = 1.52   # ACSL-6400 typ at I_F=10mA, the closest datasheet test point
-DRIVER_VOL_V = 0.33  # SN74HCT541 max at IOL=6mA -- the same approximation
+DRIVER_VOL_V = 0.33  # SN74HCT541's own max at IOL=6mA -- the same approximation
 # gen_breakout_opto_ni.py used to pick 430R in the first place.
 
 

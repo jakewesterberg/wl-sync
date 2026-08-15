@@ -53,13 +53,22 @@ Five things, matching the brief's own step numbering:
      document, not enforce).
 
   3. Buffer the three signals this sheet PRODUCES (BARCODE_PI, CAM_TRIG_EYE,
-     CAM_TRIG_BEH) through one more SN74HCT541PW on +5V (3 of 8 channels), and fan out:
+     CAM_TRIG_BEH) through one more SN74AHCT541PW on +5V (3 of 8 channels), and fan out:
      BARCODE_PI to 5 loads (2 placeholder positions for Task 11's not-yet-built NI/Intan
      optocouplers + 3 genuinely spare positions -- brief Step 3's own "three spare
      positions"), CAM_TRIG_EYE/CAM_TRIG_BEH to 5 real panel BNC positions (spec Sec.9.1:
      "Camera triggers | BNC | 5 (1 eye, 4 behavior)"). See _place_trigger_buffer_and_
      fanout()'s own docstring for the placeholder-connector precedent this reuses from
      gen_breakout_taskpc_digital.py rather than inventing fresh.
+
+     SN74AHCT541PW, NOT SN74HCT541PW: this trigger buffer drives BARCODE_BUF/BARCODE_
+     INTAN_BUF at the same ~7.33mA-per-LED figure taskpc-digital.kicad_sch's own five
+     buffers do -- 22% over HCT541's own rated 6mA IOL, and self-consistently against
+     the part's own output impedance (not the single 6mA datasheet test point) closer
+     to the ACSL LED's own 7.0mA floor than the naive figure suggests. SN74AHCT541
+     (identical pinout/footprint, same 74LS541-derived KiCad symbol family) is rated
+     8mA IOL, fully compliant -- see gen_breakout_taskpc_digital.py's own "OUTPUT
+     DRIVER PART" section for the full derivation, not re-run here a sixth time.
 
      ALSO, NOT in the brief's own literal step list (see "RWD_DLVR level shift" below):
      one more SN74LVC541APW channel on +3V3, level-shifting the one 5V-domain signal this
@@ -165,7 +174,7 @@ PI_INTERFACE_SHEETFILE = "sheets/pi-interface.kicad_sch"  # exactly as breakout.
 #                             bridges it to contract_net (EVT_D{n}_PI, received from Task
 #                             8) -- see module docstring, item 2.
 #   kind="buffered_out"   -- net_at_pin is a LOCAL "..._RAW" name (this sheet's own raw
-#                             module-sourced signal); the SN74HCT541PW trigger buffer
+#                             module-sourced signal); the SN74AHCT541PW trigger buffer
 #                             bridges it to contract_net (the net this sheet PRODUCES).
 #   kind="level_shift_in" -- net_at_pin is a LOCAL "..._PI" name; one SN74LVC541APW
 #                             channel on +3V3 bridges it to contract_net (RWD_DLVR,
@@ -241,8 +250,9 @@ CONTRACT_NETS_PRODUCED = [
 # project's own footprint-assignment comment block documents.
 # ---------------------------------------------------------------------------
 FOOTPRINT_TSSOP20 = "Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm"  # SN74LVC541APW /
-# SN74HCT541PW -- TI's own "PW" package code is literally TSSOP-20 (gen_mule.py's own choice,
-# reused at every prior '541 placement in this project).
+# SN74AHCT541PW -- TI's own "PW" package code is literally TSSOP-20 (gen_mule.py's own
+# choice, reused at every prior '541 placement in this project), identical between
+# SN74HCT541PW and SN74AHCT541PW (see module docstring, item 3's own driver-part note).
 FOOTPRINT_R = "Resistor_SMD:R_0603_1608Metric"
 FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"  # 100nF decoupling
 FOOTPRINT_HDR1X02 = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
@@ -285,7 +295,7 @@ X_NOTE2, Y_NOTE2 = GRID(15), GRID(130)     # GPIO0/1 boot-contention note
 X_LVLSHIFT, Y_LVLSHIFT = GRID(15), GRID(180)   # RWD_DLVR level-shift SN74LVC541APW
 X_NOTE3, Y_NOTE3 = GRID(15), GRID(220)     # RWD_DLVR level-shift note
 
-X_TRIGBUF, Y_TRIGBUF = GRID(300), GRID(160)    # BARCODE/CAM_TRIG output SN74HCT541PW
+X_TRIGBUF, Y_TRIGBUF = GRID(300), GRID(160)    # BARCODE/CAM_TRIG output SN74AHCT541PW
 X_BARCODE_LOADS, Y_BARCODE_LOADS0 = GRID(360), GRID(120)  # 5 barcode placeholder loads
 LOAD_DY = GRID(12.7)
 X_BNC, Y_BNC0 = GRID(360), GRID(210)       # 5 camera-trigger BNC positions
@@ -494,7 +504,7 @@ def _place_rwd_dlvr_level_shift(sch, refs):
 
 def _place_trigger_buffer_and_fanout(sch, refs):
     """Step 3: buffer the three signals this sheet PRODUCES (BARCODE_PI, CAM_TRIG_EYE,
-    CAM_TRIG_BEH) through one more SN74HCT541PW on +5V (3 of 8 channels), then fan out.
+    CAM_TRIG_BEH) through one more SN74AHCT541PW on +5V (3 of 8 channels), then fan out.
 
     BARCODE_PI's own "5 loads" (brief Step 3: "NI opto, Intan opto, and three spare
     positions") are placeholder Connector_Generic:Conn_01x02 positions, not real opto/
@@ -524,7 +534,7 @@ def _place_trigger_buffer_and_fanout(sch, refs):
         assert local not in channels, f"barcode opto leg {local} collides with an existing channel"
         channels[local] = (in_net, out_net)
     place_octal_buffer(
-        sch, "74xx", "74HCT541", "SN74HCT541PW", X_TRIGBUF, Y_TRIGBUF, "+5V",
+        sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_TRIGBUF, Y_TRIGBUF, "+5V",
         channels, refs, "trigger_buf", FOOTPRINT_TSSOP20,
     )
 

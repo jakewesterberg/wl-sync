@@ -83,7 +83,7 @@
 "U3","TPS7A4901","Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm","TPS7A4901DGNR","TI. Mixed stock signal in this check (one listing 'ships today', another 'backorder'); low volume (5) — §5.3."
 "U4","TPS7A3001","Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm","TPS7A3001DGNR","TI, low volume (5) — §5.3."
 "U5-U7,U14","SN74LVC541APW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","SN74LVC541APW","TI. Already a complete orderable code, Active, listed — §5.3."
-"U8-U11,U15","SN74HCT541PW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","SN74HCT541PW","TI. Already complete, Active, listed — §5.3."
+"U8-U11,U15","SN74AHCT541PW","Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm","SN74AHCT541PWR","TI, Active. Swapped from SN74HCT541PW (8mA IOL vs 6mA — see design-review.md) — identical pinout/footprint, same TSSOP-20. Unlike SN74HCT541PW, DigiKey does not list a bare non-reel -PW SKU for this part; order the -PWR (tape & reel) code."
 "U12","SN74HCT32D","Package_SO:SOIC-14_3.9x8.7mm_P1.27mm","SN74HCT32D","TI. Already complete, Active, listed — §5.3."
 "U13","SN74HCT14D","Package_SO:SOIC-14_3.9x8.7mm_P1.27mm","SN74HCT14DR","TI. CORRECTED — bare `SN74HCT14D` is obsolete; `SN74HCT14DR` (tape-and-reel) is Active — §4."
 "U16-U21,U24-U30,U39,U41,U43,U45,U47,U49,U51,U53","INA105KU","Package_SO:SOIC-8_3.9x4.9mm_P1.27mm","INA105KU/2K5","TI. CORRECTED — bare `INA105KU` is obsolete; `INA105KU/2K5` (tape-and-reel) is Active, 3,085 in stock at DigiKey — §4."

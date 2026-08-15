@@ -136,6 +136,28 @@ document is not confirmation.
   **Human step:** none required; this is the one item in this list that is fully closed by
   tooling, because a reviewer already found and fixed the exact failure mode it checks for.
 
+### Electrical — layout-stage, not checkable from the schematic
+
+- [ ] **AHCT541's faster edges on the MDR68 cable runs warrant a series-termination
+  review during placement.** `U8`–`U11` and `U15` moved from `SN74HCT541PW` to
+  `SN74AHCT541PW` (Value/MPN only — identical pinout and TSSOP-20 footprint, 8 mA IOL vs
+  6 mA, see `hardware/README.md`'s own per-driver-pin load table and its footnote). AHCT
+  is a faster logic family than HCT (shorter propagation delay, faster edge rates at the
+  same load), and every one of these five packages drives a signal that leaves the board
+  over an MDR68 cable run (the `_BUF`/`_INTAN_BUF`/outbound nets, `EVT_D0..15` and the
+  rest of the digital contract) — a load dominated by cable inductance/capacitance, not
+  the on-board trace. Faster edges into that load raise (not create) the odds of
+  reflections/ringing on an unterminated or under-terminated run. This is not checkable
+  from a netlist or schematic — it depends on real trace length and the cable's own
+  characteristic impedance, neither of which exists before layout.
+  **Not automated; nothing to run today.**
+  **Human step, during Task 14 layout, not before:** when routing the five buffer
+  packages' own outputs toward `J3`/`J45` (the MDR68 digital connectors), size and place
+  series-termination resistors (typically 22–33 Ω, close to the driver) if trace length
+  and observed ringing warrant it — a bench/simulation call at layout time, not a
+  schematic-capture one. Flagged here so it is not silently missed between "the part
+  swap is done" and "the board is routed."
+
 ### Mechanical — cannot be automated
 
 - [ ] **Every custom footprint's critical dimensions verified against a physical sample.**

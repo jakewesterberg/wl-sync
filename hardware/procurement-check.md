@@ -114,7 +114,7 @@ populate 7 positions that are deliberately empty on every board built to this lo
 | U2 IH1215D | 1 | — | 5 |
 | U3 TPS7A4901 / U4 TPS7A3001 | 1 each | — | 5 each |
 | U5–U7,U14 SN74LVC541APW | 4 | — | 20 |
-| U8–U11,U15 SN74HCT541PW | 5 | — | 25 |
+| U8–U11,U15 SN74AHCT541PW | 5 | — | 25 |
 | U12 SN74HCT32D / U13 SN74HCT14D | 1 each | — | 5 each |
 | U16–U21,U24–U30,U39,U41,U43,U45,U47,U49,U51,U53 INA105KU | 21 | — | 105 |
 | U22 OPA2197IDR / U23 OPA4197IDR | 1 each | — | 5 each |
@@ -147,7 +147,7 @@ against what its Value string names versus what the symbol library entry is call
 
 **No disagreements found.** Every override in this schematic names the part actually being
 bought, not the symbol borrowed to draw it. The `74xx`-family buffers (`SN74LVC541APW`,
-`SN74HCT541PW`, `SN74HCT32D`, `SN74HCT14D`), the two LDOs (`LD1117S33TR_SOT223`,
+`SN74AHCT541PW`, `SN74HCT32D`, `SN74HCT14D`), the two LDOs (`LD1117S33TR_SOT223`,
 `LD1117S50TR_SOT223`), `TPS7A4901`/`TPS7A3001`, and `IH1215D`/`TMA-0505S` all follow the same
 pattern already established elsewhere in this project (hardware/README.md's "541-family
 Value-substitution precedent") and were checked the same way — symbol library entry vs. Value
@@ -166,11 +166,12 @@ deferrable, because the bare part itself is discontinued:
 | `INA105KU` (×21) | **Obsolete / no longer manufactured** (TI, confirmed directly on TI's and DigiKey's own product pages) | `INA105KU/2K5` — Active, same die/package/pinout, tape-and-reel only | 21/board × 5 = 105 needed; `INA105KU/2K5` has 3,085 in stock at DigiKey (§5) — no supply problem, but the literal string in the schematic cannot be ordered as written |
 | `SN74HCT14D` (×1) | **Obsolete / no longer manufactured** (TI) | `SN74HCT14DR` — Active, tape-and-reel | Only 1/board; trivial to resolve at order time, flagged for completeness |
 | `LM339`, `MCP4728`, `ADG1206YRUZ` | Not obsolete — generic/base part numbers without a packaging suffix | `LM339AD`/`LM339DR` (TI); `MCP4728-E/UN` (Microchip); `ADG1206YRUZ` (tube) or `-REEL7` (reel) | Normal; purchasing selects packaging by order volume. `ADG1206YRUZ`'s own reel variant has a real stock problem independent of the suffix question — see §5 |
+| `SN74AHCT541PW` (×5, U8–U11/U15) | Not confirmed obsolete, but DigiKey's own listing for this exact string surfaces only the `-PWR` tape-and-reel SKU — unlike `SN74HCT541PW` (the part it replaced on this same 5 refdes, §5.3), which DigiKey lists directly as bare `-PW` | `SN74AHCT541PWR` — Active, tape-and-reel, DigiKey | Same "confirm packaging at order time" class as the row above, not the confirmed-discontinued class of `INA105KU`/`SN74HCT14D`; recorded because the swap changed which SKU string is the right one to search for |
 
 None of this is a schematic defect (the symbol correctly represents the part in every case;
 see §3) and none of it is being fixed here — it is recorded so procurement orders the
-tape-and-reel variant for `INA105KU` and `SN74HCT14D` specifically, not the string printed in
-the BOM.
+tape-and-reel variant for `INA105KU` and `SN74HCT14D` specifically, and confirms packaging
+for `SN74AHCT541PW`, not just the string printed in the BOM.
 
 ## 5. Distributor stock and lead time — the parts flagged unverified, plus every other active component
 
@@ -207,7 +208,7 @@ DigiKey unless noted. "Active" = manufacturer lifecycle status, not a comment on
 | `IH1215D` (isolated ±15V DC-DC, sole supply for the whole Intan-isolated domain) | 1 × 5 = 5 | XP Power / DigiKey | **Resolved, fix round 1 — `IH1215D` is correct, not ambiguous.** DigiKey lists it directly (product 4487834): "Isolated Module DC DC Converter 2 Output 15V -15V 66mA, 66mA, 10.8V-13.2V Input," package DIP. DigiKey's separate `IH1215S` listing carries the *identical* electrical description, package SIP. XP Power's own IH-series page states the suffix directly: `S` = SIP-7 package, `D` = DIP-14 package — packaging, not output count — and the whole family is dual-output regardless. This board's footprint (`Converter_DCDC_XP_POWER-IHxxxxD_THT`) is the through-hole DIP variant, so `D` is right as written | 16 weeks (DigiKey factory quote); DigiKey itself holds 0 direct stock, ~38 units via DigiKey Marketplace/WEC at check time | No longer an order-code risk — see §6 (corrected, fix round 1). Only 5 needed; Marketplace stock covers it, still the domain's sole supply (single point of failure by design) |
 | `TMA-0505S` | DNP (§2) | DigiKey | In stock, ships today | — | Fallback footprint only — not populated on any board built to this lock, no procurement action needed unless bench testing changes that |
 | `LD1117S33TR` / `LD1117S50TR` | 1 ea × 5 | DigiKey (ST) | In stock, ships today | — | No risk |
-| `SN74LVC541APW` / `SN74HCT541PW` / `SN74HCT32D` / `SN74HCT14D` | 4/5/1/1 × 5 | DigiKey (TI) | Listed, real current parts; `SN74HCT14D` bare code obsolete (§4) | — | High-volume commodity logic; only the §4 suffix issue is a real finding |
+| `SN74LVC541APW` / `SN74AHCT541PW` / `SN74HCT32D` / `SN74HCT14D` | 4/5/1/1 × 5 | DigiKey (TI) | Listed, real current parts; `SN74HCT14D` bare code obsolete (§4). `SN74AHCT541PW`: DigiKey's own listing surfaces only the `-PWR` tape-and-reel SKU, unlike its `SN74HCT541PW` predecessor — not confirmed obsolete, just order `SN74AHCT541PWR`, the same §4 packaging-suffix class as `LM339`/`MCP4728`/`ADG1206YRUZ` | — | High-volume commodity logic; only the §4 suffix issue is a real finding. `SN74AHCT541PW` replaced `SN74HCT541PW` on U8–U11/U15 — 8mA IOL vs 6mA, identical pinout/footprint; see hardware/breakout/design-review.md |
 | `SS14`, `BAT54S` | 3/36 × 5 | DigiKey (multiple manufacturers: onsemi, MCC, Diotec, Nexperia, SMC, TSC) | Tens of thousands of units across manufacturers | — | No risk — true jellybean parts |
 | `MCP23017` (×2), `MCP2221A` | 1 ea × 5 | DigiKey (Microchip) | Listed, real current parts, multiple package-suffix variants in stock | — | No risk |
 
@@ -291,7 +292,7 @@ Checked directly against `breakout-bom.csv`'s own Footprint column, not assumed:
   is `_0603_1608Metric`, `_0805_2012Metric`, or `_1206_3216Metric`; nothing at 0402/0201).
 - **Nothing finer than TSSOP/0.65 mm except the documented `MCP4728` exception** — confirmed:
   every non-SOIC package on the board is capped at 0.65 mm pitch (`SN74LVC541APW`/
-  `SN74HCT541PW`'s TSSOP-20, `ADG1206YRUZ`'s TSSOP-28, `TPS7A4901`/`TPS7A3001`'s HVSSOP-8, all
+  `SN74AHCT541PW`'s TSSOP-20, `ADG1206YRUZ`'s TSSOP-28, `TPS7A4901`/`TPS7A3001`'s HVSSOP-8, all
   P0.65mm); `MCP4728` alone sits at 0.5 mm (MSOP-10) — the sole 0.5 mm-pitch part on the
   board, matching spec §10.1's own "MCP4728... finer than anything else on this board" note
   exactly.

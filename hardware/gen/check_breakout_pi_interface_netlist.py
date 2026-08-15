@@ -344,20 +344,20 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     )
 
     # --- Trigger buffer: BARCODE_RAW/CAM_TRIG_EYE_RAW/CAM_TRIG_BEH_RAW -> the SAME
-    # SN74HCT541PW package's own 3 channels -> BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH. ---
-    barcode_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_PI", "SN74HCT541PW")
-    eye_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE", "SN74HCT541PW")
-    beh_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH", "SN74HCT541PW")
+    # SN74AHCT541PW package's own 3 channels -> BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH. ---
+    barcode_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_PI", "SN74AHCT541PW")
+    eye_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE", "SN74AHCT541PW")
+    beh_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH", "SN74AHCT541PW")
     # The two dedicated optocoupler legs -- BARCODE_RAW's own second and third buffered
     # copies (gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS). Walked exactly like
     # the three above, from the SAME input net and the SAME package, because that is the
     # whole point: a parallel buffered copy of one signal, not a re-derived one.
-    barcode_ni_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_BUF", "SN74HCT541PW")
-    barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74HCT541PW")
+    barcode_ni_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_BUF", "SN74AHCT541PW")
+    barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74AHCT541PW")
     check(
         barcode_buf == eye_buf == beh_buf == barcode_ni_buf == barcode_intan_buf,
         f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF should share "
-        f"the SAME physical SN74HCT541PW package, found {barcode_buf}/{eye_buf}/{beh_buf}/"
+        f"the SAME physical SN74AHCT541PW package, found {barcode_buf}/{eye_buf}/{beh_buf}/"
         f"{barcode_ni_buf}/{barcode_intan_buf}",
     )
     trig_buf = barcode_buf
@@ -378,7 +378,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     on_5v = [n for n in nets.get("+5V", []) if n.ref == trig_buf]
     check(len(on_5v) == 1, f"{trig_buf} (trigger buffer): expected a pin on +5V, found {on_5v}")
     summary.append(
-        f"Trigger buffer confirmed: {trig_buf} (SN74HCT541PW, +5V) drives all five of "
+        f"Trigger buffer confirmed: {trig_buf} (SN74AHCT541PW, +5V) drives all five of "
         f"BARCODE_RAW->BARCODE_PI, CAM_TRIG_EYE_RAW->CAM_TRIG_EYE, "
         f"CAM_TRIG_BEH_RAW->CAM_TRIG_BEH, BARCODE_RAW->BARCODE_BUF and "
         f"BARCODE_RAW->BARCODE_INTAN_BUF from the SAME package on 5 DISTINCT channels "

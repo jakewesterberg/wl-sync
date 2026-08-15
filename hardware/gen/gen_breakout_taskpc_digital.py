@@ -44,20 +44,21 @@ Four stages, matching the brief's own step numbering:
      why, verbatim from Task 2's mule-board fix) -> fans out in PARALLEL to two
      independent buffer banks sharing that one protected node: SN74LVC541APW on +3V3
      (3 packages, 8ch each) producing the *_PI/RWD_CMD/STIM_TRIG contract nets, and
-     SN74HCT541PW on +5V (3 more packages) producing the *_BUF contract nets Task 11's
+     SN74AHCT541PW on +5V (3 more packages) producing the *_BUF contract nets Task 11's
      NI optocouplers consume (ruling F2, .superpowers/sdd/2026-08-13-breakout-pcb/
      progress.md -- without this second bank, 22 LED loads would sit directly on the
-     task PC's own DAQ pins).
+     task PC's own DAQ pins). AHCT541, not the original HCT541 -- see "OUTPUT DRIVER PART:
+     SN74AHCT541PW, NOT SN74HCT541PW" below for why.
 
-     THAT RULING WAS APPLIED INCOMPLETELY, and this sheet's own third HCT541 package now
+     THAT RULING WAS APPLIED INCOMPLETELY, and this sheet's own third AHCT541 package now
      carries the rest of it: the `_BUF` bank named 19 SIGNALS for what is really a 30-LED
      problem, and the 11 unnamed LEDs got doubled onto pins that already had one. See
      SECOND_LEG_CHANNELS below for the full account and the numbers; the short version is
-     that one HCT541 output pin may drive exactly one ACSL-6400 LED (~7.33mA), never two.
+     that one AHCT541 output pin may drive exactly one ACSL-6400 LED (~7.33mA), never two.
   3. Outbound path -- 4 channels (PD1_COMP, PD2_COMP, ACC_TRIG, RHS_STIM_OUT -- each
      produced ELSEWHERE, by Task 10's comparators sheet or Task 11's opto-intan sheet,
      and consumed here BY NAME as this bank's own buffer inputs) through one more
-     SN74HCT541PW on +5V (6 of 8 channels used: those 4, plus 2 more producing
+     SN74AHCT541PW on +5V (6 of 8 channels used: those 4, plus 2 more producing
      PD1_COMP_BUF/PD2_COMP_BUF for opto-ni's own LEDs -- see COMPARATOR_OPTO_LEGS below,
      the second half of the same incompletely-applied ruling), driving Connector 1's own
      remaining 4 digital pins back to the task PC. No input protection network here (unlike step 2)
@@ -86,6 +87,30 @@ Four stages, matching the brief's own step numbering:
      active-HIGH -- the polarity an OR combination with an active-HIGH RWD_CMD actually
      needs. See place_debounce_inverter()'s own docstring (singular now, was plural) and
      _place_reward_or()'s own polarity note.
+
+OUTPUT DRIVER PART: SN74AHCT541PW, NOT SN74HCT541PW -- every one of this sheet's own
+`_BUF`/outbound octal buffers (5 packages total across this sheet; a 6th, U15, lives on
+pi-interface.kicad_sch) is the AHCT variant, not the plain HCT part every one of them
+started out as. Each drives exactly one ACSL-6400/6420 LED at ~7.33mA (the SECOND_LEG_
+CHANNELS comment above/gen_breakout_opto_ni.py's own derivation -- fixed by the LED's own
+7.0mA worst-case switching threshold, not something a driver choice can lower). SN74HCT541
+is rated IOL=6mA, so 7.33mA is 22% over -- comfortably inside its own 25mA per-pin absolute
+maximum, but out of the datasheet's own guaranteed-VOL condition, and the margin against
+that is thinner than treating the 6mA-rated V_OL figure as if it applied at 7.33mA would
+suggest: solved self-consistently against the part's own ~55 ohm output impedance (not the
+datasheet's single 6mA test point), the real current is closer to ~7.18mA, uncomfortably
+close to the LED's own 7.0mA floor before even accounting for VF/VCC tolerance. SN74AHCT541
+-- identical pinout, identical TSSOP-20 footprint (FOOTPRINT_TSSOP20 below, unchanged),
+same "74xx:74LS541"-derived KiCad symbol family -- is rated IOL=8mA, which makes 7.33mA
+fully compliant with margin to spare, and also doubles the part's own absolute maxima
+(25mA -> 50mA per pin, 70mA -> 100mA per package), retiring the separate concern that U8/
+U9/U10 (58.6mA each, three full/near-full packages) sat at 84% of a 70mA package limit.
+Value/MPN edit only, confirmed by regenerating this sheet and diffing its own component
+list against the pre-swap commit: same 5 refdes (U8-U11 here, U15 on pi-interface.kicad_
+sch), same footprint, same pinout (both symbols extend the same "74LS541" KiCad library
+parent -- see kicad_sch.py's own extract_symbol()/_flatten_extends()), zero refdes churn.
+AHCT's faster edge rates are a placement-stage consideration (series termination on the
+MDR68 cable runs), not a schematic-capture one -- see hardware/breakout/design-review.md.
 
 Run directly: `python3 hardware/gen/gen_breakout_taskpc_digital.py` (writes
 hardware/breakout/sheets/taskpc-digital.kicad_sch). hardware/breakout/sym-lib-table
@@ -216,7 +241,9 @@ assert len(ANALOG_CHANNELS) == 9
 # elsewhere in this repo).
 # ---------------------------------------------------------------------------
 FOOTPRINT_TSSOP20 = "Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm"  # SN74LVC541APW /
-# SN74HCT541PW -- TI's own "PW" package code is literally TSSOP-20 (gen_mule.py's own choice)
+# SN74AHCT541PW -- TI's own "PW" package code is literally TSSOP-20 (gen_mule.py's own
+# choice), and identical between SN74HCT541PW and SN74AHCT541PW -- see "OUTPUT DRIVER
+# PART" above; unchanged by that swap
 FOOTPRINT_SOIC14 = "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"  # SN74HCT32D / SN74HCT14D -- TI's
 # own "D" package code is the standard 3.9mm-body SOIC-14, JEDEC MS-012
 FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"  # BAT54S -- the real part, no stand-in
@@ -778,7 +805,7 @@ def _place_inbound(sch, refs):
     assert len(buf_channels[2]) == 8, f"expected the third _BUF package fully used, got {sorted(buf_channels[2])}"
     for bank_idx, (x, y) in enumerate([(X_HCTBUF, Y_HCTBUF1), (X_HCTBUF, Y_HCTBUF2), (X_HCTBUF, Y_HCTBUF3)]):
         place_octal_buffer(
-            sch, "74xx", "74HCT541", "SN74HCT541PW", x, y, "+5V",
+            sch, "74xx", "74AHCT541", "SN74AHCT541PW", x, y, "+5V",
             buf_channels[bank_idx], refs, "hct541_buf", FOOTPRINT_TSSOP20,
         )
 
@@ -814,17 +841,21 @@ def _place_inbound(sch, refs):
         "it. The two RWD_DLVR legs tap RWD_DLVR itself, which afterwards drives only",
         "CMOS inputs and a panel header: ~0mA DC out of the 74HCT32.",
         "",
-        "Residual, deliberate, and unchanged by this fix: one LED is 7.33mA against",
-        "SN74HCT541's own 6mA rated IOL. It cannot be brought under 6mA without taking",
-        "the LED below its own switching threshold, and it is far inside the part's",
-        "25mA per-pin absolute maximum; SN74AHCT541 (8mA IOL, same pinout) is the",
-        "drop-in if full IOL compliance is ever wanted.",
+        "DRIVER PART IS SN74AHCT541PW, NOT SN74HCT541PW (Value/MPN only -- identical",
+        "pinout and TSSOP-20 footprint, both symbols extend the same 74LS541 KiCad",
+        "part). Each LED is 7.33mA, fixed by the LED's own 7.0mA worst-case switching",
+        "threshold, not a driver choice. HCT541's own rated IOL is 6mA (7.33mA is 22%",
+        "over, and self-consistently against the part's own ~55ohm output impedance --",
+        "not the single 6mA datasheet test point -- closer to 7.18mA against that same",
+        "7.0mA floor). AHCT541's rated IOL is 8mA: 7.33mA is fully compliant, and both",
+        "absolute maxima double (25mA->50mA/pin, 70mA->100mA/package), retiring the",
+        "separate 58.6mA-of-70mA concern on U8/U9/U10 too.",
     ]):
         sch.text(line, X_NOTE4, Y_NOTE4 + line_idx * NOTE_DY)
 
 
 def _place_outbound(sch, refs):
-    """Step 3: 4 outbound channels through one more SN74HCT541PW on +5V (4 of 8
+    """Step 3: 4 outbound channels through one more SN74AHCT541PW on +5V (4 of 8
     channels), driving Connector 1's own pins 20-23 back to the task PC. Input nets
     (PD1_COMP, PD2_COMP, ACC_TRIG, RHS_STIM_OUT) are produced ELSEWHERE (Task 10's
     comparators sheet; Task 11's opto-intan sheet) and consumed here by name -- this
@@ -897,7 +928,7 @@ def _place_outbound(sch, refs):
             # (RHS_STIM_OUT) -- see the docstring above.
         sch.power_flag(in_net, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + flag_i * 5.08))
     place_octal_buffer(
-        sch, "74xx", "74HCT541", "SN74HCT541PW", X_OUTBUF, Y_OUTBUF, "+5V",
+        sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_OUTBUF, Y_OUTBUF, "+5V",
         channels, refs, "outbound_hct541", FOOTPRINT_TSSOP20,
     )
     for line_idx, line in enumerate([
