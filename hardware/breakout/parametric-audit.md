@@ -307,11 +307,23 @@ entire signal.
 
 86 dB is the **BM** grade. The board uses **KU**: 72 dB min / 90 dB typ (SBOS145B).
 
-### D3 — Panel thickness maximum is 2.00 mm
+### D3 — Panel thickness limits are unconfirmed for the parts actually chosen
 
-3M's MDR drawings (TS-0620-B, TS-0621-C) both state **panel thickness .079 [2.00] max**. A 2U
-rack panel is commonly 2–3 mm aluminium. If the panel is thicker the connector cannot mate.
-This must go into the panel drawing.
+**Corrected 2026-08-16.** This finding originally cited **2.00 mm max** from 3M's MDR
+drawings (TS-0620-B, TS-0621-C). **The board does not use a 3M connector** — it uses MH
+Connectors `3700-0121-01`, whose drawing states no panel thickness at all. The constraint was
+recorded from a part that was evaluated and not selected.
+
+What is confirmed:
+
+| Connector | Panel thickness | Source |
+|---|---|---|
+| M12 inlet (Phoenix 1551833) | **max 3.5 mm** | Installation drawing 00662206 Index 2 |
+| MDR68 (MH 3700-0121-01) | **not stated** — panel mounting is #2-56, 2 places | MH drawing rev 3.0 |
+| BNC | unknown | pending |
+
+A 2U rack panel is commonly 2–3 mm aluminium, so this still needs settling before machining —
+but by asking MH and the BNC vendor, not by assuming 3M's figure applies.
 
 ---
 

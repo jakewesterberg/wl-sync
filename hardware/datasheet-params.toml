@@ -1,0 +1,489 @@
+# Datasheet parameters the breakout design depends on.
+#
+# WHY THIS FILE EXISTS
+#
+# Every value here was read from a manufacturer's primary document, not from a
+# distributor listing or a search result. That distinction is load-bearing: during the
+# 2026-08-15 parametric audit, distributor data was wrong about the MDR68's contact
+# current rating (3 A listed, 0.5 A on the drawing) and an automated datasheet extraction
+# was wrong about the OPAx197 on three of four values.
+#
+# The PDFs themselves are NOT committed. They are copyrighted vendor documents and this
+# repository is public -- the Winchester drawing carries an explicit prohibition on
+# reproduction. Facts are not copyrightable; the documents are. Keep local copies in a
+# gitignored hardware/datasheets/ directory.
+#
+# HOW TO USE IT
+#
+#   import tomllib                                  # stdlib on Python 3.11+
+#   p = tomllib.load(open("hardware/datasheet-params.toml", "rb"))
+#   p["acsl_6xx0"]["i_fh_min_ma"]                   # -> 7.0
+#
+# Parametric checkers import limits from here rather than re-typing them, so a datasheet
+# revision is a one-line change that propagates to every assertion.
+#
+# CONVENTIONS
+#   *_min / *_max / *_typ   values as the datasheet states them
+#   feeds                   audit findings (hardware/breakout/parametric-audit.md) that
+#                           depend on this value
+#   note                    a condition that changes how the number must be used
+
+# ---------------------------------------------------------------------------
+# Isolation
+# ---------------------------------------------------------------------------
+
+[acsl_6xx0]
+part = "ACSL-6400-00TE, ACSL-6420-00TE"
+document = "Broadcom AV02-0235EN"
+revised = "2018-08-21"
+retrieved = "2026-08-15"
+url = "https://docs.broadcom.com/doc/AV02-0235EN"
+lifecycle = "Active"
+
+i_fh_min_ma = 7.0                # Recommended Operating Conditions, Input Current High
+i_fh_max_ma = 15.0
+i_f_abs_max_ma = 15.0            # Absolute Maximum Ratings, average forward input current
+i_fh_recommended_min_ma = 8.0    # footnote b: guardband for LED degradation
+i_fl_max_ua = 250.0              # off condition guaranteed for VFL <= 0.8 V
+i_th_max_ma = 7.0                # input threshold current
+v_f_min_v = 1.25
+v_f_typ_v = 1.52
+v_f_max_v = 1.80                 # at I_F = 10 mA, 25 C
+v_f_tempco_mv_per_c = -1.8
+i_ddl_typ_ma = 5.8               # per channel, LED on, 5 V table
+i_ddl_max_ma = 10.5
+i_ddh_typ_ma = 4.3               # per channel, LED off
+i_ddh_max_ma = 7.5
+r_l_min_ohm = 330.0              # output pull-up
+r_l_max_ohm = 4000.0
+vdd_min_v = 3.0
+vdd_max_v = 5.5
+p_input_max_mw_per_ch = 27.0
+p_output_max_mw_per_ch = 65.0
+inverting = true                 # truth table: LED ON -> output LOW
+feeds = ["F1", "F2", "M7"]
+note = """15 mA is an ABSOLUTE MAXIMUM, not a recommendation. Both ends of the 7-15 mA
+window are hard, which is what makes the LED drive a two-sided constraint."""
+
+# ---------------------------------------------------------------------------
+# Logic
+# ---------------------------------------------------------------------------
+
+[sn74ahct541]
+part = "SN74AHCT541PWR"
+document = "TI SCLS269Q"
+revised = "2024-08"
+retrieved = "2026-08-15"
+url = "https://www.ti.com/lit/ds/symlink/sn74ahct541.pdf"
+
+v_ol_max_v = 0.44                # at I_OL = 8 mA, VCC = 4.5 V
+i_ol_recommended_ma = 8.0
+i_oh_recommended_ma = -8.0
+i_o_abs_max_ma = 25.0            # continuous output current
+i_gnd_abs_max_ma = 75.0          # continuous current through VCC or GND
+v_ih_min_v = 2.0                 # TTL thresholds -- accepts 3.3 V logic on a 5 V rail
+v_il_max_v = 0.8
+vcc_abs_max_v = 7.0
+vcc_min_v = 4.5
+vcc_max_v = 5.5
+feeds = ["F1", "F4", "M5"]
+note = """The 75 mA ground-pin limit is what forces LEDs to be spread across more packages.
+Eight channels at 11 mA is 88 mA -- over. It binds before the per-output limit does."""
+
+[sn74ac541]
+part = "SN74AC541 (evaluated, REJECTED)"
+document = "TI SCAS958"
+revised = "2023-11"
+retrieved = "2026-08-15"
+url = "https://www.ti.com/lit/ds/symlink/sn74ac541.pdf"
+
+i_ol_recommended_ma = 24.0
+i_gnd_abs_max_ma = 200.0
+v_ih_min_at_vcc_5p5_v = 3.85     # CMOS thresholds
+rejected_because = """V_IH is 3.15 V at VCC 4.5 V rising to 3.85 V at 5.5 V. 3.3 V logic
+cannot drive it. The AHCT family was chosen precisely for its TTL thresholds; the ACT
+variant (TTL thresholds, 24 mA) has no retrievable TI datasheet and no authorized
+distributor stock."""
+feeds = ["F1"]
+
+# ---------------------------------------------------------------------------
+# Analog
+# ---------------------------------------------------------------------------
+
+[ina105]
+part = "INA105KU/2K5"
+document = "TI SBOS145B"
+revised = "2025-12"
+retrieved = "2026-08-15"
+url = "https://www.ti.com/lit/ds/symlink/ina105.pdf"
+lifecycle = "Active"
+
+grade = "KU"
+cmrr_min_db = 72.0               # KU grade. 86 dB is the BM grade -- do not confuse
+cmrr_typ_db = 90.0
+i_q_typ_ma = 1.5
+i_q_max_ma = 2.0
+vs_dual_min_v = 5.0
+vs_dual_nom_v = 15.0
+vs_dual_max_v = 18.0
+v_out_min_at_15v_v = 10.0        # at I_O = -5 mA, 20 mA
+v_out_typ_at_15v_v = 12.0
+v_cm_range_v = 20.0
+z_in_diff_kohm = 50.0
+z_in_cm_kohm = 50.0
+internal_resistor_kohm = 25.0    # one per input pin
+gain_error_max_pct = 0.025
+c_load_stable_pf = 1000.0
+z_out_ohm = 0.01
+feeds = ["F5", "M2", "D2"]
+note = """Series resistance in one input leg unbalances the bridge: CMRR falls to
+1/(R_series/50k). The mux R_on of ~180 ohm gives ~49 dB; the photodiode channels' extra
+1.6k RC gives ~30 dB."""
+
+[opax197]
+part = "OPA2197IDR, OPA4197IDR"
+document = "TI SBOS737C"
+revised = "2018-03"
+retrieved = "2026-08-15"
+url = "https://www.ti.com/lit/ds/symlink/opa2197.pdf"
+
+gbw_mhz = 10.0
+slew_rate_v_per_us = 20.0
+e_n_nv_per_rthz = 5.5            # at 1 kHz
+i_b_typ_pa = 5.0
+v_os_max_uv = 100.0
+i_q_typ_ma_per_amp = 1.0
+vs_dual_min_v = 2.25
+vs_dual_max_v = 18.0
+c_load_drive_nf = 1.0
+rail_to_rail = "input and output"
+feeds = ["F3", "M1"]
+note = """GBW sets the TIA compensation. An automated web extraction of this datasheet
+returned 0.8 MHz, 28 nV/rtHz and 600 uA -- all wrong, scraped from a comparison table.
+Read page 1 of the PDF."""
+
+[adg1206]
+part = "ADG1206YRUZ-REEL7"
+document = "Analog Devices ADG1206/ADG1207"
+retrieved = "2026-08-15"
+url = "https://www.analog.com/media/en/technical-documentation/data-sheets/adg1206_1207.pdf"
+lifecycle = "Active"
+successor = "ADG5206 (pin compatible)"
+
+r_on_typ_at_15v_ohm = 120.0      # dual +/-15 V
+r_on_typ_at_12v_single_ohm = 300.0
+r_on_max_at_12v_single_ohm = 475.0
+r_on_estimated_at_12v_dual_ohm = 180.0   # interpolated: 24 V span sits between the two
+r_on_flatness_typ_ohm = 60.0
+r_on_match_typ_ohm = 5.0
+v_inh_min_v = 2.0                # TTL -- independent of supply rails
+v_inl_max_v = 0.8
+i_dd_digital_at_rails_ua = 0.002
+i_dd_digital_intermediate_typ_ua = 260.0
+i_dd_digital_intermediate_max_ua = 420.0
+charge_injection_pc = 0.2
+leakage_on_typ_na = 0.08
+c_on_typ_pf = 15.0
+vdd_vss_max_v = 16.5
+feeds = ["M2", "M6"]
+note = """Digital inputs are TTL regardless of the +/-12 V rails, so 3.3 V address lines
+drive it correctly. But holding them at an intermediate level costs 260-420 uA per device
+of shoot-through -- 3.4 mA across eight muxes."""
+
+[lm339]
+part = "LM339AD"
+document = "TI LM339 datasheet"
+retrieved = "2026-08-15"
+status = "TODO -- not yet pinned to a primary document"
+feeds = ["M4"]
+note = "Need: input common-mode range at V+ = 12 V, output sink current, V_OL."
+
+# ---------------------------------------------------------------------------
+# Data conversion and control
+# ---------------------------------------------------------------------------
+
+[mcp4728]
+part = "MCP4728-E/UN"
+document = "Microchip DS22187E"
+revised = "2010"
+retrieved = "2026-08-15"
+url = "https://ww1.microchip.com/downloads/en/DeviceDoc/22187E.pdf"
+
+resolution_bits = 12
+vref_internal_v = 2.048
+range_internal_gain1_v = 2.048
+range_internal_gain2_v = 4.096
+range_external_vref = "0 to VDD"
+vdd_min_v = 2.7
+vdd_max_v = 5.5
+output = "rail-to-rail buffered"
+dnl_typ_lsb = 0.2
+settling_typ_us = 6.0
+i2c_address_default = "0x60"
+i2c_address_source = "EEPROM-programmed, no address pins"
+vref_gain_selectable_per_channel = true
+feeds = ["D1"]
+note = """The output is a rail-to-rail buffer, so it cannot exceed VDD. At VDD = 3.3 V the
+gain-2 nominal 4.096 V is unreachable and the top fifth of the code range clips. Use
+internal reference at gain 1 for a linear 0-2.048 V."""
+
+# ---------------------------------------------------------------------------
+# Power
+# ---------------------------------------------------------------------------
+
+[ih_series]
+part = "IH1215D"
+document = "XP Power IH series"
+retrieved = "2026-08-15"
+url = "https://www.xppower.com/product/IH-Series"
+
+power_w = 2.0
+v_in_nom_v = 12.0
+v_in_tolerance_pct = 10.0
+v_out_v = 15.0                   # dual, +/-
+i_out_per_rail_ma = 66.0
+efficiency_pct = 82.0
+no_load_input_current_ma = 20.0
+regulation = "unregulated"
+min_load_pct = 0.0
+load_regulation_pct = 10.0
+setpoint_accuracy_pct = 3.0
+cross_regulation_pct = 5.0
+cross_regulation_valid_range_pct = [25.0, 100.0]
+ripple_noise_mv_pp = 75.0
+c_load_max_uf = 220.0
+isolation_vdc = 1000.0
+isolation_capacitance_pf = 60.0
+package_suffix = "D = DIP14, S = SIP7 (package only, not output count)"
+feeds = ["F5"]
+note = """Cross regulation is only characterised when the lighter rail carries 25-100%.
+Below that the +/-5% figure does not apply -- which is the condition the as-built design
+sits in, with ISO_N12 at ~20%."""
+
+[ss14]
+part = "SS14"
+document = "Vishay 88746"
+revised = "2020-04-23"
+retrieved = "2026-08-15"
+url = "https://www.vishay.com/docs/88746/ss12.pdf"
+
+v_f_max_v = 0.50                 # AT 1.0 A -- see note
+v_f_test_current_a = 1.0
+v_f_estimated_at_450ma_typ_v = 0.35
+v_f_estimated_at_450ma_max_v = 0.42
+i_f_av_a = 1.0
+i_fsm_a = 40.0
+v_rrm_v = 40.0
+i_r_at_25c_ma = 0.2
+i_r_at_100c_ma = 6.0
+theta_ja_c_per_w = 88.0
+package = "SMA (DO-214AC)"
+feeds = ["F1", "M7"]
+note = """V_F is specified at 1.0 A, not at the ~0.45 A this rail carries. Using 0.50 V
+directly over-estimates the drop by ~0.1 V, which is enough to change the LED resistor."""
+
+[polyfuse_1206l050]
+part = "1206L050/15YR"
+document = "Littelfuse 1206L series"
+revised = "2024-02"
+retrieved = "2026-08-15"
+url = "https://www.littelfuse.com/assetdocs/resettable-ptcs-1206l-datasheet"
+
+i_hold_a = 0.5                   # at 23 C
+i_trip_a = 1.0
+r_min_ohm = 0.15                 # un-tripped
+r_1max_ohm = 0.6                 # one hour after trip
+v_max_v = 15.0
+time_to_trip_s = 0.1
+temp_range_c = [-40.0, 85.0]
+feeds = ["F1", "F7", "M7"]
+note = """Hold current derates with temperature (~0.44 A at 35 C). Series coordination
+requires the upstream device's hold current to exceed the downstream device's TRIP
+current -- two identical parts in series have no selectivity."""
+
+# ---------------------------------------------------------------------------
+# Sensors and instruments
+# ---------------------------------------------------------------------------
+
+[fds100]
+part = "Thorlabs FDS100"
+document = "Thorlabs 0637-S01 Rev E"
+revised = "2006-06-19"
+retrieved = "2026-08-15"
+
+active_area_mm2 = 13.0
+spectral_range_nm = [350.0, 1100.0]
+responsivity_at_550nm_a_per_w = 0.30
+responsivity_peak_a_per_w = 0.59      # ~960 nm
+rise_fall_time_ns = 10.0              # at 20 V bias, RL = 50 ohm
+dark_current_max_na = 20.0            # at 20 V
+c_j_at_20v_pf = 24.0
+c_j_at_0v_estimated_pf = [130.0, 380.0]   # NOT published -- estimated from depletion physics
+package = "TO-5, 0.36 in can"
+pins = "1 = anode, 2 = case, 3 = cathode"
+max_bias_v = 25.0
+damage_threshold_cw_mw_per_cm2 = 100.0
+feeds = ["F3", "M1"]
+note = """Thorlabs publishes capacitance only at 20 V bias. This design is forced into
+photovoltaic (zero-bias) mode by the no-power-in-the-booth constraint, where capacitance
+is at its maximum and unspecified. The TIA compensation must be robust across the
+estimated range rather than tuned to a number."""
+
+[intan_rhs]
+part = "Intan Stimulation/Recording Controller"
+document = "Intan Stim/Recording Controller User Guide"
+retrieved = "2026-08-15"
+url = "https://www.intantech.com/files/Intan_Stim_Recording_Controller_user_guide.pdf"
+
+digital_out_level_v = "3.3 or 5.0, selected by CONFIG4 switch"
+digital_out_config4_up_v = 5.0
+digital_out_config4_down_v = 3.3
+digital_in_v_il_max_v = 0.8
+digital_in_v_ih_min_v = 2.0
+digital_in_v_abs_max_v = 5.5
+digital_in_impedance_mohm = 1.0
+analog_in_range_v = 10.24
+analog_in_impedance_mohm = 1.0
+analog_in_count_controller = 2
+analog_in_count_expander = 6
+analog_in_count_total = 8
+digital_in_count_total = 16
+io_gnd = "controller system ground, not earthed"
+chassis_gnd = "bonded to AC power earth"
+digital_out_location = "rear panel"
+analog_in_location = "front panel"
+feeds = ["F2"]
+note = """CONFIG4 must be UP (5 V) for this design. At 3.3 V the inbound optocoupler
+channel leaks ~1.3 mA against a 250 uA off-state limit. This is a rig configuration no
+checker can see -- record it beside RewardPolarity HIGH."""
+
+# ---------------------------------------------------------------------------
+# Connectors
+# ---------------------------------------------------------------------------
+
+[mdr68]
+part = "MH Connectors 3700-0121-01"
+document = "MH drawing 3700-0121-01 rev 3.0"
+revised = "2015-03-27"
+retrieved = "2026-08-16"
+gender = "male plug"
+orientation = "right angle, through hole"
+
+contact_pitch_mm = 1.27
+contact_stagger_mm = 2.54
+contact_hole_dia_mm = 0.85
+contact_array_width_mm = 41.91
+contact_array_tol_mm = 0.15
+mounting_hole_dia_mm = 2.77
+mounting_hole_span_mm = 57.93
+row_offsets_from_edge_mm = [5.10, 1.905, 3.81, 5.715]
+overall_width_mm = 63.86
+body_depth_mm = 51.32
+body_height_mm = 9.10
+panel_thread = "#2-56, 2 places"
+contact_current_rating_a = 0.5   # NOT the 3 A distributors list
+dielectric_withstanding_vac = 500.0
+contact_resistance_max_mohm = 35.0
+temp_range_c = [-55.0, 85.0]
+feeds = []
+note = """Distributor listings say 3 A; the manufacturer drawing says 0.5 A. NI_5V passes
+through this connector at up to 283 mA, which is 57% of the real rating rather than the
+9% the distributor figure implies.
+
+The as-built footprint is WRONG: 0.5 mm drill against a required 0.85 mm (pins will not
+fit), 2 rows at 2.84 mm against a 4-row staggered arrangement at 1.905 mm, and no
+mounting holes at all."""
+
+[m12_inlet]
+part = "Phoenix Contact SACC-DSI-MS-5CON-M12 SCO, order 1551833"
+document = "Phoenix 1551833 datasheet + installation drawing 00662206 Index 2 + STEP model"
+retrieved = "2026-08-16"
+gender = "Pin (male) -- correct for a device inlet"
+coding = "A"
+positions = 5
+
+solder_pin_dia_mm = 1.00
+solder_pin_pattern = "cross: centre plus four at 2.500 mm radius on the X and Y axes"
+solder_pin_radius_mm = 2.500
+termination = "wire, AWG 22-20 -- NOT a PCB-mount part"
+panel_thread = "M12 x 1"
+panel_hole_dia_mm = 12.2
+panel_hole_tol_mm = 0.1
+panel_antitwist_flat_mm = 11.0
+panel_thickness_max_mm = 3.5
+tightening_torque_nm = [1.5, 2.0]
+rated_current_a = 4.0
+rated_voltage_v = 60.0
+contact_plating = "Au over CuZn"
+standard = "IEC 61076-2-101"
+feeds = ["R1"]
+note = """Pins emerge axially and are rated by wire gauge; tightening torque is 1.5-2 Nm.
+This is a panel-mount connector with flying leads, not a board-mount part. The board needs
+a 5-way header, not an M12 footprint -- so the custom M12A_5_Panel footprint can be
+deleted."""
+
+[bnc_dual_isolated]
+part = "TBD -- Amphenol 031-6575 or Winchester/Bomar 364A2595"
+status = "TODO -- port centre-to-centre spacing not yet obtained"
+requirement = "right angle, PCB mount, isolated shell, 50 ohm, panel bulkhead rear mount"
+feeds = ["F6"]
+note = """Winchester 364-series naming: A = right angle, S = straight/vertical, M suffix =
+metal (NOT isolated), B suffix = black Valox, no suffix = white Valox, 2 in the digits =
+dual. Family PCB convention from drawing SD364S595M: 2.01 mm mounting pins, 0.89 mm signal
+pins, 2.54/5.08/10.16 mm spacings.
+
+The as-built footprint BNC_PanelMountable_Vertical is wrong: its axis is perpendicular to
+the board, so 31 connectors point at the enclosure lid rather than the panels."""
+
+[tps7a4901_tps7a3001]
+part = "TPS7A4901DGNR (positive), TPS7A3001DGNR (negative)"
+document = "TI SBVS121E (TPS7A49), TI SBVS125D (TPS7A30)"
+revised = "2015-05 / 2015-06"
+retrieved = "2026-08-15"
+
+package = "DGN, 8-pin HVSSOP PowerPAD"
+pinout = "1 OUT, 2 FB, 3 NC, 4 GND, 5 EN, 6 NR/SS, 7 DNC, 8 IN"
+pinout_identical_both_parts = true
+v_in_min_v = 3.0
+v_in_max_v = 35.0
+i_out_max_ma = 150.0
+c_in_min_uf = 2.2
+c_out_min_uf = 2.2                # required for stability
+c_nr_max_nf = 10.0
+c_ff_max_nf = 10.0
+r2_lower_divider_max_kohm = 237.0
+v_ref_positive_v = 1.194
+dnc_handling = "do not route to any electrical net, not even GND or IN"
+nc_handling = "leave open or tie to GND"
+powerpad_handling = "leave open or tie to GND; solder to plane to enhance thermal performance"
+feeds = ["R3"]
+note = """TI designs these as a complementary pair with an IDENTICAL DGN pinout -- an
+audit suspicion that they had been copy-pasted in error was WRONG. Both verified against
+their own datasheets. The PowerPAD is pad 9 in the KiCad footprint and carries no net in
+the as-built design; permitted, but tying it to INTAN_GND is preferred and removes a
+layout ambiguity under a 0.65 mm-pitch part."""
+
+[tma_0505s]
+part = "TMA-0505S"
+document = "Traco TMA series"
+retrieved = "2026-08-15"
+status = "TODO -- not yet pinned to a primary document"
+power_w = 1.0
+v_in_v = 5.0
+v_out_v = 5.0
+i_out_ma = 200.0
+feeds = ["F5"]
+note = """Load-bearing: F5's fix is a SECOND instance of this part replacing the
+LD1117S50 on ISO_5V. Need isolation voltage, efficiency, minimum load and ripple pinned
+before that recommendation is final."""
+
+[bat54s]
+part = "BAT54S"
+document = "TODO"
+retrieved = "2026-08-15"
+status = "TODO -- not yet pinned to a primary document"
+configuration = "dual series Schottky, common cathode/anode"
+feeds = ["M5"]
+note = """Feeds the clamp fault analysis: digital inputs behind 100 ohm survive a +/-24 V
+mis-plug, analog behind 1 kohm survive +/-48 V. Both figures assume a continuous forward
+current rating that has not yet been read from a datasheet."""
