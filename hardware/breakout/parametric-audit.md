@@ -34,17 +34,34 @@ permit guardband for LED degradation."* V_F is 1.25 / 1.52 / **1.80 V** min/typ/
 The LED anodes are fed from `+5V` through 430 Ω, cathodes sunk by `SN74AHCT541` outputs
 (V_OL max 0.44 V at I_OL = 8 mA, SCLS269Q).
 
-**The rail is not 5.00 V at the LED.** It arrives through `F4` (`1206L050`, 0.5–0.8 Ω
-installed) and `D3` (`SS14`, V_F ≈ 0.35 V at 400 mA) — a total drop of **0.55–0.66 V**. The
-anode rail is therefore **4.34–4.45 V**.
+**The rail is not 5.00 V at the LED.** It arrives through `F4` and `D3`. Both pinned to
+their datasheets:
 
-| Series resistor | Typical I_F | Worst case |
-|---|---|---|
-| **430 Ω (as built)** | **6.1 mA — below the 7 mA floor at typical values** | 4.4 mA |
-| 330 Ω | 8.0 mA | 5.8 mA — still below the floor |
-| **240 Ω (recommended)** | **11.0 mA** | **8.0 mA — meets the aging guardband** |
+- `1206L050` (Littelfuse 1206L): **R_min 0.15 Ω** un-tripped, R_1max ~0.6 Ω after a trip. With
+  `F4` upgraded per M7, R_min falls to ~0.06 Ω → **0.027 V** at 0.45 A.
+- `SS14` (Vishay 88746): V_F max **0.50 V, specified at 1.0 A**. At ~0.45 A, ≈0.35 V typ /
+  0.42 V max.
 
-**Fix:** 430 Ω → **240 Ω**, and see F7 (the rail drop depends on the fuse).
+Total series drop **0.38–0.45 V**, so the anode rail is **4.55–4.62 V**.
+
+**15 mA is an absolute maximum, not a recommendation** — AV02-0235EN's Absolute Maximum
+Ratings list *Average Forward Input Current (per channel) I_F 15 mA*. Both ends of the window
+are hard.
+
+| Series resistor | Worst case | Best case | Verdict |
+|---|---|---|---|
+| **430 Ω (as built)** | **4.4 mA** | — | Below the 7 mA switching floor |
+| 240 Ω | 8.6 mA | **14.9 mA — 99% of absolute maximum** | Ceiling too close |
+| 270 Ω | 7.6 mA — misses the 8 mA guardband | 13.2 mA | Safe, no aging margin |
+| **249 Ω + ±2% supply** | **8.8 mA** | **13.7 mA** | **Both bounds clear with margin** |
+
+At a ±5% supply the tolerance spread is **1.95:1** against a **2.14:1** window — it fits, but
+nothing sits comfortably. The fix is to shrink the spread rather than chase the resistor.
+
+**Fix:** 430 Ω → **249 Ω (E96)**, *and* specify the external +5 V supply at **±2%**. That
+tolerance now protects 30 optocoupler channels, making it a load-bearing specification rather
+than an assumption — it belongs in the spec beside the current rating. See also M7 (`F4`) and
+F7 (the fan tap), both of which affect this rail.
 
 **Also required:** the AHCT541's absolute maximum through its GND pin is **±75 mA**
 (SCLS269Q §4.1), and `U8`/`U9`/`U10` each drive **eight** LEDs. Because the drive is
