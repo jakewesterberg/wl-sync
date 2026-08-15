@@ -203,16 +203,26 @@ NON_ISO_NETS = [
 # guessed. This is the LAST schematic-capture sheet on this board, so this dict needs no
 # further "will need updating again" note.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 33,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
+    ("+12V", "AGND"): 34,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
                                    # 1; +15 from analog-frontend.kicad_sch's own 15 op-amp
                                    # packages (Task 10a); +7 from analog-ni.kicad_sch's own
                                    # 7 quad-buffer packages (Task 10b); +8 from
                                    # mux-intan.kicad_sch's own 8 ADG1206YRUZ muxes (Task
-                                   # 10c); +1 from comparators.kicad_sch's own LM339 (Task
-                                   # 10d)
-    ("-12V", "AGND"): 33,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
-                                   # 10b) +8 (Task 10c) +1 (Task 10d), same reasoning as
-                                   # +12V/AGND above
+                                   # 10c); +2 from comparators.kicad_sch's own LM339 (Task
+                                   # 10d, corrected: BOTH of that sheet's own LM339
+                                   # decouplers now sit here -- see the -12V/AGND entry)
+    ("-12V", "AGND"): 32,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
+                                   # 10b) +8 (Task 10c), same reasoning as +12V/AGND above.
+                                   # NOTHING from comparators.kicad_sch (Task 10d): that
+                                   # sheet's own LM339 originally ran on +-12V, which was a
+                                   # destroy-hardware defect -- LM339 pin 12 is the common
+                                   # emitter of all four open-collector outputs, so a -12V
+                                   # V- made every output LOW ~-11.9V straight into
+                                   # GPIO20/21/25. It now runs +12V/AGND single-supply and
+                                   # consumes -12V not at all, so its second decoupler
+                                   # moved from this pair to +12V/AGND (33/33 -> 34/32).
+                                   # See gen_breakout_comparators.py's own "THE SECOND
+                                   # DESTROY-HARDWARE CONSTRAINT".
     ("+5V", "DGND"): 10,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer

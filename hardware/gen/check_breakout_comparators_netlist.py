@@ -417,9 +417,20 @@ def _check_fourth_channel_dnp(nets: dict[str, list[Node]], values: dict[str, str
 def _check_lm339_pin_completeness(nets: dict[str, list[Node]], lm_ref: str) -> str:
     """All 14 physical LM339 pins carry a real net -- confirms no pin was silently
     dropped (a channel missing its own '-' or '+' input, say) even though this sheet's
-    own generator wires every one of them by construction."""
+    own generator wires every one of them by construction.
+
+    ALSO asserts the supply pair itself: V+ on +12V and V- on AGND, and V- on NOTHING
+    ELSE -- specifically never -12V. That is not a stylistic preference. LM339 pin 12 is
+    the common emitter of all four open-collector output transistors, so it IS this
+    sheet's own output LOW level; on -12V an output LOW is ~-11.9V, which reaches
+    J7/GPIO20/21/25 and U11's HCT541 inputs with no series resistance and no clamp
+    anywhere on the path (both rated -0.5V absolute minimum). This checker's own reason
+    to exist is defects ERC cannot see, and a power_in pin on a valid, correctly-typed
+    power net is never an ERC violation regardless of WHICH power net -- exactly the
+    shape of the pull-up-to-+5V defect one function above. See
+    gen_breakout_comparators.py's own "THE SECOND DESTROY-HARDWARE CONSTRAINT"."""
     check("+12V" in nets, "missing net: '+12V'")
-    check("-12V" in nets, "missing net: '-12V'")
+    check("AGND" in nets, "missing net: 'AGND'")
     found_pins = {
         n.pin for name, nodes in nets.items() for n in nodes if n.ref == lm_ref
     }
@@ -434,10 +445,29 @@ def _check_lm339_pin_completeness(nets: dict[str, list[Node]], lm_ref: str) -> s
         f"{lm_ref}: VCC (pin {LM339_PIN_VPOS}) is not on +12V",
     )
     check(
-        any(n.ref == lm_ref and n.pin == LM339_PIN_VNEG for n in nets["-12V"]),
-        f"{lm_ref}: negative supply (pin {LM339_PIN_VNEG}) is not on -12V",
+        any(n.ref == lm_ref and n.pin == LM339_PIN_VNEG for n in nets["AGND"]),
+        f"{lm_ref}: negative supply (pin {LM339_PIN_VNEG}) is not on AGND -- this pin is "
+        f"the common emitter of all four open-collector outputs, so it IS this sheet's "
+        f"own output LOW level; anything but AGND puts that level onto GPIO20/21/25 and "
+        f"U11's HCT541 inputs directly",
     )
-    return f"{lm_ref}: all 14 physical pins carry a real net; VCC on +12V, negative supply on -12V."
+    vneg_nets = sorted(
+        name for name, nodes in nets.items()
+        if any(n.ref == lm_ref and n.pin == LM339_PIN_VNEG for n in nodes)
+    )
+    check(
+        vneg_nets == ["AGND"],
+        f"{lm_ref}: negative supply (pin {LM339_PIN_VNEG}) is on {vneg_nets} -- expected "
+        f"AGND and nothing else. A NEGATIVE rail here (-12V was the original, "
+        f"hardware-destroying choice) makes every open-collector output LOW ~-11.9V, "
+        f"which reaches J7's own GPIO20/21/25 (pad absolute minimum -0.5V) and U11's "
+        f"SN74HCT541 inputs (likewise) with no series resistance and no clamp anywhere",
+    )
+    return (
+        f"{lm_ref}: all 14 physical pins carry a real net; V+ (pin {LM339_PIN_VPOS}) on "
+        f"+12V, V- (pin {LM339_PIN_VNEG}) on AGND and on nothing else -- never a "
+        f"negative rail, which would BE the output LOW level."
+    )
 
 
 _GLOBAL_LABEL_RE = re.compile(r'\(global_label "([^"]+)"\s*\(shape \w+\)\s*\(at ([\-0-9.]+) ([\-0-9.]+)')
@@ -485,10 +515,15 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], dnp_refs: set[st
     summary.append(_check_lm339_pin_completeness(nets, lm_ref))
     summary.append(_check_component_values(values, lm_ref, dac_ref))
 
-    for rail in ("+12V", "-12V", "+3V3", "AGND"):
+    # -12V is deliberately NOT in this list any more: this sheet does not consume it at
+    # all (see _check_lm339_pin_completeness above and gen_breakout_comparators.py's own
+    # "THE SECOND DESTROY-HARDWARE CONSTRAINT"). It still exists board-wide -- the analog
+    # front end's own op-amps run on it -- so its presence in `nets` says nothing about
+    # THIS sheet either way, which is exactly why the V- assertion above is pin-level.
+    for rail in ("+12V", "+3V3", "AGND"):
         check(rail in nets, f"missing consumed rail: {rail!r}")
         check(len(nets[rail]) >= 10, f"{rail}: suspiciously small population ({len(nets[rail])} nodes)")
-    summary.append("Consumed rails (+12V/-12V/+3V3/AGND) present with substantial populations.")
+    summary.append("Consumed rails (+12V/+3V3/AGND -- NOT -12V) present with substantial populations.")
 
     return summary
 
@@ -598,6 +633,27 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str], goo
     drifted[r_ser2] = "1k"
     msg = _assert_fails(good_nets, drifted, good_dnp, "expected Value", f"{r_ser2} (PD2's own hysteresis series resistor) value drift 10k->1k")
     results.append(f"Hysteresis series resistor value drift (10k -> 1k, PD2, {r_ser2}): caught -- {msg}")
+
+    # (9) THE OTHER destroy-hardware defect on this sheet, and the one that was actually
+    # committed: the LM339's own V- MOVED from AGND back to -12V. Simulated as a real
+    # move (delete the AGND node, add the same pin to -12V) rather than an addition,
+    # because that is exactly the shape of the defect -- one net label on one pin -- and
+    # it must be caught by the "is it on AGND" half of the assertion.
+    neg_rail = copy.deepcopy(good_nets)
+    vneg_node = next(n for n in good_nets["AGND"] if n.ref == lm_ref and n.pin == LM339_PIN_VNEG)
+    neg_rail["AGND"] = [n for n in neg_rail["AGND"] if n != vneg_node]
+    neg_rail.setdefault("-12V", []).append(vneg_node)
+    msg = _assert_fails(neg_rail, good_values, good_dnp, f"pin {LM339_PIN_VNEG}) is not on AGND", f"{lm_ref}'s own V- moved from AGND to -12V")
+    results.append(f"LM339 V- on a NEGATIVE rail (the destroy-hardware defect: V- IS the output LOW level, {lm_ref} pin {LM339_PIN_VNEG}): caught -- {msg}")
+
+    # (10) The subtler half of (9): V- correctly on AGND but ALSO shorted to -12V (a
+    # stray second label, this project's own recurring defect class -- the same reason
+    # negative control (1) above ADDS a +5V node rather than moving one). "On AGND" alone
+    # would pass this; only the "and on nothing else" half catches it.
+    also_neg = copy.deepcopy(good_nets)
+    also_neg.setdefault("-12V", []).append(vneg_node)
+    msg = _assert_fails(also_neg, good_values, good_dnp, "expected AGND and nothing else", f"{lm_ref}'s own V- on AGND but ALSO on -12V")
+    results.append(f"LM339 V- also shorted to a negative rail ({lm_ref} pin {LM339_PIN_VNEG} on AGND AND -12V): caught -- {msg}")
 
     return results
 

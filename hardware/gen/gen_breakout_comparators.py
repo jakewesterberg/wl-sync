@@ -17,8 +17,52 @@ movement and gates task progression -- a behavioural parameter, and a task-gatin
 that isn't recorded is a reproducibility hazard (spec Sec.6.5). An I2C-set voltage is a
 number in a config file; a trimpot is a screwdriver position nobody wrote down.
 
-THE DESTROY-HARDWARE CONSTRAINT, restated once here because it is the reason this sheet
-exists at all rather than three bare comparators: all three comparator outputs wire
+THE SECOND DESTROY-HARDWARE CONSTRAINT -- THE LM339 RUNS FROM +12V AND AGND, NEVER -12V.
+The LM339's pin 12 is labelled "V-"/"negative supply", but it is ALSO the common emitter
+of all four open-collector output transistors (they share one substrate return; TI
+SLCS006Z's own simplified schematic, Section 8). So pin 12 does not merely bias the part:
+it IS the LOW level every one of this sheet's four outputs pulls to. Wired to -12V, an
+output LOW is V- + V_CEsat ~ -11.9V, not 0V -- and it genuinely settles there, because a
+10k pull-up to +3V3 sources ~0.33mA against an output stage that sinks ~16mA, so the
+transistor stays hard in saturation all the way down.
+
+That was the original topology on this sheet, and it destroyed hardware on first power-up
+in four separate places, none of them ERC-visible and none of them recoverable:
+PD1_COMP/PD2_COMP/ACC_TRIG reach J7 pins 38/40/22 (GPIO20/21/25) with NO series resistance
+and NO clamp anywhere on the path -- pad absolute minimum -0.5V, so -11.9V forward-biases
+the module's own substrate diode at ~1.5mA continuous; the same three nets reach U11's
+SN74HCT541 inputs (absolute minimum -0.5V likewise); and PD1_COMP/PD2_COMP formerly reached
+an ACSL-6400 LED cathode (opto-ni.kicad_sch's own U61) whose anode sits on +5V through
+430R, which at a -11.9V cathode is I_F ~ 36mA against a 20mA absolute maximum. (That LED
+is a separate defect on its own -- it puts +5V-through-an-LED onto a 3.3V-only GPIO even
+with the rail correct -- and is fixed separately, on opto-ni's own sheet; the rail is what
+made it lethal rather than merely marginal.) It also silently corrupted the hysteresis: the
+derivation below assumes a 0->3.3V output swing, and the real swing was 15.2V, giving a
+~150mV band and a ~118mV offset from the commanded threshold -- 12% at V_DAC = 1V, against
+a 2% bring-up acceptance criterion.
+
+The fix is one net label: V- = AGND. Nothing is lost by it. The MCP4728 that sets every
+threshold sits on +3V3, so thresholds are 0-3.3V; the analog sources this sheet compares
+are all AGND-referenced and unipolar-positive at the three POPULATED channels; and V+ =
++12V still puts the LM339's own input common-mode ceiling (V+ - 1.5V = 10.5V) above
+anything Task 10a's front ends deliver. The negative rail bought nothing its own outputs
+then destroyed. -12V is no longer consumed on this sheet at all.
+
+  THE ONE CAVEAT, stated explicitly rather than absorbed: A_MISC1 is the only +-5V-capable
+  input reaching this sheet (analog-frontend.kicad_sch's own MISC 1-3 difference receive;
+  spec Sec.6.1's board-wide +-5V analog convention), and it is the 4th channel's own '+'
+  source. With V- = AGND that channel can no longer threshold the negative half of its
+  own input: the DAC cannot command a negative threshold, and A_MISC1 below AGND is
+  outside the LM339's own input voltage range (TI SLCS006Z absolute maximum: -0.3V to
+  +36V referred to V-, with a separate, explicitly-permitted input current limit of 50mA
+  for V_I < -0.3V, which Task 10a's INA105 output -- itself current-limited -- cannot
+  exceed). That channel is DNP; populating it is therefore not merely "stuff two
+  resistors" but "stuff two resistors AND add an input offset/attenuation network ahead
+  of pin 9 that keeps A_MISC1 unipolar-positive at this part". Said on-sheet too (note 6),
+  so it is in front of whoever populates it rather than only in this file.
+
+THE FIRST DESTROY-HARDWARE CONSTRAINT, restated once here because it is the reason this
+sheet exists at all rather than three bare comparators: all three comparator outputs wire
 DIRECTLY (no buffer, no protection -- confirmed by reading pi-interface.kicad_sch's own
 committed GPIO_PIN_SPEC, kind="direct" for GPIO20/21/25) to the sync module's own GPIO,
 which is 3.3V and NOT 5V tolerant. Every open-collector pull-up on this sheet -- all four of
@@ -99,9 +143,9 @@ this step exists to rule out):
   the only number sch.place(unit=...) needs, and each triplet is independently confirmed
   regardless of which "comparator N" label TI happens to print next to it.) Absolute
   supply rating (family comparison table, page 1): 2-30V (LM339/LM339A) up to 2-36V
-  (LM339B) -- this design's own +-12V (24V total) sits comfortably inside every variant's
-  own rating, with the same margin every other +-12V-powered op-amp on this board already
-  operates at.
+  (LM339B) -- this sheet's own 12V total (V+ = +12V, V- = AGND; see "THE SECOND
+  DESTROY-HARDWARE CONSTRAINT" below) sits comfortably inside every variant's own rating,
+  with more margin than the +-12V/24V this sheet originally, wrongly, used.
 
   MCP4728 -- Microchip DS22187E ("MCP4728, 12-Bit Quad DAC with EEPROM Memory"), page 2,
   "Package Type" pin diagram (10-lead MSOP): VDD(1), SCL(2), SDA(3), LDAC-bar(4),
@@ -118,7 +162,8 @@ this step exists to rule out):
   than reprogramming it.
 
 Consumes (Task 10a, already committed): A_PD1, A_PD2, A_ACC, A_MISC1. Consumes (Task 7,
-already committed): +12V, -12V, +3V3, AGND. Produces (this task's own net contract):
+already committed): +12V, +3V3, AGND -- NOT -12V, see the second destroy-hardware
+constraint above. Produces (this task's own net contract):
 PD1_COMP, PD2_COMP, ACC_TRIG -- already referenced, as consumer-side placeholders, by
 pi-interface.kicad_sch (Task 9, GPIO20/21/25, "direct" kind) and taskpc-digital.kicad_sch
 (Task 8, its own outbound SN74HCT541PW bank) -- this sheet is the first to give them a REAL
@@ -249,6 +294,9 @@ X_NOTE2, Y_NOTE2 = GRID(180), GRID(95)
 X_NOTE3, Y_NOTE3 = GRID(180), GRID(170)
 X_NOTE4, Y_NOTE4 = GRID(180), GRID(245)
 X_NOTE5, Y_NOTE5 = GRID(180), GRID(320)
+X_NOTE6, Y_NOTE6 = GRID(285), GRID(20)  # supply-rail note -- its OWN column, right of the
+# five original note blocks (which all sit at X=180 and run ~70mm wide at KiCad's default
+# 1.27mm text size), so nothing here overlaps them.
 NOTE_DY = GRID(5.08)
 
 # ---------------------------------------------------------------------------
@@ -264,12 +312,13 @@ LM339_UNIT_PINS = {
     4: ("8", "9", "14"),    # TI's own "comparator 3": IN3-, IN3+, OUT3
 }
 LM339_PIN_VPOS = "3"   # VCC (Table 5-1: "Positive supply")
-LM339_PIN_VNEG = "12"  # GND (Table 5-1: "Negative supply") -- KiCad's own stock symbol
-# already names this pin "V-", not "GND"/"VSS", so ERC's ground_pin_not_ground heuristic
-# (which flags a ground-NAMED pin wired to a non-ground-looking net) never fires wiring it
-# to -12V -- confirmed directly against the extracted symbol text, same situation
-# gen_wl_sync_lib.py's own ADG1206YRUZ V- pin needed a hand rename for; LM339's stock
-# symbol already has the safe name.
+LM339_PIN_VNEG = "12"  # GND (Table 5-1: "Negative supply"). WIRED TO AGND, NOT -12V --
+# this pin is ALSO the common emitter of all four open-collector output transistors, so
+# whatever it sits on IS this sheet's own output LOW level. See "THE SECOND
+# DESTROY-HARDWARE CONSTRAINT" in the module docstring for the full account. KiCad's own
+# stock symbol names it "V-", not "GND"/"VSS"; with AGND on it, ERC's
+# ground_pin_not_ground heuristic is satisfied on the plainest possible reading (it is a
+# ground pin, on a ground net) rather than merely side-stepped by the pin's own name.
 
 # MCP4728 pin map -- see module docstring, "PIN MAP VERIFICATION".
 MCP4728_PIN_VDD = "1"
@@ -407,9 +456,15 @@ def build() -> tuple[Sch, dict]:
         cpins[unit] = sch.place("Comparator", "LM339", lm_ref, "LM339", X_COMP, y, unit=unit, footprint=FOOTPRINT_SOIC14)
     ppins = sch.place("Comparator", "LM339", lm_ref, "LM339", X_COMP, Y_PWR, unit=5, footprint=FOOTPRINT_SOIC14)
     lbl(sch, X_COMP, Y_PWR, ppins, LM339_PIN_VPOS, "+12V")
-    lbl(sch, X_COMP, Y_PWR, ppins, LM339_PIN_VNEG, "-12V")
+    lbl(sch, X_COMP, Y_PWR, ppins, LM339_PIN_VNEG, "AGND")
+    # SINGLE SUPPLY: +12V/AGND, NOT +-12V -- see "THE SECOND DESTROY-HARDWARE CONSTRAINT"
+    # in the module docstring. Both 100nF decouple that one rail (the part has one supply
+    # pair now); they are kept as two rather than collapsed to one so this fix changes no
+    # reference designator and no BOM quantity, leaving Task 13's own committed BOM and
+    # procurement audit valid without a re-audit. Two 100nF in parallel on a 14-pin part's
+    # own single VCC/GND pair is redundant, not wrong.
     decouple(sch, X_COMP - DECOUPLE_DX, Y_PWR - DECOUPLE_DY, "+12V", "AGND")
-    decouple(sch, X_COMP - DECOUPLE_DX, Y_PWR + DECOUPLE_DY, "-12V", "AGND")
+    decouple(sch, X_COMP - DECOUPLE_DX, Y_PWR + DECOUPLE_DY, "+12V", "AGND")
 
     # --- MCP4728: one instance, one reference ---
     dac_ref = sch.next_ref("U")
@@ -511,7 +566,9 @@ def build() -> tuple[Sch, dict]:
         "Math (comparator draws ~0 input current, so superposition applies): V+ =",
         "(V_signal*Rf + Vout*Rs)/(Rs+Rf). At the trip point V+ = V_DAC, so V_signal_trip",
         "= V_DAC*(1+k) - Vout*k, k=Rs/Rf=10k/1M=0.01. Rising (Vout~0V): 1.01*V_DAC.",
-        "Falling (Vout~3.3V): 1.01*V_DAC - 33mV. ~33mV hysteresis band (comfortably",
+        "Falling (Vout~3.3V): 1.01*V_DAC - 33mV. Vout~0V holds ONLY because V- = AGND;",
+        "on a -12V V- the LOW level is ~-11.9V and every number here is wrong by 4x --",
+        "see the supply-rail note (right-hand column). ~33mV hysteresis band (comfortably",
         "bench-measurable -- plan.md's own bring-up test 7), ~1% systematic gain error",
         "(inside the SAME test's own 'tracks within 2%' half). k=0.01 is this sheet's",
         "own choice, not fixed by the brief (which fixes only Rf=1M) -- a bigger series",
@@ -579,6 +636,42 @@ def build() -> tuple[Sch, dict]:
         "differs from (but electrically agrees with) KiCad's own unit index.",
     ]):
         sch.text(line, X_NOTE5, Y_NOTE5 + line_idx * NOTE_DY)
+
+    for line_idx, line in enumerate([
+        "SUPPLY: +12V AND AGND. THIS PART DOES NOT USE -12V, AND MUST NOT.",
+        "",
+        "LM339 pin 12 is labelled 'V-'/negative supply, but it is ALSO the common",
+        "emitter of all four open-collector output transistors. Whatever pin 12 sits",
+        "on IS this sheet's own output LOW level: on -12V an output LOW is V- +",
+        "V_CEsat ~ -11.9V, not 0V, and it genuinely settles there (a 10k pull-up to",
+        "+3V3 sources ~0.33mA against a ~16mA sink -- the transistor stays saturated).",
+        "",
+        "PD1_COMP/PD2_COMP/ACC_TRIG carry that level with NO series resistance and NO",
+        "clamp anywhere: J7 pins 38/40/22 (GPIO20/21/25, pad absolute minimum -0.5V)",
+        "and U11's SN74HCT541 inputs (likewise -0.5V) are both destroyed on first",
+        "power-up. The hysteresis math below also assumes a 0->3.3V output swing; on",
+        "-12V the real swing is 15.2V -> ~150mV band and ~118mV threshold offset (12%",
+        "at V_DAC = 1V, against a 2% bring-up acceptance criterion).",
+        "",
+        "Nothing is lost by V- = AGND: the MCP4728 sits on +3V3 so every threshold is",
+        "0-3.3V, all three POPULATED channels' sources are AGND-referenced and",
+        "unipolar-positive, and V+ = +12V still puts the input common-mode ceiling",
+        "(V+ - 1.5V = 10.5V) above anything Task 10a's front ends deliver.",
+        "",
+        "CAVEAT -- THE 4TH (DNP) CHANNEL, A_MISC1: A_MISC1 is the ONE +-5V-capable",
+        "input reaching this sheet (spec Sec.6.1's board-wide +-5V analog convention),",
+        "and it is this channel's own '+' source, permanently wired to pin 9. With V- =",
+        "AGND this channel cannot threshold the negative half of its input: the DAC",
+        "cannot command a negative threshold, and A_MISC1 below AGND is outside the",
+        "LM339's own input voltage range (TI SLCS006Z abs max -0.3V..+36V referred to",
+        "V-, with a separate, explicitly-permitted 50mA input-current limit below",
+        "-0.3V that Task 10a's own current-limited INA105 output cannot exceed).",
+        "",
+        "So POPULATING THIS CHANNEL IS NOT JUST STUFFING R120/R121. It also needs an",
+        "input offset/attenuation network ahead of pin 9 that keeps A_MISC1",
+        "unipolar-positive at this part. Channels 1-3 need nothing of the kind.",
+    ]):
+        sch.text(line, X_NOTE6, Y_NOTE6 + line_idx * NOTE_DY)
 
     return sch, refs
 
