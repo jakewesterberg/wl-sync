@@ -716,6 +716,12 @@ deep — straight front-to-back takes the short path and leaves the width stagna
   stability**: offset drift responds to changes and gradients, not to absolute temperature, so a
   still uniformly-warm corner beats a fluctuating airstream.
 
+**Fixed-speed fans with in-line resistors.** There is no PWM source on the board — the GPIO
+header is full — so fans on a dumb 12 V rail run flat out unless resistively slowed. Noctua ships
+low-noise adapters in the box. Given 10–15 W of load and a side gap that starts whistling above
+~8 m/s, slowing them is likely better on both counts; tune at bring-up with a thermometer rather
+than assuming.
+
 **Filtered intake, biased slightly positive.** All incoming air passes the two front fans, so one
 filter there means everything entering is filtered; keeping intake ≥ exhaust pushes air out
 through every seam rather than drawing dust in. Over a decade in an animal lab that is the
@@ -788,8 +794,26 @@ bench acceptance test is valid on whichever board runs it.
 
 ### 10.1 Quantity
 
-Two rigs. **Fab run of 5**: two production units, one to hand-assemble and shake out, two
-spares. The BOM is constrained so either route works — hand-solderable packages (nothing finer
+Two rigs. **Fab run of 5**: two production units, one to shake out, two spares.
+
+**Assembly, decided 2026-08-15: turnkey the first board, hand-build the rest.** A house assembles
+board one including the two accepted exceptions — the `MCP4728` at 0.5 mm pitch and the two
+exposed-pad regulators — and the remaining boards are hand-built using it as a reference. The
+reasoning is about *diagnosis*, not difficulty: many of this board's failure modes are invisible
+to inspection, and an assembly defect that masquerades as a design defect at bring-up would be
+expensive to chase. A known-good reference removes that ambiguity from the one board that has to
+work first.
+
+**This makes the order-code CSV load-bearing rather than tidy.** An assembler orders from the
+file it is given, so `breakout-bom-order.csv` carrying real orderable part numbers — not the raw
+export's obsolete `INA105KU` and `SN74HCT14D` — is what stands between the BOM and a wrong build.
+
+**No spare NI cards, decided 2026-08-15.** With two identical rigs a card failure means running
+one rig while a replacement ships. Worth asking NI their RMA turnaround when ordering — it is
+usually far shorter than the 12–13 week new-order lead, which would make this decision
+comfortable rather than merely accepted.
+
+The BOM is constrained so either route works — hand-solderable packages (nothing finer
 than SOIC/TSSOP, no BGA or QFN, nothing below 0603) that also exist in a turnkey assembler's
 parts library.
 
