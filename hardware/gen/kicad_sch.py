@@ -397,11 +397,23 @@ class Sch:
         unit: int = 1,
         footprint: str = "",
         extra_props: dict[str, str] | None = None,
+        dnp: bool = False,
     ) -> dict[str, Pin]:
         """Place one symbol instance (one unit) at (x, y), rotation 0.
 
-        Returns {pin_number: Pin} in SYMBOL-LOCAL coordinates (not yet transformed) so
-        callers can compute schematic-space label positions via pin_pos().
+        `dnp` (default False, unchanged behaviour for every generator that doesn't pass
+        it) marks the instance "Do Not Populate" -- KiCad's own `(dnp yes)` field, read
+        back by both `kicad-cli` (BOM/position-file generation excludes it) and a human
+        opening the file in Eeschema (drawn with the standard DNP cross-out). Added at
+        Task 10d for comparators.kicad_sch's own 4th ("populate option") channel: a
+        component that is fully PRESENT in the schematic/footprint sense (real land
+        pattern on the PCB, so stuffing it later is an assembly step, not a respin) but
+        not stuffed by default. This is a generation-time property only -- it does not
+        change unit_pins()/pin_pos() or ANY connectivity this file computes; a DNP part's
+        pins are still wired exactly as instructed; only the assembly/BOM-visible flag
+        differs. Whether `kicad-cli sch export netlist`/ERC treat a DNP pin any
+        differently from a populated one is verified empirically per-caller (see
+        check_breakout_comparators_netlist.py), not assumed here.
         """
         lib_id = self.ensure_lib_symbol(libname, symname)
         block = self.lib_symbol_blocks[lib_id]
@@ -433,7 +445,7 @@ class Sch:
 \t\t(exclude_from_sim no)
 \t\t(in_bom yes)
 \t\t(on_board yes)
-\t\t(dnp no)
+\t\t(dnp {"yes" if dnp else "no"})
 \t\t(uuid "{instance_uuid}")
 \t\t(property "Reference" "{ref}"
 \t\t\t(at {x + 2.032} {y} 0)

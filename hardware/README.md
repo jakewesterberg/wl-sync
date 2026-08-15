@@ -430,6 +430,41 @@ generator's own choices, that no two of a mux's own 21 signal pins (`S1`-`S16`/`
 net — so a two-pins-one-net hedge of this kind cannot pass silently again, on this part or
 any future one.
 
+## MCP4728 comparator-threshold DAC and I²C bus (Task 10d)
+
+`hardware/breakout/sheets/comparators.kicad_sch` places one `LM339` quad comparator (three
+channels used — `A_PD1`→`PD1_COMP`, `A_PD2`→`PD2_COMP`, `A_ACC`→`ACC_TRIG` — the fourth
+brought out to `A_MISC1`, unpopulated) and one `MCP4728` quad 12-bit I²C DAC that sets each
+comparator's own threshold — see `hardware/gen/gen_breakout_comparators.py` and
+`hardware/gen/check_breakout_comparators_netlist.py` for the full design and its
+verification. Recorded here, the same way the ADG1206 mux truth table above is, for Task 12
+(the I²C bus master — `control-usb-i2c.kicad_sch`, an on-board USB-I²C bridge) so the
+software side does not have to re-derive any of this from the datasheet or the schematic:
+
+- **I²C address: `0x60`**, the MCP4728's own factory default (its address bits live in
+  EEPROM, not on hardware pins — the part has none — Microchip DS22187E). Kept at default
+  rather than reprogrammed: this design places exactly one MCP4728 on the bus, so there is
+  no second device at `0x60` to collide with.
+- **Channel map**: `VOUTA`→`PD1_COMP`'s own threshold, `VOUTB`→`PD2_COMP`'s, `VOUTC`→
+  `ACC_TRIG`'s, `VOUTD`→the unpopulated 4th (`A_MISC1`) channel's — this board's own
+  declared, arbitrary-but-fixed assignment (no datasheet fixes it), one DAC channel per
+  comparator (symmetric threshold only; an asymmetric make/break threshold would cost a
+  second DAC channel per comparator and is not implemented).
+- **`LDAC` is tied to `AGND`** (permanently asserted — immediate per-write update; no
+  synchronized multi-channel update is used).
+- **Bus nets**: `I2C_SDA`/`I2C_SCL`, exposed as global labels on this sheet, no bus
+  pull-ups placed here — Task 12 owns the bus master and, with it, the one-set-of-pull-ups-
+  per-bus sizing decision once every I²C device on the board (this DAC, plus whatever
+  address-expander parts Task 12 itself adds) is known.
+
+**The pull-up rail on `PD1_COMP`/`PD2_COMP`/`ACC_TRIG` is `+3V3`, never `+5V`** — a
+destroy-the-sync-module constraint (all three wire directly into its own 3.3 V-only GPIO,
+no buffer in between), asserted directly by `check_breakout_comparators_netlist.py` with a
+negative control that moves one pull-up to `+5V` and confirms the check fires. Relevant to
+Task 12 only in that nothing about the I²C bus itself should ever change that fact — the
+DAC's own threshold output is a separate signal path from the comparators' own
+open-collector outputs, and the two must not be confused when wiring the bus.
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or
@@ -723,6 +758,39 @@ generated — don't rediscover them.
   own `LOAD_DY` constant reused) cleared both. Worth checking for any future generator
   placing more than one satellite part per row of a two-column connector, not just this
   one header.
+- **A `PWR_FLAG` left on a net that later gains a REAL driving pin doesn't just become
+  redundant — it can actively break `kicad-cli sch erc`.** Confirmed at Task 10d:
+  `taskpc-digital.kicad_sch` (Task 8) placed a `sch.power_flag()` on each of
+  `PD1_COMP`/`PD2_COMP`/`ACC_TRIG`/`RHS_STIM_OUT` specifically because nothing drove them
+  yet (Tasks 10/11 didn't exist) and an `input`-typed buffer pin with no driver anywhere in
+  the project trips ERC's own `pin_not_driven` — a real, not a false, finding at the time.
+  The moment `comparators.kicad_sch` (Task 10d) wired a genuine `open_collector` output
+  pin onto three of those same four nets, the SURVIVING `PWR_FLAG`s tripped a NEW error —
+  `pin_to_pin`, "Pins of type Open collector and Power output are connected" — confirmed
+  empirically (4 errors before deleting the three stale flags, 0 after). Fixed by deleting
+  exactly the three `sch.power_flag()` calls whose own net now has a real driver (not the
+  fourth, `RHS_STIM_OUT`, which still has none — Task 11's own job) — see
+  `gen_breakout_taskpc_digital.py`'s own `_place_outbound()`, which already flagged this
+  exact deletion as required the moment Task 10 existed. A `PWR_FLAG` used as this
+  project's own "assert this net is driven for now, pending a real driver" idiom (also
+  used by `gen_breakout_power.py` for `ISO_P15_FILT`/`ISO_N15_FILT`, and by
+  `gen_breakout_comparators.py` itself for `I2C_SCL`, pending Task 12) is therefore a
+  standing TODO for whichever later task adds the real driver, not a one-time placeholder
+  that quietly stops mattering — check its own net for a genuine driving pin before
+  assuming a `PWR_FLAG` there is still needed.
+- **`Sch.place()`'s new `dnp` parameter (Task 10d) is generation-time-only and changes
+  NOTHING about connectivity** — a DNP-marked part's pins are wired exactly as instructed,
+  fully present in both `kicad-cli sch erc`'s own analysis and the exported netlist's
+  `(nets ...)` section (confirmed empirically: `comparators.kicad_sch`'s own two DNP
+  resistors, the unpopulated 4th channel's pull-up and hysteresis feedback, appear in the
+  exported netlist's connectivity graph identically to every populated resistor). What DOES
+  change: each DNP component's own `(comp (ref ...) ...)` block in the exported netlist
+  gains a value-less `(property (name "dnp"))` marker, present ONLY when `dnp=yes` and
+  absent entirely otherwise (not `(value "no")`) — confirmed directly against the real
+  export, not assumed from the `.kicad_sch` source's own `(dnp yes/no)` field shape. This
+  is what lets a checker confirm a "populate option" part is genuinely marked unpopulated
+  (`check_breakout_comparators_netlist.py`'s own `parse_dnp_refs()`) without re-parsing the
+  raw schematic source for it.
 
 ## Byte-reproducibility
 

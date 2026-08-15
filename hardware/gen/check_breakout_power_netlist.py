@@ -183,14 +183,26 @@ NON_ISO_NETS = [
 # regenerated whole-project netlist via this same `_rail_bypass_cap_count()`, not guessed
 # (32/32/10/10, checked before writing these numbers in). WILL need the same treatment
 # again once Task 10d (and 11-12) place their own rail-powered parts.
+#
+# RECOMPUTED AGAIN AT TASK 10d: comparators.kicad_sch adds ONE more +-12V-powered
+# package -- its own single LM339 quad comparator (the MCP4728 DAC is the sheet's other
+# IC, but it runs on +3V3/AGND, a rail pair this dict has never tracked -- see that
+# sheet's own module docstring for why that pair is a new, untracked one rather than an
+# extension of an existing key) -- +1 on EACH of +12V/AGND and -12V/AGND (32->33 both).
+# Confirmed directly against the regenerated whole-project netlist via this same
+# `_rail_bypass_cap_count()`, not guessed. WILL need the same treatment again once Tasks
+# 11-12 place their own +12V/-12V-powered parts.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 32,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
-                                   # +15 from analog-frontend.kicad_sch's own 15 op-amp
+    ("+12V", "AGND"): 33,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
+                                   # 1; +15 from analog-frontend.kicad_sch's own 15 op-amp
                                    # packages (Task 10a); +7 from analog-ni.kicad_sch's own
                                    # 7 quad-buffer packages (Task 10b); +8 from
-                                   # mux-intan.kicad_sch's own 8 ADG1206YRUZ muxes (Task 10c)
-    ("-12V", "AGND"): 32,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
-                                   # 10b) +8 (Task 10c), same reasoning as +12V/AGND above
+                                   # mux-intan.kicad_sch's own 8 ADG1206YRUZ muxes (Task
+                                   # 10c); +1 from comparators.kicad_sch's own LM339 (Task
+                                   # 10d)
+    ("-12V", "AGND"): 33,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
+                                   # 10b) +8 (Task 10c) +1 (Task 10d), same reasoning as
+                                   # +12V/AGND above
     ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
