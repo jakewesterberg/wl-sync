@@ -107,17 +107,28 @@ hysteresis at the direct cost of more gain error against the DAC-commanded value
 sheet's own k=0.01 is the specific point on that tradeoff this design picks, not the only
 one that would "work".
 
-WHY THE 4TH CHANNEL DIFFERS IN TOPOLOGY, NOT JUST POPULATION STATE: '+' is wired DIRECTLY to
-A_MISC1 (no series resistor at all) and '-' directly to the DAC's own VOUTD -- both real,
-permanent, never-floating connections, unlike the pull-up/feedback resistors, which are
-placed but DNP. A series resistor for this channel would need to be DNP too for symmetry
-with channels 1-3, but a DNP series resistor floats the '+' input the moment somebody
-populates the feedback resistor alone (a real, silent hazard for a spare BJT comparator
-input) -- so this channel accepts less hysteresis than channels 1-3 if it is ever fully
-populated (A_MISC1's own source impedance, an INA105 output, is near zero -- same reasoning
-as channels 1-3's OWN un-augmented '+' node) rather than risk a floating input in its
-DEFAULT, as-shipped state. A documented simplification for a secondary "populate option"
-channel, not a defect carried into the three primary ones.
+WHY THE 4TH CHANNEL NEEDS A POPULATED SERIES RESISTOR EVEN THOUGH THE CHANNEL ITSELF IS
+DNP: A_MISC1 is not a quiet, floating node waiting to be used -- it is a LIVE +-5V net,
+permanently driven by analog-frontend.kicad_sch's own INA105 (U28) and simultaneously
+fanned out to U34/U36 and every one of the eight ADG1206 muxes' own S14 pin, regardless of
+whether THIS channel is ever populated. '+' is wired to it, and '-' to the DAC's own
+VOUTD, both real and permanent (the DAC package is already stuffed for the other three
+channels). With V- = AGND (the second destroy-hardware fix, above), A_MISC1's own negative
+half sits outside the LM339's input range every time the signal it is measuring goes
+negative -- on EVERY assembled board, not only a populated one -- and a bare wire from
+pin 9 to that net is a standing clamp at the input protection diode's own forward drop
+(~-0.7V) with the fault current limited only by the INA105's own current limit, which
+walks straight into the LM339's substrate. R190 (10k, POPULATED -- not DNP, unlike the
+pull-up/feedback resistors on this same channel) is placed between A_MISC1 and the '+'
+node for exactly this reason: identical to R111/R114/R117 on channels 1-3, it bounds that
+fault current to ~0.43mA instead of leaving pin 9 directly wired. See CHANNEL4_SERIES_REF's
+own comment for why its refdes is minted out of band rather than via next_ref("R").
+
+This does NOT make the channel populated in the sense that matters for thresholding: the
+feedback (1M) and pull-up (10k) resistors stay DNP, so this channel still cannot compare
+against a DAC-set threshold until someone stuffs those two AND adds the input offset/
+attenuation network note 6 (right-hand column) describes -- R190 protects the part, it
+does not turn A_MISC1_COMP into a working comparator output on its own.
 
 PIN MAP VERIFICATION -- both parts checked pin-by-pin against a real, current datasheet
 before this generator wired a single label, not assumed from the stock KiCad symbol alone
@@ -355,6 +366,29 @@ assert len(CHANNELS) == 4
 assert len({c[0] for c in CHANNELS}) == 4
 assert len({c[2] for c in CHANNELS}) == 4
 
+# Channel 4's own series resistor -- see comparator_channel()'s own docstring for the
+# electrical reason it exists despite the channel being otherwise DNP: A_MISC1 is a live,
+# permanently-wired +-5V net (analog-frontend.kicad_sch's own INA105 output, also fanned
+# out to U34/U36 and every ADG1206 mux's own S14), and with V- = AGND (the second
+# destroy-hardware fix, above) its negative half is outside the LM339's own input range --
+# an unprotected direct wire clamps it at V- - 0.7V (the input protection diode's own
+# forward drop) on every assembled board, every time, regardless of this channel's own
+# populate state. 10k, matching R111/R114/R117 on channels 1-3, limits that fault to
+# ~0.43mA (5V/10k less the clamp's own ~0.3V) rather than leaving it a bare wire.
+#
+# ref="R190" is deliberately NOT sch.next_ref("R") -- see two_pin()'s own docstring for
+# why an auto-minted ref here would renumber every resistor on opto-ni.kicad_sch and
+# opto-intan.kicad_sch (both seed their own "R" counter from this sheet's own committed
+# maximum, R121, via find_max_refs(COMPARATORS_SCH)). R190 sits above the whole board's
+# prior "R" range (189, control-usb-i2c.kicad_sch's own I2C pull-ups) on purpose, so it
+# cannot collide with anything, and gen_breakout_opto_ni.py/gen_breakout_opto_intan.py/
+# gen_breakout_control_usb_i2c.py each pin their own inherited "R" seed to its pre-R190
+# value (121/170/187) rather than re-deriving it from this file's own text, so none of
+# their already-committed resistors renumbers either. Confirmed empirically (this task's
+# own diff against the prior commit): R190 is the only refdes anywhere on the board that
+# is new or renumbered.
+CHANNEL4_SERIES_REF = "R190"
+
 COMP_ROW_Y = {unit: GRID(Y0 + (unit - 1) * ROW_DY) for unit, *_ in CHANNELS}
 Y_DAC = GRID(Y0 + 4 * ROW_DY)
 Y_PWR = GRID(Y0 + 5 * ROW_DY)
@@ -372,8 +406,17 @@ def lbl(sch, x, y, pins, pin_num, net):
     sch.label(net, px, py)
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", dnp=False):
-    ref = sch.next_ref(ref_prefix)
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", dnp=False, ref=None):
+    """`ref`, given explicitly, bypasses `sch.next_ref(ref_prefix)` -- used exactly once,
+    for channel 4's series resistor (see CHANNEL4_SERIES_REF below): a ref minted by
+    next_ref() becomes this sheet's own new local maximum, which every downstream sibling
+    (opto-ni, opto-intan, control-usb-i2c) picks up via find_max_refs(COMPARATORS_SCH) and
+    seeds its OWN numbering past -- exactly the ~66-refdes churn this component's addition
+    was previously deferred to avoid. An explicit, out-of-band ref sidesteps that: it is
+    still a fully real, placed, in-BOM component, just not one that moves any sibling's
+    own next_ref() counter.
+    """
+    ref = sch.next_ref(ref_prefix) if ref is None else ref
     pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint, dnp=dnp)
     lbl(sch, x, y, pins, "1", net1)
     lbl(sch, x, y, pins, "2", net2)
@@ -395,7 +438,7 @@ def decouple(sch, x, y, rail, gnd):
 # ---------------------------------------------------------------------------
 
 
-def comparator_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, signal_net, out_net, thr_net, populated):
+def comparator_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, signal_net, out_net, thr_net, populated, series_ref=None):
     """Wire one LM339 unit as a hysteretic, DAC-thresholded comparator.
 
     '-' = thr_net (this channel's own MCP4728 VOUTx, direct wire, ALWAYS -- the DAC
@@ -406,21 +449,35 @@ def comparator_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, signal_net, 
     '+' = fb_net, the summing node between the analog source and the fed-back output --
     see module docstring for the full hysteresis derivation. For a POPULATED channel,
     fb_net is a genuinely separate node (f"{out_net}_FB"), reached from signal_net through
-    a real, populated 10k series resistor. For the DNP 4th channel, fb_net IS signal_net
-    directly (no series resistor placed at all -- a DNP series resistor would float '+'
-    the moment the feedback resistor alone got populated; see module docstring).
+    a real, populated 10k series resistor.
+
+    `series_ref`: an explicit refdes for a series resistor on an otherwise-DNP channel
+    (channel 4 only -- see CHANNEL4_SERIES_REF). A_MISC1 is a LIVE +-5V net permanently
+    wired to this channel's own '+' input regardless of populate state (module docstring,
+    "WHY THE 4TH CHANNEL DIFFERS IN TOPOLOGY"), so unlike the feedback/pull-up resistors
+    (genuinely DNP -- no hazard in leaving them unstuffed), a series resistor here is
+    POPULATED even though `populated` is False: it is what keeps that permanent wire from
+    being a bare, unprotected clamp into the LM339's own input diode. When given, `fb_net`
+    becomes a real, separate node exactly as it would for a populated channel (a series
+    resistor needs two distinct endpoints); when both `populated` and `series_ref` are
+    absent, `fb_net` IS `signal_net` directly, unchanged from every channel this sheet has
+    ever placed before channel 4 gained one.
 
     Returns (pullup_ref, feedback_ref, series_ref_or_None).
     """
     lbl(sch, X_COMP, y, cpins, minus_pin, thr_net)
     lbl(sch, X_COMP, y, cpins, out_pin, out_net)
 
-    fb_net = f"{out_net}_FB" if populated else signal_net
+    fb_net = f"{out_net}_FB" if (populated or series_ref) else signal_net
     lbl(sch, X_COMP, y, cpins, plus_pin, fb_net)
 
     r_ser = None
     if populated:
         r_ser = two_pin(sch, "Device", "R", "R", "10k", X_RSER, y, signal_net, fb_net, footprint=FOOTPRINT_R)
+    elif series_ref:
+        r_ser = two_pin(
+            sch, "Device", "R", "R", "10k", X_RSER, y, signal_net, fb_net, footprint=FOOTPRINT_R, ref=series_ref,
+        )
     r_fb = two_pin(
         sch, "Device", "R", "R", "1M", X_RFB, y, out_net, fb_net, footprint=FOOTPRINT_R, dnp=not populated,
     )
@@ -502,6 +559,7 @@ def build() -> tuple[Sch, dict]:
         r_pu, r_fb, r_ser = comparator_channel(
             sch, COMP_ROW_Y[unit], cpins[unit], minus_pin, plus_pin, out_pin,
             source_net, out_net, thr_nets[unit], populated,
+            series_ref=CHANNEL4_SERIES_REF if unit == 4 else None,
         )
         refs["pullups"].append(r_pu)
         refs["feedbacks"].append(r_fb)
@@ -614,23 +672,29 @@ def build() -> tuple[Sch, dict]:
         sch.text(line, X_NOTE4, Y_NOTE4 + line_idx * NOTE_DY)
 
     for line_idx, line in enumerate([
-        "FOURTH CHANNEL (A_MISC1), UNPOPULATED: '+' wired DIRECTLY to A_MISC1 and '-'",
-        "directly to the DAC's own VOUTD -- both real, permanent, never-floating",
-        "connections regardless of what else here is populated (the LM339 and MCP4728",
-        "packages are both already stuffed for the other 3 channels). Only the pull-up",
-        "(10k) and the hysteresis feedback (1M) are DNP -- real land patterns on the",
-        "PCB (populating them later is an assembly step, not a respin), just not",
-        "stuffed by default.",
+        "FOURTH CHANNEL (A_MISC1): '+' reaches A_MISC1 through R190 (10k, POPULATED),",
+        "'-' wired directly to the DAC's own VOUTD -- both real, permanent connections",
+        "regardless of what else here is populated (the LM339 and MCP4728 packages are",
+        "both already stuffed for the other 3 channels). Only the pull-up (10k) and the",
+        "hysteresis feedback (1M) are DNP -- real land patterns on the PCB (populating",
+        "them later is an assembly step, not a respin), just not stuffed by default.",
         "",
-        "No series resistor is placed for this channel, unlike channels 1-3: with the",
-        "feedback resistor ALSO DNP by default, a populated-but-orphaned series resistor",
-        "would only float the '+' input the moment someone stuffed the feedback alone --",
-        "simpler and safer to wire '+' straight to A_MISC1 and accept, if this channel",
-        "is ever fully populated, somewhat less hysteresis than channels 1-3's own",
-        "deliberate divider (A_MISC1's own source impedance, Task 10a's INA105 output,",
-        "is near zero, same reasoning as channels 1-3's own un-augmented '+' node would",
-        "have been). A documented simplification for a secondary 'populate option'",
-        "channel, not a defect carried into the three primary ones.",
+        "R190 IS POPULATED, UNLIKE THE PULL-UP/FEEDBACK, BECAUSE A_MISC1 IS LIVE: it is",
+        "analog-frontend.kicad_sch's own INA105 (U28) output, permanently wired here and",
+        "to every ADG1206 mux's own S14, whether or not this channel is ever used. With",
+        "V- = AGND (see the supply-rail note, right-hand column), A_MISC1's negative",
+        "half sits outside the LM339's own input range on every assembled board -- R190",
+        "bounds the resulting fault current to ~0.43mA instead of leaving pin 9 a bare",
+        "wire into the input protection diode. Matches R111/R114/R117 on channels 1-3",
+        "exactly (same value, same role); its own refdes is minted out of band (not",
+        "sch.next_ref) specifically so it does not renumber opto-ni/opto-intan's own",
+        "already-committed resistors -- see CHANNEL4_SERIES_REF's own comment.",
+        "",
+        "R190 does not by itself make this channel a working threshold comparator: the",
+        "DNP feedback and pull-up still need stuffing, AND (module docstring / note 6)",
+        "an input offset/attenuation network ahead of pin 9 keeping A_MISC1 unipolar-",
+        "positive at this part -- R190 protects the part from the live net that is",
+        "already there, it does not populate the channel.",
         "",
         "PIN MAP VERIFICATION, both parts, pin-by-pin against a real, current datasheet",
         "(TI SLCS006Z Table 5-1 for LM339; Microchip DS22187E page 2 for MCP4728), not",
@@ -663,12 +727,15 @@ def build() -> tuple[Sch, dict]:
         "",
         "CAVEAT -- THE 4TH (DNP) CHANNEL, A_MISC1: A_MISC1 is the ONE +-5V-capable",
         "input reaching this sheet (spec Sec.6.1's board-wide +-5V analog convention),",
-        "and it is this channel's own '+' source, permanently wired to pin 9. With V- =",
+        "and it is this channel's own '+' source, permanently wired to pin 9 through",
+        "R190 (10k, POPULATED -- see the fourth-channel note, left column). With V- =",
         "AGND this channel cannot threshold the negative half of its input: the DAC",
         "cannot command a negative threshold, and A_MISC1 below AGND is outside the",
         "LM339's own input voltage range (TI SLCS006Z abs max -0.3V..+36V referred to",
         "V-, with a separate, explicitly-permitted 50mA input-current limit below",
-        "-0.3V that Task 10a's own current-limited INA105 output cannot exceed).",
+        "-0.3V that Task 10a's own current-limited INA105 output cannot exceed). R190",
+        "bounds the resulting fault current to ~0.43mA on every assembled board; it",
+        "does not widen the LM339's own input range, which stays a real limit.",
         "",
         "So POPULATING THIS CHANNEL IS NOT JUST STUFFING R120/R121. It also needs an",
         "input offset/attenuation network ahead of pin 9 that keeps A_MISC1",

@@ -462,6 +462,15 @@ def build() -> tuple[Sch, dict]:
         find_max_refs(OPTO_NI_SCH.read_text()),
         find_max_refs(OPTO_INTAN_SCH.read_text()),
     )
+    # PINNED -- see gen_breakout_opto_ni.py's own identical comment for the full reasoning.
+    # comparators.kicad_sch's own R190 (channel 4's series resistor, explicit refdes above
+    # the whole board's prior "R" range) must not shift this sheet's own resistor
+    # numbering, and this sheet reads COMPARATORS_SCH directly too (not only through
+    # opto-ni/opto-intan), so it needs the identical pin. 187 is opto-intan.kicad_sch's own
+    # true resistor count (seeded at 170) -- the correct seed for THIS sheet's own two I2C
+    # bus pull-ups (R188, R189) regardless of what comparators.kicad_sch's own text now
+    # also contains.
+    ref_start["R"] = 187
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

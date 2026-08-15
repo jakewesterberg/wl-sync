@@ -55,6 +55,13 @@ THE central risks this file exists to catch, named explicitly by this task's own
      check_row_pitch_exceeds_2pin_span(), imported below (this sheet previously carried
      only risk 6's exact-duplicate-only scan, the same latent exposure task-11-report.md's
      own "Fix round 1" section flagged as a well-scoped follow-up).
+  8. The 4th channel's own series resistor (R190) must be REAL and POPULATED, never DNP,
+     unlike that channel's pull-up/feedback -- A_MISC1 is a live +-5V net permanently
+     wired to this channel's '+' input regardless of populate state (analog-frontend.
+     kicad_sch's own INA105, also fanned out to every ADG1206 mux's own S14), so with
+     V- = AGND its negative half is outside the LM339's own input range on EVERY
+     assembled board. A silently-DNP'd R190 would leave pin 9 a bare wire into the input
+     protection diode -- the exact hazard this resistor exists to bound.
 
 `verify()` below re-derives, independently of gen_breakout_comparators.py's own choices,
 the full channel/pin contract -- same "a checker that trusted the generator would only be
@@ -295,32 +302,41 @@ def _check_pullups_on_3v3_never_5v(nets: dict[str, list[Node]], values: dict[str
     )
 
 
-def _check_hysteresis_feedback(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+def _check_hysteresis_feedback(nets: dict[str, list[Node]], values: dict[str, str], dnp_refs: set[str]) -> str:
     """Hysteresis feedback (1M) exists on EVERY one of the 4 channels (module docstring,
-    risk 3) -- bridging out_net to the '+'-node network: a real, separate f"{out_net}_FB"
-    node on the 3 populated channels (reached from the analog source through its own 10k
-    series resistor), or the source net directly on the 4th, unpopulated channel (see
-    gen_breakout_comparators.py's own module docstring for why that channel has no
-    series resistor of its own)."""
-    for unit, source_net, out_net, _dac_pin, populated in CHANNELS:
-        fb_net = f"{out_net}_FB" if populated else source_net
+    risk 3) -- bridging out_net to the '+'-node network, a real, separate f"{out_net}_FB"
+    node reached from the analog source through its own 10k series resistor, on EVERY
+    channel INCLUDING the 4th: A_MISC1 is a live net permanently wired to that channel's
+    own '+' input regardless of populate state, so it gets a real, POPULATED series
+    resistor (R190) too -- see module docstring risk 8 and gen_breakout_comparators.py's
+    own CHANNEL4_SERIES_REF. Every channel's own series resistor must be present and
+    NEVER DNP; only the 4th channel's own feedback/pull-up stay DNP (checked separately,
+    _check_fourth_channel_dnp)."""
+    for unit, source_net, out_net, _dac_pin, _populated in CHANNELS:
+        fb_net = f"{out_net}_FB"
         r_ref = _find_bridging_resistor(nets, out_net, fb_net)
         check(
             values.get(r_ref) == FEEDBACK_VALUE,
             f"{r_ref} (channel {unit} hysteresis feedback): expected Value "
             f"{FEEDBACK_VALUE!r}, found {values.get(r_ref)!r}",
         )
-        if populated:
-            r_ser = _find_bridging_resistor(nets, source_net, fb_net)
-            check(
-                values.get(r_ser) == SERIES_VALUE,
-                f"{r_ser} (channel {unit} hysteresis series resistor): expected Value "
-                f"{SERIES_VALUE!r}, found {values.get(r_ser)!r}",
-            )
+        r_ser = _find_bridging_resistor(nets, source_net, fb_net)
+        check(
+            values.get(r_ser) == SERIES_VALUE,
+            f"{r_ser} (channel {unit} hysteresis series resistor): expected Value "
+            f"{SERIES_VALUE!r}, found {values.get(r_ser)!r}",
+        )
+        check(
+            r_ser not in dnp_refs,
+            f"{r_ser} (channel {unit} series resistor): unexpectedly marked DNP -- every "
+            f"channel's own series resistor is POPULATED, including the 4th channel "
+            f"(A_MISC1 is a live net wired to its '+' input regardless of populate state; "
+            f"see module docstring risk 8)",
+        )
     return (
         f"Hysteresis feedback ({FEEDBACK_VALUE!r}) present on all 4 channels "
-        f"({[c[0] for c in CHANNELS]}); the 3 populated channels also confirmed on their "
-        f"own {SERIES_VALUE!r} series resistor."
+        f"({[c[0] for c in CHANNELS]}); every one of the 4 also confirmed on its own "
+        f"POPULATED {SERIES_VALUE!r} series resistor."
     )
 
 
@@ -361,16 +377,20 @@ def _check_fourth_channel_dnp(nets: dict[str, list[Node]], values: dict[str, str
     """The 4th (A_MISC1) channel is PRESENT (a real, wired LM339 section) but its own
     pull-up and hysteresis-feedback resistors are DNP -- 'a populate option, not a
     respin' (module docstring, risk 5). '+' and '-' are real, permanent, never-floating
-    connections (checked here too): only the two OUTPUT-side passives are DNP."""
+    connections (checked here too): only the two OUTPUT-side passives are DNP -- the
+    series resistor (R190, module docstring risk 8) is populated exactly like channels
+    1-3's own, checked separately by _check_hysteresis_feedback."""
     unit, source_net, out_net, dac_pin, populated = CHANNELS[3]
     check(not populated, "internal inconsistency: CHANNELS[3] must be the unpopulated channel")
     minus_pin, plus_pin, _out_pin = LM339_UNIT_PINS[unit]
+    fb_net = f"{out_net}_FB"
 
     check(
-        any(n.ref == lm_ref and n.pin == plus_pin for n in nets.get(source_net, [])),
-        f"4th channel: {lm_ref} pin {plus_pin} ('+') not found directly on {source_net!r} "
-        f"-- the 4th channel's own '+' input must be a real, permanent wire (never DNP, "
-        f"never floating), regardless of the pull-up/feedback resistors' own DNP state",
+        any(n.ref == lm_ref and n.pin == plus_pin for n in nets.get(fb_net, [])),
+        f"4th channel: {lm_ref} pin {plus_pin} ('+') not found on {fb_net!r} -- the 4th "
+        f"channel's own '+' input must be a real, permanent wire to the FB node R190 "
+        f"(populated) reaches from {source_net!r}, never DNP, never floating, regardless "
+        f"of the pull-up/feedback resistors' own DNP state",
     )
     thr_net = f"{out_net}_THR"
     check(
@@ -379,7 +399,7 @@ def _check_fourth_channel_dnp(nets: dict[str, list[Node]], values: dict[str, str
     )
 
     r_pu = _find_bridging_resistor(nets, "+3V3", out_net)
-    r_fb = _find_bridging_resistor(nets, out_net, source_net)
+    r_fb = _find_bridging_resistor(nets, out_net, fb_net)
     check(
         r_pu in dnp_refs,
         f"4th channel pull-up {r_pu}: expected DNP (unpopulated -- a populate option, "
@@ -509,7 +529,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], dnp_refs: set[st
 
     summary.append(_check_outputs_originate_at_comparator(nets, lm_ref))
     summary.append(_check_pullups_on_3v3_never_5v(nets, values))
-    summary.append(_check_hysteresis_feedback(nets, values))
+    summary.append(_check_hysteresis_feedback(nets, values, dnp_refs))
     summary.append(_check_dac_drives_inverting_inputs(nets, values, lm_ref, dac_ref))
     summary.append(_check_fourth_channel_dnp(nets, values, dnp_refs, lm_ref))
     summary.append(_check_lm339_pin_completeness(nets, lm_ref))
@@ -620,12 +640,26 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str], goo
     msg = _assert_fails(good_nets, good_values, over_marked, "unexpectedly marked DNP", f"PD1_COMP's own real pull-up ({r_pu1}) accidentally marked DNP")
     results.append(f"Real channel's own pull-up accidentally marked DNP (PD1_COMP, {r_pu1}): caught -- {msg}")
 
-    # (7) 4th channel's own '+' input floating (its own direct wire to A_MISC1 dropped).
+    # (7) 4th channel's own '+' input floating (its own wire to the FB node R190 reaches,
+    # A_MISC1_COMP_FB, dropped -- R190 itself staying in place doesn't save '+' from
+    # floating if the LM339's own pin 9 label is what's missing).
     floating_plus = copy.deepcopy(good_nets)
     _minus4, plus4, _out4 = LM339_UNIT_PINS[4]
-    floating_plus["A_MISC1"] = [n for n in floating_plus["A_MISC1"] if not (n.ref == lm_ref and n.pin == plus4)]
-    msg = _assert_fails(floating_plus, good_values, good_dnp, "not found directly on", f"4th channel's own '+' input ({lm_ref} pin {plus4}) dropped from A_MISC1")
-    results.append(f"4th channel '+' input disconnected from A_MISC1 (a real floating-input hazard, {lm_ref} pin {plus4}): caught -- {msg}")
+    floating_plus["A_MISC1_COMP_FB"] = [
+        n for n in floating_plus["A_MISC1_COMP_FB"] if not (n.ref == lm_ref and n.pin == plus4)
+    ]
+    msg = _assert_fails(floating_plus, good_values, good_dnp, "not found on", f"4th channel's own '+' input ({lm_ref} pin {plus4}) dropped from A_MISC1_COMP_FB")
+    results.append(f"4th channel '+' input disconnected from its own FB node (a real floating-input hazard, {lm_ref} pin {plus4}): caught -- {msg}")
+
+    # (7b) THE central negative control THIS task's own fix specifically needs: the 4th
+    # channel's own series resistor (R190) silently marked DNP -- the exact regression
+    # that would leave A_MISC1 a bare wire into the LM339's input protection diode again,
+    # despite the channel otherwise looking untouched (R190 still placed, still wired,
+    # just no longer stuffed).
+    r_ser4 = _find_bridging_resistor(good_nets, "A_MISC1", "A_MISC1_COMP_FB")
+    series4_dnp = set(good_dnp) | {r_ser4}
+    msg = _assert_fails(good_nets, good_values, series4_dnp, "unexpectedly marked DNP", f"4th channel's own series resistor ({r_ser4}) silently marked DNP")
+    results.append(f"4th channel series resistor silently marked DNP ({r_ser4}, the exact regression this fix guards against): caught -- {msg}")
 
     # (8) Series/pull-up/feedback resistor value drift (10k -> 1k on PD2's own series R).
     drifted = dict(good_values)
@@ -709,10 +743,12 @@ def verify_instance_paths(comp_sch_text: str, breakout_sch_text: str) -> str:
         f"-- expected >=18 (recomputed directly against this task's own real output: 21 "
         f"placed instances -- 5 LM339 unit placements (each `sch.place(unit=N)` call is "
         f"its own instance, same as mux-intan.kicad_sch's own 8 ADG1206YRUZ) + 1 MCP4728 "
-        f"+ 1 PWR_FLAG (I2C_SCL) + 11 resistors (3 channels x 3 -- series/feedback/pullup "
-        f"-- + the 4th channel's own 2 -- feedback/pullup, no series) + 3 decoupling caps "
-        f"-- the >=18 floor is intentionally left below that real count so a future small "
-        f"edit doesn't need this floor bumped in lockstep)",
+        f"+ 12 resistors (3 populated channels x 3 -- series/feedback/pullup -- + the 4th "
+        f"channel's own 3 -- series (R190, populated), feedback, pullup, both DNP) + 3 "
+        f"decoupling caps. No PWR_FLAG (I2C_SCL's own was deleted at Task 12, once "
+        f"control-usb-i2c.kicad_sch gave it a real driver). The >=18 floor is "
+        f"intentionally left below that real count so a future small edit doesn't need "
+        f"this floor bumped in lockstep)",
     )
     bad = [p for p in paths if p != expected_prefix]
     check(

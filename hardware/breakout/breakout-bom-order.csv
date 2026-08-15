@@ -65,7 +65,7 @@
 "R2,R4","10.0k","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
 "R3","93.1k","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
 "R5-R23,R78-R110,R187","100","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
-"R24,R111,R113,R114,R116,R117,R119,R121","10k","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
+"R24,R111,R113,R114,R116,R117,R119,R121,R190","10k","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4. R190 is comparators.kicad_sch's own channel-4 series resistor (A_MISC1 protection, populated) — added same value/footprint as R111/R114/R117, no new sourcing question."
 "R25,R26","330","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
 "R27,R35,R37,R43,R53,R55,R57,R59,R61,R67,R73","10","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."
 "R28-R34,R36,R42,R52,R54,R56,R58,R60,R66,R72","1k","Resistor_SMD:R_0603_1608Metric","GENERIC — not a locked MPN","0603 thick-film resistor, multi-source — §5.4."

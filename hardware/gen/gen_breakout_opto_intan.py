@@ -484,6 +484,13 @@ def build() -> tuple[Sch, dict]:
         find_max_refs(COMPARATORS_SCH.read_text()),
         find_max_refs(OPTO_NI_SCH.read_text()),
     )
+    # PINNED -- see gen_breakout_opto_ni.py's own identical comment for the full reasoning.
+    # comparators.kicad_sch's own R190 (channel 4's series resistor, explicit refdes above
+    # the whole board's prior "R" range) must not shift this sheet's own resistor
+    # numbering. 170 is opto-ni.kicad_sch's own true resistor count (24 LED-series + 24
+    # pull-up + 1 fallback bridge = 49, seeded at 121) -- the correct seed for THIS sheet
+    # regardless of what comparators.kicad_sch's own text now also contains.
+    ref_start["R"] = 170
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

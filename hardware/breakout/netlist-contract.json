@@ -428,6 +428,7 @@
     "R187": "100",
     "R188": "2.2k",
     "R189": "2.2k",
+    "R190": "10k",
     "U1": "LD1117S33TR_SOT223",
     "U2": "IH1215D",
     "U3": "TPS7A4901",
@@ -1434,7 +1435,7 @@
       ["U23", "14", "", "output"]
     ],
     "A_MISC1": [
-      ["R120", "2", "", "passive"],
+      ["R190", "1", "", "passive"],
       ["U28", "5", "SENSE_5", "passive"],
       ["U28", "6", "", "output"],
       ["U34", "5", "+_5", "input"],
@@ -1446,8 +1447,7 @@
       ["U46", "6", "S14_6", "bidirectional"],
       ["U48", "6", "S14_6", "bidirectional"],
       ["U50", "6", "S14_6", "bidirectional"],
-      ["U52", "6", "S14_6", "bidirectional"],
-      ["U54", "9", "+_9", "input"]
+      ["U52", "6", "S14_6", "bidirectional"]
     ],
     "A_MISC1_CLAMP": [
       ["D36", "3", "COM_3", "passive"],
@@ -1459,6 +1459,11 @@
       ["R120", "1", "", "passive"],
       ["R121", "2", "", "passive"],
       ["U54", "14", "", "open_collector"]
+    ],
+    "A_MISC1_COMP_FB": [
+      ["R120", "2", "", "passive"],
+      ["R190", "2", "", "passive"],
+      ["U54", "9", "+_9", "input"]
     ],
     "A_MISC1_COMP_THR": [
       ["U54", "8", "-_8", "input"],

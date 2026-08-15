@@ -532,6 +532,18 @@ def build() -> tuple[Sch, dict]:
         find_max_refs(MUX_INTAN_SCH.read_text()),
         find_max_refs(COMPARATORS_SCH.read_text()),
     )
+    # PINNED, not left to merge_max_refs' own recompute: comparators.kicad_sch gained a
+    # 5th resistor (R190, channel 4's series resistor -- gen_breakout_comparators.py's own
+    # CHANNEL4_SERIES_REF) placed with an EXPLICIT refdes chosen to sit above the whole
+    # board's prior "R" range on purpose, specifically so no sibling's own numbering has to
+    # move for it. Left to recompute here, find_max_refs(COMPARATORS_SCH) would see "R190"
+    # in that file's own text and hand this sheet's own next_ref("R") calls a seed 69
+    # higher than before (121 -> 190), silently renumbering all 49 of this sheet's own
+    # already-committed resistors for zero functional reason. 121 is
+    # comparators.kicad_sch's own true resistor count EXCLUDING R190 (3 populated channels
+    # x 3 resistors + 1 DNP channel x 2 = 11, seeded at 110 from mux-intan.kicad_sch) --
+    # confirmed against this sheet's own committed R111-R121 range, unaffected by this fix.
+    ref_start["R"] = 121
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

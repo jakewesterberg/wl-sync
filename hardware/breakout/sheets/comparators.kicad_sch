@@ -2,7 +2,7 @@
 	(version 20260306)
 	(generator "eeschema")
 	(generator_version "10.0")
-	(uuid "7f44b6ac-6bea-4a3c-8ece-2f39377acfc7")
+	(uuid "c4f813f6-cc4b-4c8d-91a9-f1b532d18920")
 	(paper "A2")
 	(lib_symbols
 		(symbol "Analog_DAC:MCP4728"
@@ -1044,237 +1044,7 @@
 			(embedded_fonts no)
 		)
 	)
-	(text "sheet's own declared, arbitrary-but-fixed channel assignment (no datasheet"
-		(exclude_from_sim no)
-		(at 180.34 372.11 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "0350dcd5-0214-4d8b-823e-b0a0bea4b8c5")
-	)
-	(text "bus. I2C_SDA/I2C_SCL exposed as global labels; NO bus pull-ups placed on THIS"
-		(exclude_from_sim no)
-		(at 180.34 346.71 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "05436cfa-2b63-422f-8f15-1dadc9f1309c")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 355.6 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "066f22f1-f491-4ace-b831-e37036f47489")
-	)
-	(text "clamp anywhere: J7 pins 38/40/22 (GPIO20/21/25, pad absolute minimum -0.5V)"
-		(exclude_from_sim no)
-		(at 284.48 66.04 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "0c6f53d2-3815-4e32-8d00-272e681ce2d2")
-	)
-	(text "unipolar-positive at this part. Channels 1-3 need nothing of the kind."
-		(exclude_from_sim no)
-		(at 284.48 177.8 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "0e5c8b7f-0f47-490a-a057-d158c0b55b7f")
-	)
-	(text "All three outputs (PD1_COMP/PD2_COMP/ACC_TRIG) reach the sync module's own GPIO"
-		(exclude_from_sim no)
-		(at 180.34 71.12 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "0eba5bab-ff20-4bc1-af58-10429b3fdc56")
-	)
-	(text "cannot command a negative threshold, and A_MISC1 below AGND is outside the"
-		(exclude_from_sim no)
-		(at 284.48 142.24 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "0ef669a0-028d-4fe7-b7c4-49d09aa2e416")
-	)
-	(text "stuffed by default."
-		(exclude_from_sim no)
-		(at 180.34 350.52 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "114d17f6-e6d0-4c36-88f1-428ff2e3e092")
-	)
-	(text "own u1_map -- but a chip's own VDD SOURCE and its own GND REFERENCE are"
-		(exclude_from_sim no)
-		(at 180.34 280.67 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "143b1e1c-721d-42cc-a36b-5535a65e7556")
-	)
-	(text "differs from (but electrically agrees with) KiCad's own unit index."
-		(exclude_from_sim no)
-		(at 180.34 431.8 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "1695d310-8f9e-41da-8d47-a40b7594ef30")
-	)
-	(text "because this design places only ONE MCP4728 on the bus -- no collision to"
-		(exclude_from_sim no)
-		(at 180.34 336.55 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "1befc1b8-f8e8-4aea-b3f3-fc3adeaab8e2")
-	)
-	(text "V_CEsat ~ -11.9V, not 0V, and it genuinely settles there (a 10k pull-up to"
-		(exclude_from_sim no)
-		(at 284.48 45.72 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "1c3c21b6-9604-48be-81d7-4d1d271ebd11")
-	)
-	(text "simpler and safer to wire '+' straight to A_MISC1 and accept, if this channel"
-		(exclude_from_sim no)
-		(at 180.34 375.92 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "24be8292-56c5-4fbd-8ee9-06272723da7c")
-	)
-	(text "a bare threshold on a slow display transition emits a burst of edges; the"
-		(exclude_from_sim no)
-		(at 180.34 175.26 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "2601b9c4-5604-4d22-ac76-3c6489176589")
-	)
-	(text "(all three populated ones AND the fourth, DNP one) lands on +3V3 and never"
-		(exclude_from_sim no)
-		(at 180.34 176.53 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "285ef160-b04e-4706-955c-69b46f5a1916")
-	)
-	(text "PD1_COMP/PD2_COMP/ACC_TRIG carry that level with NO series resistance and NO"
-		(exclude_from_sim no)
-		(at 284.48 60.96 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "2a62b044-f02e-49f3-8f1f-835e9e542301")
-	)
-	(text "chatters across a bare threshold continuously."
-		(exclude_from_sim no)
-		(at 180.34 185.42 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "2e5120fb-1328-47f3-bf71-750ffabb0ddc")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 321.31 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "2f3e25d0-7a4f-48ca-975e-d500028c719b")
-	)
-	(text "on IS this sheet's own output LOW level: on -12V an output LOW is V- +"
-		(exclude_from_sim no)
-		(at 284.48 40.64 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "3078db70-0e4e-41fe-8c16-5d8fe99c548c")
-	)
-	(text "(never +5V -- see below) and fed back 1M to the '+' node for hysteresis."
-		(exclude_from_sim no)
-		(at 180.34 60.96 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "343faee1-68da-471a-8e75-d2fbaed5c4ae")
-	)
-	(text "assumed from the stock KiCad symbol alone -- see this generator's own module"
-		(exclude_from_sim no)
-		(at 180.34 421.64 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "34ab6f44-1ac4-4d0a-a3ec-a8715f28272b")
-	)
-	(text "itself is this project's own DGND-referenced logic rail, gen_breakout_power.py's"
-		(exclude_from_sim no)
-		(at 180.34 275.59 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "38f236cc-6347-419a-bf40-4027017c9f46")
-	)
-	(text "CAVEAT -- THE 4TH (DNP) CHANNEL, A_MISC1: A_MISC1 is the ONE +-5V-capable"
-		(exclude_from_sim no)
-		(at 284.48 121.92 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "3cc4d56d-748f-4434-83ad-2d62c3cbb552")
-	)
-	(text "-0.3V that Task 10a's own current-limited INA105 output cannot exceed)."
+	(text "V-, with a separate, explicitly-permitted 50mA input-current limit below"
 		(exclude_from_sim no)
 		(at 284.48 157.48 0)
 		(effects
@@ -1282,107 +1052,7 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "3cfcd71e-55f6-4fc4-8a07-67ce0614661f")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 284.48 116.84 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "3d4ef617-9aa4-4952-a9bf-d442cf0dafb4")
-	)
-	(text "avoid. Recorded here and in hardware/README.md for Task 12, which drives this"
-		(exclude_from_sim no)
-		(at 180.34 341.63 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "3db367ba-6d36-43b9-8bee-1910c10e93b4")
-	)
-	(text "SUPPLY: +12V AND AGND. THIS PART DOES NOT USE -12V, AND MUST NOT."
-		(exclude_from_sim no)
-		(at 284.48 20.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "3de1b279-9644-4756-9f6f-3960a5bf510a")
-	)
-	(text "PCB (populating them later is an assembly step, not a respin), just not"
-		(exclude_from_sim no)
-		(at 180.34 345.44 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "415440d0-5d94-431f-93ff-3981431d0c5b")
-	)
-	(text "committed source before writing this one, not assumed."
-		(exclude_from_sim no)
-		(at 180.34 91.44 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "41ea3564-4d08-4e3a-b7bd-48ac67213d58")
-	)
-	(text "PULL-UPS GO TO +3V3, NEVER +5V -- THE DESTROY-HARDWARE CONSTRAINT. All three"
-		(exclude_from_sim no)
-		(at 180.34 95.25 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "453826ca-269a-4f45-8c7c-29e08ac278f2")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 66.04 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "47898722-3cbd-4e57-8651-b240d260f85e")
-	)
-	(text "Nothing is lost by V- = AGND: the MCP4728 sits on +3V3 so every threshold is"
-		(exclude_from_sim no)
-		(at 284.48 96.52 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "4b087edd-66ef-4d7e-ad2f-c30569dc56e6")
-	)
-	(text "accelerometer's own motion-energy signal is noisy and slowly varying, and"
-		(exclude_from_sim no)
-		(at 180.34 180.34 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "4b25d784-d27f-4bd9-bdce-0db6289091c1")
-	)
-	(text "unipolar-positive, and V+ = +12V still puts the input common-mode ceiling"
-		(exclude_from_sim no)
-		(at 284.48 106.68 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "4feb232d-3250-423e-9d94-09f33e20f359")
+		(uuid "008b27b9-cd12-4e57-9a61-63c0694e1f63")
 	)
 	(text "of the 1M feedback tie -- a real, deliberate divider between the source and the"
 		(exclude_from_sim no)
@@ -1392,197 +1062,7 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "4ff219d5-74a4-4cbf-94dd-9b7531bced4d")
-	)
-	(text "A 1M feedback resistor alone, with '+' driven ONLY by the analog source, gives"
-		(exclude_from_sim no)
-		(at 180.34 195.58 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "502b6625-a806-4c80-9124-e33e254a9991")
-	)
-	(text "still works: Task 8's own outbound SN74HCT541PW buffer runs on +5V, and"
-		(exclude_from_sim no)
-		(at 180.34 125.73 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "5430456a-5b5b-47ea-816a-700ca39b99e1")
-	)
-	(text "This is exactly the class of error that passes kicad-cli sch erc (a resistor"
-		(exclude_from_sim no)
-		(at 180.34 156.21 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "569c62df-bf6b-4626-8b73-e3186882defb")
-	)
-	(text "four VOUT channels, direct wire. Output is open-collector, pulled up to +3V3"
-		(exclude_from_sim no)
-		(at 180.34 55.88 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "585dab82-6baf-40d0-b90b-54d9314bee35")
-	)
-	(text "I2C address: 0x60, the factory default (address bits are EEPROM-programmable,"
-		(exclude_from_sim no)
-		(at 180.34 326.39 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "5b6b5b61-085d-4a7f-90ae-d4618dbe92bf")
-	)
-	(text "(10k) and the hysteresis feedback (1M) are DNP -- real land patterns on the"
-		(exclude_from_sim no)
-		(at 180.34 340.36 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "623c34b8-7688-4a86-88fa-2ea15eaf76ef")
-	)
-	(text "hysteresis that rounds to zero: every Task 10a front end reaching this sheet is"
-		(exclude_from_sim no)
-		(at 180.34 200.66 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "62d7384b-8d54-4956-a033-4a9aa2fee486")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 190.5 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "68d66efd-988b-4c15-a13d-92eb4db124d9")
-	)
-	(text "threshold in particular is a behavioural parameter that gates task progression,"
-		(exclude_from_sim no)
-		(at 180.34 250.19 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "68d9001a-da42-4067-bc2a-a12718c65c6d")
-	)
-	(text "to a valid, correctly-typed power net is not an ERC violation regardless of"
-		(exclude_from_sim no)
-		(at 180.34 161.29 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "69f86a3a-184d-4f27-b59b-853b8c202f0f")
-	)
-	(text "fed-back output swing, not named in the brief but necessary for 'hysteresis is"
-		(exclude_from_sim no)
-		(at 180.34 236.22 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "6beca327-431f-4b00-9393-f0f4982f40df")
-	)
-	(text "a comparatively hard, low-impedance node next to 1M (A_PD1/A_PD2 ~1.6k Thevenin"
-		(exclude_from_sim no)
-		(at 180.34 205.74 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "6dc73b3f-a17f-43b8-a6bd-633f2c855040")
-	)
-	(text "fixes it). ONE DAC channel per comparator, symmetric threshold -- plan.md's"
-		(exclude_from_sim no)
-		(at 180.34 377.19 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "6e23fce1-e405-4ba7-9e03-5c9f22e97f66")
-	)
-	(text "check_breakout_comparators_netlist.py asserts every one of the four pull-ups"
-		(exclude_from_sim no)
-		(at 180.34 171.45 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "6f6d42d9-6203-430a-bd6d-0677d25f8a2f")
-	)
-	(text "not hardware-pin-set -- this part has no ADDR pins at all). Kept at default"
-		(exclude_from_sim no)
-		(at 180.34 331.47 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "6fea0a27-92aa-4131-86e7-4d4068c32983")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 284.48 91.44 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "72ce80d6-4c02-4d46-a773-e69b25c7e2a8")
-	)
-	(text "FOURTH CHANNEL (A_MISC1), UNPOPULATED: '+' wired DIRECTLY to A_MISC1 and '-'"
-		(exclude_from_sim no)
-		(at 180.34 320.04 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "7588962b-4e67-4cfc-a3af-30efa0b0e008")
-	)
-	(text "HYSTERESIS IS MANDATORY, for two reasons (spec Sec.6.5): a photodiode crossing"
-		(exclude_from_sim no)
-		(at 180.34 170.18 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "77c525bc-e248-413f-a058-f6a15622de32")
-	)
-	(text "output voltage actually lands)."
-		(exclude_from_sim no)
-		(at 180.34 290.83 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "782aa165-3520-49cc-a39c-4c3dbdc41688")
+		(uuid "00e75e7f-52a5-42f5-8c05-086c38716897")
 	)
 	(text "DIRECTLY (pi-interface.kicad_sch, Task 9, GPIO20/21/25 -- 'direct' kind, no"
 		(exclude_from_sim no)
@@ -1592,327 +1072,27 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "79786c16-c263-40bc-8839-a1aa1559a8b0")
-	)
-	(text "see the supply-rail note (right-hand column). ~33mV hysteresis band (comfortably"
-		(exclude_from_sim no)
-		(at 180.34 276.86 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "7ae45fdb-0abc-44ca-90eb-329e172b5eaf")
-	)
-	(text "bench-measurable -- plan.md's own bring-up test 7), ~1% systematic gain error"
-		(exclude_from_sim no)
-		(at 180.34 281.94 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "7edf1bd2-884d-4a74-8a87-626cf85a9b49")
-	)
-	(text "own note that ASYMMETRIC make/break thresholds would cost a SECOND DAC channel"
-		(exclude_from_sim no)
-		(at 180.34 382.27 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "7f6cc19d-fa04-4c1d-86e6-9bc21654123f")
-	)
-	(text "threshold in the SAME ground domain as the AGND-referenced signal it is"
-		(exclude_from_sim no)
-		(at 180.34 265.43 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "81ca4304-64d4-4fdc-99ab-a15c40b4a8c3")
-	)
-	(text "genuinely unused here, no_connect."
-		(exclude_from_sim no)
-		(at 180.34 316.23 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "834a792e-2952-47a5-93e6-d25bf9b097bc")
-	)
-	(text "+3V3 sources ~0.33mA against a ~16mA sink -- the transistor stays saturated)."
-		(exclude_from_sim no)
-		(at 284.48 50.8 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "84d43958-c20a-4403-8064-1736a41c3b9e")
-	)
-	(text "is ever fully populated, somewhat less hysteresis than channels 1-3's own"
-		(exclude_from_sim no)
-		(at 180.34 381 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8525133f-8416-4927-942e-7641482f44f9")
-	)
-	(text "V-, with a separate, explicitly-permitted 50mA input-current limit below"
-		(exclude_from_sim no)
-		(at 284.48 152.4 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8666f547-5d78-48ec-8328-c4658d53ea3a")
-	)
-	(text "power-up. The hysteresis math below also assumes a 0->3.3V output swing; on"
-		(exclude_from_sim no)
-		(at 284.48 76.2 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8884108a-a5b0-43fe-8a88-1233ff078357")
-	)
-	(text "(V+ - 1.5V = 10.5V) above anything Task 10a's front ends deliver."
-		(exclude_from_sim no)
-		(at 284.48 111.76 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8a7a701d-7e7d-45b1-97a1-77617cb6ef1b")
-	)
-	(text "per comparator is not implemented here, exactly as the brief specifies."
-		(exclude_from_sim no)
-		(at 180.34 387.35 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8efa2330-ed07-4c13-b6c0-30ed7362f839")
-	)
-	(text "74HCT's own input threshold is TTL-compatible (~2.0V min, not a fraction of"
-		(exclude_from_sim no)
-		(at 180.34 130.81 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "8fb63b38-add9-45c6-a44a-c3f3a1a81469")
-	)
-	(text "every '-' (inverting) input takes a fixed threshold from one of the MCP4728's"
-		(exclude_from_sim no)
-		(at 180.34 50.8 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "90cd38cf-c7e5-423f-8065-96f5fb559e3a")
-	)
-	(text "straight onto an unprotected 3.3V input and destroy the module."
-		(exclude_from_sim no)
-		(at 180.34 110.49 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "9219fc8b-9f0a-4b75-97ba-e4fafdbffdb9")
-	)
-	(text "LDAC tied to AGND (permanently asserted -- immediate per-write update; no"
-		(exclude_from_sim no)
-		(at 180.34 300.99 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "9442e8eb-ee1d-40fc-85ae-b1481462eac2")
-	)
-	(text "sheet -- Task 12 owns the bus master and, with it, the one-set-of-pull-ups-"
-		(exclude_from_sim no)
-		(at 180.34 351.79 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "94ab0664-16a3-482e-a459-76c208f533eb")
-	)
-	(text "packages are both already stuffed for the other 3 channels). Only the pull-up"
-		(exclude_from_sim no)
-		(at 180.34 335.28 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "95f602c9-6b4f-476c-8a23-f6ccca8e9a8c")
-	)
-	(text "directly to the DAC's own VOUTD -- both real, permanent, never-floating"
-		(exclude_from_sim no)
-		(at 180.34 325.12 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "96d44863-7f4e-4648-9efb-0c028f294457")
-	)
-	(text "is near zero, same reasoning as channels 1-3's own un-augmented '+' node would"
-		(exclude_from_sim no)
-		(at 180.34 391.16 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "97b37eb8-b578-4766-95c4-e05dad544c2a")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 115.57 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "9946da48-05fb-4dfe-ae15-4c5ce1a7dcab")
-	)
-	(text "(taskpc-digital.kicad_sch, Task 8) -- confirmed by reading both sheets' own"
-		(exclude_from_sim no)
-		(at 180.34 86.36 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "99d2ede4-31b9-4643-a9f2-1f739b8f00d3")
-	)
-	(text "protection in between) and the task PC's own outbound buffer"
-		(exclude_from_sim no)
-		(at 180.34 81.28 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "9a33b6b7-1e96-4b1a-a5fd-2eb8d68ec2f4")
+		(uuid "0351ac24-5421-4f17-8e07-f644bc555d6f")
 	)
 	(text "So POPULATING THIS CHANNEL IS NOT JUST STUFFING R120/R121. It also needs an"
 		(exclude_from_sim no)
-		(at 284.48 167.64 0)
+		(at 284.48 182.88 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "9b84af1e-2598-4e9a-94c4-c5f7dd495493")
+		(uuid "03c72596-a5bf-4723-8cac-cf3290390e97")
 	)
-	(text "emitter of all four open-collector output transistors. Whatever pin 12 sits"
+	(text "unipolar-positive at this part. Channels 1-3 need nothing of the kind."
 		(exclude_from_sim no)
-		(at 284.48 35.56 0)
+		(at 284.48 193.04 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "9c927f8b-94a8-46c4-b474-17eaf4f3cdcd")
-	)
-	(text "and U11's SN74HCT541 inputs (likewise -0.5V) are both destroyed on first"
-		(exclude_from_sim no)
-		(at 284.48 71.12 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "9e26da8a-d577-4cd4-a8dd-d6e346ddc2f1")
-	)
-	(text "and it is this channel's own '+' source, permanently wired to pin 9. With V- ="
-		(exclude_from_sim no)
-		(at 284.48 132.08 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "a30846ae-b616-403a-9a8f-218b3dad5d7e")
-	)
-	(text "(V_signal*Rf + Vout*Rs)/(Rs+Rf). At the trip point V+ = V_DAC, so V_signal_trip"
-		(exclude_from_sim no)
-		(at 180.34 256.54 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "a385e66e-7f4f-40f6-8c6d-7195d80fd3f7")
-	)
-	(text "a 10k series resistor on populated channels -- see the hysteresis note below);"
-		(exclude_from_sim no)
-		(at 180.34 45.72 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "a4bea921-93e0-4500-afe2-382bbb613400")
-	)
-	(text "deliberate divider (A_MISC1's own source impedance, Task 10a's INA105 output,"
-		(exclude_from_sim no)
-		(at 180.34 386.08 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "a57d5158-2e7a-446c-86c8-b4f8b0ba2411")
-	)
-	(text "compared against, so a DGND-AGND offset never leaks into the threshold (+3V3"
-		(exclude_from_sim no)
-		(at 180.34 270.51 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "a9e47fa9-a26a-4908-804f-6ffd67b982e9")
-	)
-	(text "AGND this channel cannot threshold the negative half of its input: the DAC"
-		(exclude_from_sim no)
-		(at 284.48 137.16 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "aa29ad16-c279-4711-b5b4-926a4f245fe4")
-	)
-	(text "LM339 pin 12 is labelled 'V-'/negative supply, but it is ALSO the common"
-		(exclude_from_sim no)
-		(at 284.48 30.48 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "acc3adfa-de31-42cd-bac9-29d09f73da67")
+		(uuid "04e0cb2b-7855-4719-9fc7-bd73b01f58fd")
 	)
 	(text "is 3.3V and NOT 5V tolerant. Pulled to +5V, an open-collector HIGH would put 5V"
 		(exclude_from_sim no)
@@ -1922,497 +1102,17 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "af80dd23-00d2-47b5-ab88-ca8c96488a65")
+		(uuid "06030de7-6027-4d10-b2b7-644ed68d79b8")
 	)
-	(text "spec Sec.6.5). Fourth (A_MISC1) brought out, unpopulated -- see below."
+	(text "own u1_map -- but a chip's own VDD SOURCE and its own GND REFERENCE are"
 		(exclude_from_sim no)
-		(at 180.34 30.48 0)
+		(at 180.34 280.67 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "afccadea-d5d2-4cc7-ada7-f3abe89b3dba")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 284.48 162.56 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "b434c697-9c1f-42c3-800c-b9400d26e3e9")
-	)
-	(text "No series resistor is placed for this channel, unlike channels 1-3: with the"
-		(exclude_from_sim no)
-		(at 180.34 360.68 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "b567ec04-98c0-497b-a531-34e84242fe50")
-	)
-	(text "+5V, with a negative control that moves one to +5V and confirms it fires."
-		(exclude_from_sim no)
-		(at 180.34 181.61 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "b5c190c8-2e33-4036-8fac-cd9582b83e05")
-	)
-	(text "DAC-commanded value; k=0.01 keeps both comfortably inside the bring-up budget."
-		(exclude_from_sim no)
-		(at 180.34 302.26 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "bb95ea07-02f8-4ee3-a5ff-238d859a27b7")
-	)
-	(text "docstring for the full account, including how TI's own comparator-N numbering"
-		(exclude_from_sim no)
-		(at 180.34 426.72 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "bc452c87-b1e7-4d5c-a78f-49e5571dde2a")
-	)
-	(text "0-3.3V, all three POPULATED channels' sources are AGND-referenced and"
-		(exclude_from_sim no)
-		(at 284.48 101.6 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "bc6050f6-b94c-4617-879a-814c0528344b")
-	)
-	(text "resistor between each POPULATED channel's own source and the '+' node, upstream"
-		(exclude_from_sim no)
-		(at 180.34 226.06 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c007b160-15e5-494e-aee1-9bee22711b6d")
-	)
-	(text "LM339's own input voltage range (TI SLCS006Z abs max -0.3V..+36V referred to"
-		(exclude_from_sim no)
-		(at 284.48 147.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c045e895-e6ce-4bf2-a104-d42e2ae1ba5f")
-	)
-	(text "through their own RC anti-alias filter; A_ACC near-zero, an INA105's own"
-		(exclude_from_sim no)
-		(at 180.34 210.82 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c262e6ce-a8f7-48e5-ab35-bc4c44f83a87")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 361.95 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c312bd09-7a47-420b-8aee-e62bad98715c")
-	)
-	(text "-12V the real swing is 15.2V -> ~150mV band and ~118mV threshold offset (12%"
-		(exclude_from_sim no)
-		(at 284.48 81.28 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c32668cc-3faa-44a1-80fa-ec4e9feaaae4")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 295.91 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c3b288bf-c636-4d13-af3d-fd7f75c2da55")
-	)
-	(text "own choice, not fixed by the brief (which fixes only Rf=1M) -- a bigger series"
-		(exclude_from_sim no)
-		(at 180.34 292.1 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c6b86f0d-ca52-4bcd-bd1f-72db5e333295")
-	)
-	(text "configuration time, not in real time). RDY/BSY (EEPROM-write status) is"
-		(exclude_from_sim no)
-		(at 180.34 311.15 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c6e4a791-5b51-481c-9e66-3f1fe579b98b")
-	)
-	(text "= V_DAC*(1+k) - Vout*k, k=Rs/Rf=10k/1M=0.01. Rising (Vout~0V): 1.01*V_DAC."
-		(exclude_from_sim no)
-		(at 180.34 261.62 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "c9677c0f-9a10-45ce-a45d-6e9663664993")
-	)
-	(text "Math (comparator draws ~0 input current, so superposition applies): V+ ="
-		(exclude_from_sim no)
-		(at 180.34 251.46 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "cbbd4fc0-53cc-44b1-8dd4-e91868459ca6")
-	)
-	(text "independent choices, and the DAC's own local return is what sets where its"
-		(exclude_from_sim no)
-		(at 180.34 285.75 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "cbda1ce1-61ba-4ffc-8dd4-2ee480e7e6a8")
-	)
-	(text "channel, not a defect carried into the three primary ones."
-		(exclude_from_sim no)
-		(at 180.34 401.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "cc301520-fe67-4a25-87b0-56a51feb9172")
-	)
-	(text "Pulled to +3V3 the module path is safe BY CONSTRUCTION, and the task-PC path"
-		(exclude_from_sim no)
-		(at 180.34 120.65 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ceb5b2b7-7996-431e-88cb-309ed2733dd0")
-	)
-	(text "would only float the '+' input the moment someone stuffed the feedback alone --"
-		(exclude_from_sim no)
-		(at 180.34 370.84 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ceda23ed-0b94-46f2-81c4-ee2c4be47eef")
-	)
-	(text "resistor buys more hysteresis at the cost of more gain error against the"
-		(exclude_from_sim no)
-		(at 180.34 297.18 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d1613224-0ec3-422b-b4be-4604fb0e19e4")
-	)
-	(text "PIN MAP VERIFICATION, both parts, pin-by-pin against a real, current datasheet"
-		(exclude_from_sim no)
-		(at 180.34 411.48 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d1e8ee7a-d54e-4ef5-af5b-c198328d04c4")
-	)
-	(text "VOUTA/B/C/D -> PD1/PD2/ACC/MISC1's own threshold, in that order -- this"
-		(exclude_from_sim no)
-		(at 180.34 367.03 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d2ea1b67-ecce-45f2-ac73-26329f50cd0b")
-	)
-	(text "have been). A documented simplification for a secondary 'populate option'"
-		(exclude_from_sim no)
-		(at 180.34 396.24 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d3b37999-a50d-42c1-b4fe-716c6f39deaf")
-	)
-	(text "on a -12V V- the LOW level is ~-11.9V and every number here is wrong by 4x --"
-		(exclude_from_sim no)
-		(at 180.34 271.78 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d5217235-5620-4c34-bb79-fae1af6600d5")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 284.48 55.88 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d54468c1-d0fd-4907-8668-a0373ea5ccc3")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 35.56 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d5b14fb5-180a-4807-9a20-ec761a7fe649")
-	)
-	(text "mandatory' to be functionally true rather than topologically present only."
-		(exclude_from_sim no)
-		(at 180.34 241.3 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d5f6df7e-4107-405e-bbf7-54acd81409a2")
-	)
-	(text "Falling (Vout~3.3V): 1.01*V_DAC - 33mV. Vout~0V holds ONLY because V- = AGND;"
-		(exclude_from_sim no)
-		(at 180.34 266.7 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "d7ecf353-eab8-48d0-aae2-0c01f055777e")
-	)
-	(text "THRESHOLDS ARE I2C-DAC-SET, NOT TRIMPOTS (spec Sec.6.5): the accelerometer"
-		(exclude_from_sim no)
-		(at 180.34 245.11 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "da2bbff9-d18a-4f0c-884a-3b8fed14bd91")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 246.38 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "db1ef06d-21e3-4290-86e5-01e496098bb6")
-	)
-	(text "Every '+' (non-inverting) input takes its own channel's analog source (through"
-		(exclude_from_sim no)
-		(at 180.34 40.64 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "dc72b04c-e180-42bd-8274-5ebcc8b7c882")
-	)
-	(text "A_PD1->PD1_COMP, A_PD2->PD2_COMP, A_ACC->ACC_TRIG (Task 10a's own sources,"
-		(exclude_from_sim no)
-		(at 180.34 25.4 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "dd69fc55-326c-4352-ab13-eae4d3122a26")
-	)
-	(text "input reaching this sheet (spec Sec.6.1's board-wide +-5V analog convention),"
-		(exclude_from_sim no)
-		(at 284.48 127 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ddefcbb6-9ca1-42e8-800a-83c81e7afa5a")
-	)
-	(text "HIGH into that buffer. The 3.3V->5V up-shift happens there, in a buffer that"
-		(exclude_from_sim no)
-		(at 180.34 140.97 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "e1ddbb75-9631-4966-8d91-1bf8967a8c15")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 151.13 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "e7ddc096-0310-4a16-8a0a-b24596df10c5")
-	)
-	(text "at V_DAC = 1V, against a 2% bring-up acceptance criterion)."
-		(exclude_from_sim no)
-		(at 284.48 86.36 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "e81b0a55-e6e3-4a25-a302-d5182405bb65")
-	)
-	(text "SENSE=OUTPUT tie) -- the source dominates the node and the 1M feedback current"
-		(exclude_from_sim no)
-		(at 180.34 215.9 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "e8bf814a-da2b-438f-a943-15c422eef795")
-	)
-	(text "(TI SLCS006Z Table 5-1 for LM339; Microchip DS22187E page 2 for MCP4728), not"
-		(exclude_from_sim no)
-		(at 180.34 416.56 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "e9d7a81f-5d79-456a-a8ba-e1577d9aa3ec")
-	)
-	(text "MCP4728 quad 12-bit DAC, VDD=+3V3, VSS=AGND -- NOT DGND: this keeps the"
-		(exclude_from_sim no)
-		(at 180.34 260.35 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ec81d162-ba88-4889-9fd0-dac067f7fb83")
-	)
-	(text "per-bus sizing decision (plan.md's own control-usb-i2c step)."
-		(exclude_from_sim no)
-		(at 180.34 356.87 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ed050892-e0a6-4fc5-9560-79c82f033896")
-	)
-	(text "(inside the SAME test's own 'tracks within 2%' half). k=0.01 is this sheet's"
-		(exclude_from_sim no)
-		(at 180.34 287.02 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "edbdc55d-1b47-4fb8-901c-53da09f63e92")
-	)
-	(text "Comparators (Task 10d) -- one LM339 quad comparator. Three channels used:"
-		(exclude_from_sim no)
-		(at 180.34 20.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "edd7ae48-4ef7-4124-8c29-8d3e7dc89225")
-	)
-	(text "has nowhere to make a real difference. So this sheet ALSO inserts a 10k series"
-		(exclude_from_sim no)
-		(at 180.34 220.98 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "ef274110-baa7-4503-85a4-dee5d36df674")
-	)
-	(text "comparator outputs wire DIRECTLY to the sync module's own GPIO20/21/25, which"
-		(exclude_from_sim no)
-		(at 180.34 100.33 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "efe96680-395d-4d68-813d-33b9ef106a48")
-	)
-	(text "WHICH power net) and is found only by smoke on real hardware --"
-		(exclude_from_sim no)
-		(at 180.34 166.37 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "f435b93b-29ab-45fd-aafc-7424dbd8ccec")
-	)
-	(text "connections regardless of what else here is populated (the LM339 and MCP4728"
-		(exclude_from_sim no)
-		(at 180.34 330.2 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "f603f21f-2a77-4da4-b59a-6706ecfbd570")
-	)
-	(text ""
-		(exclude_from_sim no)
-		(at 180.34 406.4 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-		)
-		(uuid "f8059ca5-730b-406a-b72d-8bd48a031bdd")
+		(uuid "09365215-b8e0-4d17-9de0-f279dec5b11e")
 	)
 	(text ""
 		(exclude_from_sim no)
@@ -2422,57 +1122,147 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "f8203535-fbac-4d50-82e5-4c315f9e75de")
+		(uuid "095c42cb-f276-4f9b-b720-7adf145a17dd")
 	)
-	(text "its own 5V supply) -- a 3.3V high from this sheet still reads as a valid logic"
+	(text "still works: Task 8's own outbound SN74HCT541PW buffer runs on +5V, and"
 		(exclude_from_sim no)
-		(at 180.34 135.89 0)
+		(at 180.34 125.73 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "f82076bd-8414-439d-9f66-9eea79985b88")
+		(uuid "09bea067-bd7f-46a8-89ed-27bec356e040")
 	)
-	(text "input offset/attenuation network ahead of pin 9 that keeps A_MISC1"
+	(text "+5V, with a negative control that moves one to +5V and confirms it fires."
 		(exclude_from_sim no)
-		(at 284.48 172.72 0)
+		(at 180.34 181.61 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "f86f18d2-5ce2-4579-a3b1-020316a4ec2f")
+		(uuid "0a5c4922-e90d-47b1-9ad1-2abf01461da7")
 	)
-	(text "synchronized multi-channel update is needed for a threshold that changes at"
+	(text "assumed from the stock KiCad symbol alone -- see this generator's own module"
 		(exclude_from_sim no)
-		(at 180.34 306.07 0)
+		(at 180.34 452.12 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "f8c0caf2-a056-4ad6-8748-d99a49807843")
+		(uuid "0be6503f-f5da-41d6-99c8-02a2f2a4654c")
 	)
-	(text "feedback resistor ALSO DNP by default, a populated-but-orphaned series resistor"
+	(text "(inside the SAME test's own 'tracks within 2%' half). k=0.01 is this sheet's"
 		(exclude_from_sim no)
-		(at 180.34 365.76 0)
+		(at 180.34 287.02 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "fa6fa91e-fbff-48c3-bd36-18d3bd1ea8a7")
+		(uuid "0e5c9cec-2eeb-4415-a2c2-3b4e02986b94")
 	)
-	(text "already exists, not on this sheet."
+	(text "(V+ - 1.5V = 10.5V) above anything Task 10a's front ends deliver."
 		(exclude_from_sim no)
-		(at 180.34 146.05 0)
+		(at 284.48 111.76 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "fcf248e1-4df0-4c8b-9f68-e90136f1b9ca")
+		(uuid "1012e09a-6ce5-43fb-a921-3b82b19a10bc")
+	)
+	(text "and U11's SN74HCT541 inputs (likewise -0.5V) are both destroyed on first"
+		(exclude_from_sim no)
+		(at 284.48 71.12 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "123b43cf-4da9-4736-b053-9384460ddd58")
+	)
+	(text "half sits outside the LM339's own input range on every assembled board -- R190"
+		(exclude_from_sim no)
+		(at 180.34 375.92 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "137a4786-182c-4177-bbb1-d1bc4035be58")
+	)
+	(text "A 1M feedback resistor alone, with '+' driven ONLY by the analog source, gives"
+		(exclude_from_sim no)
+		(at 180.34 195.58 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "17f73d33-b1b4-477a-861a-bd9cf00b89d7")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 295.91 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "185c18d7-0508-4023-a05f-1e17db0e8266")
+	)
+	(text "R190 (10k, POPULATED -- see the fourth-channel note, left column). With V- ="
+		(exclude_from_sim no)
+		(at 284.48 137.16 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "1e00ea30-01fe-4970-b499-a44e654c97b0")
+	)
+	(text "'-' wired directly to the DAC's own VOUTD -- both real, permanent connections"
+		(exclude_from_sim no)
+		(at 180.34 325.12 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "1fc209b6-ea5e-422c-8396-bf2531502339")
+	)
+	(text "input reaching this sheet (spec Sec.6.1's board-wide +-5V analog convention),"
+		(exclude_from_sim no)
+		(at 284.48 127 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "219dfa1a-b516-409a-9c3d-0f684d2f3ae5")
+	)
+	(text "LM339 pin 12 is labelled 'V-'/negative supply, but it is ALSO the common"
+		(exclude_from_sim no)
+		(at 284.48 30.48 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "21dfa5b1-cc15-44be-aa6f-dbc45f5849ff")
+	)
+	(text "resistor between each POPULATED channel's own source and the '+' node, upstream"
+		(exclude_from_sim no)
+		(at 180.34 226.06 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "225172d3-79ce-4beb-a8b5-6484d220a4ea")
 	)
 	(text "and an unrecorded task-gating parameter is a reproducibility hazard. One"
 		(exclude_from_sim no)
@@ -2482,11 +1272,1377 @@
 				(size 1.27 1.27)
 			)
 		)
-		(uuid "fd756825-6f51-4e97-974c-5a335caa68f6")
+		(uuid "22b5ee41-2737-49ca-b476-ce12e9f0062d")
+	)
+	(text "analog-frontend.kicad_sch's own INA105 (U28) output, permanently wired here and"
+		(exclude_from_sim no)
+		(at 180.34 360.68 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "23e10f13-f4bb-4dc6-bf2f-3fd72d2a1798")
+	)
+	(text "configuration time, not in real time). RDY/BSY (EEPROM-write status) is"
+		(exclude_from_sim no)
+		(at 180.34 311.15 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "25f8de00-16f1-413b-918b-97bd34c5baf3")
+	)
+	(text "per comparator is not implemented here, exactly as the brief specifies."
+		(exclude_from_sim no)
+		(at 180.34 387.35 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "316e0e9a-85e8-4c63-8303-cb95faeb4d59")
+	)
+	(text "All three outputs (PD1_COMP/PD2_COMP/ACC_TRIG) reach the sync module's own GPIO"
+		(exclude_from_sim no)
+		(at 180.34 71.12 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "32a50c45-fcd7-4587-a6bb-e50c4c9c6853")
+	)
+	(text "WHICH power net) and is found only by smoke on real hardware --"
+		(exclude_from_sim no)
+		(at 180.34 166.37 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "330bda96-e667-49e5-b260-2e0cf336c687")
+	)
+	(text "74HCT's own input threshold is TTL-compatible (~2.0V min, not a fraction of"
+		(exclude_from_sim no)
+		(at 180.34 130.81 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "37ba494c-701d-4438-ac22-462c48fe8976")
+	)
+	(text "CAVEAT -- THE 4TH (DNP) CHANNEL, A_MISC1: A_MISC1 is the ONE +-5V-capable"
+		(exclude_from_sim no)
+		(at 284.48 121.92 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3801d448-6058-4065-9e24-cfcdcbb68c8a")
+	)
+	(text "HIGH into that buffer. The 3.3V->5V up-shift happens there, in a buffer that"
+		(exclude_from_sim no)
+		(at 180.34 140.97 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "38d754dc-2c8a-4a33-bb8d-9f94dabe63fd")
+	)
+	(text "+3V3 sources ~0.33mA against a ~16mA sink -- the transistor stays saturated)."
+		(exclude_from_sim no)
+		(at 284.48 50.8 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "394b6fab-d86a-45b2-9a26-485c2ceb12b2")
+	)
+	(text "V_CEsat ~ -11.9V, not 0V, and it genuinely settles there (a 10k pull-up to"
+		(exclude_from_sim no)
+		(at 284.48 45.72 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "396c98f2-12ba-460e-8fff-62488910a0a5")
+	)
+	(text "MCP4728 quad 12-bit DAC, VDD=+3V3, VSS=AGND -- NOT DGND: this keeps the"
+		(exclude_from_sim no)
+		(at 180.34 260.35 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3b1a1b71-2b6a-4c10-b625-53227841e300")
+	)
+	(text "AGND this channel cannot threshold the negative half of its input: the DAC"
+		(exclude_from_sim no)
+		(at 284.48 142.24 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3d35e81c-1a8c-4d55-8ffc-2327afcbaf92")
+	)
+	(text "Math (comparator draws ~0 input current, so superposition applies): V+ ="
+		(exclude_from_sim no)
+		(at 180.34 251.46 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3d44e2c3-6c94-4a8a-a169-0813174f6e2e")
+	)
+	(text "spec Sec.6.5). Fourth (A_MISC1) brought out, unpopulated -- see below."
+		(exclude_from_sim no)
+		(at 180.34 30.48 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3ec11780-20b9-4027-8284-76f2f8c833da")
+	)
+	(text "(taskpc-digital.kicad_sch, Task 8) -- confirmed by reading both sheets' own"
+		(exclude_from_sim no)
+		(at 180.34 86.36 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "3ef1c9fd-83f1-45b6-9035-452c11420e8f")
+	)
+	(text "unipolar-positive, and V+ = +12V still puts the input common-mode ceiling"
+		(exclude_from_sim no)
+		(at 284.48 106.68 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "41b3fda3-34a7-4ec8-b533-960dffeac39c")
+	)
+	(text "resistor buys more hysteresis at the cost of more gain error against the"
+		(exclude_from_sim no)
+		(at 180.34 297.18 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "41f79965-fdcc-4c5a-816f-6c4b729815c9")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 246.38 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "42f74b69-0a16-4923-9347-4123a3eb84d5")
+	)
+	(text "protection in between) and the task PC's own outbound buffer"
+		(exclude_from_sim no)
+		(at 180.34 81.28 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "4454b269-dcef-4de6-a1da-1a7cb2579ce4")
+	)
+	(text "on a -12V V- the LOW level is ~-11.9V and every number here is wrong by 4x --"
+		(exclude_from_sim no)
+		(at 180.34 271.78 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "45cdd41a-211c-48dc-8bd1-f423c4f039ae")
+	)
+	(text "DNP feedback and pull-up still need stuffing, AND (module docstring / note 6)"
+		(exclude_from_sim no)
+		(at 180.34 416.56 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "49722a6f-4250-4a62-ad19-e1fe5f6ca986")
+	)
+	(text "(all three populated ones AND the fourth, DNP one) lands on +3V3 and never"
+		(exclude_from_sim no)
+		(at 180.34 176.53 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "4a6a0744-618e-4b69-8da0-6e98804f5e1c")
+	)
+	(text "FOURTH CHANNEL (A_MISC1): '+' reaches A_MISC1 through R190 (10k, POPULATED),"
+		(exclude_from_sim no)
+		(at 180.34 320.04 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "4d2b2ad7-7d80-4cd9-85bc-6998ecd9771d")
+	)
+	(text "PD1_COMP/PD2_COMP/ACC_TRIG carry that level with NO series resistance and NO"
+		(exclude_from_sim no)
+		(at 284.48 60.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "4dc2f416-cba8-41c7-98e7-295bbe8b51ae")
+	)
+	(text "check_breakout_comparators_netlist.py asserts every one of the four pull-ups"
+		(exclude_from_sim no)
+		(at 180.34 171.45 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "51c09cd9-df15-430c-b4e8-d1da44baf170")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 321.31 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "53886e73-92c0-428a-8213-eda3bf803fb0")
+	)
+	(text "positive at this part -- R190 protects the part from the live net that is"
+		(exclude_from_sim no)
+		(at 180.34 426.72 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "58517ffd-d39e-4253-a69b-27beebbf9092")
+	)
+	(text "fed-back output swing, not named in the brief but necessary for 'hysteresis is"
+		(exclude_from_sim no)
+		(at 180.34 236.22 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "58dc05ba-a5f9-4711-8534-57bd500528b0")
+	)
+	(text "regardless of what else here is populated (the LM339 and MCP4728 packages are"
+		(exclude_from_sim no)
+		(at 180.34 330.2 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "5c9544da-83bc-44bb-be6d-d77b7d5bbd75")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 151.13 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "5e05df74-add2-4f6b-a461-cba20865721c")
+	)
+	(text "output voltage actually lands)."
+		(exclude_from_sim no)
+		(at 180.34 290.83 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "5e52c032-926b-4038-8cba-8e07800eb819")
+	)
+	(text "(never +5V -- see below) and fed back 1M to the '+' node for hysteresis."
+		(exclude_from_sim no)
+		(at 180.34 60.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "5ec6a1fb-4164-49c9-945c-f4f3aae0f442")
+	)
+	(text "R190 does not by itself make this channel a working threshold comparator: the"
+		(exclude_from_sim no)
+		(at 180.34 411.48 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "5f8a17eb-8fa0-46ee-8827-16d5ddb5f2d4")
+	)
+	(text "THRESHOLDS ARE I2C-DAC-SET, NOT TRIMPOTS (spec Sec.6.5): the accelerometer"
+		(exclude_from_sim no)
+		(at 180.34 245.11 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "6003c104-33bb-49f2-af04-fe213c293786")
+	)
+	(text "DAC-commanded value; k=0.01 keeps both comfortably inside the bring-up budget."
+		(exclude_from_sim no)
+		(at 180.34 302.26 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "62f002a7-5d82-4f48-a571-25fc4df47ed8")
+	)
+	(text "an input offset/attenuation network ahead of pin 9 keeping A_MISC1 unipolar-"
+		(exclude_from_sim no)
+		(at 180.34 421.64 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "654e5dc9-62d9-4b9a-acfd-c2470610c328")
+	)
+	(text "avoid. Recorded here and in hardware/README.md for Task 12, which drives this"
+		(exclude_from_sim no)
+		(at 180.34 341.63 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "65e72ee4-a5d0-42e2-a110-09d3a5a784fc")
+	)
+	(text "mandatory' to be functionally true rather than topologically present only."
+		(exclude_from_sim no)
+		(at 180.34 241.3 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "670659b0-4996-4032-ad9a-8316d627c7b2")
+	)
+	(text "a 10k series resistor on populated channels -- see the hysteresis note below);"
+		(exclude_from_sim no)
+		(at 180.34 45.72 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "67e75e9f-2115-4519-8374-ee2117eff480")
+	)
+	(text "V- = AGND (see the supply-rail note, right-hand column), A_MISC1's negative"
+		(exclude_from_sim no)
+		(at 180.34 370.84 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "683ab16e-dd30-403c-8917-e2e7b2b7bbb0")
+	)
+	(text "its own 5V supply) -- a 3.3V high from this sheet still reads as a valid logic"
+		(exclude_from_sim no)
+		(at 180.34 135.89 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "6841e417-c85d-43af-933a-981feea1d807")
+	)
+	(text "does not widen the LM339's own input range, which stays a real limit."
+		(exclude_from_sim no)
+		(at 284.48 172.72 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "6849bac5-3204-4958-97b2-c2264c91905a")
+	)
+	(text "compared against, so a DGND-AGND offset never leaks into the threshold (+3V3"
+		(exclude_from_sim no)
+		(at 180.34 270.51 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "6af2c3d2-f76a-4b82-8220-755670ae80b9")
+	)
+	(text "bus. I2C_SDA/I2C_SCL exposed as global labels; NO bus pull-ups placed on THIS"
+		(exclude_from_sim no)
+		(at 180.34 346.71 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "71cb3c0c-913a-485c-8a18-e23d7284b371")
+	)
+	(text "R190 IS POPULATED, UNLIKE THE PULL-UP/FEEDBACK, BECAUSE A_MISC1 IS LIVE: it is"
+		(exclude_from_sim no)
+		(at 180.34 355.6 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "734a65a0-ccb3-487c-81ad-cd7d090f982b")
+	)
+	(text "sch.next_ref) specifically so it does not renumber opto-ni/opto-intan's own"
+		(exclude_from_sim no)
+		(at 180.34 396.24 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "73d3b152-5cb4-4293-ac65-c3a7d926dc0c")
+	)
+	(text "already exists, not on this sheet."
+		(exclude_from_sim no)
+		(at 180.34 146.05 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "74235d43-2d62-4c50-8275-054fa5313c3c")
+	)
+	(text "four VOUT channels, direct wire. Output is open-collector, pulled up to +3V3"
+		(exclude_from_sim no)
+		(at 180.34 55.88 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "755ffd14-e4af-48f2-9ab4-f254053f8ad1")
+	)
+	(text "both already stuffed for the other 3 channels). Only the pull-up (10k) and the"
+		(exclude_from_sim no)
+		(at 180.34 335.28 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "759ac0a5-bf4b-4f89-b8f0-cd8e0abc2e67")
+	)
+	(text "= V_DAC*(1+k) - Vout*k, k=Rs/Rf=10k/1M=0.01. Rising (Vout~0V): 1.01*V_DAC."
+		(exclude_from_sim no)
+		(at 180.34 261.62 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "761fc06c-90b7-4dcb-adb8-4c0ba6159d36")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 190.5 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7739a075-e1c0-4b25-9321-43c404efb208")
+	)
+	(text "(TI SLCS006Z Table 5-1 for LM339; Microchip DS22187E page 2 for MCP4728), not"
+		(exclude_from_sim no)
+		(at 180.34 447.04 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "785391d3-9d43-47e6-8f79-55a6837fe69b")
+	)
+	(text "comparator outputs wire DIRECTLY to the sync module's own GPIO20/21/25, which"
+		(exclude_from_sim no)
+		(at 180.34 100.33 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7be366ee-f689-4ea6-a607-02f34bb6ecf3")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 436.88 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7c3ac8f5-33e5-46d5-87c4-6c167a684362")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 284.48 116.84 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7d2d006b-f1d9-4445-a6d4-e8da1d9481c1")
+	)
+	(text "through their own RC anti-alias filter; A_ACC near-zero, an INA105's own"
+		(exclude_from_sim no)
+		(at 180.34 210.82 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7d51c171-34b9-4eb0-ad81-c971e6d8ddb1")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 284.48 91.44 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "7f474a7c-5ba2-48e8-b7c7-8521c816a44a")
+	)
+	(text "VOUTA/B/C/D -> PD1/PD2/ACC/MISC1's own threshold, in that order -- this"
+		(exclude_from_sim no)
+		(at 180.34 367.03 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "806a8ccc-9a86-4d42-931e-3ea706f05774")
+	)
+	(text "every '-' (inverting) input takes a fixed threshold from one of the MCP4728's"
+		(exclude_from_sim no)
+		(at 180.34 50.8 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "81a467b4-4e08-42e9-b6c7-b21c8af4b762")
+	)
+	(text "hysteresis that rounds to zero: every Task 10a front end reaching this sheet is"
+		(exclude_from_sim no)
+		(at 180.34 200.66 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "83054b32-ec62-4a70-8f0e-eaffa81155bb")
+	)
+	(text "to every ADG1206 mux's own S14, whether or not this channel is ever used. With"
+		(exclude_from_sim no)
+		(at 180.34 365.76 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "8592be31-23a0-43f4-83ad-6a677d5e7a9f")
+	)
+	(text "synchronized multi-channel update is needed for a threshold that changes at"
+		(exclude_from_sim no)
+		(at 180.34 306.07 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "8865f813-07e8-4780-b8db-7d05df6980da")
+	)
+	(text "hysteresis feedback (1M) are DNP -- real land patterns on the PCB (populating"
+		(exclude_from_sim no)
+		(at 180.34 340.36 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "88b933f6-86ce-4026-8f84-96d77e699059")
+	)
+	(text "input offset/attenuation network ahead of pin 9 that keeps A_MISC1"
+		(exclude_from_sim no)
+		(at 284.48 187.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "88cd2d94-760d-4766-9f30-2f66f1881bc3")
+	)
+	(text "LM339's own input voltage range (TI SLCS006Z abs max -0.3V..+36V referred to"
+		(exclude_from_sim no)
+		(at 284.48 152.4 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "89073f1c-e2a3-4468-82c6-e04031c34ee2")
+	)
+	(text "because this design places only ONE MCP4728 on the bus -- no collision to"
+		(exclude_from_sim no)
+		(at 180.34 336.55 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "8aa82b39-569f-446e-a62b-fce0c242ec7f")
+	)
+	(text "SUPPLY: +12V AND AGND. THIS PART DOES NOT USE -12V, AND MUST NOT."
+		(exclude_from_sim no)
+		(at 284.48 20.32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "8f647a42-1793-4c1d-b381-d4703e408cad")
+	)
+	(text "has nowhere to make a real difference. So this sheet ALSO inserts a 10k series"
+		(exclude_from_sim no)
+		(at 180.34 220.98 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "8fa76fe1-3c28-4c93-ac59-4e3d8d99e6a7")
+	)
+	(text "PIN MAP VERIFICATION, both parts, pin-by-pin against a real, current datasheet"
+		(exclude_from_sim no)
+		(at 180.34 441.96 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "907772a6-7887-4f36-8ead-fdf94a7d5321")
+	)
+	(text "Falling (Vout~3.3V): 1.01*V_DAC - 33mV. Vout~0V holds ONLY because V- = AGND;"
+		(exclude_from_sim no)
+		(at 180.34 266.7 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "9445f1a5-4977-4ec4-89de-1db3d8b75731")
+	)
+	(text "at V_DAC = 1V, against a 2% bring-up acceptance criterion)."
+		(exclude_from_sim no)
+		(at 284.48 86.36 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "95e9c98c-014e-4889-8857-aaad074a916f")
+	)
+	(text "independent choices, and the DAC's own local return is what sets where its"
+		(exclude_from_sim no)
+		(at 180.34 285.75 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "975afaeb-a038-4112-9cad-ba1f32930d98")
+	)
+	(text "-12V the real swing is 15.2V -> ~150mV band and ~118mV threshold offset (12%"
+		(exclude_from_sim no)
+		(at 284.48 81.28 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "9de85afd-d4e6-4761-97b9-9604a9996e12")
+	)
+	(text "own note that ASYMMETRIC make/break thresholds would cost a SECOND DAC channel"
+		(exclude_from_sim no)
+		(at 180.34 382.27 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "9f92031c-420a-460c-97f2-eef283ec2683")
+	)
+	(text "clamp anywhere: J7 pins 38/40/22 (GPIO20/21/25, pad absolute minimum -0.5V)"
+		(exclude_from_sim no)
+		(at 284.48 66.04 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "9ff130b6-570a-4cc5-98d6-901651ab8948")
+	)
+	(text "genuinely unused here, no_connect."
+		(exclude_from_sim no)
+		(at 180.34 316.23 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "a0163929-0fd3-46da-b04d-62dc54ebface")
+	)
+	(text "threshold in the SAME ground domain as the AGND-referenced signal it is"
+		(exclude_from_sim no)
+		(at 180.34 265.43 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "a1584eab-d3c2-4e6f-857b-7e3e7aff9fa1")
+	)
+	(text "differs from (but electrically agrees with) KiCad's own unit index."
+		(exclude_from_sim no)
+		(at 180.34 462.28 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "a207432d-5bcc-457f-8126-19e625b6f215")
+	)
+	(text "already-committed resistors -- see CHANNEL4_SERIES_REF's own comment."
+		(exclude_from_sim no)
+		(at 180.34 401.32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "a4a43bdf-0a85-42db-9bbb-72317bd468f4")
+	)
+	(text "A_PD1->PD1_COMP, A_PD2->PD2_COMP, A_ACC->ACC_TRIG (Task 10a's own sources,"
+		(exclude_from_sim no)
+		(at 180.34 25.4 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "a8c8049f-6cf4-481d-bd92-b3d25aaf8193")
+	)
+	(text "power-up. The hysteresis math below also assumes a 0->3.3V output swing; on"
+		(exclude_from_sim no)
+		(at 284.48 76.2 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "aa2f1179-a445-4fa6-bc70-39d93a23e063")
+	)
+	(text "emitter of all four open-collector output transistors. Whatever pin 12 sits"
+		(exclude_from_sim no)
+		(at 284.48 35.56 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "aa47375b-5e17-467a-b7e7-8792ef908b1e")
+	)
+	(text "cannot command a negative threshold, and A_MISC1 below AGND is outside the"
+		(exclude_from_sim no)
+		(at 284.48 147.32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ac916c91-2f2f-4946-acb4-4b3a1e2003c8")
+	)
+	(text "and it is this channel's own '+' source, permanently wired to pin 9 through"
+		(exclude_from_sim no)
+		(at 284.48 132.08 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ace0f502-6bbb-4423-9d26-cf9b5b455483")
+	)
+	(text "Nothing is lost by V- = AGND: the MCP4728 sits on +3V3 so every threshold is"
+		(exclude_from_sim no)
+		(at 284.48 96.52 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ad0ee5c2-6f8a-4ce1-8a8f-fc05082d05ef")
+	)
+	(text "Comparators (Task 10d) -- one LM339 quad comparator. Three channels used:"
+		(exclude_from_sim no)
+		(at 180.34 20.32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "af41eb93-c661-4268-9450-7512b909c61a")
+	)
+	(text "a bare threshold on a slow display transition emits a burst of edges; the"
+		(exclude_from_sim no)
+		(at 180.34 175.26 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b1fc627f-6c03-4d22-a77b-14d6657a81fd")
+	)
+	(text "itself is this project's own DGND-referenced logic rail, gen_breakout_power.py's"
+		(exclude_from_sim no)
+		(at 180.34 275.59 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b2e14258-0903-423d-8681-d8db8c690c3a")
+	)
+	(text "wire into the input protection diode. Matches R111/R114/R117 on channels 1-3"
+		(exclude_from_sim no)
+		(at 180.34 386.08 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b3b23068-9364-4617-bfbc-415c6a24e8af")
+	)
+	(text "committed source before writing this one, not assumed."
+		(exclude_from_sim no)
+		(at 180.34 91.44 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b6a1dff2-17b4-4d70-bbfd-c4929305a27c")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 35.56 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "b7dd6d8f-9965-4b9e-969b-a9f139f89efe")
+	)
+	(text "0-3.3V, all three POPULATED channels' sources are AGND-referenced and"
+		(exclude_from_sim no)
+		(at 284.48 101.6 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "bd2fec84-4e59-46bc-9957-5b55522c58f6")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 66.04 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "bd55386c-2fb3-4ac0-a254-0d9c1d6b8ae8")
+	)
+	(text "-0.3V that Task 10a's own current-limited INA105 output cannot exceed). R190"
+		(exclude_from_sim no)
+		(at 284.48 162.56 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "be4806b4-8413-458b-ac25-3ce97f6debbb")
+	)
+	(text "This is exactly the class of error that passes kicad-cli sch erc (a resistor"
+		(exclude_from_sim no)
+		(at 180.34 156.21 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c2551f78-0e48-4c7d-8c2b-e126602be83b")
+	)
+	(text "LDAC tied to AGND (permanently asserted -- immediate per-write update; no"
+		(exclude_from_sim no)
+		(at 180.34 300.99 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c5671fff-6dde-49d4-9067-0837767444ec")
+	)
+	(text "Pulled to +3V3 the module path is safe BY CONSTRUCTION, and the task-PC path"
+		(exclude_from_sim no)
+		(at 180.34 120.65 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c5d6cdac-7c4d-4165-b50d-dd8d6f20123b")
+	)
+	(text "PULL-UPS GO TO +3V3, NEVER +5V -- THE DESTROY-HARDWARE CONSTRAINT. All three"
+		(exclude_from_sim no)
+		(at 180.34 95.25 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c708c485-7781-41d1-84f6-c4f229054ede")
+	)
+	(text "threshold in particular is a behavioural parameter that gates task progression,"
+		(exclude_from_sim no)
+		(at 180.34 250.19 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c8c34945-9986-4b8d-8b47-adb5a8ea3fd1")
+	)
+	(text "chatters across a bare threshold continuously."
+		(exclude_from_sim no)
+		(at 180.34 185.42 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "c94f3429-e13f-439a-9f96-fd879f1cc5bf")
+	)
+	(text "them later is an assembly step, not a respin), just not stuffed by default."
+		(exclude_from_sim no)
+		(at 180.34 345.44 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "cb33fdd9-e96b-4359-9fee-56de5148ea5a")
+	)
+	(text "a comparatively hard, low-impedance node next to 1M (A_PD1/A_PD2 ~1.6k Thevenin"
+		(exclude_from_sim no)
+		(at 180.34 205.74 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "cb7986b4-b606-4e38-87db-71bad6c5f431")
+	)
+	(text "bounds the resulting fault current to ~0.43mA on every assembled board; it"
+		(exclude_from_sim no)
+		(at 284.48 167.64 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "d251c33c-8370-486a-b6d6-890c6cf4c876")
+	)
+	(text "not hardware-pin-set -- this part has no ADDR pins at all). Kept at default"
+		(exclude_from_sim no)
+		(at 180.34 331.47 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "d36abfde-3095-4c7e-a586-ea3fc156cfb3")
+	)
+	(text "already there, it does not populate the channel."
+		(exclude_from_sim no)
+		(at 180.34 431.8 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "d3750643-4ff5-4900-9ee5-1a48cc97753e")
+	)
+	(text "SENSE=OUTPUT tie) -- the source dominates the node and the 1M feedback current"
+		(exclude_from_sim no)
+		(at 180.34 215.9 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "d3f4ab25-af38-4978-8a9e-4e6f154a53a1")
+	)
+	(text "sheet's own declared, arbitrary-but-fixed channel assignment (no datasheet"
+		(exclude_from_sim no)
+		(at 180.34 372.11 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "dc59a0f6-74fa-4515-a6b5-71f01deec2d3")
+	)
+	(text "per-bus sizing decision (plan.md's own control-usb-i2c step)."
+		(exclude_from_sim no)
+		(at 180.34 356.87 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "e0feb6ac-f423-4587-aec5-e67d0220df30")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 350.52 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "e278664c-f489-4f00-a5c7-e4a733685875")
+	)
+	(text "Every '+' (non-inverting) input takes its own channel's analog source (through"
+		(exclude_from_sim no)
+		(at 180.34 40.64 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "e31d8156-0075-4c24-b9fd-b3774fecc2c3")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 115.57 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "e87d3e1e-fb2a-47bf-a257-029aeeb26019")
+	)
+	(text "on IS this sheet's own output LOW level: on -12V an output LOW is V- +"
+		(exclude_from_sim no)
+		(at 284.48 40.64 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "e937e5b3-a095-4a4d-bdaa-5015b43235fc")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 406.4 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ea1815e7-5533-4fd1-a12c-d7a388178195")
+	)
+	(text "HYSTERESIS IS MANDATORY, for two reasons (spec Sec.6.5): a photodiode crossing"
+		(exclude_from_sim no)
+		(at 180.34 170.18 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "eac5e288-2299-43c1-b565-9f48eaffdd7a")
+	)
+	(text "to a valid, correctly-typed power net is not an ERC violation regardless of"
+		(exclude_from_sim no)
+		(at 180.34 161.29 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "eb8e5745-c291-4155-b2c5-087236a05db7")
+	)
+	(text "docstring for the full account, including how TI's own comparator-N numbering"
+		(exclude_from_sim no)
+		(at 180.34 457.2 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ed64159b-bc3b-4a29-880c-ba975c658f22")
+	)
+	(text "fixes it). ONE DAC channel per comparator, symmetric threshold -- plan.md's"
+		(exclude_from_sim no)
+		(at 180.34 377.19 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "ee25244a-adf6-484c-9c00-2d1f6b489136")
+	)
+	(text "see the supply-rail note (right-hand column). ~33mV hysteresis band (comfortably"
+		(exclude_from_sim no)
+		(at 180.34 276.86 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f326da7d-e72d-4919-a530-f56dd66da0d6")
+	)
+	(text "accelerometer's own motion-energy signal is noisy and slowly varying, and"
+		(exclude_from_sim no)
+		(at 180.34 180.34 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f343e693-3c1a-44b7-9365-643f818fa726")
+	)
+	(text "own choice, not fixed by the brief (which fixes only Rf=1M) -- a bigger series"
+		(exclude_from_sim no)
+		(at 180.34 292.1 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f4c1ba5a-331b-4d6c-8e9e-6432dc03560e")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 284.48 177.8 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f4ca6c37-3ace-4e4b-8c3a-938d72c1ad65")
+	)
+	(text "I2C address: 0x60, the factory default (address bits are EEPROM-programmable,"
+		(exclude_from_sim no)
+		(at 180.34 326.39 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f4cb1511-9b71-430b-b61e-2aa05ab3ac71")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 284.48 55.88 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "f690ef36-f63b-45a2-a0ab-14f70e69adf0")
+	)
+	(text "bench-measurable -- plan.md's own bring-up test 7), ~1% systematic gain error"
+		(exclude_from_sim no)
+		(at 180.34 281.94 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fc741de9-d327-4aa2-a7b4-739392953ba5")
+	)
+	(text "sheet -- Task 12 owns the bus master and, with it, the one-set-of-pull-ups-"
+		(exclude_from_sim no)
+		(at 180.34 351.79 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fcaf5970-d65e-431d-b2b4-f7c38b81897e")
+	)
+	(text "straight onto an unprotected 3.3V input and destroy the module."
+		(exclude_from_sim no)
+		(at 180.34 110.49 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fcb637e3-109d-4a31-9007-ee6dfe592395")
+	)
+	(text "(V_signal*Rf + Vout*Rs)/(Rs+Rf). At the trip point V+ = V_DAC, so V_signal_trip"
+		(exclude_from_sim no)
+		(at 180.34 256.54 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fd11386b-4174-44fb-ae26-b42cb88a2a27")
+	)
+	(text ""
+		(exclude_from_sim no)
+		(at 180.34 361.95 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fe7b597c-118c-4ea2-8c9f-79f2eca6ec82")
+	)
+	(text "bounds the resulting fault current to ~0.43mA instead of leaving pin 9 a bare"
+		(exclude_from_sim no)
+		(at 180.34 381 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fec84df7-dde8-4fde-8eba-aaee79c54e44")
+	)
+	(text "exactly (same value, same role); its own refdes is minted out of band (not"
+		(exclude_from_sim no)
+		(at 180.34 391.16 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+		)
+		(uuid "fef91e39-af73-46cd-a8b4-5ec4fe44a96a")
 	)
 	(no_connect
 		(at 59.69 127)
-		(uuid "07b0b051-ac0f-48e1-bce2-422fe3c158cc")
+		(uuid "0576cdf9-a582-4448-b98b-3c3fcf3cecb4")
+	)
+	(global_label "PD2_COMP"
+		(shape bidirectional)
+		(at 124.46 49.53 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "00ae9222-0e95-4985-8456-b3151b06687f")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 49.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "AGND"
+		(shape bidirectional)
+		(at 59.69 156.21 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "011bf33c-ab3c-407f-8c60-8b574456937c")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 59.69 156.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD1_COMP_FB"
+		(shape bidirectional)
+		(at 100.33 24.13 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "06f1f16b-82ad-4eeb-a874-d72771e20898")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 24.13 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 	)
 	(global_label "+12V"
 		(shape bidirectional)
@@ -2497,7 +2653,7 @@
 			)
 			(justify left)
 		)
-		(uuid "1052a0eb-371c-4107-aee6-2ada7d92c843")
+		(uuid "1c2b78d0-301b-4961-a2ac-b3cad8e963d7")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 72.39 139.7 0)
 			(hide yes)
@@ -2510,18 +2666,18 @@
 			)
 		)
 	)
-	(global_label "PD2_COMP_THR"
+	(global_label "A_MISC1_COMP_FB"
 		(shape bidirectional)
-		(at 67.31 48.26 0)
+		(at 44.45 100.33 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "10eac1c8-eeec-4da6-af6d-d978dce771c7")
+		(uuid "1df3bd10-b368-4fa4-aa43-e24f6730318a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 48.26 0)
+			(at 44.45 100.33 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2532,18 +2688,18 @@
 			)
 		)
 	)
-	(global_label "+12V"
+	(global_label "ACC_TRIG_THR"
 		(shape bidirectional)
-		(at 59.69 138.43 0)
+		(at 67.31 73.66 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "1ed98d9f-d6a0-4f78-8c12-d735740b3bd0")
+		(uuid "233a8ca9-237d-476f-b695-ed8084297746")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 138.43 0)
+			(at 67.31 73.66 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2554,18 +2710,150 @@
 			)
 		)
 	)
-	(global_label "A_PD2"
+	(global_label "+3V3"
 		(shape bidirectional)
-		(at 44.45 41.91 0)
+		(at 59.69 118.11 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "215d1889-dbc5-4f84-a785-0a38115dc95f")
+		(uuid "237c4cfa-26f7-4944-9553-d8cca7ff8438")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 44.45 41.91 0)
+			(at 59.69 118.11 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP_FB"
+		(shape bidirectional)
+		(at 100.33 100.33 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "251bd85a-90da-4273-9e51-08612fe76355")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 100.33 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "+3V3"
+		(shape bidirectional)
+		(at 74.93 114.3 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "294c7d02-a297-464e-b3df-f0cc1d8eeebd")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 74.93 114.3 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "AGND"
+		(shape bidirectional)
+		(at 59.69 125.73 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "2e88cd6c-7db7-4e1a-a9f5-1d73af0a2e88")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 59.69 125.73 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "+3V3"
+		(shape bidirectional)
+		(at 124.46 92.71 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "33398bdc-7d54-4e64-b861-e2da4df8468f")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 92.71 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "AGND"
+		(shape bidirectional)
+		(at 72.39 154.94 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "3558a849-9fd3-4481-be5b-5030f58ff2cd")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 72.39 154.94 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "AGND"
+		(shape bidirectional)
+		(at 59.69 124.46 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "3921ac19-95f7-4a4f-bf3e-ad729ea032c6")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 59.69 124.46 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2585,31 +2873,9 @@
 			)
 			(justify left)
 		)
-		(uuid "2765ba7f-eaac-449a-ac20-0a9d2d1b2b22")
+		(uuid "398bfccb-185f-4e9a-9268-4dd6497ea6a8")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 121.92 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "I2C_SCL"
-		(shape bidirectional)
-		(at 59.69 119.38 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "2ed6e53c-384f-4f7a-9872-4053f904bf9f")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 119.38 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2629,7 +2895,7 @@
 			)
 			(justify left)
 		)
-		(uuid "366b2d3c-88e5-4d8e-8486-bf31cdb297f9")
+		(uuid "3ea51c48-d763-4a7a-9929-b02b63b16693")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 127 0)
 			(hide yes)
@@ -2642,18 +2908,414 @@
 			)
 		)
 	)
-	(global_label "AGND"
+	(global_label "PD1_COMP_THR"
 		(shape bidirectional)
-		(at 74.93 132.08 0)
+		(at 67.31 22.86 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "39d8a1d8-6d79-4811-b171-a21e50cb7c25")
+		(uuid "40cf590c-45bc-475f-8b46-88efc5c5b73f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 74.93 132.08 0)
+			(at 67.31 22.86 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_PD2"
+		(shape bidirectional)
+		(at 44.45 41.91 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "4a9c00a6-607d-4e70-9755-8c1c9651ed47")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 44.45 41.91 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "I2C_SCL"
+		(shape bidirectional)
+		(at 59.69 119.38 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "52cffc24-299f-4901-9993-ba21698b34fc")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 59.69 119.38 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD2_COMP_FB"
+		(shape bidirectional)
+		(at 67.31 43.18 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "550dda04-f5c0-4169-bf11-2a7400c0dcff")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 43.18 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD1_COMP_FB"
+		(shape bidirectional)
+		(at 44.45 24.13 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "550f6e75-3693-4d4b-9ed6-7c94f982d310")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 44.45 24.13 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_ACC"
+		(shape bidirectional)
+		(at 44.45 67.31 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "55417d09-284f-49ac-bb35-8e31c03020be")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 44.45 67.31 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD1_COMP_FB"
+		(shape bidirectional)
+		(at 67.31 17.78 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "588b6904-b357-4499-9821-82fd4846ad30")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 17.78 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD2_COMP"
+		(shape bidirectional)
+		(at 82.55 45.72 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "5d9b28b7-736a-424d-9845-2af28dfa9e74")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 82.55 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "+3V3"
+		(shape bidirectional)
+		(at 124.46 16.51 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "5f122156-b009-4ac5-bd06-b3f34296ee85")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 16.51 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_PD1"
+		(shape bidirectional)
+		(at 44.45 16.51 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "62d8a770-9996-4422-8fc2-6727e380b1da")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 44.45 16.51 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG_FB"
+		(shape bidirectional)
+		(at 67.31 68.58 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "64c446ba-6388-4904-a4b4-17401805ccff")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 68.58 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD2_COMP_FB"
+		(shape bidirectional)
+		(at 100.33 49.53 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "66b69eaa-4fba-4655-945e-99c7ebc76b6a")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 49.53 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD1_COMP"
+		(shape bidirectional)
+		(at 124.46 24.13 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "6ae65638-6f3a-4be9-8fa9-3ae002ef831f")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 24.13 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG"
+		(shape bidirectional)
+		(at 124.46 74.93 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "6ea0df18-1fc4-4688-86f0-09ea36ce8231")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 74.93 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP"
+		(shape bidirectional)
+		(at 100.33 92.71 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "6fef284c-1a71-43f5-aa97-59691496bdef")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 92.71 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1"
+		(shape bidirectional)
+		(at 44.45 92.71 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "73911481-a738-4995-9e05-3dc605512a4d")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 44.45 92.71 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP"
+		(shape bidirectional)
+		(at 124.46 100.33 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "7b875440-410b-488d-a3ea-188056a53730")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 100.33 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG_FB"
+		(shape bidirectional)
+		(at 100.33 74.93 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "91d09ec3-ca90-472d-86d1-208ee2c079db")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 74.93 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP"
+		(shape bidirectional)
+		(at 82.55 96.52 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "949a7287-f7ce-442a-a1c0-e706612edccf")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 82.55 96.52 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -2673,7 +3335,7 @@
 			)
 			(justify left)
 		)
-		(uuid "3a3f949b-475b-4700-bb35-6698247b9307")
+		(uuid "9ac88f97-ea77-4c18-8f8c-f23ca75c6a8a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 16.51 0)
 			(hide yes)
@@ -2695,537 +3357,9 @@
 			)
 			(justify left)
 		)
-		(uuid "3aab582e-6ba3-4c66-9a67-5795885792f3")
+		(uuid "9cd6813a-5a78-4b70-9ae0-e14a740dfb3e")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 41.91 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG_FB"
-		(shape bidirectional)
-		(at 67.31 68.58 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "3ca0c270-450b-4801-9781-3bb3f47039cb")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 68.58 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG"
-		(shape bidirectional)
-		(at 82.55 71.12 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "3e4d5938-de14-446d-97f1-dbebd8125cf0")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 82.55 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG_THR"
-		(shape bidirectional)
-		(at 67.31 73.66 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "40fe8dc7-ee9b-47dc-a4e1-92ad062bf293")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 73.66 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG_THR"
-		(shape bidirectional)
-		(at 90.17 124.46 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "441e5ebf-8ca9-4c46-8686-38fd31646069")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 90.17 124.46 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_MISC1_COMP"
-		(shape bidirectional)
-		(at 82.55 96.52 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "461099ea-cd3e-413c-b4fa-6c51db7b1bc6")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 82.55 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+12V"
-		(shape bidirectional)
-		(at 59.69 148.59 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "47402c93-c55f-4e64-b3ec-0c358830e283")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 148.59 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_PD1"
-		(shape bidirectional)
-		(at 44.45 16.51 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "4d18436c-8ce8-47f1-b48d-862a4d682917")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 44.45 16.51 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+3V3"
-		(shape bidirectional)
-		(at 124.46 67.31 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "53b2df83-a636-4d79-a5a9-901e9e4e65e1")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 67.31 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_ACC"
-		(shape bidirectional)
-		(at 44.45 67.31 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "569a52b0-373c-49e7-bc3f-5503def353c6")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 44.45 67.31 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "AGND"
-		(shape bidirectional)
-		(at 59.69 156.21 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "5bfa3388-ebad-40df-96ed-387be9a75b83")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 156.21 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "AGND"
-		(shape bidirectional)
-		(at 59.69 125.73 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "5f0ed45c-62e6-45f6-b57f-e912d1ad2379")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 125.73 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD2_COMP"
-		(shape bidirectional)
-		(at 82.55 45.72 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "6d3b157f-099e-48a8-b36f-60b5c306cf44")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 82.55 45.72 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD2_COMP_FB"
-		(shape bidirectional)
-		(at 100.33 49.53 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "715bcde2-dfaa-4dec-894b-51ddf6597643")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 49.53 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_MISC1"
-		(shape bidirectional)
-		(at 67.31 93.98 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "71936604-b661-4af0-8f90-71071895b535")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 93.98 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_MISC1_COMP_THR"
-		(shape bidirectional)
-		(at 67.31 99.06 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "71b30c00-ef28-41ec-b73c-b2cdfe269995")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 99.06 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD2_COMP_FB"
-		(shape bidirectional)
-		(at 67.31 43.18 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "7399cf6d-d9fc-4c29-b834-3974894b6cb0")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 43.18 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "AGND"
-		(shape bidirectional)
-		(at 59.69 124.46 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "7d18bec7-2de0-4cc7-a2d9-009191e696e2")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 124.46 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+3V3"
-		(shape bidirectional)
-		(at 124.46 92.71 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "7ff00d88-9660-45a8-b514-617cc67f2301")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 92.71 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_MISC1"
-		(shape bidirectional)
-		(at 100.33 100.33 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "821672c8-9a31-48c1-be91-e4134b3a58d1")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 100.33 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP"
-		(shape bidirectional)
-		(at 82.55 20.32 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "83ed2af1-4061-4537-9346-c8d88b689661")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 82.55 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "AGND"
-		(shape bidirectional)
-		(at 59.69 146.05 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "847b016a-11b9-47c3-85f6-8d5d981a0bd8")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 146.05 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG"
-		(shape bidirectional)
-		(at 100.33 67.31 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "85ccdbd4-d17c-4d5a-bccb-5996ea3f2c26")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 67.31 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG"
-		(shape bidirectional)
-		(at 124.46 74.93 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "8b2cb20b-b77f-4c24-a3c4-1b1f32f96653")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 74.93 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "ACC_TRIG_FB"
-		(shape bidirectional)
-		(at 44.45 74.93 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "8e1b1e40-4658-4e79-bf29-963b0824f48c")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 44.45 74.93 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3245,7 +3379,7 @@
 			)
 			(justify left)
 		)
-		(uuid "92af1445-505e-4945-b2c8-403eaeaab9ef")
+		(uuid "a765831c-23c6-4111-8384-8190b3336edb")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 41.91 0)
 			(hide yes)
@@ -3258,18 +3392,40 @@
 			)
 		)
 	)
-	(global_label "A_MISC1_COMP"
+	(global_label "AGND"
 		(shape bidirectional)
-		(at 100.33 92.71 0)
+		(at 59.69 146.05 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "a1748a11-44c2-4dee-b34d-562dcbe23bf3")
+		(uuid "ac273738-6a36-441d-a05a-bfa9df1a01f9")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 92.71 0)
+			(at 59.69 146.05 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "+3V3"
+		(shape bidirectional)
+		(at 124.46 67.31 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "ae24656b-7d26-4cce-99f0-2e751d36de32")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 124.46 67.31 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3282,258 +3438,16 @@
 	)
 	(global_label "ACC_TRIG_FB"
 		(shape bidirectional)
-		(at 100.33 74.93 0)
+		(at 44.45 74.93 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "a1d5533e-c861-4fc0-99e7-764f17df0d50")
+		(uuid "b4d69303-4b14-4bbc-ba6e-96601187a0cd")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 74.93 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP_FB"
-		(shape bidirectional)
-		(at 67.31 17.78 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "ad7bd3bc-034e-4f2e-b7cd-31c29a732aaf")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 17.78 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "A_MISC1_COMP"
-		(shape bidirectional)
-		(at 124.46 100.33 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "bf4005b1-2d29-471b-b957-528c3f055c8b")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 100.33 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+3V3"
-		(shape bidirectional)
-		(at 74.93 114.3 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "c0f1520b-a509-4d83-99a0-5164f8709661")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 74.93 114.3 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP_THR"
-		(shape bidirectional)
-		(at 90.17 119.38 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "cc815fc7-8141-435d-8414-4e0e098602d3")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 90.17 119.38 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "AGND"
-		(shape bidirectional)
-		(at 72.39 154.94 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "cf5316f7-c613-4990-b76e-0f1195c82872")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 72.39 154.94 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+3V3"
-		(shape bidirectional)
-		(at 124.46 16.51 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "cf88f09f-cc47-46aa-a4ad-56e727284470")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 16.51 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "+3V3"
-		(shape bidirectional)
-		(at 59.69 118.11 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "d30c939d-94fe-4da0-9a61-63518c294284")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 59.69 118.11 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP_FB"
-		(shape bidirectional)
-		(at 44.45 24.13 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "d37ad08c-2c54-4f31-84a9-e0fa46125aeb")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 44.45 24.13 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP_FB"
-		(shape bidirectional)
-		(at 100.33 24.13 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "dc27a6dd-17f9-4777-b5f1-5550084554ee")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 100.33 24.13 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD1_COMP"
-		(shape bidirectional)
-		(at 124.46 24.13 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "de3d6387-5290-4ae0-baf6-feebaecb13d2")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 24.13 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-	)
-	(global_label "PD2_COMP"
-		(shape bidirectional)
-		(at 124.46 49.53 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left)
-		)
-		(uuid "f2da0445-f957-458e-bfbf-01ffe09a2892")
-		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 124.46 49.53 0)
+			(at 44.45 74.93 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3553,7 +3467,7 @@
 			)
 			(justify left)
 		)
-		(uuid "fc2293da-1b72-4130-b876-96e9ed73c578")
+		(uuid "b5908f68-af98-472e-a875-3d6cc3f3388d")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.69 121.92 0)
 			(hide yes)
@@ -3566,18 +3480,194 @@
 			)
 		)
 	)
-	(global_label "PD1_COMP_THR"
+	(global_label "+12V"
 		(shape bidirectional)
-		(at 67.31 22.86 0)
+		(at 59.69 138.43 0)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
 			(justify left)
 		)
-		(uuid "fca6bf85-2c7b-4a96-a58f-36b8121939c0")
+		(uuid "b60c10ba-3560-43df-9d42-851e63636196")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
-			(at 67.31 22.86 0)
+			(at 59.69 138.43 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "+12V"
+		(shape bidirectional)
+		(at 59.69 148.59 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "ba3e31f4-e015-4a75-868a-7fd4fb719f56")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 59.69 148.59 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD1_COMP"
+		(shape bidirectional)
+		(at 82.55 20.32 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "bc69d346-bbc7-4572-a3dc-4ec986965e07")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 82.55 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP_FB"
+		(shape bidirectional)
+		(at 67.31 93.98 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "bd7093e0-bdc3-47f7-b20d-1f922f1da16e")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 93.98 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG_THR"
+		(shape bidirectional)
+		(at 90.17 124.46 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "bdc6685a-ab6f-447a-8f2c-35f277db6111")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 90.17 124.46 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG"
+		(shape bidirectional)
+		(at 100.33 67.31 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "c24a3a5e-af25-4b56-8796-c2b9d5a7487e")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 100.33 67.31 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "A_MISC1_COMP_THR"
+		(shape bidirectional)
+		(at 67.31 99.06 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "c80c9bf6-2fd3-4602-8788-5cd6cd922cd9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 99.06 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "PD2_COMP_THR"
+		(shape bidirectional)
+		(at 67.31 48.26 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "cadca1d1-bd88-4a9a-af0f-3b98bea65aa7")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 67.31 48.26 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+	)
+	(global_label "ACC_TRIG"
+		(shape bidirectional)
+		(at 82.55 71.12 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left)
+		)
+		(uuid "e08bc0d2-64b5-4728-9885-c91d25073ba9")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 82.55 71.12 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3597,7 +3687,7 @@
 			)
 			(justify left)
 		)
-		(uuid "fccf6340-5bcb-466d-b03a-93415cf51a98")
+		(uuid "e2951b5c-d9f0-41e1-979c-bd6f5c15f02a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 49.53 0)
 			(hide yes)
@@ -3610,1574 +3700,46 @@
 			)
 		)
 	)
-	(symbol
-		(lib_id "Device:R")
-		(at 44.45 20.32 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "084483b8-b52f-4074-84bb-9ca02e517c26")
-		(property "Reference" "R111"
-			(at 46.482 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
+	(global_label "AGND"
+		(shape bidirectional)
+		(at 74.93 132.08 0)
+		(effects
+			(font
+				(size 1.27 1.27)
 			)
+			(justify left)
 		)
-		(property "Value" "10k"
-			(at 46.482 22.86 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 44.45 20.32 0)
+		(uuid "f040bacf-a858-47be-a726-6bbb5bcac9fe")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 74.93 132.08 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 44.45 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 44.45 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "fac9030f-de48-4f13-9ec8-b3d57de879f1")
-		)
-		(pin "2"
-			(uuid "b6c2e892-926e-43bb-9ccb-953376a9e9bb")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R111")
-					(unit 1)
 				)
 			)
 		)
 	)
-	(symbol
-		(lib_id "Comparator:LM339")
-		(at 74.93 96.52 0)
-		(unit 4)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "0948339d-bbee-48ac-afd8-685cd2544b1b")
-		(property "Reference" "U54"
-			(at 76.962 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
+	(global_label "PD1_COMP_THR"
+		(shape bidirectional)
+		(at 90.17 119.38 0)
+		(effects
+			(font
+				(size 1.27 1.27)
 			)
+			(justify left)
 		)
-		(property "Value" "LM339"
-			(at 76.962 99.06 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
-			(at 74.93 96.52 0)
+		(uuid "f9ba36db-a1c0-45bb-901a-13f9e94909db")
+		(property "Intersheetrefs" "${INTERSHEET_REFS}"
+			(at 90.17 119.38 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
 					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 74.93 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 74.93 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "8"
-			(uuid "d76b9bba-aeab-4973-b796-683d4ddd525f")
-		)
-		(pin "9"
-			(uuid "546c85f0-1855-4033-98ca-0bcca4b70815")
-		)
-		(pin "14"
-			(uuid "2da3d12f-557b-4b50-b127-d96952cf642d")
-		)
-		(pin "2"
-			(uuid "d8fa57ed-23cf-497d-af76-6108c9728dac")
-		)
-		(pin "4"
-			(uuid "c5221045-1ff9-40db-b401-e9b330ed6cc1")
-		)
-		(pin "5"
-			(uuid "87669798-b8ad-4899-b7e3-e8156c23df18")
-		)
-		(pin "1"
-			(uuid "babcdff6-b5c1-49f2-8048-39c8cdbcce39")
-		)
-		(pin "6"
-			(uuid "aae37e6c-f6f1-4183-83d6-d8d48c479b52")
-		)
-		(pin "7"
-			(uuid "727690c2-aa48-42e6-9b49-4254c438600f")
-		)
-		(pin "10"
-			(uuid "bc8b9b0a-0af1-4e41-ab27-6e73ff71a7af")
-		)
-		(pin "11"
-			(uuid "f3ce03e4-6ed8-4f20-83fd-f2351560dabc")
-		)
-		(pin "13"
-			(uuid "3ddc555c-adb7-40e3-ab15-707700e02e21")
-		)
-		(pin "3"
-			(uuid "a44eab40-6634-4745-a1cf-5ec2ae5aa13b")
-		)
-		(pin "12"
-			(uuid "9b8d1ecd-927b-4873-9daf-61f98be8208a")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "U54")
-					(unit 4)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 124.46 96.52 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp yes)
-		(uuid "0da9b749-29ff-4d39-9020-7f292ed3bf1f")
-		(property "Reference" "R121"
-			(at 126.492 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 126.492 99.06 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 124.46 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 124.46 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 124.46 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "75c7b722-c6c4-4cc8-9ed1-9d9287ab20fa")
-		)
-		(pin "2"
-			(uuid "ab659a44-dba6-4df4-8865-202f201948b9")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R121")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 44.45 45.72 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "19212181-9bec-480e-8c5f-be01391e09f7")
-		(property "Reference" "R114"
-			(at 46.482 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 46.482 48.26 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 44.45 45.72 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 44.45 45.72 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 44.45 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "53a1b8dd-ed12-4ce6-8611-bf90ca74dffa")
-		)
-		(pin "2"
-			(uuid "f0ff2afa-3048-47a5-928e-d2c8f1bbd5ac")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R114")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 124.46 20.32 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "28445a07-0b35-48fb-af4a-6602442ade1a")
-		(property "Reference" "R113"
-			(at 126.492 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 126.492 22.86 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 124.46 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 124.46 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 124.46 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "5b5661f6-dd70-4f7f-80ca-d5d2eed7239e")
-		)
-		(pin "2"
-			(uuid "c653bd44-77be-4cc3-afa2-0c57d42137d7")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R113")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 59.69 121.92 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "3b57a480-3967-4456-bbb6-15012623b74f")
-		(property "Reference" "C120"
-			(at 61.722 121.92 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "100nF"
-			(at 61.722 124.46 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 59.69 121.92 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 59.69 121.92 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 59.69 121.92 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "41dd29a2-a7b0-4907-85ec-bed69aa031a5")
-		)
-		(pin "2"
-			(uuid "03088870-0102-4f9f-a2c5-199ee3631d6a")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "C120")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 100.33 96.52 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp yes)
-		(uuid "3f4790fa-9094-415d-8f04-f09171781089")
-		(property "Reference" "R120"
-			(at 102.362 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "1M"
-			(at 102.362 99.06 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 100.33 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 100.33 96.52 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 100.33 96.52 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "50914a0a-bafc-4554-bdda-4c45867c712d")
-		)
-		(pin "2"
-			(uuid "28be1719-2d8c-42bd-b425-1e553ac400a4")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R120")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 100.33 20.32 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "4132290c-215a-405c-873d-85e421301ee1")
-		(property "Reference" "R112"
-			(at 102.362 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "1M"
-			(at 102.362 22.86 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 100.33 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 100.33 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 100.33 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "3079b255-71ea-411f-b8cc-5f32dcb56765")
-		)
-		(pin "2"
-			(uuid "f3b7c05b-d350-40f3-8544-b46b07dc53c4")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R112")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 59.69 142.24 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "451c1587-0d67-497b-ac83-9307ca86a42a")
-		(property "Reference" "C118"
-			(at 61.722 142.24 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "100nF"
-			(at 61.722 144.78 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 59.69 142.24 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 59.69 142.24 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 59.69 142.24 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "2f737037-727b-4c0b-b1f0-5c0aab98aabf")
-		)
-		(pin "2"
-			(uuid "2a05cffd-7d69-4573-9847-0864d3da5e0f")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "C118")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:C")
-		(at 59.69 152.4 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "5018995b-479c-4272-a5aa-ab83a1b03db2")
-		(property "Reference" "C119"
-			(at 61.722 152.4 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "100nF"
-			(at 61.722 154.94 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 59.69 152.4 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 59.69 152.4 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 59.69 152.4 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "a33c78b4-2919-4f2c-a1be-842fbf23cd60")
-		)
-		(pin "2"
-			(uuid "3ce60918-e0ec-4459-a66c-9b4fcf936b28")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "C119")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 100.33 71.12 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "6256e770-aed0-4192-9611-b9c1f4e97395")
-		(property "Reference" "R118"
-			(at 102.362 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "1M"
-			(at 102.362 73.66 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 100.33 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 100.33 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 100.33 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "a6a3fc85-f91b-4460-8490-a63b906a507b")
-		)
-		(pin "2"
-			(uuid "3e6aae3e-b05c-4a72-ab04-4ffd6f7982a4")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R118")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Comparator:LM339")
-		(at 74.93 71.12 0)
-		(unit 3)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "68871d00-5c7e-4928-8b22-3db7a09f6065")
-		(property "Reference" "U54"
-			(at 76.962 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "LM339"
-			(at 76.962 73.66 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
-			(at 74.93 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 74.93 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 74.93 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "10"
-			(uuid "3755f9fb-41d0-411e-af52-b374dbc15a78")
-		)
-		(pin "11"
-			(uuid "eb5820a3-adbd-4505-bdb5-4a6d2b330c55")
-		)
-		(pin "13"
-			(uuid "283193b9-1761-4ba0-9211-9f9150e414f8")
-		)
-		(pin "2"
-			(uuid "d9779d65-5f8f-4cc4-baee-7ac692db8c85")
-		)
-		(pin "4"
-			(uuid "6c9603e3-0e35-42e6-bc77-45a97adc57f5")
-		)
-		(pin "5"
-			(uuid "d920a015-914f-4cb9-9f22-64b3fb5d767c")
-		)
-		(pin "1"
-			(uuid "48ae4798-a1e8-4e65-8f82-a561299dc58c")
-		)
-		(pin "6"
-			(uuid "40a153ab-c098-4cb0-b9e3-473e01681315")
-		)
-		(pin "7"
-			(uuid "d1b8a482-cd8a-48e4-801b-1e6978081297")
-		)
-		(pin "8"
-			(uuid "1906d53f-6006-425c-bc49-130669a9dd07")
-		)
-		(pin "9"
-			(uuid "225ade19-d845-47c9-a03d-d9bb6ac9fc30")
-		)
-		(pin "14"
-			(uuid "8c84299f-ffa4-4fc9-a7dd-b2c390202ab5")
-		)
-		(pin "3"
-			(uuid "93938cfb-182d-4ca1-8b95-657a9a2e4c4c")
-		)
-		(pin "12"
-			(uuid "94fc520e-85bd-44e0-b240-f24db99d4569")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "U54")
-					(unit 3)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Comparator:LM339")
-		(at 74.93 20.32 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "92e9f360-3200-4b81-8127-7bbc27efaf07")
-		(property "Reference" "U54"
-			(at 76.962 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "LM339"
-			(at 76.962 22.86 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
-			(at 74.93 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 74.93 20.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 74.93 20.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "2"
-			(uuid "977dcaff-21b3-40cb-aefe-52174f98b1a3")
-		)
-		(pin "4"
-			(uuid "6ca98fbb-13e8-4db6-ba40-2d3cb288efad")
-		)
-		(pin "5"
-			(uuid "a07d64db-fdbc-453b-adea-6972bad158e6")
-		)
-		(pin "1"
-			(uuid "9b9f1b41-6f55-4134-91f7-31c5b7e418d6")
-		)
-		(pin "6"
-			(uuid "18139489-e4a4-40d1-8a2e-bf0e5f01e8f2")
-		)
-		(pin "7"
-			(uuid "d0e4862a-20a5-4375-a8e3-21f48c1d859a")
-		)
-		(pin "10"
-			(uuid "c9c18657-d310-4633-a487-9feac0d341f2")
-		)
-		(pin "11"
-			(uuid "18320642-5f0e-4434-99d2-63501ee34d77")
-		)
-		(pin "13"
-			(uuid "052e76cc-41f1-4b8e-abee-9b33db3a41a0")
-		)
-		(pin "8"
-			(uuid "65df3391-ce19-48e6-aa12-9e1292ecdd9a")
-		)
-		(pin "9"
-			(uuid "933a4a41-7948-4ae1-b2e7-7edb185933a1")
-		)
-		(pin "14"
-			(uuid "ac3cd126-e317-4ec2-a6e5-869f653ebb99")
-		)
-		(pin "3"
-			(uuid "967ebef8-9974-4a3a-b452-bb495885071f")
-		)
-		(pin "12"
-			(uuid "77f37b77-af5e-4ff8-8eda-8d5714c2382f")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "U54")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 124.46 71.12 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "a6771552-7298-421d-9723-b3272a04fa46")
-		(property "Reference" "R119"
-			(at 126.492 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 126.492 73.66 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 124.46 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 124.46 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 124.46 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "ba80c5b8-6219-49b8-9e8c-fb91c264c1b9")
-		)
-		(pin "2"
-			(uuid "cb507cbb-82a9-4ad9-99be-ac5fe6b4317a")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R119")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Analog_DAC:MCP4728")
-		(at 74.93 121.92 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "ad2ce474-0b1f-43d3-b700-3795ba56e278")
-		(property "Reference" "U55"
-			(at 76.962 121.92 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "MCP4728"
-			(at 76.962 124.46 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_SO:MSOP-10_3x3mm_P0.5mm"
-			(at 74.93 121.92 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 74.93 121.92 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 74.93 121.92 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "9d71ac54-6945-4b16-b868-bec66e076265")
-		)
-		(pin "2"
-			(uuid "aedf5d33-049a-4189-8ed7-44dbbaaa03d5")
-		)
-		(pin "3"
-			(uuid "f7eba0aa-9ae3-495e-89ad-c9cf8fc02c31")
-		)
-		(pin "4"
-			(uuid "1cd591e5-c945-485a-9314-458a264ea6aa")
-		)
-		(pin "5"
-			(uuid "ae331b7a-8f3e-44ea-ae8a-c486b4e9a7d5")
-		)
-		(pin "6"
-			(uuid "82140ffe-d237-4de3-9d01-ea76905c1307")
-		)
-		(pin "7"
-			(uuid "3500f9db-e40d-4ae4-83da-239fe2a71ac6")
-		)
-		(pin "8"
-			(uuid "fba16cf1-2ce3-4b13-ae16-492f843352e2")
-		)
-		(pin "9"
-			(uuid "7b9ca32c-5e95-410f-bdb6-ec5160f759e4")
-		)
-		(pin "10"
-			(uuid "8facbca1-1f1b-40ce-b908-6bd348895824")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "U55")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 100.33 45.72 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "b016a37a-8caf-42a7-9977-aa2b0a40b636")
-		(property "Reference" "R115"
-			(at 102.362 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "1M"
-			(at 102.362 48.26 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 100.33 45.72 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 100.33 45.72 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 100.33 45.72 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "8c601380-968b-4465-a9ef-b0ac3809afd0")
-		)
-		(pin "2"
-			(uuid "6bcfbd74-d86e-424d-af44-9ffd40ce6835")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R115")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 44.45 71.12 0)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "c041d7a3-68dc-4824-a896-85e8f58f9405")
-		(property "Reference" "R117"
-			(at 46.482 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10k"
-			(at 46.482 73.66 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
-			(at 44.45 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 44.45 71.12 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 44.45 71.12 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "00aa1733-0303-433f-9146-9f93f8fd55d4")
-		)
-		(pin "2"
-			(uuid "95d17910-7c46-4cd1-8ea7-fa9b143efd82")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "R117")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Comparator:LM339")
-		(at 74.93 147.32 0)
-		(unit 5)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "e288a079-1f5b-4bdf-b344-680d5e9cd30d")
-		(property "Reference" "U54"
-			(at 76.962 147.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "LM339"
-			(at 76.962 149.86 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
-			(at 74.93 147.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 74.93 147.32 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" ""
-			(at 74.93 147.32 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "3"
-			(uuid "3f736773-7c21-475b-99da-963dbe000604")
-		)
-		(pin "12"
-			(uuid "6cb744fd-c049-4055-a691-91dd4b48cc15")
-		)
-		(pin "11"
-			(uuid "18ed1e05-ff97-405e-ac03-40b64f6aab21")
-		)
-		(pin "10"
-			(uuid "d8ca2d8b-0607-4fee-a076-de644664eaa1")
-		)
-		(pin "7"
-			(uuid "8e4b8ad0-0e36-44d6-879e-5fa382c3e678")
-		)
-		(pin "6"
-			(uuid "a4925956-76c4-4701-83ce-1ad21a0d90ab")
-		)
-		(pin "1"
-			(uuid "96aee0da-5ed2-4551-a4dd-2b373d094871")
-		)
-		(pin "5"
-			(uuid "625175ee-d744-41ec-80cb-0d51b08e6e57")
-		)
-		(pin "4"
-			(uuid "01d86e95-6bf7-4d5c-9643-48e38c2a7122")
-		)
-		(pin "2"
-			(uuid "372ee58c-8f08-43aa-ad9d-75f705bb953f")
-		)
-		(pin "13"
-			(uuid "bdb1bcec-edbc-4326-8689-23a313dd8a61")
-		)
-		(pin "8"
-			(uuid "f2a5aa2d-c576-469b-9ded-1fd85add985d")
-		)
-		(pin "9"
-			(uuid "7441177d-6b12-4ded-af8c-2776a24e1c8e")
-		)
-		(pin "14"
-			(uuid "e583978b-240a-45c1-ab93-f291611d8301")
-		)
-		(instances
-			(project "breakout"
-				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
-					(reference "U54")
-					(unit 5)
 				)
 			)
 		)
@@ -5192,7 +3754,7 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(uuid "f2ca3fd4-79c2-409e-98b0-5bbb35d1f6b7")
+		(uuid "27ba40a0-4567-4bd2-a72b-95a6c9a761ab")
 		(property "Reference" "R116"
 			(at 126.492 45.72 0)
 			(show_name no)
@@ -5246,15 +3808,1047 @@
 			)
 		)
 		(pin "1"
-			(uuid "51597b56-3fc1-4d57-9553-1a74a62ed8ed")
+			(uuid "381fdab5-1882-43ea-85ef-4237b0899915")
 		)
 		(pin "2"
-			(uuid "d152141a-c716-47b0-9103-de2f7ab3a006")
+			(uuid "b9c42bbf-cd57-45a4-87ef-f4cf18580c1c")
 		)
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
 					(reference "R116")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 124.46 96.52 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(uuid "36880869-9552-4ca1-8d30-f380f86b28a7")
+		(property "Reference" "R121"
+			(at 126.492 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 126.492 99.06 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 124.46 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 124.46 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 124.46 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "b11a7814-79c7-491b-81dd-8486447c15a4")
+		)
+		(pin "2"
+			(uuid "b4ccfcd7-0a6d-4b17-9193-8c25c88c1a76")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R121")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 59.69 121.92 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "42d837d4-7cef-4f26-9582-987641db0794")
+		(property "Reference" "C120"
+			(at 61.722 121.92 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "100nF"
+			(at 61.722 124.46 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+			(at 59.69 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 59.69 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 59.69 121.92 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "35cc3206-1d18-4262-9b30-245a626743f0")
+		)
+		(pin "2"
+			(uuid "edb0f159-470d-4c79-9387-88ea4e9e4281")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "C120")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Analog_DAC:MCP4728")
+		(at 74.93 121.92 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "54dc2a8d-0e80-4e96-bddd-f7c3b2033d2d")
+		(property "Reference" "U55"
+			(at 76.962 121.92 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "MCP4728"
+			(at 76.962 124.46 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:MSOP-10_3x3mm_P0.5mm"
+			(at 74.93 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 74.93 121.92 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 74.93 121.92 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "1a391c8d-74c7-4743-a40d-cbfe35eb28cc")
+		)
+		(pin "2"
+			(uuid "0f587ca1-2c7f-472c-a8d8-e7953caf0dcc")
+		)
+		(pin "3"
+			(uuid "dc12ad6f-03f1-4461-9896-833ff126575e")
+		)
+		(pin "4"
+			(uuid "6c6dbd5d-03f9-4d60-89f5-69e6bd29c926")
+		)
+		(pin "5"
+			(uuid "1cd2c7ff-0e6d-4bfa-a964-4052828591cc")
+		)
+		(pin "6"
+			(uuid "1669969c-5925-4c10-859b-1e57ee3fbe6a")
+		)
+		(pin "7"
+			(uuid "6fb0daa2-7955-466e-802b-8c7572515ecd")
+		)
+		(pin "8"
+			(uuid "aa8fc26a-1220-428c-8f49-9cb34e524679")
+		)
+		(pin "9"
+			(uuid "170578da-a35f-4203-952c-29a16ad3a156")
+		)
+		(pin "10"
+			(uuid "84f432aa-6e70-44aa-854d-e78937280914")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "U55")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 100.33 45.72 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "63d266b8-dcc0-4b77-b7f1-6587695f13c3")
+		(property "Reference" "R115"
+			(at 102.362 45.72 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "1M"
+			(at 102.362 48.26 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 100.33 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 100.33 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 100.33 45.72 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "4cbb7a48-1d81-4d78-ba51-15d9f96f9d07")
+		)
+		(pin "2"
+			(uuid "4def0bcb-8e81-4780-901e-8cb465c95198")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R115")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 44.45 96.52 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "65d35a80-c308-4734-8199-c94de5e2e767")
+		(property "Reference" "R190"
+			(at 46.482 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 46.482 99.06 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 44.45 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 44.45 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 44.45 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "48d91bdf-ef54-4bb0-878c-8c75d9ba9320")
+		)
+		(pin "2"
+			(uuid "1dbee4c3-7dcf-4633-aec1-94fd40376464")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R190")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 59.69 152.4 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "79dc890a-844f-4e8e-9963-f4dae044c4cc")
+		(property "Reference" "C119"
+			(at 61.722 152.4 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "100nF"
+			(at 61.722 154.94 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+			(at 59.69 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 59.69 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 59.69 152.4 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "d29aa24d-a8ca-44c1-9a36-a9a852429dca")
+		)
+		(pin "2"
+			(uuid "6994102b-6a0f-4697-931a-73d2f5d0453d")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "C119")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 44.45 45.72 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "7ea12be4-630a-48b9-8f7a-f611be5a3c25")
+		(property "Reference" "R114"
+			(at 46.482 45.72 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 46.482 48.26 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 44.45 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 44.45 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 44.45 45.72 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "2ca89848-bc0c-4ff7-b63e-49994698e9d2")
+		)
+		(pin "2"
+			(uuid "50c76733-d629-4d28-8181-0e40fba8a474")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R114")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 44.45 71.12 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "8989a9a8-67d0-4b54-a07a-c4dbec3dcb15")
+		(property "Reference" "R117"
+			(at 46.482 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 46.482 73.66 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 44.45 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 44.45 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 44.45 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "a44339da-1b6d-459f-a950-f04f1e60c290")
+		)
+		(pin "2"
+			(uuid "5a3f367d-118d-46f1-9a7f-762decbd7e75")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R117")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Comparator:LM339")
+		(at 74.93 20.32 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "9712754e-7ed4-4e41-8f33-0b818d55ab48")
+		(property "Reference" "U54"
+			(at 76.962 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "LM339"
+			(at 76.962 22.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
+			(at 74.93 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 74.93 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 74.93 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "2"
+			(uuid "a9819244-4a43-4343-b007-c5b722037f4b")
+		)
+		(pin "4"
+			(uuid "c2d0bd4d-b549-41ba-ae04-05ef73a8411f")
+		)
+		(pin "5"
+			(uuid "e1d5dfe0-7a5e-4265-bf8b-8c7adf4ac763")
+		)
+		(pin "1"
+			(uuid "f3921aab-9f5f-410e-9c95-6a567ec59332")
+		)
+		(pin "6"
+			(uuid "5b49f6d5-b7dd-4732-ad76-e26f2e1e85e7")
+		)
+		(pin "7"
+			(uuid "e275a716-82cc-419b-8483-764dba9bf1d9")
+		)
+		(pin "10"
+			(uuid "035ae264-1a54-4c8c-8756-46bca4405c28")
+		)
+		(pin "11"
+			(uuid "060ee311-8cee-4acc-a971-bfe395e4eca0")
+		)
+		(pin "13"
+			(uuid "69831d2c-a521-4023-a79c-9a5fecad1769")
+		)
+		(pin "8"
+			(uuid "e4be1385-348a-4f1d-b688-f209426f07e6")
+		)
+		(pin "9"
+			(uuid "e2a7f894-6133-4e84-9dbd-84fd95ee7ecd")
+		)
+		(pin "14"
+			(uuid "24207321-6b1e-4ce3-9d79-462207f5eb69")
+		)
+		(pin "3"
+			(uuid "670d0bde-0448-447b-a5d2-bf798eaf0c6f")
+		)
+		(pin "12"
+			(uuid "7990a4b1-0f76-4fcb-a776-58fba96b4804")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "U54")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C")
+		(at 59.69 142.24 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "a7cb6627-4ac8-4777-acbb-94cc9b2fa78a")
+		(property "Reference" "C118"
+			(at 61.722 142.24 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "100nF"
+			(at 61.722 144.78 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
+			(at 59.69 142.24 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 59.69 142.24 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 59.69 142.24 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "b567cc1f-5b90-4f63-970c-ec34f64d4256")
+		)
+		(pin "2"
+			(uuid "ebaa0bc3-d880-487c-a47c-b5f1a5aa5b50")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "C118")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Comparator:LM339")
+		(at 74.93 71.12 0)
+		(unit 3)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "ba9fcc6e-4ecd-4de1-b21c-40a3f8e35208")
+		(property "Reference" "U54"
+			(at 76.962 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "LM339"
+			(at 76.962 73.66 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
+			(at 74.93 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 74.93 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 74.93 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "10"
+			(uuid "8731d743-f318-4117-9570-fc85706e0bbd")
+		)
+		(pin "11"
+			(uuid "6784427e-075c-45c5-8914-26787376ee53")
+		)
+		(pin "13"
+			(uuid "bfd02e27-5e41-4764-ac54-c645882f9305")
+		)
+		(pin "2"
+			(uuid "501c8d5e-90a4-4849-8670-2e4ef510ff6b")
+		)
+		(pin "4"
+			(uuid "92936933-259d-4f32-9997-9ec409121ca5")
+		)
+		(pin "5"
+			(uuid "d3589cf7-3165-435b-8d5a-d9bba87ea1fb")
+		)
+		(pin "1"
+			(uuid "1b30cb0e-f6fe-4859-9b5d-1baa089de767")
+		)
+		(pin "6"
+			(uuid "c8dcddb1-b273-4542-8bb4-6eccd908cb8d")
+		)
+		(pin "7"
+			(uuid "d0d46292-73ca-403d-978d-0c0cedc2b728")
+		)
+		(pin "8"
+			(uuid "46a5f65c-9cad-48cb-923d-c7df24b52951")
+		)
+		(pin "9"
+			(uuid "f3e6d802-09f7-4dae-ba67-b39ff6921be8")
+		)
+		(pin "14"
+			(uuid "ec812550-fe2f-4a3e-aa1a-705f1f47284f")
+		)
+		(pin "3"
+			(uuid "b3d527d7-d010-403c-b907-4d9887665f0a")
+		)
+		(pin "12"
+			(uuid "ed5ed742-6773-42f0-adb8-864091d0434c")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "U54")
+					(unit 3)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 100.33 71.12 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "c42e70cf-5947-4fc0-9024-790085a000d9")
+		(property "Reference" "R118"
+			(at 102.362 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "1M"
+			(at 102.362 73.66 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 100.33 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 100.33 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 100.33 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "9b0fb810-e215-4ab9-aa40-138b803b253b")
+		)
+		(pin "2"
+			(uuid "02032a7e-4638-4a0f-9ea9-a9534bf7a78c")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R118")
 					(unit 1)
 				)
 			)
@@ -5270,7 +4864,7 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(uuid "fc046ad0-ec8a-462e-88ad-32f8d12fe6df")
+		(uuid "c8ec9124-cfe4-41e5-bdfe-912ecdac743c")
 		(property "Reference" "U54"
 			(at 76.962 45.72 0)
 			(show_name no)
@@ -5324,52 +4918,670 @@
 			)
 		)
 		(pin "1"
-			(uuid "e59db09a-c844-43fd-9569-8262f82aa7b9")
+			(uuid "b1853464-8906-4ded-94b2-719397b8b5a2")
 		)
 		(pin "6"
-			(uuid "2fd3360d-9dca-4331-aa35-b2db2478aad7")
+			(uuid "a31afd13-295d-4302-a075-0bf05ffbfd8e")
 		)
 		(pin "7"
-			(uuid "eed2ee31-28e1-4bb8-b82e-2f35f57619bc")
+			(uuid "a64b6df7-8a21-49a8-a85d-bde1891d1231")
 		)
 		(pin "2"
-			(uuid "3c4c1f70-21f9-4412-b608-b6e6f631326f")
+			(uuid "46f67a48-8c95-46b6-a787-0685eda3073f")
 		)
 		(pin "4"
-			(uuid "5fd3e600-94b8-432f-a097-14dcf61ebcc1")
+			(uuid "24eb4f64-9e28-4007-aed0-ee3a0e5fb7cc")
 		)
 		(pin "5"
-			(uuid "7d2c432f-0c22-4e6f-a14a-443f7f41410e")
+			(uuid "4bad91b8-a305-409c-8809-2ff5ad313f29")
 		)
 		(pin "10"
-			(uuid "69133591-6874-493e-aeae-9624e59c19fe")
+			(uuid "798784a8-a97e-479f-b9ae-8149271c6dd7")
 		)
 		(pin "11"
-			(uuid "4467b5ad-21be-4cbb-8e6b-20fc2bd3c946")
+			(uuid "f566d2ff-9e56-4386-b7b4-c1030cfb9456")
 		)
 		(pin "13"
-			(uuid "e948f0fb-6f9c-4e43-9127-7bf989475f0d")
+			(uuid "393e40c5-a13e-4f96-99ec-c7bbc12ad023")
 		)
 		(pin "8"
-			(uuid "e6051702-1849-4306-9690-34a1841d9997")
+			(uuid "6b6019d8-0d05-446b-9052-2d22441263f4")
 		)
 		(pin "9"
-			(uuid "5f0a1203-be93-4f42-a0f2-2552b2d8ba03")
+			(uuid "772fba4a-d1a6-498f-9dcd-b1ead79d199c")
 		)
 		(pin "14"
-			(uuid "693277fe-8fe0-4035-8e89-688b46c5ea19")
+			(uuid "cf2c1389-96c7-4915-9820-83a4ece938a6")
 		)
 		(pin "3"
-			(uuid "6e4367a9-3df7-425c-804b-d8c2b3738746")
+			(uuid "32e889b8-9d96-44b5-a8ff-040a831406b6")
 		)
 		(pin "12"
-			(uuid "309020ae-3a3f-47b9-89bf-b4f0244c6b5d")
+			(uuid "9df78be4-1a8f-44fc-9ecf-434367d63584")
 		)
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
 					(reference "U54")
 					(unit 2)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 100.33 96.52 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp yes)
+		(uuid "d07002a2-55b8-4a9c-be28-f6d6893cfb49")
+		(property "Reference" "R120"
+			(at 102.362 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "1M"
+			(at 102.362 99.06 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 100.33 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 100.33 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 100.33 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "0cbdfa43-52f3-4a61-8be0-83c7f3aefd49")
+		)
+		(pin "2"
+			(uuid "50ec88ae-a5de-4f5d-af4b-4a7785c95bff")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R120")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 124.46 20.32 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "de98c240-2a99-4acb-adfc-f31972ba4739")
+		(property "Reference" "R113"
+			(at 126.492 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 126.492 22.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 124.46 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 124.46 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 124.46 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "122748ee-c740-409e-8af0-0a58773a1d9c")
+		)
+		(pin "2"
+			(uuid "77df1f07-6a40-4d5a-b532-4202c9abc677")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R113")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Comparator:LM339")
+		(at 74.93 147.32 0)
+		(unit 5)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "dfd4be89-2ff4-4dc8-b40b-72d3bcc4b600")
+		(property "Reference" "U54"
+			(at 76.962 147.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "LM339"
+			(at 76.962 149.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
+			(at 74.93 147.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 74.93 147.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 74.93 147.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "3"
+			(uuid "6a5f12b3-bffa-4d07-936c-cfe75c0e2c81")
+		)
+		(pin "12"
+			(uuid "174d88db-20bb-4573-ab68-dd5a62bac9d0")
+		)
+		(pin "2"
+			(uuid "71fbd3f8-096d-4e08-8989-9e0714499aad")
+		)
+		(pin "4"
+			(uuid "cc7765a0-b54c-4327-ac05-1ae1c797629d")
+		)
+		(pin "5"
+			(uuid "2d3a2b1d-c84d-480a-8c08-c2b3796eefaa")
+		)
+		(pin "1"
+			(uuid "9d9f86b6-bf74-44b2-b427-f632c6d2b75a")
+		)
+		(pin "6"
+			(uuid "d4de7730-f5bc-4ff2-a445-9a30e15eaf8a")
+		)
+		(pin "7"
+			(uuid "22ea79c6-1dfc-46f4-9acf-e57b023533a7")
+		)
+		(pin "10"
+			(uuid "ca834c67-387d-41c5-8aec-455ec4869565")
+		)
+		(pin "11"
+			(uuid "972a926d-013e-4461-9952-4f53437d6a8e")
+		)
+		(pin "13"
+			(uuid "9bf5f701-d5d3-4626-ab46-2367d4ef80f2")
+		)
+		(pin "8"
+			(uuid "de82f52d-539d-4a21-bde7-500dee68dca8")
+		)
+		(pin "9"
+			(uuid "9bcf33c1-eeab-4a39-bfcb-5d67735d0151")
+		)
+		(pin "14"
+			(uuid "aaaf57ac-9672-4461-8bed-5e198b669a6a")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "U54")
+					(unit 5)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 100.33 20.32 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "e201412c-ea17-47ec-b829-e79fb5837412")
+		(property "Reference" "R112"
+			(at 102.362 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "1M"
+			(at 102.362 22.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 100.33 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 100.33 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 100.33 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "55ac08fb-8ec4-4da0-b320-1de5fabdf453")
+		)
+		(pin "2"
+			(uuid "48d2a033-3204-4278-87cb-f1a9ac5e7c12")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R112")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 124.46 71.12 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "f317cacc-9e3a-4e31-b552-d599a67023b0")
+		(property "Reference" "R119"
+			(at 126.492 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 126.492 73.66 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 124.46 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 124.46 71.12 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 124.46 71.12 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "ecee26c9-560f-4407-8889-419acc0dd42a")
+		)
+		(pin "2"
+			(uuid "5acae6dd-c83f-41eb-9180-95495f4fb230")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R119")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Comparator:LM339")
+		(at 74.93 96.52 0)
+		(unit 4)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "f5403078-66bd-4d45-85b2-6200554c9325")
+		(property "Reference" "U54"
+			(at 76.962 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "LM339"
+			(at 76.962 99.06 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"
+			(at 74.93 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 74.93 96.52 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 74.93 96.52 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "8"
+			(uuid "8a15e4bf-c531-4153-aa72-90dd01fbf4dd")
+		)
+		(pin "9"
+			(uuid "acd63c89-9f11-46df-a061-6a32a0d52c0f")
+		)
+		(pin "14"
+			(uuid "4463a9c9-4b4d-4273-afba-aaee0f8fa3fd")
+		)
+		(pin "2"
+			(uuid "62d228c7-b611-4269-a748-dd03ff7ffc0d")
+		)
+		(pin "4"
+			(uuid "40b4c78c-ecc2-4ab8-b6b9-19562ca263f3")
+		)
+		(pin "5"
+			(uuid "492fb612-e03e-4508-9d40-4e2fd42cff16")
+		)
+		(pin "1"
+			(uuid "6c9f4cf5-2934-43ae-886a-0601488dbefc")
+		)
+		(pin "6"
+			(uuid "812217cf-953c-4245-aec8-bdfeafb9e300")
+		)
+		(pin "7"
+			(uuid "526b61d6-dce2-429c-83e8-b69f5f1929ef")
+		)
+		(pin "10"
+			(uuid "ce1f62f3-0821-49bc-ad87-136e856619c5")
+		)
+		(pin "11"
+			(uuid "28a81548-6fb7-4600-ba26-c1448ad4afb4")
+		)
+		(pin "13"
+			(uuid "9d3bce48-23f4-4364-8042-bd6a984c99e7")
+		)
+		(pin "3"
+			(uuid "9761f15c-bb85-4409-801f-99abb6783493")
+		)
+		(pin "12"
+			(uuid "36346f98-ff1f-4abb-b188-8e1e34ff71f7")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "U54")
+					(unit 4)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:R")
+		(at 44.45 20.32 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "fcc8e424-0e98-496e-a550-ae8303a9e54d")
+		(property "Reference" "R111"
+			(at 46.482 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "10k"
+			(at 46.482 22.86 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Resistor_SMD:R_0603_1608Metric"
+			(at 44.45 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 44.45 20.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 44.45 20.32 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "8ebd52c8-6f83-4f43-b5c0-a1d3f34f5562")
+		)
+		(pin "2"
+			(uuid "a351389e-b392-4e92-9600-deb9164f30aa")
+		)
+		(instances
+			(project "breakout"
+				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
+					(reference "R111")
+					(unit 1)
 				)
 			)
 		)
