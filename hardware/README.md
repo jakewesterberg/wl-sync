@@ -550,6 +550,22 @@ TTL/CMOS-compatible) is flagged on-sheet as an assumption needing bench confirma
 against the real RHS hardware, the same class of residual `RWD_CMD`'s own polarity already
 carries elsewhere in this project.
 
+**Every pull-up on this sheet is 3.9 kΩ, not the original 10 kΩ** — **fixed round 2**,
+the same `ACSL-6400`/`ACSL-6420` datasheet pull-up maximum (4 kΩ) that drove opto-ni's own
+fix round 1, independently re-verified here rather than inferred from that sibling sheet:
+Broadcom AV02-0235EN's "Recommended Operating Conditions" table (p.10) is a single table
+covering the whole ACSL-6xx0 family with no per-device split anywhere in the document, and
+the output stage the RL-max rating characterizes is schematically identical across every
+family member and channel — so the same 4 kΩ ceiling binds `ACSL-6420`'s own output pins
+exactly as it binds `ACSL-6400`'s. NI's 250 mA/connector budget does **not** apply here —
+this sheet's output side runs from the board's own isolated `ISO_5V` rail, not NI's
+connector — so the reason to move off 10 kΩ is purely the datasheet maximum, not a current
+budget. A from-scratch `ISO_5V`/`ISO_P12` budget check (not assumed to inherit opto-ni's
+own numbers) found ~34–49 mA of headroom either way against the shared `TPS7A4901`'s
+150 mA cap (also feeding `mux-intan.kicad_sch`'s own 8 `INA105KU` difference amplifiers) —
+see `.superpowers/sdd/2026-08-13-breakout-pcb/task-11-report.md`'s own "Fix round 2"
+section for the full numeric derivation.
+
 **Domain-disjointness verification is scoped to each sheet's own components, not a
 project-wide rail scan** — found necessary, not stylistic: `check_breakout_opto_intan_
 netlist.py`'s own first draft scanned every node on `ISO_5V`/`INTAN_GND`/`AGND`/etc.

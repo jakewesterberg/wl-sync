@@ -15,9 +15,16 @@ THE CENTRAL RISKS this file exists to catch, named explicitly by this task's own
      design). RHS_STIM_OUT itself is the DGND-side name for the inbound channel's own
      output -- it is NOT part of the isolated set (it lives on the non-isolated side, by
      definition, once past the barrier).
-  3. Every pull-up on this sheet is 10k -- same value opto-ni.kicad_sch uses, applied
-     here too for consistency (task-11-brief.md's own "Corrections" section; not
-     literally mandated for Intan by the brief, a deliberate sheet-level choice).
+  3. Every pull-up on this sheet is 3.9k -- FIX ROUND 2 (see .superpowers/sdd/
+     2026-08-13-breakout-pcb/task-11-report.md's own "Fix round 2" section): the
+     original 10k exceeded ACSL-6400/ACSL-6420's own shared datasheet RL-max (4k,
+     Broadcom AV02-0235EN's ONE "Recommended Operating Conditions" table for the
+     whole ACSL-6xx0 family) -- the same violation fix round 1 already corrected on
+     opto-ni.kicad_sch, independently RE-VERIFIED against the datasheet here rather
+     than inferred from that sibling sheet. 3.9k is the largest E24 value at or under
+     that limit, on whichever rail (ISO_5V or +5V) each channel's own output side
+     actually sits -- never 10k (this sheet's own former, now-stale value) and never
+     the mule's own 1k.
   4. LED current-setting resistors are 430R, matching opto-ni.kicad_sch's own value (the
      ACSL-6400/6420 family shares one set of electrical specs).
   5. ACSL-6420's own bi-directional (2/2) pin map is correct, per channel -- the SPECIFIC
@@ -103,7 +110,8 @@ ACSL6420_PIN_GND2 = "9"
 ACSL6420_PIN_VDD2 = "12"
 
 LED_R_OHMS = "430"
-PULLUP_OHMS = "10k"
+PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6400/
+# ACSL-6420's own shared datasheet RL-max (4k). See module docstring, risk 3.
 
 OUTBOUND_CHANNELS = [
     ("EVT_STROBE_BUF", "EVT_STROBE_INTAN"),
@@ -515,19 +523,24 @@ def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
 def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> list[str]:
     results = []
 
-    # (1) Pull-up value drift on an outbound channel.
+    # (1) Pull-up value drift on an outbound channel -- specifically BACK to this
+    # sheet's own former, now-stale, datasheet-RL-max-violating 10k (fix round 2's own
+    # most meaningful regression to guard against: someone "fixing" this back to what
+    # looks like the more conservative value).
     drifted = dict(good_values)
     r_pu = _find_bridging_resistor(good_nets, "ISO_5V", "BARCODE_INTAN")
-    drifted[r_pu] = "1k"
-    msg = _assert_fails(good_nets, drifted, "expected '10k'", f"{r_pu} (BARCODE_INTAN's own pull-up) drifted 10k->1k")
-    results.append(f"Pull-up value drift (10k -> 1k, BARCODE_INTAN, {r_pu}): caught -- {msg}")
+    drifted[r_pu] = "10k"
+    msg = _assert_fails(good_nets, drifted, "expected '3.9k'", f"{r_pu} (BARCODE_INTAN's own pull-up) drifted 3.9k->10k (the stale, RL-max-violating value)")
+    results.append(f"Pull-up value drift (3.9k -> the stale 10k, BARCODE_INTAN, {r_pu}): caught -- {msg}")
 
-    # (2) Pull-up value drift on the inbound channel (RHS_STIM_OUT's own, +5V-referenced).
+    # (2) Pull-up value drift on the inbound channel (RHS_STIM_OUT's own, +5V-referenced)
+    # -- the mule's own 1k, the same drift target opto-ni.kicad_sch's own analogous
+    # self-test uses.
     drifted2 = dict(good_values)
     r_pu2 = _find_bridging_resistor(good_nets, "+5V", "RHS_STIM_OUT")
-    drifted2[r_pu2] = "4.7k"
-    msg = _assert_fails(good_nets, drifted2, "expected '10k'", f"{r_pu2} (RHS_STIM_OUT's own pull-up) drifted 10k->4.7k")
-    results.append(f"Pull-up value drift (10k -> 4.7k, RHS_STIM_OUT, {r_pu2}): caught -- {msg}")
+    drifted2[r_pu2] = "1k"
+    msg = _assert_fails(good_nets, drifted2, "expected '3.9k'", f"{r_pu2} (RHS_STIM_OUT's own pull-up) drifted 3.9k->1k (the mule's own value)")
+    results.append(f"Pull-up value drift (3.9k -> the mule's own 1k, RHS_STIM_OUT, {r_pu2}): caught -- {msg}")
 
     # (3) THE domain-defeating hazard: an outbound channel's own pull-up ALSO wired to
     # +5V (shorting the isolated rail onto the non-isolated one) -- ADD a stray node,

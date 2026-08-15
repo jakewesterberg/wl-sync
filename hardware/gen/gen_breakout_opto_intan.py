@@ -39,13 +39,61 @@ forward current -- both parts are the SAME Broadcom family with identical LED/de
 electrical specs, confirmed directly against AV02-0235EN, which covers the whole ACSL-6xx0
 family in one set of Electrical/Switching Specification tables).
 
-PULL-UPS: 10k, matching the NI-side choice by the SAME reasoning (this task's brief
-mandates 10k specifically for "the NI side"; this sheet applies the identical value on its
-OWN much lighter Intan-side current budget -- ISO_5V/ISO_N... no negative rail needed here,
-just ISO_5V -- for consistency and because the ISO domain's own power budget, Task 7's 2W
-isolated DC-DC shared with the 8 Intan difference amplifiers, is tighter than NI's 250mA/
-connector, not looser). Every pull-up on THIS sheet -- both the 5 outbound channels' own
-ISO_5V-referenced ones and the 1 inbound channel's own +5V-referenced one -- is 10k.
+PULL-UPS: 3.9k -- FIX ROUND 2 (see .superpowers/sdd/2026-08-13-breakout-pcb/
+task-11-report.md's own "Fix round 2" section), corrected from this sheet's original 10k.
+The original 10k was justified ONLY as "matches the NI-side choice ... for consistency" --
+never checked against ACSL-6400/ACSL-6420's own datasheet pull-up maximum, the SAME gap fix
+round 1 already found and corrected on opto-ni.kicad_sch (RL-max = 4k). RE-VERIFIED DIRECTLY
+against Broadcom AV02-0235EN here, not inferred from that sibling sheet: the datasheet's own
+"Recommended Operating Conditions" table (p.10) is ONE SINGLE TABLE covering the WHOLE
+ACSL-6xx0 family (ACSL-6210/6300/6310/6400/6410/6420 -- the Device Selection Guide's own
+six-part list, p.2) with no per-device split anywhere in the document -- the Electrical/
+Switching Specification tables that follow split only by SUPPLY VOLTAGE range (3.0-3.6V vs.
+4.5-5.5V), never by part number. The output stage RL-max characterizes (the open-collector
+Schottky-clamped transistor fed by the two-stage detector amplifier) is schematically
+IDENTICAL across every family member and every channel of every member (datasheet Figures
+7-12: the same shield/amplifier/output-transistor block redrawn once per channel, regardless
+of which VDD/GND pair feeds it) -- so RL-max = 4k binds ACSL-6420's own VO1-VO4 pins exactly
+as it binds ACSL-6400's, on BOTH this sheet's own packages, not only the one opto-ni.kicad_sch
+also happens to use. 3.9k (E24) is the largest standard value at or under that 4k limit --
+independently re-derived from the same datasheet fact, not copied from opto-ni.kicad_sch's
+own already-fixed value (the two sheets landing on the identical number is a consequence of
+both drawing on the identical output stage and the identical E24 rounding rule, not an
+assumption that one sheet's answer transfers unchecked to the other).
+
+THE NI-SIDE 250mA CONNECTOR BUDGET ARGUMENT DOES NOT TRANSFER HERE, and is deliberately not
+reused: this sheet's own output side runs from the board's OWN isolated ISO_5V rail (an
+on-board LD1117S50TR_SOT223 LDO, POWER below), never from NI's 250mA-budgeted connector, so
+there is no 250mA ceiling on this sheet at all. The reason to move off 10k is purely that a
+stated datasheet maximum is a datasheet maximum -- independent of whether the resulting
+current happens to fit any particular budget.
+
+ISO_5V/ISO_P12 BUDGET, CHECKED FROM SCRATCH -- not assumed to inherit opto-ni's own headroom
+figures, which are computed against a completely different rail with a completely different
+channel mix. This sheet's own 6 ISO_5V-referenced pull-ups (Package A's 4 outbound channels
+plus Package B's own channel 1/STIM_TRIG_BUF and channel 2/spare -- channels 3/4's own
+pull-ups sit on +5V instead, see PART MIX/TOPOLOGY above) cost 6 x 5V/3.9k = ~7.7mA at 3.9k
+versus 6 x 5V/10k = ~3.0mA at 10k -- a ~4.7mA delta, this fix's own real marginal cost.
+Against ISO_5V's OTHER real loads -- 6 channels' worth of the detector IC's own supply
+current (IDDL/IDDH, Broadcom AV02-0235EN's Electrical Specifications table, 4.5-5.5V range:
+5.8 typ/10.5 max mA per channel when LOW, 3.8 typ/7.5 max mA when HIGH) drawn through Package
+A's shared VDD/GND and Package B's own VDD2/GND2, plus channels 3/4's own LED forward current
+(~7.33mA each, drawn from ISO_5V through their own R_LED -- see LED DRIVE CURRENT above) when
+asserted -- worst case (all 6 detector channels LOW and both LEDs on simultaneously) is
+~85mA at 3.9k versus ~81mA at 10k; typical (datasheet typ figures) ~57mA versus ~53mA. That
+current reaches ISO_P12 through the LD1117S50TR_SOT223 LDO as approximately the same input
+current (a linear regulator, no switching-conversion ratio), where it joins mux-intan.
+kicad_sch's own 8 INA105KU difference amplifiers (~2mA each per task-7-report.md's own
+brief-derived estimate, ~16mA total) on the SAME TPS7A4901-regulated ISO_P12 rail (150mA
+rating, gen_breakout_power.py's own _place_isolated_supply()) -- worst case ~101-116mA total
+against that 150mA cap, ~34-49mA of real headroom either way. The fix's own marginal cost is
+the ~4.7mA delta, not the whole ~85mA figure -- "trivial current either way" (task-11-
+report.md's own "Fix round 1" phrase for this exact comparison), confirmed here with real
+datasheet numbers rather than assumed to carry over.
+
+Every pull-up on THIS sheet -- 6 ISO_5V-referenced ones (Package A's 4 outbound channels
+plus Package B's own channel 1/STIM_TRIG_BUF and channel 2/spare) and 2 +5V-referenced ones
+(Package B's own channel 3/RHS_STIM_OUT and channel 4/spare) -- is 3.9k.
 
 POWER -- ISO_5V, a NEW rail this sheet creates: an LD1117S50TR_SOT223 (Regulator_Linear,
 the SAME family/package Task 7's own +3V3 stage already uses, just the 5V-fixed sibling)
@@ -208,7 +256,8 @@ ACSL6420_PIN_GND2 = "9"
 ACSL6420_PIN_VDD2 = "12"
 
 LED_R_OHMS = "430"
-PULLUP_OHMS = "10k"
+PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6400/
+# ACSL-6420's own shared datasheet RL-max (4k). See module docstring, PULL-UPS.
 
 # ---------------------------------------------------------------------------
 # Channel contract -- 5 outbound (DGND -> INTAN_GND) + 1 inbound (INTAN_GND -> DGND).
@@ -456,9 +505,12 @@ def build() -> tuple[Sch, dict]:
         "",
         "LED DRIVE: 430R (same value/derivation as opto-ni.kicad_sch -- ~7.33mA, roughly",
         "half the ACSL-6xx0 family's shared datasheet-recommended top-of-range forward",
-        "current). PULL-UPS: 10k throughout (this task's own NI-side instruction, applied",
-        "here too for consistency and because the ISO domain's own 2W power budget,",
-        "shared with 8 Intan difference amplifiers, is tighter than NI's 250mA/connector).",
+        "current). PULL-UPS: 3.9k throughout -- FIX ROUND 2: ACSL-6400/ACSL-6420 share ONE",
+        "datasheet RL-max (4k, Broadcom AV02-0235EN's family-wide table), which the",
+        "original 10k exceeded (same violation fix round 1 corrected on opto-ni.kicad_sch).",
+        "NI's 250mA budget does NOT apply here (this sheet runs off the board's own",
+        "isolated ISO_5V rail); ISO_5V/ISO_P12's own budget was checked from scratch --",
+        "~34-49mA of headroom against the shared TPS7A4901's 150mA cap either way.",
         "",
         "Channels 2 and 4 of the ACSL-6420 (one per direction) are genuine spares -- real",
         "LED+pull-up resistors populated, wired to their own uniquely-named, currently-",
