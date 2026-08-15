@@ -722,7 +722,7 @@ def _place_outbound(sch, refs):
     driven, even though ERC can't see why from here" mechanism gen_breakout_power.py's
     own build() uses for ISO_P15_FILT/ISO_N15_FILT) clears it.
 
-    UNLIKE the power sheet's own permanent flags, these four are NOT meant to survive
+    UNLIKE the power sheet's own permanent flags, these four were NOT meant to survive
     Tasks 10/11: confirmed empirically (a throwaway test schematic, not guessed) that a
     PWR_FLAG (a `power_out`-typed pin) landing on the SAME net as an LM339 comparator's
     own `open_collector`-typed output pin -- Task 10's own named part for
@@ -733,25 +733,45 @@ def _place_outbound(sch, refs):
     that net's own `sch.power_flag()` call below the moment their own real driving pin
     is wired to it -- left in place, it will not merely be redundant, it will actively
     break their own sheet's ERC. Flagged again in this task's own report.
+
+    TASK 10D UPDATE (comparators.kicad_sch, task-10d-report.md): PD1_COMP/PD2_COMP/
+    ACC_TRIG now have exactly the real driver this docstring predicted -- one LM339's
+    own open_collector output pin per net, wired on that sheet -- so their own three
+    PWR_FLAGs are deleted below, precisely as instructed above. Confirmed empirically
+    by regenerating this file against the real, now-committed comparators.kicad_sch and
+    reading kicad-cli sch erc's own output, not assumed from the docstring's own
+    prediction alone: before this fix, the whole-project ERC reported exactly the 3
+    predicted `pin_to_pin` errors (plus one unrelated `pin_not_driven` on the DAC's own
+    SCL pin, awaiting Task 12) -- 4 errors total; after, 0. RHS_STIM_OUT's own flag
+    stays -- Task 11 (opto-intan) has not been built yet, and that net is still
+    genuinely undriven -- and needs the identical deletion the moment Task 11 wires its
+    own optocoupler output to it.
     """
     channels = {i: (in_net, out_net) for i, (in_net, out_net) in enumerate(OUTBOUND_CHANNELS)}
+    # STILL_PENDING_OUTBOUND -- the subset of OUTBOUND_CHANNELS' own input nets that
+    # genuinely have no real driver yet (see "TASK 10D UPDATE" above). Shrinks again
+    # (to empty) once Task 11 wires RHS_STIM_OUT's own optocoupler output.
+    STILL_PENDING_OUTBOUND = {"RHS_STIM_OUT"}
     for flag_i, (in_net, _out_net) in enumerate(OUTBOUND_CHANNELS):
+        if in_net not in STILL_PENDING_OUTBOUND:
+            continue  # DELETED at Task 10d -- see "TASK 10D UPDATE" above.
         # DELETE this call (only this call, not the rest of _place_outbound) once the
-        # sheet that produces `in_net` for real (Task 10 for the first three, Task 11
-        # for RHS_STIM_OUT) wires its own driving pin to it -- see the docstring above.
+        # sheet that produces `in_net` for real (Task 11 for RHS_STIM_OUT) wires its
+        # own driving pin to it -- see the docstring above.
         sch.power_flag(in_net, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + flag_i * 5.08))
     place_octal_buffer(
         sch, "74xx", "74HCT541", "SN74HCT541PW", X_OUTBUF, Y_OUTBUF, "+5V",
         channels, refs, "outbound_hct541", FOOTPRINT_TSSOP20,
     )
     for line_idx, line in enumerate([
-        "PD1_COMP/PD2_COMP/ACC_TRIG/RHS_STIM_OUT: the 4 PWR_FLAGs to the left of U7 are",
-        "TEMPORARY -- they exist only because Task 10 (comparators) and Task 11 (opto-",
-        "intan) have not been built yet. DELETE each one the moment its own real driver",
-        "(LM339 open_collector output / optocoupler output) is wired to that net --",
-        "left in place, a PWR_FLAG trips ERC's pin_to_pin rule against an",
-        "open_collector driver on the same net (confirmed empirically, see",
-        "_place_outbound()'s own docstring in gen_breakout_taskpc_digital.py).",
+        "RHS_STIM_OUT: the one remaining PWR_FLAG to the left of U7 is TEMPORARY -- it",
+        "exists only because Task 11 (opto-intan) has not been built yet. DELETE it",
+        "the moment its own real driver (an optocoupler output) is wired to that net --",
+        "left in place, a PWR_FLAG trips ERC's pin_to_pin rule against a driving pin on",
+        "the same net (confirmed empirically, see _place_outbound()'s own docstring).",
+        "PD1_COMP/PD2_COMP/ACC_TRIG's own PWR_FLAGs (formerly here too) were deleted at",
+        "Task 10d (comparators.kicad_sch), which gave all three a real open_collector",
+        "driver -- task-10d-report.md.",
     ]):
         sch.text(line, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + 30 + line_idx * 5.08))
 
