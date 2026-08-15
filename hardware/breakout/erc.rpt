@@ -1,4 +1,4 @@
-ERC report (2026-08-15T02:25:38, Encoding UTF8)
+ERC report (2026-08-15T03:30:26, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
@@ -157,6 +157,9 @@ Report includes: Errors, Warnings
     @(322.58 mm, 205.74 mm): Global Label 'STIM_TRIG_BUF'
 [isolated_pin_label]: Label connected to only one pin
     ; warning
+    @(59.69 mm, 121.92 mm): Global Label 'I2C_SDA'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
     @(10.16 mm, 317.50 mm): Global Label 'USB_VBUS_PI'
 [isolated_pin_label]: Label connected to only one pin
     ; warning
@@ -185,7 +188,7 @@ Report includes: Errors, Warnings
 
 ***** Sheet /control-usb-i2c/
 
- ** ERC messages: 54  Errors 0  Warnings 54
+ ** ERC messages: 55  Errors 0  Warnings 55
 
  ** Ignored checks:
     - Global label only appears once in the schematic
