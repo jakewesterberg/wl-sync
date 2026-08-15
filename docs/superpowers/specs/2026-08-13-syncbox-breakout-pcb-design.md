@@ -40,11 +40,11 @@ signal nobody recorded a decision about.
 | 7 | Intan's 8 analog channels selected by **Pi-controlled mux**, not jumpers | Routing becomes software state the Pi records, rather than a physical fact somebody must document correctly for a decade |
 | 8 | Comparator thresholds set by **I²C DAC**, not trimpots | Same argument, and it matters more: the accelerometer threshold is a behavioural parameter that gates task progression |
 | 9 | Mux and DAC control over **internal USB**, not GPIO | Preserves two spare GPIO on a header that is otherwise full |
-| 10 | **Comparator threshold range is capped at ~4.1 V.** The `MCP4728` reaches 0–3.3 V from its supply reference or 0–4.096 V from the internal reference at gain 2. The comparator's own input range is fine (0 to ~10.5 V now that it runs from +12 V and AGND), but **a threshold above ~4.1 V is not settable.** Confirm the real signal range at the photodiode TIA output and the accelerometer's motion-energy output; if either swings to +5 V, the top of the useful range is unreachable and the signal needs scaling at its front end. Coupled to item 5 — the same accelerometer-range answer settles both | Before fab |
+| 10 | ~~Comparator threshold range capped at ~4.1 V~~ **Resolved 2026-08-15.** With the accelerometer's range now known (0–5.000 V, 0.250 V pedestal), a threshold at the DAC's 4.096 V ceiling sits at **81 % of full-scale motion** and the floor must stay above the pedestal — a real motion gate lives near 5–30 %, so the ceiling does not bind. The photodiode TIA's output range is ours to set at design time | ~~Before fab~~ |
 | 11 | **Nothing writes the DAC thresholds or the mux addresses yet.** The board supports both over the internal USB → I²C path, and `hardware/README.md` records the addresses and the mux truth table — but the control layer is `wl-sync`'s work and is **outside this plan entirely.** As built, the board powers up with whatever the DAC's power-on default happens to be, and the mux routing is undefined until something sets it. Needs a setup workflow too: thresholds are found by watching the analog copy of the same signal on NI or Intan while sweeping the DAC, since there is no panel affordance by design | Before first use |
 | 12 | ~~Display sync reserved position~~ **Closed 2026-08-15 — dropped entirely.** The photodiode flip patch measures at the display surface and catches post-GPU drops a vsync tap structurally cannot. No component ever existed behind the reservation; the panel position is freed | ~~—~~ |
 | 13 | **What connector does the reward driver take?** Specified BNC to match the panel and because TTL over coax is standard, but the driver is unchosen. This is the only reward position whose connector is set by equipment not yet selected — confirm before the panel is machined | Before fab |
-| 14 | **`RWD_CMD` polarity** is an on-sheet assumption (active-high) that cannot be verified from the board. Needs confirming on the MonkeyLogic side before commissioning — the failure mode it guards against is continuous reward delivery | Before first use |
+| 14 | ~~`RWD_CMD` polarity~~ **Closed 2026-08-15.** MonkeyLogic exposes **`RewardPolarity`** as a Main Menu setting, TTL HIGH or LOW, provided so people can match relays that trigger on sinking. Never an unknown to discover — a configuration to set. **Set it HIGH** to match this board's active-high OR input, and record it in the rig's MonkeyLogic config beside the strobe timing | ~~Before first use~~ |
 | 10 | **No on-board switching regulators** except one isolated DC-DC | Consistency with decision 3: rejecting an RF carrier and then adding a switcher would be incoherent |
 | 11 | 2U rack chassis, board-mount connectors through machined panels | ~40 panel positions do not fit a smaller case; board-mount eliminates internal hand wiring |
 | 12 | One board, not two | Splitting would put 30+ analog signals through an inter-board connector |
@@ -405,6 +405,13 @@ fourth is brought out to a misc input, unpopulated.
 **Hysteresis is mandatory, for two different reasons.** A photodiode crossing a bare threshold
 on a slow display transition emits a burst of edges. Motion energy is a noisy, slowly varying
 signal that chatters across a bare threshold continuously.
+
+> **`wl-shook` validates this choice for a reason we did not have when we made it.** That device
+> accepts a resting baseline that moves with temperature, and notes that *a fixed comparator
+> threshold sits directly on top of whatever voltage it emits when the chair is still* — so
+> baseline drift is drift of a behavioural criterion. Because this threshold is software-set and
+> recorded, re-setting it after drift is a **logged event** rather than an untracked knob twiddle,
+> and the NI analog copy of the same channel gives you the real baseline to set it against.
 
 **Thresholds are I²C-DAC-set with fixed hysteresis.** The accelerometer threshold defines how
 much movement counts as movement and gates task progression, which makes it a behavioural
@@ -854,7 +861,7 @@ cross-correlation per session, which is a better reason to keep the channels tha
 | 2 | **Whether SpikeGLX exposes NRSE** as an NI terminal configuration. Decision 5 depends on it | Schematic |
 | 3 | ~~Connector 0 / Connector 1 pin split~~ **Closed 2026-08-13** — Connector 0 carries AI 0–15 + P0.0–7 + P1; Connector 1 carries AI 16–31 + P0.8–31 + P2. Analog fits entirely on 0, digital entirely on 1. See §9.2 | ~~Layout~~ |
 | 4 | **MDR68 and BNC stock and lead time** — the widest schedule error bar (§10.2) | Immediately |
-| 5 | ~~Accelerometer output range sets the front-end scaling~~ **Closed by construction** — `A_ACC` is a plain unity-gain difference receive (one INA105, SENSE tied to OUTPUT) with **no scaling network of any kind**; only MISC 1–3 carry the switchable /1÷/2 attenuation. The board is therefore committed to a **±5 V accelerometer**, the §6.1 board-wide convention. **Confirm that range with whoever is building the device before fabrication** — if it is not ±5 V, this is a respin, not a populate option | ~~Schematic~~ — confirm the range |
+| 5 | ~~Accelerometer output range~~ **Closed 2026-08-15 by `wl-shook` §3's output contract.** 0–5.000 V single-ended on BNC, non-inverted, with a **0.250 V resting pedestal** so 0 V means the device is absent rather than still — the NI record proves liveness sample by sample. Floating, battery-only, no rig supply, which is exactly what the differential receive assumes. Inside this board's ±5 V convention, so **the input stage is a unity buffer with nothing to derive and the board is correct as built.** No scaling network, no respin | ~~Schematic~~ |
 | 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
 | 7 | ~~Whether the misc analog ports need to be outputs as well as inputs~~ **Closed by construction — they are inputs only.** Each misc BNC runs one way: clamp → /1÷/2 divider → INA105 `+` input → `A_MISCn` → the NI and task-PC buffers. There is no drive-back path from the board to the connector anywhere on the analog front end, so an output misc port would be a respin | ~~Schematic~~ |
 | 8 | Behavior camera count (≤4 budgeted); all share one trigger rate, since only two hardware PWM pins survive the contiguous capture range | Layout |
