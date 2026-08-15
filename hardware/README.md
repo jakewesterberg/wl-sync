@@ -690,6 +690,70 @@ reference common to **all three**, which still correctly identifies it now that 
 sheet legitimately adds a second reference — the bridge — on two of the three, deliberately
 not the third).
 
+## Whole-board netlist contract (Task 12 fix round 1)
+
+`tests/hardware/test_netlist.py` is a 26-assertion whole-board contract (12 checks, each
+with its own negative control) covering this board's hard-won invariants: no `+5V` net
+reaching a 3.3V sync-module GPIO, every comparator/I²C pull-up landing on `+3V3` and never
+`+5V`, `AISENSE` tied to `AGND` on both NI connectors, both isolated domains pin-disjoint
+from every non-isolated rail, Intan capped at exactly 8 analog outputs, `RWD_CMD`/
+`RWD_DLVR` and `AGND`/`DGND` genuinely distinct (not just distinctly named), and the
+brief's own five original checks. Every one of these guards a property that was actually
+violated, by omission, at least once during this board's own build — see the check-level
+docstrings in that file for which task, which sheet.
+
+**The contract runs against a committed snapshot, not the raw exported netlist.**
+`hardware/breakout/breakout.net` is `*.net`-gitignored on purpose (mechanical, fully
+re-derivable from the checked-in schematic — see `hardware/.gitignore`'s own comment and
+"Byte-reproducibility" below), and this project's CI (`.github/workflows/ci.yml`) installs
+no KiCad, so `kicad-cli` never exists there. The first version of this test file parsed
+`breakout.net` directly and skipped (via `pytest.mark.skipif`) when that file was absent —
+which meant all 26 assertions skipped on every single CI run: green, but testing nothing,
+which reads as coverage while providing none. That was found and disclosed in
+`task-12-report.md`'s own "Concerns" section, then fixed (fix round 1, same task):
+
+- **`hardware/gen/gen_breakout_netlist_contract.py`** renders an exported netlist into
+  `hardware/breakout/netlist-contract.json` — a sorted, UUID-free `{net_name: [(ref, pin,
+  pinfunction, pintype), ...]}` mapping plus a `{ref: value}` component-value mapping.
+  Deterministic and diffable: no UUIDs (the raw `.net`'s own churn source — see
+  "Byte-reproducibility"), one connection per line, references and net names naturally
+  sorted (`R2` before `R10`), so a net gaining or losing a connection shows up as a
+  one-line diff in review, not buried in ~2200 lines of unrelated regenerated noise.
+- **This file IS committed** (not gitignored, unlike `breakout.net` itself) —
+  `tests/hardware/test_netlist.py` loads it directly and its 26 assertions now run
+  unconditionally, in every environment, CI included, with zero dependency on `kicad-cli`
+  or even `hardware/gen/` being importable.
+- **`tests/hardware/test_netlist_contract_freshness.py`** is the separate, locally-gated
+  check that the committed snapshot is still an accurate rendering of the schematic files
+  committed alongside it — it re-exports a netlist and rebuilds a snapshot with real
+  `kicad-cli` into a temp directory and byte-compares the result against
+  `netlist-contract.json`. This is the ONE file in the hardware test suite allowed to
+  skip: it does, with an explicit reason, when `kicad-cli` is not on `PATH` (true of this
+  project's CI). That optionality is deliberately confined to this one file — the
+  contract test above never gates on `kicad-cli` at all.
+
+**How a forgotten snapshot update is caught.** Anyone editing a
+`hardware/breakout/sheets/*.kicad_sch` file has KiCad installed locally (a precondition
+for editing a schematic at all), so `test_netlist_contract_freshness.py` runs, not skips,
+the next time they run `pytest` — it fails loudly, with a diff-shaped message and the
+exact regenerate command, if the committed `netlist-contract.json` no longer matches what
+`kicad-cli` produces from the sheet as just edited. This is a local, pre-commit-style
+gate, not a CI-enforced one — CI has no `kicad-cli` to run the freshness check with, so a
+snapshot committed stale would still pass CI (the 26 assertions test the snapshot
+faithfully; they cannot independently know it fell out of sync with the schematic). The
+"Regenerating fab outputs" recipe below documents the snapshot-regeneration step as a
+required part of any sheet change for the same reason — the automated local gate and the
+documented manual step are meant to back each other up, not either alone.
+
+**Residual limitation, disclosed rather than left implicit:** the freshness check proves
+*reproducibility* (regenerating right now yields the same bytes already committed), not
+*correctness*. A bug shared between the run that produced the currently-committed snapshot
+and the freshness check's own regeneration — i.e., a latent bug in
+`gen_breakout_netlist_contract.py`'s own netlist parsing — would reproduce identically
+both times and this check would still pass. Catching that class of bug is what the 26
+contract assertions are for instead: they read the parsed electrical content itself,
+independent of how it was produced.
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or
@@ -1084,51 +1148,76 @@ python3 hardware/gen/gen_mule_pcb.py
 kicad-cli pcb upgrade hardware/mule/mule.kicad_pcb                  # see "Format upgrade" below
 ```
 
-For the breakout board's own library, root sheet, and (Tasks 7-9) its power,
-task-PC-digital, and pi-interface child sheets. Order matters here in a way it didn't
-before Task 7 fix round 1: `gen_breakout_power.py` now *reads*
-`hardware/breakout/breakout.kicad_sch` (to compute its own components' real
-root+sheet-symbol ancestor path -- see the "KiCad gotchas" entry above and
-`gen_breakout_power.py`'s own `build()`), so `gen_breakout.py` must have already run and
-written that file, not merely conceptually precede it in the hierarchy -- running
-`gen_breakout_power.py` first raises `FileNotFoundError`, loudly, not silently.
-`gen_breakout_taskpc_digital.py` (Task 8) reads BOTH `hardware/breakout/breakout.kicad_sch`
-(same reason) AND `hardware/breakout/sheets/power.kicad_sch` (to seed its own reference
-counters past whatever `power.kicad_sch` already used -- see the "KiCad gotchas" entry
-above, "duplicate reference designators"), so it must run after BOTH of those.
-`gen_breakout_pi_interface.py` (Task 9) reads `hardware/breakout/breakout.kicad_sch`
-(same reason again) AND BOTH `hardware/breakout/sheets/power.kicad_sch` AND
-`hardware/breakout/sheets/taskpc-digital.kicad_sch` (to seed its own reference counters
-past EVERY already-committed sibling's own maxima via the new `merge_max_refs()` -- see
-the "KiCad gotchas" entry above, "Extended at Task 9"), so it must run after all three:
+For the breakout board's own library, root sheet, and (Tasks 7-12) its ten child sheets --
+power, task-PC-digital, pi-interface, analog-frontend, analog-ni, mux-intan, comparators,
+opto-ni, opto-intan, control-usb-i2c, in that exact order and no other. Order matters here
+in a way it didn't before Task 7 fix round 1: `gen_breakout_power.py` and every child
+generator after it *read* `hardware/breakout/breakout.kicad_sch` (to compute their own
+components' real root+sheet-symbol ancestor path -- see the "KiCad gotchas" entry above
+and any `gen_breakout_*.py`'s own `build()`), so `gen_breakout.py` must have already run
+and written that file, not merely conceptually precede it in the hierarchy -- running any
+child generator first raises `FileNotFoundError`, loudly, not silently. Each child
+generator ALSO reads every already-committed sibling that precedes it (to seed its own
+reference counters past every prior sheet's own maximum via `merge_max_refs()` -- see the
+"KiCad gotchas" entry above, "Extended at Task 9"), which is why the list below is a strict
+chain, not ten independent runs: `analog-frontend` reads power+taskpc-digital+pi-interface;
+`analog-ni` adds analog-frontend; `mux-intan` adds analog-ni; `comparators` adds mux-intan;
+`opto-ni` adds comparators; `opto-intan` adds opto-ni; `control-usb-i2c` (Task 12, the last
+sheet on this board) adds opto-intan -- each one strictly the union of every sheet already
+listed above it:
 
 ```bash
 python3 hardware/gen/gen_wl_sync_lib.py                             # hardware/lib/wl-sync.kicad_sym
 python3 hardware/gen/gen_wl_sync_footprints.py                      # hardware/lib/wl-sync.pretty/*.kicad_mod
-python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before the next three lines
-python3 hardware/gen/gen_breakout_power.py                          # hardware/breakout/sheets/power.kicad_sch -- must run before the next two lines
-python3 hardware/gen/gen_breakout_taskpc_digital.py                 # hardware/breakout/sheets/taskpc-digital.kicad_sch -- must run before the next line
-python3 hardware/gen/gen_breakout_pi_interface.py                   # hardware/breakout/sheets/pi-interface.kicad_sch
+python3 hardware/gen/gen_breakout.py                                # hardware/breakout/breakout.kicad_sch -- must run before every child sheet below
+python3 hardware/gen/gen_breakout_power.py                          # sheets/power.kicad_sch (Task 7)
+python3 hardware/gen/gen_breakout_taskpc_digital.py                 # sheets/taskpc-digital.kicad_sch (Task 8) -- reads power
+python3 hardware/gen/gen_breakout_pi_interface.py                   # sheets/pi-interface.kicad_sch (Task 9) -- adds taskpc-digital
+python3 hardware/gen/gen_breakout_analog_frontend.py                # sheets/analog-frontend.kicad_sch (Task 10a) -- adds pi-interface
+python3 hardware/gen/gen_breakout_analog_ni.py                      # sheets/analog-ni.kicad_sch (Task 10b) -- adds analog-frontend
+python3 hardware/gen/gen_breakout_mux_intan.py                      # sheets/mux-intan.kicad_sch (Task 10c) -- adds analog-ni
+python3 hardware/gen/gen_breakout_comparators.py                    # sheets/comparators.kicad_sch (Task 10d) -- adds mux-intan
+python3 hardware/gen/gen_breakout_opto_ni.py                        # sheets/opto-ni.kicad_sch (Task 11 step 1) -- adds comparators
+python3 hardware/gen/gen_breakout_opto_intan.py                     # sheets/opto-intan.kicad_sch (Task 11 step 2) -- adds opto-ni
+python3 hardware/gen/gen_breakout_control_usb_i2c.py                # sheets/control-usb-i2c.kicad_sch (Task 12) -- adds opto-intan; the last sheet on this board
 kicad-cli sch upgrade hardware/breakout/breakout.kicad_sch           # see "Format upgrade" below
 kicad-cli sch upgrade hardware/breakout/sheets/power.kicad_sch       # ditto -- a child sheet is its own .kicad_sch file
 kicad-cli sch upgrade hardware/breakout/sheets/taskpc-digital.kicad_sch  # ditto
 kicad-cli sch upgrade hardware/breakout/sheets/pi-interface.kicad_sch    # ditto
-kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net hardware/breakout/breakout.kicad_sch
-python3 hardware/gen/check_breakout_power_netlist.py /tmp/breakout.net  # verifies the power sheet's own netlist AND (reading breakout.kicad_sch/power.kicad_sch directly, not the netlist -- see its own module docstring) the instance-path fix, not just that ERC passed
-python3 hardware/gen/check_taskpc_digital_netlist.py /tmp/breakout.net  # verifies the task-PC digital sheet's own netlist end to end (both buffer banks) AND its own instance-path fix
-python3 hardware/gen/check_breakout_pi_interface_netlist.py /tmp/breakout.net  # verifies the sync-module interface sheet's own netlist end to end (every GPIO on its real physical pin) AND its own instance-path fix
+kicad-cli sch upgrade hardware/breakout/sheets/analog-frontend.kicad_sch # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/analog-ni.kicad_sch      # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/mux-intan.kicad_sch      # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/comparators.kicad_sch    # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/opto-ni.kicad_sch        # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/opto-intan.kicad_sch     # ditto
+kicad-cli sch upgrade hardware/breakout/sheets/control-usb-i2c.kicad_sch # ditto
+kicad-cli sch export netlist --format kicadsexpr -o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch
+python3 hardware/gen/check_breakout_power_netlist.py hardware/breakout/breakout.net          # verifies the power sheet's own netlist AND (reading breakout.kicad_sch/power.kicad_sch directly, not the netlist -- see its own module docstring) the instance-path fix, not just that ERC passed
+python3 hardware/gen/check_taskpc_digital_netlist.py hardware/breakout/breakout.net          # verifies the task-PC digital sheet's own netlist end to end (both buffer banks) AND its own instance-path fix
+python3 hardware/gen/check_breakout_pi_interface_netlist.py hardware/breakout/breakout.net   # verifies the sync-module interface sheet's own netlist end to end (every GPIO on its real physical pin) AND its own instance-path fix
+python3 hardware/gen/check_breakout_analog_frontend_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_analog_ni_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_mux_intan_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_comparators_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_opto_ni_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_opto_intan_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/check_breakout_control_usb_i2c_netlist.py hardware/breakout/breakout.net
+python3 hardware/gen/gen_breakout_netlist_contract.py                # hardware/breakout/netlist-contract.json -- run LAST, once every checker above has passed; commit this file alongside any sheet change (see "Whole-board netlist contract" above)
 ```
 
-Regenerating `breakout.kicad_sch`, `power.kicad_sch`, and `taskpc-digital.kicad_sch` mints
-fresh UUIDs on every one of their own components too (same byte-reproducibility caveat
-below), which is harmless in isolation but means a LATER child sheet generated against a
+Regenerating `breakout.kicad_sch` and any of its ten child sheets mints fresh UUIDs on
+every one of their own components too (same byte-reproducibility caveat below), which is
+harmless in isolation but means a LATER child sheet generated against a
 freshly-regenerated parent embeds THAT run's UUIDs in its own `(instances (path ...))`
-chain -- regenerating only `pi-interface.kicad_sch` against the ALREADY-COMMITTED (not
-freshly regenerated) `breakout.kicad_sch`/`power.kicad_sch`/`taskpc-digital.kicad_sch` is
-the one that reproduces the actually-committed state; regenerating all four together (as
-the recipe above does) is equally correct but changes every earlier file's own bytes too,
-which is real churn to commit unless those earlier sheets are ALSO meant to change this
-run.
+chain -- regenerating only the ONE sheet actually being edited, against the
+ALREADY-COMMITTED (not freshly regenerated) root and every other sibling, is the one that
+reproduces the actually-committed state for everything else; regenerating the full chain
+above is equally correct but changes every earlier file's own bytes too, which is real
+churn to commit unless those earlier sheets are ALSO meant to change this run. Either way,
+`hardware/breakout/breakout.net` must be re-exported and `gen_breakout_netlist_contract.py`
+re-run afterward -- `tests/hardware/test_netlist_contract_freshness.py` fails, locally,
+with a diff-shaped message, if a sheet changed and the snapshot wasn't regenerated to
+match (see "Whole-board netlist contract" above).
 
 The library generators each run a structural self-check (round-tripping every symbol/
 footprint through `kicad_sch.py`'s/`kicad_pcb.py`'s own parser) before writing anything to
@@ -1172,9 +1261,14 @@ kicad-cli pcb export drill -o hardware/<track>/fab/ hardware/<track>/<track>.kic
 kicad-cli sch export bom -o hardware/<track>/<track>-bom.csv hardware/<track>/<track>.kicad_sch
 ```
 
-`hardware/mule/mule.net` itself is not committed — see `.gitignore` and the
-byte-reproducibility note above for why a mechanically-regenerable, driftable-if-stale
-artifact stays out of the tree the same way `mule.kicad_sch`'s netlist export always has.
+Neither `hardware/mule/mule.net` nor `hardware/breakout/breakout.net` is committed — see
+`.gitignore` and the byte-reproducibility note above for why a mechanically-regenerable,
+driftable-if-stale artifact stays out of the tree the same way every `.kicad_sch`'s netlist
+export always has. `hardware/breakout/netlist-contract.json` is the one deliberate
+exception to that rule on this board: it is DERIVED from `breakout.net` (by
+`gen_breakout_netlist_contract.py`) but IS committed, because it has had every UUID (the
+raw netlist's own source of unreviewable diff noise) stripped out before being written —
+see "Whole-board netlist contract" above.
 
 `<track>` is `mule` or `breakout`. All of these are deterministic from the checked-in source
 files, and fab outputs (`fab/`, BOM CSVs) are committed alongside them so a board can be

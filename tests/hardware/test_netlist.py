@@ -11,31 +11,41 @@ checker): this is a whole-board CONTRACT test, one architectural layer above any
 sheet's own checker -- it exists to keep verifying the real, exported artifact even if
 hardware/gen/'s own verification machinery has a latent bug, or is simply unavailable (this
 package is not installed, hardware/gen/ is not on sys.path by default for a test run from
-the repo root). The same "a checker that trusted the thing it is checking would only be
-checking that thing against itself" discipline every hardware/gen/*_netlist.py checker
-already applies to its own gen_*.py generator is applied here one level up: this file
-parses hardware/breakout/breakout.net directly, with its own small, self-contained regexes
-(the identical technique check_mule_netlist.py's own parse_netlist()/
-parse_component_values() use, reimplemented independently -- not copy-pasted-and-imported).
+the repo root).
 
-WHY THIS FILE SKIPS (NOT FAILS) WHEN hardware/breakout/breakout.net IS MISSING:
-hardware/.gitignore deliberately excludes every `*.net` file -- "Exported netlists are a
-mechanical, fully-regenerable artifact of the checked-in schematic... committing one risks
-it silently going stale if the schematic changes without a re-export" (that comment's own
-words, unchanged by this task). This project's own CI (.github/workflows/ci.yml) runs a
-bare `pip install -e ".[dev]"` + `pytest -v` on ubuntu-latest, with no KiCad install step --
-`kicad-cli` genuinely does not exist there, and installing it is outside both this task's
-own file-scope permission (hardware/ and tests/hardware/ only) and its own "public repo,
-electrical facts only" discipline (a CI toolchain change is neither). A hard failure on a
-condition that literally can never be fixed by any code change on that runner would be
-worse than no test at all -- a permanent, uninformative red X nobody can act on, exactly
-the kind of signal this project's own "evidence before assertions" discipline warns
-against training people to ignore. A `pytest.mark.skipif` with a clear, actionable reason
-(the exact regenerate command) is the standard, idiomatic answer: this file is still
-collected and reported by every CI run (satisfying "runs in CI alongside the existing
-Python suite"), and it performs REAL, non-trivial verification on any machine that has run
-the regenerate step first -- this developer's own session included, and every future
-schematic-editing session afterward.
+THIS FILE READS A COMMITTED SNAPSHOT, NOT THE RAW EXPORTED NETLIST (Task 12 fix round 1 --
+see hardware/README.md's "Whole-board netlist contract" section and
+.superpowers/sdd/2026-08-13-breakout-pcb/task-12-report.md's "Fix round 1" for the full
+account of why this changed). The first version of this file parsed
+`hardware/breakout/breakout.net` directly, with its own small self-contained regexes -- but
+that file is `*.net`-gitignored on purpose (mechanical, fully re-derivable from the checked-
+in schematic; see hardware/.gitignore's own comment) and this project's CI has no
+`kicad-cli` to produce it, so the 26 assertions below SKIPPED on every single CI run. A skip
+reports green and reads as coverage while testing nothing -- worse than no test at all for a
+contract whose entire reason to exist is that every one of these properties was actually
+violated at least once, by omission, during this board's own build (see each check's own
+docstring below for which task, which sheet). Skips do not catch regressions.
+
+The fix: `hardware/gen/gen_breakout_netlist_contract.py` renders the exported netlist into
+`hardware/breakout/netlist-contract.json` -- a sorted, UUID-free `{net: [(ref, pin,
+pinfunction, pintype), ...]}` + `{ref: value}` snapshot, committed to the repository (NOT
+gitignored, unlike the raw `.net` it is derived from). This file loads THAT committed
+snapshot below (`_load_snapshot()`), so the 26 assertions run unconditionally in every
+environment, CI included, with zero dependency on KiCad or `hardware/gen/` being
+importable -- an even stronger form of the isolation the paragraph above already wanted:
+previously this file still depended on correctly guessing kicad-cli's own export
+formatting (see the "found the hard way" gotcha this docstring used to carry); now it
+depends on nothing but a static, versioned data file with a two-key JSON schema.
+
+This intentionally moves the "is the committed snapshot still an accurate rendering of the
+CURRENT schematic" question out of this file entirely -- that is a claim about tooling
+freshness, not about the board, and belongs in a check that is allowed to be unavailable in
+an environment with no KiCad. See `test_netlist_contract_freshness.py`, right beside this
+file, which regenerates a netlist and a snapshot with real `kicad-cli` and diffs the result
+against what's committed here -- skipping (with an explicit reason) only when `kicad-cli`
+itself is not on `PATH`. THAT file may skip. This one must not, and does not: every
+assertion below runs against already-committed data every single time `pytest` runs,
+including in CI, with nothing gating collection or execution.
 
 THE CONTRACT, PER THIS TASK'S OWN BRIEF (task-12-brief.md, Step 3) -- the first five
 checks below reproduce that brief's own literal assertions, refactored into small,
@@ -80,91 +90,74 @@ risk on THIS board, each one a real, previously-caught defect on a sibling sheet
       genuinely DISTINCT nets -- share no PIN (a silently collapsed pair would make
       commanded and delivered indistinguishable in every recording).
 
-Regenerate the netlist this reads via:
+This file reads the committed snapshot:
+    hardware/breakout/netlist-contract.json
+
+Regenerate it (after regenerating the netlist it is derived from) via:
     kicad-cli sch export netlist --format kicadsexpr \\
         -o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch
+    python3 hardware/gen/gen_breakout_netlist_contract.py
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
-NETLIST = Path(__file__).parents[2] / "hardware" / "breakout" / "breakout.net"
-
-pytestmark = pytest.mark.skipif(
-    not NETLIST.exists(),
-    reason=(
-        f"{NETLIST} not present -- a mechanical, gitignored export of the checked-in "
-        f"schematic (hardware/.gitignore's own '*.net' rule), not regenerated "
-        f"automatically in CI (no KiCad on the runner). Regenerate locally with: "
-        f"kicad-cli sch export netlist --format kicadsexpr -o {NETLIST} "
-        f"hardware/breakout/breakout.kicad_sch"
-    ),
-)
-
-
-# ---------------------------------------------------------------------------
-# Self-contained netlist parsing -- see module docstring for why this does not import
-# hardware/gen/check_mule_netlist.py's own equivalents.
-# ---------------------------------------------------------------------------
-
-# _NET_BLOCK_RE deliberately does NOT use the brief's own literal regex
-# (`r'\(net \(code "\d+"\) \(name "([^"]+)"\)'`, single literal spaces between tokens) --
-# found the hard way while writing this file: kicad-cli 10.0.5's own real
-# `sch export netlist` output pretty-prints one field per line
-# (`(net\n\t\t\t(code "1")\n\t\t\t(name "+3V3")...`), so a single-space-only pattern
-# matches ZERO nets against the real, current artifact -- not a vacuous pass, an outright
-# `nets()` == set() that fails every single one of the brief's own assertions. `\s*`/`\s+`
-# (matching hardware/gen/check_mule_netlist.py's own proven-correct, whitespace-tolerant
-# technique) is what actually reads the real file this project's own toolchain produces.
-_NET_BLOCK_RE = re.compile(r'\(net\s*\(code\s+"(\d+)"\)\s*\(name\s+"([^"]*)"\)')
-_NODE_RE = re.compile(
-    r'\(node\s+\(ref\s+"([^"]+)"\)\s+\(pin\s+"([^"]+)"\)'
-    r'(?:\s+\(pinfunction\s+"([^"]*)"\))?\s+\(pintype\s+"([^"]+)"\)\s*\)'
-)
-_COMP_REF_VALUE_RE = re.compile(r'\(ref\s+"([^"]+)"\)\s*\(value\s+"([^"]*)"\)')
+SNAPSHOT = Path(__file__).parents[2] / "hardware" / "breakout" / "netlist-contract.json"
 
 Node = tuple[str, str, str, str]  # (ref, pin, pinfunction, pintype)
 
 
+def _load_snapshot() -> dict:
+    """Load the committed contract snapshot -- see module docstring for why this file
+    reads this instead of parsing hardware/breakout/breakout.net directly. Unlike the old
+    `pytest.mark.skipif`, a MISSING snapshot is not a tolerated, informatively-skipped
+    condition: this file is committed (not gitignored -- see hardware/.gitignore, which
+    excludes only `*.net`), so its absence means the repository itself is broken, not that
+    some optional local tool wasn't run. Let that fail loudly, at fixture setup, with a
+    concrete regenerate command, rather than skip."""
+    assert SNAPSHOT.exists(), (
+        f"{SNAPSHOT} is missing. Unlike hardware/breakout/breakout.net, this file IS "
+        f"committed to the repository -- its absence means the checkout is broken, not "
+        f"that a tool needs to be run. If it is genuinely gone, regenerate with:\n"
+        f"    kicad-cli sch export netlist --format kicadsexpr "
+        f"-o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch\n"
+        f"    python3 hardware/gen/gen_breakout_netlist_contract.py"
+    )
+    return json.loads(SNAPSHOT.read_text())
+
+
 def nets() -> set[str]:
-    """Every distinct net name present in the exported netlist -- this task's own brief
+    """Every distinct net name present in the committed snapshot -- this task's own brief
     (task-12-brief.md, Step 3) names this exact helper and its exact signature; kept
     name-for-name so the first five checks below read the same way the brief itself
-    specifies them, but built on top of the whitespace-tolerant `net_nodes()` below
-    rather than re-implementing (and re-risking) the brief's own literal, non-matching
-    regex a second time."""
+    specifies them, but built on top of the snapshot-backed `net_nodes()` below rather
+    than re-parsing anything."""
     return set(net_nodes())
 
 
 def net_nodes() -> dict[str, list[Node]]:
-    """{net_name: [(ref, pin, pinfunction, pintype), ...]} -- the richer, node-level parse
+    """{net_name: [(ref, pin, pinfunction, pintype), ...]} -- the richer, node-level view
     the extended (beyond-the-brief) checks below need, to tell "this net exists" apart
     from "this net is driven by the RIGHT physical pin and shares no pin with that OTHER
     net" -- the same distinction every hardware/gen/*_netlist.py checker in this project
-    draws between ERC-silent and actually-correct."""
-    text = NETLIST.read_text()
-    start = text.find("(nets")
-    assert start != -1, "no (nets ...) section in the exported netlist"
-    body = text[start:]
-    matches = list(_NET_BLOCK_RE.finditer(body))
-    out: dict[str, list[Node]] = {}
-    for idx, m in enumerate(matches):
-        name = m.group(2)
-        block_start = m.end()
-        block_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
-        block = body[block_start:block_end]
-        out[name] = [(g[0], g[1], g[2], g[3]) for g in _NODE_RE.findall(block)]
-    return out
+    draws between ERC-silent and actually-correct. Each JSON node array is converted back
+    to a real tuple so callers get the exact `Node` shape this file has always used,
+    regardless of whether the data originated from a live parse (the old implementation)
+    or a committed snapshot (this one)."""
+    raw = _load_snapshot()["nets"]
+    return {name: [tuple(node) for node in node_list] for name, node_list in raw.items()}
 
 
 def component_values() -> dict[str, str]:
-    """{reference: Value property text} -- same technique
-    check_mule_netlist.py's own parse_component_values() uses."""
-    text = NETLIST.read_text()
-    return {m.group(1): m.group(2) for m in _COMP_REF_VALUE_RE.finditer(text)}
+    """{reference: Value property text} -- straight from the snapshot's own
+    `component_values` mapping (built by the same technique
+    check_mule_netlist.py's own parse_component_values() uses -- see
+    hardware/gen/gen_breakout_netlist_contract.py)."""
+    return dict(_load_snapshot()["component_values"])
 
 
 def _pins(nodes: dict[str, list[Node]], net: str) -> set[tuple[str, str]]:
