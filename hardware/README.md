@@ -53,6 +53,51 @@ diagrams contradict, and that both parts are discontinued besides. The inlet is 
 M12A-05PFFP-SF8001, current production, 811 units in stock directly confirmed at DigiKey)
 — see "Custom connector footprints" below for the full selection rationale and
 per-dimension sourcing.
+
+**Panel-instrumentation task (2026-08-15), Change D — four of the five "things a rack
+instrument needs that this one lacked" (spec §9.8) land on this sheet** (the fifth,
+the barcode heartbeat LED, is on `pi-interface.kicad_sch` — see that sheet's own
+paragraph below):
+
+- **Chassis earth stud (`J56`):** a `Connector_Generic:Conn_01x01` on footprint
+  `MountingHole:MountingHole_3.2mm_M3_Pad` — an M3-clearance hole *with* a connected
+  copper pad, simultaneously the mechanical mount and the electrical land the
+  cage-to-rack bond (spec §5.6) needs somewhere to terminate. Carries a new net,
+  `CHASSIS_GND`, joined to `DGND` at exactly one net tie (`NT3`) — mirroring `NT2`'s own
+  `FAN_RTN`↔`DGND` treatment exactly, so the stud reaches the board's single star point
+  transitively (through `NT3` then `NT1`/`NT2`), never by a second, competing path.
+- **Power-good LED per rail (`D40`/`D41`/`D42`, +12V/−12V/+5V):** series resistor + LED
+  between each rail and its own local ground reference (`AGND` for ±12V, `DGND` for
+  +5V) — `−12V`'s own pair is mirrored (resistor/anode on the `AGND` side, cathode on
+  `−12V`), the identical reasoning `D2`'s own reverse-polarity-diode orientation already
+  uses. ~4.5 mA target each (`R192`/`R193` = 2.2k, `R194` = 680R) — negligible against
+  any rail's own real budget.
+- **Rail test points (`TP1`–`TP7`):** one `Connector:TestPoint` per voltage rail (+12V,
+  −12V, +5V, +3V3, ISO_P12, ISO_N12) *plus one on `INTAN_GND`* — the isolated domain's
+  own reference, without which `ISO_P12`/`ISO_N12` cannot actually be measured at all
+  (`INTAN_GND` is galvanically separate from `AGND`/`DGND`, spec §5.3/§5.5). `AGND`/
+  `DGND` themselves are not given dedicated test points — already trivially probable at
+  any of this sheet's own many ground pads.
+- **Main input fusing (`F2`/`F3`/`F4`, +12V/−12V/+5V):** "the fans already have a
+  polyfuse; these did not" (spec §9.8). Same real part as the fan feed's own `F1`
+  (Littelfuse `1206L050/15YR`, 500 mA hold / 1 A trip / 15 V max), placed upstream of
+  each rail's own existing reverse-polarity diode (`D1`/`D2`/`D3`) — their own raw-side
+  net renamed `*_FUSED` (e.g. `P12_RAW` → `F2` → `P12_FUSED` → `D1` → `+12V`), `D1`–`D3`
+  themselves keeping their existing references unchanged. **Sizing note, not fully
+  closed:** +5V's own 400 mA budget (spec §8.2) gives 1.25× hold margin — tighter than
+  this board's own usual 1.5–2× band, accepted here because a main-input fuse guards
+  against a gross fault (a miswired cable, a dead short), not a tightly-optimized
+  continuous budget. ±12V's own real total draw was **not** independently characterized
+  to the same precision (it sums a computed IH1215D input-current estimate, the fan
+  feed, and an uncharacterized contribution from the ±12V-referenced op-amp stages on
+  `analog-frontend.kicad_sch`/`analog-ni.kicad_sch`) — flagged explicitly for bench
+  confirmation before treating the margin as final, the same "tell me if it doesn't fit"
+  posture this file's own +3V3/NI-budget notes already use elsewhere. A higher-current,
+  higher-voltage PPTC (Bourns `MF-SM` series) was evaluated and **rejected**: its own
+  datasheet states hand soldering is not recommended, which would add a third accepted
+  hand-solderability exception beyond the two spec §10.1 documents (`MCP4728`, the two
+  exposed-pad regulators) — see `_place_inlet()`'s own docstring for the full account.
+
 And `sheets/taskpc-digital.kicad_sch` (produced by
 `hardware/gen/gen_breakout_taskpc_digital.py`, Task 8) — both task-PC MDR68 connectors
 (Connector 1 wired with the 23 digital lines; Connector 0 carries its 9 task-PC analog
@@ -168,6 +213,21 @@ to a wrong pin and confirms the checker fires (this defect class is invisible to
 transposed physical pin is still a fully-connected, 0-error netlist, and only fails on a
 bench during PIO capture bring-up).
 
+**Panel-instrumentation task (2026-08-15), Change D's fifth item — barcode heartbeat LED,
+on this sheet.** Spec §9.8: "the barcode is a 1 Hz pulse; an LED on it says the sync box is
+alive from across the room." A **third** dedicated leg (channel 5, `BARCODE_HB`) off the
+SAME trigger-buffer package and the SAME `BARCODE_RAW` input the two optocoupler legs
+(`BARCODE_BUF`/`BARCODE_INTAN_BUF`) already use — "one buffered leg per driver pin," this
+sheet's own established discipline, applied to a visible LED instead of an optocoupler:
+`BARCODE_HB` never loads `BARCODE_PI` or either `_BUF` net directly, which is what "not by
+loading the barcode net" (this task's own instruction) means in practice. `R195` (390R) +
+`D43` (LED) to `DGND`, ~7.7 mA — the same order of magnitude already proven safe driving an
+ACSL-6400/6420 LED from this exact `SN74AHCT541PW` family elsewhere on this board (~7.33 mA,
+comfortably inside its 8 mA IOL rating), chosen for visibility rather than the lower ~4.5 mA
+target the power-good LEDs use for a close-up panel indicator. Since `BARCODE_HB` carries
+the identical signal as `BARCODE_PI`, the LED blinks at the barcode's own real rate with no
+separate blink oscillator needed.
+
 **As of Task 12, all ten hierarchical sheet symbols reference a populated child file** --
 the seven that were still empty as of this paragraph's own original writing
 (`analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`,
@@ -205,8 +265,12 @@ Task 13 produced three files together, and they are not interchangeable:
   bare `ADG1206YRUZ`), not the currently-orderable SKU.
 - **`hardware/breakout/breakout-bom-order.csv`** — the same rows as `breakout-bom.csv`
   (101 at Task 13's own lock, 106 after the fan-header addendum below folded five new rows
-  in), with a corrected, actually-orderable part number and a one-line sourcing note added
-  per line (fix round 1). **Purchase from this file.** It intentionally does not carry
+  in, 120 after the panel-instrumentation task (2026-08-15) folded fourteen more in — the
+  reward one-shot, four rail-power-good/heartbeat LEDs, the chassis earth stud, three more
+  main-input fuses, seven rail test points, and the one-shot's own Rext/Cext — see
+  `hardware/procurement-check.md`'s own panel-instrumentation addendum), with a corrected,
+  actually-orderable part number and a one-line sourcing note added per line (fix round 1).
+  **Purchase from this file.** It intentionally does not carry
   quantities — cross-reference `hardware/procurement-check.md` §2 for those, so quantities
   have exactly one source of truth instead of two copies that can drift apart.
 - **`hardware/procurement-check.md`** — the full audit: corrected per-line quantities (§2,

@@ -143,13 +143,14 @@ from pathlib import Path
 
 from kicad_sch import (
     Sch,
-    find_max_refs,
     find_root_uuid,
     find_sheet_instance_path,
-    merge_max_refs,
     pin_pos,
     write_project_stub,
 )
+# find_max_refs/merge_max_refs are no longer imported: build()'s own ref_start is now
+# PINNED (panel-instrumentation task, 2026-08-15 -- see build()'s own docstring), not
+# re-derived live from POWER_SCH/TASKPC_SCH at generation time.
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
@@ -239,6 +240,21 @@ BARCODE_OPTO_LEGS = [
     (4, "BARCODE_RAW", "BARCODE_INTAN_BUF"),    # -> opto-intan U64 channel 2
 ]
 
+# Panel-instrumentation task (2026-08-15), spec Sec.9.8 item 3: a barcode heartbeat LED,
+# "a 1 Hz pulse, so an LED says the sync box is alive from across the room". Channel 5 of
+# the SAME trigger buffer -- the third of its five originally-spare channels (2 already
+# spent on BARCODE_OPTO_LEGS above) -- gets ITS OWN buffered leg (BARCODE_HB), taking
+# BARCODE_RAW as its input exactly like BARCODE_BUF/BARCODE_INTAN_BUF already do: "one
+# optocoupler LED per driver pin" (this file's own established discipline, above) applies
+# identically to a VISIBLE LED -- driving it from BARCODE_PI or either _BUF net would add
+# load current to a net this project already budgets precisely (spec Sec.8.2's own
+# worst-case optocoupler count), so a dedicated leg is what "not by loading the barcode
+# net" (this task's own instruction) means in practice, not merely spirit. Since this leg
+# carries the exact same signal as BARCODE_PI (BARCODE_RAW, unbuffered upstream of all
+# three legs), the LED blinks at the barcode's own real rate -- no separate blink
+# oscillator needed.
+BARCODE_HEARTBEAT_CHANNEL = 5
+
 # CONTRACT_NETS_PRODUCED -- task's own net contract, "Produces".
 CONTRACT_NETS_PRODUCED = [
     "BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH", "BARCODE_BUF", "BARCODE_INTAN_BUF",
@@ -271,6 +287,11 @@ FOOTPRINT_PI_HDR = "Connector_PinHeader_2.54mm:PinHeader_2x20_P2.54mm_Vertical"
 # hardware/README.md's own "Custom connector footprints" section) the exact manufacturer
 # part is a layout-stage/procurement decision this schematic-capture task does not make.
 FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"
+# Panel-instrumentation task (2026-08-15) -- barcode heartbeat LED. Same 0603 HandSolder
+# LED footprint gen_breakout_power.py's own power-good LEDs use (FOOTPRINT_LED's own
+# comment there) -- both fp-lib-table (LED_SMD) and the Device:LED symbol are already
+# registered project-wide by that task's other half, so nothing new is needed here.
+FOOTPRINT_LED = "LED_SMD:LED_0603_1608Metric_Pad1.05x0.95mm_HandSolder"
 
 # ---------------------------------------------------------------------------
 # Layout grid -- every coordinate an exact multiple of 1.27mm (KiCad's schematic
@@ -303,6 +324,11 @@ X_NOTE4, Y_NOTE4 = GRID(300), GRID(280)    # barcode/camera fan-out note
 
 X_USB, Y_USB = GRID(15), GRID(320)         # internal USB header
 X_NOTE5, Y_NOTE5 = GRID(15), GRID(350)     # USB header note
+
+X_HB_R, X_HB_LED = GRID(440), GRID(460)    # barcode heartbeat LED -- its own column,
+# clear of X_BNC=360's own 5 BNC placements and X_NOTE4=300's own note block.
+Y_HB = GRID(160)
+X_NOTE6, Y_NOTE6 = GRID(440), GRID(250)    # barcode heartbeat note
 
 DECOUPLE_DX = GRID(15.24)
 
@@ -533,10 +559,37 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     for local, in_net, out_net in BARCODE_OPTO_LEGS:
         assert local not in channels, f"barcode opto leg {local} collides with an existing channel"
         channels[local] = (in_net, out_net)
+    # Barcode heartbeat LED's own dedicated leg (panel-instrumentation task, 2026-08-15,
+    # spec Sec.9.8 item 3) -- see BARCODE_HEARTBEAT_CHANNEL's own comment for why this is
+    # a fourth spare-channel leg, the identical pattern as the two opto legs above.
+    assert BARCODE_HEARTBEAT_CHANNEL not in channels, "barcode heartbeat channel collides with an existing channel"
+    channels[BARCODE_HEARTBEAT_CHANNEL] = ("BARCODE_RAW", "BARCODE_HB")
     place_octal_buffer(
         sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_TRIGBUF, Y_TRIGBUF, "+5V",
         channels, refs, "trigger_buf", FOOTPRINT_TSSOP20,
     )
+
+    # Barcode heartbeat LED itself -- R195 (out of band, see build()'s own comment for
+    # the whole-board baseline) + D43 (LED, also out of band). Target ~7.7mA (390R,
+    # (5V-2V)/390R): the SAME order of magnitude already proven safe driving an
+    # ACSL-6400/6420 LED from this exact SN74AHCT541PW family elsewhere on this board
+    # (~7.33mA, gen_breakout_taskpc_digital.py's own derivation, comfortably inside the
+    # AHCT541's own 8mA IOL rating) -- bright enough to be visible "across the room"
+    # (this task's own language), not the low-current ~4.5mA target
+    # gen_breakout_power.py's own power-good LEDs use for a panel indicator meant to be
+    # checked up close during bring-up rather than read from a distance.
+    r_pins = sch.place("Device", "R", "R195", "390", X_HB_R, Y_HB, footprint=FOOTPRINT_R)
+    x, y = pin_pos(X_HB_R, Y_HB, r_pins["1"])
+    sch.label("BARCODE_HB", x, y)
+    x, y = pin_pos(X_HB_R, Y_HB, r_pins["2"])
+    sch.label("BARCODE_HB_LED", x, y)
+    d_pins = sch.place("Device", "LED", "D43", "LED", X_HB_LED, Y_HB, footprint=FOOTPRINT_LED)
+    x, y = pin_pos(X_HB_LED, Y_HB, d_pins["2"])  # A (anode)
+    sch.label("BARCODE_HB_LED", x, y)
+    x, y = pin_pos(X_HB_LED, Y_HB, d_pins["1"])  # K (cathode)
+    sch.label("DGND", x, y)
+    refs["barcode_hb_r"] = "R195"
+    refs["barcode_hb_led"] = "D43"
 
     barcode_loads = [
         "Barcode -> NI optocoupler (Task 11 placeholder)",
@@ -590,6 +643,20 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     ]):
         sch.text(line, X_NOTE4, Y_NOTE4 + line_idx * NOTE_DY)
 
+    for line_idx, line in enumerate([
+        "BARCODE HEARTBEAT LED (panel-instrumentation task, 2026-08-15, spec Sec.9.8",
+        "item 3): 'a 1Hz pulse, so an LED says the sync box is alive from across the",
+        "room'. Channel 5 of this SAME trigger buffer -- a THIRD dedicated leg off",
+        "BARCODE_RAW (the same input BARCODE_PI/BARCODE_BUF/BARCODE_INTAN_BUF each",
+        "already take from their own channels) -- drives R195(390R)+D43(LED), never",
+        "loading BARCODE_PI or either _BUF net directly. Since BARCODE_HB carries the",
+        "exact same signal as BARCODE_PI, the LED blinks at the barcode's own real",
+        "rate with no separate oscillator. ~7.7mA -- same order of magnitude already",
+        "proven safe from this exact SN74AHCT541PW family elsewhere on this board",
+        "(~7.33mA driving an ACSL-6400/6420 LED, well inside the 8mA IOL rating).",
+    ]):
+        sch.text(line, X_NOTE6, Y_NOTE6 + line_idx * NOTE_DY)
+
 
 def _place_usb_header(sch, refs):
     """Step 4: 2.54mm 1x4 internal USB header -- the sync module's own USB-A port (panel
@@ -634,17 +701,32 @@ def build() -> tuple[Sch, dict]:
     """Returns (sch, refs) -- `refs` maps a role name to the reference designator(s) that
     play it, same convention every generator in this project follows.
 
-    `ref_start`: seeded past BOTH already-committed prior siblings (power.kicad_sch,
-    taskpc-digital.kicad_sch), via kicad_sch.py's new merge_max_refs() -- see module
-    docstring's own "REF_START" section.
+    `ref_start`: originally seeded past BOTH already-committed prior siblings
+    (power.kicad_sch, taskpc-digital.kicad_sch) at Task 9's own generation time, via
+    kicad_sch.py's merge_max_refs() -- see module docstring's own "REF_START" section.
+
+    PINNED, NOT RE-READ LIVE, as of the panel-instrumentation task (2026-08-15) -- the
+    IDENTICAL fix gen_breakout_taskpc_digital.py's own build() needed, for the identical
+    reason: both power.kicad_sch (the fan-header addition, well after Task 9) AND
+    taskpc-digital.kicad_sch (THIS task's own Change A/B, U69/R191/C149-150 and J4-6's
+    own value edits) have since diverged from what they were when this file was last
+    generated. Reading either live now would recompute a much larger ref_start and
+    renumber every one of this sheet's OWN 12 J's, 2 U's, 2 R's, and 2 C's the next time
+    this file is regenerated for any reason -- confirmed the same way (an unmodified copy
+    of this generator, run against the CURRENT power.kicad_sch/taskpc-digital.kicad_sch,
+    reproduces this sheet's own committed maxima {'J':18,'U':15,'R':26,'C':33} only when
+    ref_start is pinned to {'J':6,'C':31,'R':24,'D':3,'U':13} -- power.kicad_sch's own
+    PRE-fan-header maxima merged with taskpc-digital.kicad_sch's own PRE-this-task
+    maxima; 'D' is included for completeness even though this sheet never places one).
+    Constraint 3 (never renumber an existing refdes) applied at the point the hazard
+    actually lives, same as taskpc-digital.kicad_sch's own build() -- see that function's
+    own docstring for the fuller account of why a stale ref_start is the SAME class of
+    hazard as an un-out-of-banded next_ref() call, just one level removed.
     """
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, PI_INTERFACE_SHEETFILE)
-    ref_start = merge_max_refs(
-        find_max_refs(POWER_SCH.read_text()),
-        find_max_refs(TASKPC_SCH.read_text()),
-    )
+    ref_start = {"J": 6, "C": 31, "R": 24, "D": 3, "U": 13}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

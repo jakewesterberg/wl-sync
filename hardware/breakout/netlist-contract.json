@@ -30,7 +30,7 @@
     "C26": "100nF",
     "C27": "100nF",
     "C28": "100nF",
-    "C29": "100nF",
+    "C29": "1uF",
     "C30": "100nF",
     "C31": "100nF",
     "C32": "100nF",
@@ -150,6 +150,8 @@
     "C146": "100nF",
     "C147": "10uF",
     "C148": "100nF",
+    "C149": "1uF",
+    "C150": "100nF",
     "D1": "SS14",
     "D2": "SS14",
     "D3": "SS14",
@@ -189,16 +191,23 @@
     "D37": "BAT54S",
     "D38": "BAT54S",
     "D39": "BAT54S",
+    "D40": "LED",
+    "D41": "LED",
+    "D42": "LED",
+    "D43": "LED",
     "F1": "1206L050/15YR",
+    "F2": "1206L050/15YR",
+    "F3": "1206L050/15YR",
+    "F4": "1206L050/15YR",
     "FB1": "600R@100MHz",
     "FB2": "600R@100MHz",
     "FB3": "600R@100MHz",
     "J1": "M12A_5",
     "J2": "Connector 0 (analog + AISENSE, task PC NI)",
     "J3": "Connector 1 (digital, task PC NI)",
-    "J4": "Manual reward button (panel)",
-    "J5": "Remote reward jack (parallel to panel button)",
-    "J6": "Reward driver out (BNC, placeholder)",
+    "J4": "Manual reward button (panel, recessed)",
+    "J5": "Remote reward BNC (parallel to panel button; locking -- no TRS mating transient)",
+    "J6": "Reward driver out (BNC)",
     "J7": "Sync-module 40-pin GPIO header (Raspberry Pi 5 / CM5 IO Board -- see module docstring)",
     "J8": "Barcode -> NI optocoupler (Task 11 placeholder)",
     "J9": "Barcode -> Intan optocoupler (Task 11 placeholder)",
@@ -245,8 +254,10 @@
     "J53": "Chassis fan 2",
     "J54": "Chassis fan 3",
     "J55": "Chassis fan 4",
+    "J56": "Chassis earth stud",
     "NT1": "NetTie_2",
     "NT2": "NetTie_2",
+    "NT3": "NetTie_2",
     "R1": "90.9k",
     "R2": "10.0k",
     "R3": "93.1k",
@@ -437,6 +448,18 @@
     "R188": "2.2k",
     "R189": "2.2k",
     "R190": "10k",
+    "R191": "442k",
+    "R192": "2.2k",
+    "R193": "2.2k",
+    "R194": "680",
+    "R195": "390",
+    "TP1": "+12V",
+    "TP2": "-12V",
+    "TP3": "+5V",
+    "TP4": "+3V3",
+    "TP5": "ISO_P12",
+    "TP6": "ISO_N12",
+    "TP7": "INTAN_GND",
     "U1": "LD1117S33TR_SOT223",
     "U2": "IH1215D",
     "U3": "TPS7A4901",
@@ -504,7 +527,8 @@
     "U65": "ACSL-6420-00TE",
     "U66": "MCP2221A",
     "U67": "MCP23017 (I2C 0x20)",
-    "U68": "MCP23017 (I2C 0x21)"
+    "U68": "MCP23017 (I2C 0x21)",
+    "U69": "74HCT123D"
   },
   "nets": {
     "+3V3": [
@@ -525,6 +549,7 @@
       ["R121", "1", "", "passive"],
       ["R188", "1", "", "passive"],
       ["R189", "1", "", "passive"],
+      ["TP4", "1", "1_1", "passive"],
       ["U1", "2", "VO_2", "power_out"],
       ["U5", "20", "VCC_20", "power_in"],
       ["U6", "20", "VCC_20", "power_in"],
@@ -550,6 +575,7 @@
       ["C31", "1", "", "passive"],
       ["C33", "1", "", "passive"],
       ["C141", "1", "", "passive"],
+      ["C150", "1", "", "passive"],
       ["D3", "1", "K_1", "passive"],
       ["D4", "2", "K_2", "passive"],
       ["D5", "2", "K_2", "passive"],
@@ -603,6 +629,9 @@
       ["R181", "1", "", "passive"],
       ["R184", "1", "", "passive"],
       ["R186", "1", "", "passive"],
+      ["R191", "1", "", "passive"],
+      ["R194", "1", "", "passive"],
+      ["TP3", "1", "1_1", "passive"],
       ["U1", "3", "VI_3", "power_in"],
       ["U8", "20", "VCC_20", "power_in"],
       ["U9", "20", "VCC_20", "power_in"],
@@ -612,7 +641,9 @@
       ["U13", "14", "VCC_14", "power_in"],
       ["U15", "20", "VCC_20", "power_in"],
       ["U62", "1", "+Vin_1", "power_in"],
-      ["U65", "4", "VDD1_4", "power_in"]
+      ["U65", "4", "VDD1_4", "power_in"],
+      ["U69", "3", "Clr_3", "input"],
+      ["U69", "16", "VCC_16", "power_in"]
     ],
     "+12V": [
       ["C1", "1", "", "passive"],
@@ -668,6 +699,8 @@
       ["D37", "2", "K_2", "passive"],
       ["D38", "2", "K_2", "passive"],
       ["F1", "1", "", "passive"],
+      ["R192", "1", "", "passive"],
+      ["TP1", "1", "1_1", "passive"],
       ["U2", "3", "+Vin_3", "power_in"],
       ["U16", "7", "V+_7", "power_in"],
       ["U17", "7", "V+_7", "power_in"],
@@ -759,6 +792,8 @@
       ["D36", "1", "A_1", "passive"],
       ["D37", "1", "A_1", "passive"],
       ["D38", "1", "A_1", "passive"],
+      ["D41", "1", "K_1", "passive"],
+      ["TP2", "1", "1_1", "passive"],
       ["U16", "4", "V-_4", "power_in"],
       ["U17", "4", "V-_4", "power_in"],
       ["U18", "4", "V-_4", "power_in"],
@@ -910,6 +945,7 @@
       ["C118", "2", "", "passive"],
       ["C119", "2", "", "passive"],
       ["C120", "2", "", "passive"],
+      ["D40", "1", "K_1", "passive"],
       ["J1", "4", "4_4", "passive"],
       ["J1", "5", "5_5", "passive"],
       ["J2", "62", "62_62", "passive"],
@@ -933,6 +969,7 @@
       ["R73", "2", "", "passive"],
       ["R75", "2", "", "passive"],
       ["R77", "2", "", "passive"],
+      ["R193", "1", "", "passive"],
       ["U16", "1", "REF_1", "passive"],
       ["U17", "1", "REF_1", "passive"],
       ["U18", "1", "REF_1", "passive"],
@@ -1750,6 +1787,14 @@
       ["U15", "15", "Y3_15", "tri_state"],
       ["U60", "4", "CATHODE2_4", "passive"]
     ],
+    "BARCODE_HB": [
+      ["R195", "1", "", "passive"],
+      ["U15", "13", "Y5_13", "tri_state"]
+    ],
+    "BARCODE_HB_LED": [
+      ["D43", "2", "A_2", "passive"],
+      ["R195", "2", "", "passive"]
+    ],
     "BARCODE_INTAN": [
       ["J47", "1", "In_1", "passive"],
       ["R174", "2", "", "passive"],
@@ -1784,7 +1829,8 @@
       ["J7", "11", "GPIO17_11", "passive"],
       ["U15", "2", "A0_2", "input"],
       ["U15", "5", "A3_5", "input"],
-      ["U15", "6", "A4_6", "input"]
+      ["U15", "6", "A4_6", "input"],
+      ["U15", "7", "A5_7", "input"]
     ],
     "CAM_TRIG_BEH": [
       ["J14", "1", "In_1", "passive"],
@@ -1804,6 +1850,10 @@
     "CAM_TRIG_EYE_RAW": [
       ["J7", "12", "GPIO18_12", "passive"],
       ["U15", "3", "A1_3", "input"]
+    ],
+    "CHASSIS_GND": [
+      ["J56", "1", "Pin_1_1", "passive"],
+      ["NT3", "1", "1_1", "passive"]
     ],
     "DGND": [
       ["C5", "2", "", "passive"],
@@ -1828,6 +1878,7 @@
       ["C144", "2", "", "passive"],
       ["C145", "2", "", "passive"],
       ["C146", "2", "", "passive"],
+      ["C150", "2", "", "passive"],
       ["D4", "1", "A_1", "passive"],
       ["D5", "1", "A_1", "passive"],
       ["D6", "1", "A_1", "passive"],
@@ -1847,6 +1898,8 @@
       ["D20", "1", "A_1", "passive"],
       ["D21", "1", "A_1", "passive"],
       ["D22", "1", "A_1", "passive"],
+      ["D42", "1", "K_1", "passive"],
+      ["D43", "1", "K_1", "passive"],
       ["J3", "4", "4_4", "passive"],
       ["J3", "7", "7_7", "passive"],
       ["J3", "9", "9_9", "passive"],
@@ -1859,9 +1912,9 @@
       ["J3", "44", "44_44", "passive"],
       ["J3", "50", "50_50", "passive"],
       ["J3", "53", "53_53", "passive"],
-      ["J4", "2", "Pin_2_2", "passive"],
-      ["J5", "2", "Pin_2_2", "passive"],
-      ["J6", "2", "Pin_2_2", "passive"],
+      ["J4", "2", "2_2", "passive"],
+      ["J5", "2", "Ext_2", "passive"],
+      ["J6", "2", "Ext_2", "passive"],
       ["J7", "6", "GND_6", "passive"],
       ["J7", "9", "GND_9", "passive"],
       ["J7", "14", "GND_14", "passive"],
@@ -1883,6 +1936,7 @@
       ["J18", "4", "Pin_4_4", "passive"],
       ["NT1", "2", "2_2", "passive"],
       ["NT2", "2", "2_2", "passive"],
+      ["NT3", "2", "2_2", "passive"],
       ["U1", "1", "GND_1", "power_in"],
       ["U2", "1", "-Vin_1", "power_in"],
       ["U5", "1", "G1_1", "input"],
@@ -1937,7 +1991,6 @@
       ["U14", "10", "GND_10", "power_in"],
       ["U14", "19", "G2_19", "input"],
       ["U15", "1", "G1_1", "input"],
-      ["U15", "7", "A5_7", "input"],
       ["U15", "8", "A6_8", "input"],
       ["U15", "9", "A7_9", "input"],
       ["U15", "10", "GND_10", "power_in"],
@@ -1951,7 +2004,14 @@
       ["U67", "17", "A2_17", "input"],
       ["U68", "10", "V_{SS}_10", "power_in"],
       ["U68", "16", "A1_16", "input"],
-      ["U68", "17", "A2_17", "input"]
+      ["U68", "17", "A2_17", "input"],
+      ["U69", "1", "A_1", "input"],
+      ["U69", "6", "Cext_6", "input"],
+      ["U69", "7", "RCext_7", "input"],
+      ["U69", "8", "GND_8", "power_in"],
+      ["U69", "9", "A_9", "input"],
+      ["U69", "10", "B_10", "input"],
+      ["U69", "11", "Clr_11", "input"]
     ],
     "EVT_D0_BUF": [
       ["U8", "18", "Y0_18", "tri_state"],
@@ -2587,6 +2647,7 @@
       ["J51", "2", "Ext_2", "passive"],
       ["R2", "2", "", "passive"],
       ["R4", "2", "", "passive"],
+      ["TP7", "1", "1_1", "passive"],
       ["U2", "6", "0V_6", "power_out"],
       ["U3", "4", "GND_4", "power_in"],
       ["U4", "4", "GND_4", "power_in"],
@@ -2636,6 +2697,7 @@
       ["C113", "1", "", "passive"],
       ["C117", "1", "", "passive"],
       ["R3", "1", "", "passive"],
+      ["TP6", "1", "1_1", "passive"],
       ["U4", "1", "OUT_1", "power_out"],
       ["U39", "4", "V-_4", "power_in"],
       ["U41", "4", "V-_4", "power_in"],
@@ -2670,6 +2732,7 @@
       ["C112", "1", "", "passive"],
       ["C116", "1", "", "passive"],
       ["R1", "1", "", "passive"],
+      ["TP5", "1", "1_1", "passive"],
       ["U3", "1", "OUT_1", "power_out"],
       ["U39", "7", "V+_7", "power_in"],
       ["U41", "7", "V+_7", "power_in"],
@@ -2852,8 +2915,12 @@
       ["U52", "28", "D_28", "bidirectional"],
       ["U53", "3", "+_3", "passive"]
     ],
-    "N12_RAW": [
+    "N12_FUSED": [
       ["D2", "1", "K_1", "passive"],
+      ["F3", "2", "", "passive"]
+    ],
+    "N12_RAW": [
+      ["F3", "1", "", "passive"],
       ["J1", "2", "2_2", "passive"]
     ],
     "NI_5V": [
@@ -2986,12 +3053,20 @@
       ["R185", "2", "", "passive"],
       ["U65", "16", "ANODE4_16", "passive"]
     ],
-    "P5_RAW": [
+    "P5_FUSED": [
       ["D3", "2", "A_2", "passive"],
+      ["F4", "2", "", "passive"]
+    ],
+    "P5_RAW": [
+      ["F4", "1", "", "passive"],
       ["J1", "3", "3_3", "passive"]
     ],
-    "P12_RAW": [
+    "P12_FUSED": [
       ["D1", "2", "A_2", "passive"],
+      ["F2", "2", "", "passive"]
+    ],
+    "P12_RAW": [
+      ["F2", "1", "", "passive"],
       ["J1", "1", "1_1", "passive"]
     ],
     "PD1_COMP": [
@@ -3062,6 +3137,18 @@
       ["J3", "2", "2_2", "passive"],
       ["U11", "17", "Y1_17", "tri_state"]
     ],
+    "PGOOD_D40": [
+      ["D40", "2", "A_2", "passive"],
+      ["R192", "2", "", "passive"]
+    ],
+    "PGOOD_D41": [
+      ["D41", "2", "A_2", "passive"],
+      ["R193", "2", "", "passive"]
+    ],
+    "PGOOD_D42": [
+      ["D42", "2", "A_2", "passive"],
+      ["R194", "2", "", "passive"]
+    ],
     "RHS_STIM_BNC": [
       ["J51", "1", "In_1", "passive"],
       ["R187", "1", "", "passive"]
@@ -3096,14 +3183,18 @@
     ],
     "RWD_BTN": [
       ["C29", "1", "", "passive"],
-      ["J4", "1", "Pin_1_1", "passive"],
-      ["J5", "1", "Pin_1_1", "passive"],
+      ["J4", "1", "1_1", "passive"],
+      ["J5", "1", "In_1", "passive"],
       ["R24", "2", "", "passive"],
       ["U13", "1", "", "input"]
     ],
     "RWD_BTN_DEB": [
+      ["U13", "2", "", "output"],
+      ["U69", "2", "B_2", "input"]
+    ],
+    "RWD_BTN_PULSE": [
       ["U12", "2", "", "input"],
-      ["U13", "2", "", "output"]
+      ["U69", "13", "Q_13", "output"]
     ],
     "RWD_CMD": [
       ["J7", "15", "GPIO22_15", "passive"],
@@ -3148,7 +3239,7 @@
       ["R22", "1", "", "passive"]
     ],
     "RWD_DLVR": [
-      ["J6", "1", "Pin_1_1", "passive"],
+      ["J6", "1", "In_1", "passive"],
       ["U10", "8", "A6_8", "input"],
       ["U10", "9", "A7_9", "input"],
       ["U12", "3", "", "output"],
@@ -3256,6 +3347,15 @@
     "U4_NRSS": [
       ["C18", "1", "", "passive"],
       ["U4", "6", "NR/SS_6", "passive"]
+    ],
+    "U69_CEXT": [
+      ["C149", "2", "", "passive"],
+      ["U69", "14", "Cext_14", "input"]
+    ],
+    "U69_RCEXT": [
+      ["C149", "1", "", "passive"],
+      ["R191", "2", "", "passive"],
+      ["U69", "15", "RCext_15", "input"]
     ],
     "USB_DM_PI": [
       ["J18", "2", "Pin_2_2", "passive"],
@@ -3931,9 +4031,6 @@
     "unconnected-(U14-Y7-Pad11)": [
       ["U14", "11", "Y7_11", "tri_state+no_connect"]
     ],
-    "unconnected-(U15-Y5-Pad13)": [
-      ["U15", "13", "Y5_13", "tri_state+no_connect"]
-    ],
     "unconnected-(U15-Y6-Pad12)": [
       ["U15", "12", "Y6_12", "tri_state+no_connect"]
     ],
@@ -4122,6 +4219,15 @@
     ],
     "unconnected-(U68-NC-Pad14)": [
       ["U68", "14", "NC_14", "no_connect"]
+    ],
+    "unconnected-(U69A-~{Q}-Pad4)": [
+      ["U69", "4", "~{Q}_4", "output+no_connect"]
+    ],
+    "unconnected-(U69B-Q-Pad5)": [
+      ["U69", "5", "Q_5", "output+no_connect"]
+    ],
+    "unconnected-(U69B-~{Q}-Pad12)": [
+      ["U69", "12", "~{Q}_12", "output+no_connect"]
     ]
   }
 }

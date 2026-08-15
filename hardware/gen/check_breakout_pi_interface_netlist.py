@@ -55,6 +55,10 @@ from check_mule_netlist import (  # noqa: E402
     parse_component_values,
     parse_netlist,
 )
+from check_row_pitch_guard import (  # noqa: E402
+    check_row_pitch_exceeds_2pin_span,
+    self_test_row_pitch,
+)
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
     find_root_uuid,
@@ -386,6 +390,43 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"Ai<->Yi=20."
     )
 
+    # --- BARCODE HEARTBEAT LED (panel-instrumentation task, 2026-08-15, spec Sec.9.8
+    # item 3): a SIXTH dedicated buffered leg off the SAME trigger buffer package and the
+    # SAME BARCODE_RAW input -- "drive it from a spare buffered leg, not by loading the
+    # barcode net", made executable the same way BARCODE_OPTO_LEGS already is above. ---
+    barcode_hb_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_HB", "SN74AHCT541PW")
+    check(
+        barcode_hb_buf == trig_buf,
+        f"BARCODE_HB should share the SAME physical SN74AHCT541PW package as BARCODE_PI "
+        f"et al. ({trig_buf}), found {barcode_hb_buf}",
+    )
+    hb_out_pin = next(int(n.pin) for n in nets["BARCODE_HB"] if n.ref == trig_buf and "tri_state" in n.pintype)
+    check(
+        hb_out_pin not in barcode_out_pins.values(),
+        f"{trig_buf}: BARCODE_HB's own output pin ({hb_out_pin}) collides with one of "
+        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF's own pins "
+        f"({barcode_out_pins}) -- this would load the barcode net's own driver pin, "
+        f"exactly what a dedicated leg exists to avoid",
+    )
+    r195_refs = {n.ref for n in nets["BARCODE_HB"] if n.ref.startswith("R")}
+    check(len(r195_refs) == 1, f"BARCODE_HB: expected exactly 1 series resistor, found {r195_refs}")
+    r195_ref = next(iter(r195_refs))
+    check(values.get(r195_ref) == "390", f"{r195_ref}: expected Value '390' (barcode heartbeat LED series R), found {values.get(r195_ref)!r}")
+    hb_led_node = next(name for name, ns in nets.items() if any(n.ref == r195_ref and name != "BARCODE_HB" for n in ns))
+    d43_refs = {n.ref for n in nets.get(hb_led_node, []) if values.get(n.ref) == "LED"}
+    check(len(d43_refs) == 1, f"{hb_led_node}: expected exactly 1 LED, found {d43_refs}")
+    d43_ref = next(iter(d43_refs))
+    d43_cathode_on_dgnd = [n for n in nets.get("DGND", []) if n.ref == d43_ref and n.pin == "1"]
+    check(len(d43_cathode_on_dgnd) == 1, f"{d43_ref}: cathode (pin 1) expected on DGND, not found there")
+    d43_anode_on_node = [n for n in nets.get(hb_led_node, []) if n.ref == d43_ref and n.pin == "2"]
+    check(len(d43_anode_on_node) == 1, f"{d43_ref}: anode (pin 2) expected on {hb_led_node!r} (in series with {r195_ref}), not found there")
+    summary.append(
+        f"Barcode heartbeat LED confirmed: BARCODE_RAW -> {trig_buf} (channel producing "
+        f"BARCODE_HB, pin {hb_out_pin} -- distinct from every other channel's own pin) "
+        f"-> {r195_ref}(390R) -> {d43_ref}(LED) -> DGND. Never loads BARCODE_PI or "
+        f"either _BUF net."
+    )
+
     # --- Barcode fan-out reaches exactly 5 loads (this task's own brief: "5 loads -- NI
     # opto, Intan opto, and three spare positions" -- this sheet's own 5 placeholder
     # headers, Task 9's own commit), each a DISTINCT reference, AND NOT ONE OF THEM AN
@@ -657,6 +698,19 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(usb_swapped, good_values, "standard USB-A pin order", "USB D+/D- swapped")
     results.append(f"Internal USB header D+/D- swapped ({usb_ref}): caught -- {msg}")
 
+    # Barcode heartbeat LED collision (panel-instrumentation task, 2026-08-15): BARCODE_HB
+    # accidentally shares its own trigger-buffer output pin with BARCODE_PI (simulating a
+    # future edit that reuses an already-spoken-for channel instead of a genuinely spare
+    # one), loading the real barcode net exactly as the dedicated leg exists to avoid.
+    hb_buf_ref = next(n.ref for n in good_nets["BARCODE_HB"] if good_values.get(n.ref) == "SN74AHCT541PW")
+    hb_collision = copy.deepcopy(good_nets)
+    barcode_pi_out_pin = next(n.pin for n in hb_collision["BARCODE_PI"] if n.ref == hb_buf_ref and "tri_state" in n.pintype)
+    hb_collision["BARCODE_HB"] = [n for n in hb_collision["BARCODE_HB"] if not (n.ref == hb_buf_ref and "tri_state" in n.pintype)] + [
+        Node(ref=hb_buf_ref, pin=barcode_pi_out_pin, pinfunction=f"Y{barcode_pi_out_pin}", pintype="tri_state")
+    ]
+    msg = _assert_fails(hb_collision, good_values, "collides with one of", "BARCODE_HB reusing BARCODE_PI's own output pin")
+    results.append(f"Barcode heartbeat LED channel collision (BARCODE_HB reusing BARCODE_PI's own {hb_buf_ref} output pin): caught -- {msg}")
+
     return results
 
 
@@ -777,6 +831,26 @@ def main() -> int:
         return 1
     breakout_sch_text = DEFAULT_BREAKOUT_SCH.read_text()
     pi_sch_text = DEFAULT_PI_INTERFACE_SCH.read_text()
+
+    # Shared row-pitch-vs-2-pin-part-span collision guard (constraint 4) -- not
+    # previously wired into this checker; added at the panel-instrumentation task
+    # (2026-08-15) alongside the barcode heartbeat LED's own two new 2-pin parts
+    # (R195/D43), same pattern as check_breakout_power_netlist.py/
+    # check_taskpc_digital_netlist.py's own main().
+    try:
+        row_pitch_summary = check_row_pitch_exceeds_2pin_span(pi_sch_text, "pi-interface.kicad_sch")
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(pi_sch_text, "pi-interface.kicad_sch", min_instances=15)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
+
     try:
         path_summary = verify_instance_paths(pi_sch_text, breakout_sch_text)
     except CheckFailure as e:

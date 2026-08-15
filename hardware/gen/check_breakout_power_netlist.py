@@ -247,7 +247,7 @@ RAIL_BYPASS_EXPECTED = {
                                    # moved from this pair to +12V/AGND (33/33 -> 34/32).
                                    # See gen_breakout_comparators.py's own "THE SECOND
                                    # DESTROY-HARDWARE CONSTRAINT".
-    ("+5V", "DGND"): 10,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 11,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
                                    # (Task 9); + 1 from opto-intan.kicad_sch's own
@@ -255,7 +255,11 @@ RAIL_BYPASS_EXPECTED = {
                                    # ONLY one of its own 6 channels whose own package
                                    # power pins sit on +5V/DGND rather than ISO_5V/
                                    # INTAN_GND; opto-ni.kicad_sch adds none here, its own
-                                   # decoupling is entirely on NI_5V/NI_GND)
+                                   # decoupling is entirely on NI_5V/NI_GND); + 1 (C150)
+                                   # from the panel-instrumentation task's own reward
+                                   # one-shot (U69, taskpc-digital.kicad_sch) -- its own
+                                   # +5V/DGND decoupling cap, same one-decoupler-per-IC
+                                   # discipline as every other package on this board.
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk
@@ -392,23 +396,67 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # protection at all -- exactly the "plausible but wrong" failure class this whole
     # checker exists to catch, just at the component-orientation level instead of the
     # pin-resolution level. ---
+    # PANEL-INSTRUMENTATION TASK (2026-08-15): each diode's own RAW-side net is now
+    # "*_FUSED", not "*_RAW" -- main-input fusing (F2/F3/F4, checked in its own block
+    # below) sits between the M12 connector's own raw pin and each diode's anode/cathode,
+    # so the diode's own protection now starts one hop later than it used to. D1/D2/D3
+    # themselves keep their EXISTING references (constraint 3) -- only the label on their
+    # already-existing raw-side pin moved.
     d1_k = [n for n in nets["+12V"] if n.ref == "D1" and n.pin == "1"]
-    d1_a = [n for n in nets["P12_RAW"] if n.ref == "D1" and n.pin == "2"]
+    d1_a = [n for n in nets["P12_FUSED"] if n.ref == "D1" and n.pin == "2"]
     check(len(d1_k) == 1, f"D1 cathode (pin 1) expected on +12V, not found: {nets['+12V']}")
-    check(len(d1_a) == 1, f"D1 anode (pin 2) expected on P12_RAW, not found: {nets['P12_RAW']}")
+    check(len(d1_a) == 1, f"D1 anode (pin 2) expected on P12_FUSED, not found: {nets['P12_FUSED']}")
     d2_a = [n for n in nets["-12V"] if n.ref == "D2" and n.pin == "2"]
-    d2_k = [n for n in nets["N12_RAW"] if n.ref == "D2" and n.pin == "1"]
+    d2_k = [n for n in nets["N12_FUSED"] if n.ref == "D2" and n.pin == "1"]
     check(len(d2_a) == 1, f"D2 anode (pin 2) expected on -12V, not found: {nets['-12V']}")
-    check(len(d2_k) == 1, f"D2 cathode (pin 1) expected on N12_RAW, not found: {nets['N12_RAW']}")
+    check(len(d2_k) == 1, f"D2 cathode (pin 1) expected on N12_FUSED, not found: {nets['N12_FUSED']}")
     d3_k = [n for n in nets["+5V"] if n.ref == "D3" and n.pin == "1"]
-    d3_a = [n for n in nets["P5_RAW"] if n.ref == "D3" and n.pin == "2"]
+    d3_a = [n for n in nets["P5_FUSED"] if n.ref == "D3" and n.pin == "2"]
     check(len(d3_k) == 1, f"D3 cathode (pin 1) expected on +5V, not found: {nets['+5V']}")
-    check(len(d3_a) == 1, f"D3 anode (pin 2) expected on P5_RAW, not found: {nets['P5_RAW']}")
+    check(len(d3_a) == 1, f"D3 anode (pin 2) expected on P5_FUSED, not found: {nets['P5_FUSED']}")
     summary.append(
-        "Reverse-polarity diodes correctly oriented: D1 anode->P12_RAW/cathode->+12V "
-        "(source->load), D2 anode->-12V/cathode->N12_RAW (load->source, mirrored -- see "
-        "_place_inlet()'s docstring for the derivation), D3 anode->P5_RAW/cathode->+5V "
-        "(source->load, same orientation as D1 -- fix round 1)."
+        "Reverse-polarity diodes correctly oriented: D1 anode->P12_FUSED/cathode->+12V "
+        "(source->load), D2 anode->-12V/cathode->N12_FUSED (load->source, mirrored -- see "
+        "_place_inlet()'s docstring for the derivation), D3 anode->P5_FUSED/cathode->+5V "
+        "(source->load, same orientation as D1 -- fix round 1). Raw-side nets renamed "
+        "*_FUSED (panel-instrumentation task) -- see the main-input-fusing check below."
+    )
+
+    # --- MAIN INPUT FUSING (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item 5):
+    # "the fans already have a polyfuse; these did not". One Littelfuse 1206L050/15YR per
+    # rail, bridging the M12 connector's own raw pin to that rail's own diode-protected
+    # node -- same "joined by reference at EXACTLY one component, and that component
+    # contributes exactly one pin to each side" construction as every other bridging
+    # check in this file (F1/FAN_12V above, the two net-tie checks). ---
+    main_fuse_specs = [("P12_RAW", "P12_FUSED", "F2"), ("N12_RAW", "N12_FUSED", "F3"), ("P5_RAW", "P5_FUSED", "F4")]
+    for raw_net, fused_net, expected_ref in main_fuse_specs:
+        check(
+            _pins_on(nets, raw_net).isdisjoint(_pins_on(nets, fused_net)),
+            f"{raw_net} and {fused_net} share a PIN directly -- they are not distinct nets (the fuse is bypassed)",
+        )
+        bridging = _refs_on(nets, raw_net) & _refs_on(nets, fused_net)
+        check(
+            len(bridging) == 1,
+            f"{raw_net}/{fused_net} should be joined by reference at EXACTLY one "
+            f"component (the main-input fuse), found {len(bridging)}: {bridging}",
+        )
+        fref = next(iter(bridging))
+        check(fref == expected_ref, f"{raw_net}/{fused_net}'s own bridging fuse is {fref!r}, expected {expected_ref!r}")
+        check(fref.startswith("F"), f"the {raw_net}/{fused_net} bridging component {fref!r} is not an F-prefixed fuse reference")
+        check(
+            values.get(fref) == "1206L050/15YR",
+            f"{fref}: expected Value '1206L050/15YR' (main-input fuse), found {values.get(fref)!r}",
+        )
+        raw_pins = [n.pin for n in nets[raw_net] if n.ref == fref]
+        fused_pins = [n.pin for n in nets[fused_net] if n.ref == fref]
+        check(
+            len(raw_pins) == 1 and len(fused_pins) == 1,
+            f"{fref} should contribute exactly 1 pin to each of {raw_net}/{fused_net}, "
+            f"found {len(raw_pins)}/{len(fused_pins)}",
+        )
+    summary.append(
+        "Main input fusing confirmed: F2 (P12_RAW<->P12_FUSED), F3 (N12_RAW<->N12_FUSED), "
+        "F4 (P5_RAW<->P5_FUSED), each the sole bridge, each Value '1206L050/15YR'."
     )
 
     # --- Finding 1's own core claim, made executable: +5V ORIGINATES AT THE INLET, not
@@ -542,23 +590,117 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"transitively through that tie and NT1 -- never a direct pin."
     )
 
-    # --- Exactly two net ties on the whole board, nothing else: the generalised form of
-    # the single-net-tie uniqueness check the AGND/DGND star point used to make alone
+    # --- CHASSIS EARTH STUD (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item
+    # 1): "a mounting point the cage-to-rack bond can land on" (spec Sec.5.6). J56
+    # carries a new net, CHASSIS_GND, joined to DGND at exactly one net tie (NT3) --
+    # IDENTICAL construction to the FAN_RTN/DGND check above, applied to the third tie. ---
+    check(
+        _pins_on(nets, "CHASSIS_GND").isdisjoint(_pins_on(nets, "DGND")),
+        "CHASSIS_GND and DGND share a PIN directly -- they are not distinct nets",
+    )
+    check(
+        _pins_on(nets, "CHASSIS_GND").isdisjoint(_pins_on(nets, "AGND")),
+        "CHASSIS_GND and AGND share a PIN directly -- CHASSIS_GND must reach AGND only "
+        "transitively, through NT3 then NT1, never by a direct pin",
+    )
+    chassis_refs = _refs_on(nets, "CHASSIS_GND")
+    check(
+        "J56" in chassis_refs,
+        f"J56 (the chassis earth stud) has no pin on CHASSIS_GND: {nets['CHASSIS_GND']}",
+    )
+    chassis_bridging_refs = chassis_refs & dgnd_refs
+    check(
+        len(chassis_bridging_refs) == 1,
+        f"CHASSIS_GND and DGND should be joined by reference at EXACTLY one component "
+        f"(NT3, the earth stud's own net tie), found {len(chassis_bridging_refs)}: "
+        f"{chassis_bridging_refs}",
+    )
+    chassis_bridge_ref = next(iter(chassis_bridging_refs))
+    check(
+        chassis_bridge_ref.startswith("NT") and chassis_bridge_ref not in (bridge_ref, fan_bridge_ref),
+        f"the CHASSIS_GND/DGND bridging component {chassis_bridge_ref!r} is not a THIRD, "
+        f"distinct net tie from the AGND/DGND star point ({bridge_ref!r}) and the fan "
+        f"return ({fan_bridge_ref!r})",
+    )
+    summary.append(
+        f"Chassis earth stud confirmed: J56 on CHASSIS_GND, joined to DGND at exactly "
+        f"one net tie ({chassis_bridge_ref}), reaching AGND only transitively."
+    )
+
+    # --- Exactly three net ties on the whole board, nothing else: the generalised form
+    # of the single-net-tie uniqueness check the AGND/DGND star point used to make alone
     # (see the NOTE left at that check, above). Now that FAN_RTN's own bridge
-    # (fan_bridge_ref) is known too, this confirms NEITHER of the two known ties has a
-    # stray THIRD sibling anywhere on the board -- a future edit that adds an
-    # unaccounted-for net tie (accidentally or otherwise) is caught here even though
-    # each individual "exactly one bridging reference" check above only looks at its own
-    # net pair in isolation. ---
+    # (fan_bridge_ref) AND CHASSIS_GND's own bridge (chassis_bridge_ref) are both known
+    # too, this confirms none of the three known ties has a stray FOURTH sibling
+    # anywhere on the board -- a future edit that adds an unaccounted-for net tie
+    # (accidentally or otherwise) is caught here even though each individual "exactly one
+    # bridging reference" check above only looks at its own net pair in isolation. ---
     nettie_refs = {n.ref for name in nets for n in nets[name] if n.ref.startswith("NT")}
     check(
-        nettie_refs == {bridge_ref, fan_bridge_ref},
+        nettie_refs == {bridge_ref, fan_bridge_ref, chassis_bridge_ref},
         f"unexpected NetTie_2 reference(s) somewhere on the board -- expected exactly "
-        f"the two known net ties {{{bridge_ref!r}, {fan_bridge_ref!r}}} (AGND/DGND star "
-        f"point and FAN_RTN/DGND), found {nettie_refs} -- either a stray/unaccounted "
-        f"net tie exists, or one of the two known ones is missing",
+        f"the three known net ties {{{bridge_ref!r}, {fan_bridge_ref!r}, "
+        f"{chassis_bridge_ref!r}}} (AGND/DGND star point, FAN_RTN/DGND, CHASSIS_GND/"
+        f"DGND), found {nettie_refs} -- either a stray/unaccounted net tie exists, or "
+        f"one of the three known ones is missing",
     )
-    summary.append(f"Exactly two net ties on the whole board, nothing else: {nettie_refs}.")
+    summary.append(f"Exactly three net ties on the whole board, nothing else: {nettie_refs}.")
+
+    # --- POWER-GOOD LEDS (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item 2):
+    # one per rail (+12V, -12V, +5V) -- "a failed one is otherwise invisible until the
+    # data is wrong". Each is a series resistor + LED between the rail and its own local
+    # ground reference; -12V's own pair is checked with the MIRRORED orientation
+    # (anode/resistor on AGND, cathode on -12V) -- see gen_breakout_power.py's own
+    # _place_power_good_leds() docstring for why. ---
+    pgood_specs = [
+        ("D40", "R192", "+12V", "AGND", False),
+        ("D41", "R193", "AGND", "-12V", True),   # mirrored -- see docstring above
+        ("D42", "R194", "+5V", "DGND", False),
+    ]
+    for led_ref, r_ref, plus_net, minus_net, _mirrored in pgood_specs:
+        check(led_ref in values, f"{led_ref} (power-good LED) not found in the netlist at all")
+        check(values.get(led_ref) == "LED", f"{led_ref}: expected Value 'LED', found {values.get(led_ref)!r}")
+        cathode_on_minus = [n for n in nets[minus_net] if n.ref == led_ref and n.pin == "1"]
+        check(
+            len(cathode_on_minus) == 1,
+            f"{led_ref}: cathode (pin 1) expected on {minus_net!r}, not found there: {nets[minus_net]}",
+        )
+        r_on_plus = [n for n in nets[plus_net] if n.ref == r_ref]
+        check(len(r_on_plus) == 1, f"{r_ref}: expected exactly 1 pin on {plus_net!r}, found {r_on_plus}")
+        # The resistor and LED must actually be in series with EACH OTHER (share a node
+        # that is neither plus_net nor minus_net), not just each independently touch the
+        # rail/ground pair -- otherwise a "resistor straight across the rail, LED
+        # straight across the rail" (two independent, non-series branches) would pass
+        # the two checks above just as well as the intended series pair.
+        r_other_pin = next(p for p in ("1", "2") if not any(n.ref == r_ref and n.pin == p for n in nets[plus_net]))
+        r_node = next(name for name, ns in nets.items() if any(n.ref == r_ref and n.pin == r_other_pin for n in ns))
+        anode_on_r_node = [n for n in nets[r_node] if n.ref == led_ref and n.pin == "2"]
+        check(
+            len(anode_on_r_node) == 1,
+            f"{led_ref}/{r_ref}: not genuinely in series -- {r_ref}'s own non-{plus_net} "
+            f"pin lands on {r_node!r}, but {led_ref}'s own anode (pin 2) is not there: {nets[r_node]}",
+        )
+    summary.append(
+        "Power-good LEDs confirmed: D40/R192 (+12V->AGND), D41/R193 (AGND->-12V, "
+        "mirrored), D42/R194 (+5V->DGND) -- each a genuine series resistor+LED pair."
+    )
+
+    # --- RAIL TEST POINTS (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item 4):
+    # one per voltage rail (+12V, -12V, +5V, +3V3, ISO_P12, ISO_N12) plus one on
+    # INTAN_GND -- the isolated rails' own reference, without which ISO_P12/ISO_N12
+    # cannot be measured at all (see gen_breakout_power.py's own
+    # _place_rail_test_points() docstring). ---
+    tp_rails = ["+12V", "-12V", "+5V", "+3V3", "ISO_P12", "ISO_N12", "INTAN_GND"]
+    tp_refs_found = {}
+    for rail in tp_rails:
+        tp_on_rail = sorted({n.ref for n in nets[rail] if n.ref.startswith("TP")})
+        check(len(tp_on_rail) == 1, f"{rail}: expected exactly 1 test point, found {tp_on_rail}")
+        tp_refs_found[rail] = tp_on_rail[0]
+    check(
+        len(set(tp_refs_found.values())) == len(tp_rails),
+        f"the same test point reference is shared across more than one rail: {tp_refs_found}",
+    )
+    summary.append(f"Rail test points confirmed, one per rail (including INTAN_GND, the isolated reference): {tp_refs_found}.")
 
     # --- FAN_12V reaches +12V ONLY through F1 (the polyfuse) -- same construction again,
     # applied to the fan supply side. A silently-omitted or silently-bridged fuse would
@@ -660,6 +802,12 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         "F1": "1206L050/15YR",  # the fan-feed polyfuse (spec Sec.9.5) -- Littelfuse
         # 1206L050/15YR, 500mA hold / 1A trip / 15V max; see gen_breakout_power.py's
         # own _place_fan_headers() docstring for the hold-current sizing derivation.
+        "F2": "1206L050/15YR", "F3": "1206L050/15YR", "F4": "1206L050/15YR",
+        # ^ main-input fuses (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item
+        # 5) -- the SAME real part as F1, reused rather than a fourth new fuse part
+        # number; see gen_breakout_power.py's own _place_inlet() docstring for the
+        # sizing rationale and the +-12V margin caveat.
+        "D40": "LED", "D41": "LED", "D42": "LED",  # power-good LEDs (spec Sec.9.8 item 2)
     }
     for ref, expected in expected_values.items():
         check(
@@ -684,7 +832,10 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 
     # --- No two named nets collapsed onto the same physical net (constraint 1's own
     # signature failure: two labels, one real net). ---
-    all_named = CONTRACT_NETS + ["P12_RAW", "N12_RAW", "P5_RAW", "FAN_12V", "FAN_RTN"]
+    all_named = CONTRACT_NETS + [
+        "P12_RAW", "N12_RAW", "P5_RAW", "FAN_12V", "FAN_RTN",
+        "P12_FUSED", "N12_FUSED", "P5_FUSED", "CHASSIS_GND",  # panel-instrumentation task
+    ]
     seen: dict[frozenset, str] = {}
     for name in all_named:
         key = frozenset((n.ref, n.pin) for n in nets[name])
@@ -766,29 +917,30 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     results.append(f"Isolation barrier short (ISO_P12 tied to +12V via one shared pin): caught -- {msg}")
 
     # Reverse-polarity diode installed backwards: swap D1's two pins between +12V and
-    # P12_RAW (same net MEMBERSHIP as before, just each pin now on the OTHER net --
-    # exactly what a physically-reversed diode looks like in the netlist).
+    # P12_FUSED (panel-instrumentation task renamed the raw-side net from P12_RAW --
+    # same net MEMBERSHIP as before, just each pin now on the OTHER net -- exactly what
+    # a physically-reversed diode looks like in the netlist).
     d1_reversed = copy.deepcopy(good_nets)
     d1_in_12v = next(n for n in d1_reversed["+12V"] if n.ref == "D1")
-    d1_in_raw = next(n for n in d1_reversed["P12_RAW"] if n.ref == "D1")
+    d1_in_raw = next(n for n in d1_reversed["P12_FUSED"] if n.ref == "D1")
     d1_reversed["+12V"] = [n for n in d1_reversed["+12V"] if n.ref != "D1"] + [
         Node(ref="D1", pin=d1_in_raw.pin, pinfunction=d1_in_raw.pinfunction, pintype=d1_in_raw.pintype)
     ]
-    d1_reversed["P12_RAW"] = [n for n in d1_reversed["P12_RAW"] if n.ref != "D1"] + [
+    d1_reversed["P12_FUSED"] = [n for n in d1_reversed["P12_FUSED"] if n.ref != "D1"] + [
         Node(ref="D1", pin=d1_in_12v.pin, pinfunction=d1_in_12v.pinfunction, pintype=d1_in_12v.pintype)
     ]
     msg = _assert_fails(d1_reversed, good_values, "D1 cathode", "D1 installed backwards")
     results.append(f"D1 (reverse-polarity diode) installed backwards: caught -- {msg}")
 
     # D3 (+5V, fix round 1) installed backwards -- same construction as D1's own test
-    # above, mirrored onto the new diode.
+    # above, mirrored onto the new diode. P5_FUSED, not P5_RAW -- see D1's own comment.
     d3_reversed = copy.deepcopy(good_nets)
     d3_in_5v = next(n for n in d3_reversed["+5V"] if n.ref == "D3")
-    d3_in_raw = next(n for n in d3_reversed["P5_RAW"] if n.ref == "D3")
+    d3_in_raw = next(n for n in d3_reversed["P5_FUSED"] if n.ref == "D3")
     d3_reversed["+5V"] = [n for n in d3_reversed["+5V"] if n.ref != "D3"] + [
         Node(ref="D3", pin=d3_in_raw.pin, pinfunction=d3_in_raw.pinfunction, pintype=d3_in_raw.pintype)
     ]
-    d3_reversed["P5_RAW"] = [n for n in d3_reversed["P5_RAW"] if n.ref != "D3"] + [
+    d3_reversed["P5_FUSED"] = [n for n in d3_reversed["P5_FUSED"] if n.ref != "D3"] + [
         Node(ref="D3", pin=d3_in_5v.pin, pinfunction=d3_in_5v.pinfunction, pintype=d3_in_5v.pintype)
     ]
     msg = _assert_fails(d3_reversed, good_values, "D3 cathode", "D3 installed backwards")
@@ -905,19 +1057,87 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(missing_hdr, good_values, "expected exactly 4 fan headers", f"{victim_hdr} dropped entirely")
     results.append(f"Fan header count regression ({victim_hdr} dropped from both FAN_12V/FAN_RTN): caught -- {msg}")
 
-    # Stray third net tie: an NT-prefixed reference appears somewhere neither of the two
-    # per-pair "exactly one bridging component" checks above would catch on its own (it
-    # doesn't bridge AGND/DGND OR FAN_RTN/DGND -- it just exists, e.g. left over from a
-    # copy-pasted block), exercising the holistic "exactly two net ties on the whole
-    # board" check instead. Landed on +3V3 specifically: not a member of either
-    # bridging-reference computation above, and not power_out-typed, so this corruption
-    # is isolated to the ONE check it exists to exercise rather than tripping an earlier,
-    # unrelated one first.
+    # Stray FOURTH net tie (panel-instrumentation task added a third, real one -- NT3,
+    # CHASSIS_GND<->DGND -- so this corruption now has to be a fourth to genuinely be
+    # "stray"): an NT-prefixed reference appears somewhere none of the three per-pair
+    # "exactly one bridging component" checks above would catch on its own. Landed on
+    # +3V3 specifically: not a member of any bridging-reference computation above, and
+    # not power_out-typed, so this corruption is isolated to the ONE check it exists to
+    # exercise rather than tripping an earlier, unrelated one first.
     stray_tie = copy.deepcopy(good_nets)
     phantom_nt = Node(ref="NT99", pin="1", pinfunction="", pintype="passive")
     stray_tie["+3V3"] = stray_tie["+3V3"] + [phantom_nt]
-    msg = _assert_fails(stray_tie, good_values, "unexpected NetTie_2 reference", "stray third net tie (NT99)")
-    results.append(f"Stray third net tie (NT99, bridging nothing in particular): caught -- {msg}")
+    msg = _assert_fails(stray_tie, good_values, "unexpected NetTie_2 reference", "stray fourth net tie (NT99)")
+    results.append(f"Stray fourth net tie (NT99, bridging nothing in particular): caught -- {msg}")
+
+    # --- Panel-instrumentation negative controls (2026-08-15) -- one per new check()
+    # family added above, same mutate-the-real-parsed-netlist discipline as every test
+    # above. ---
+
+    # Main-input fuse bypassed: P12_RAW shorted straight to P12_FUSED (simulating F2
+    # missing or solder-bridged).
+    fuse_bypassed = copy.deepcopy(good_nets)
+    phantom_f2 = Node(ref="DBG91", pin="1", pinfunction="", pintype="passive")
+    fuse_bypassed["P12_RAW"] = fuse_bypassed["P12_RAW"] + [phantom_f2]
+    fuse_bypassed["P12_FUSED"] = fuse_bypassed["P12_FUSED"] + [phantom_f2]
+    msg = _assert_fails(fuse_bypassed, good_values, "share a PIN directly", "P12_RAW/P12_FUSED direct short (fuse bypassed)")
+    results.append(f"Main fuse F2 bypassed (P12_RAW shorted to P12_FUSED): caught -- {msg}")
+
+    # Main-input fuse value drift: F4's own Value edited/lost.
+    f4_drifted = dict(good_values)
+    f4_drifted["F4"] = "Polyfuse"
+    msg = _assert_fails(good_nets, f4_drifted, "expected Value '1206L050/15YR'", "F4 value drift")
+    results.append(f"F4 value drift (1206L050/15YR -> generic 'Polyfuse'): caught -- {msg}")
+
+    # Chassis earth stud: CHASSIS_GND shorted directly to DGND (simulating NT3 missing
+    # and the stud wired straight to ground instead).
+    chassis_shorted = copy.deepcopy(good_nets)
+    phantom_ch = Node(ref="DBG90", pin="1", pinfunction="", pintype="passive")
+    chassis_shorted["CHASSIS_GND"] = chassis_shorted["CHASSIS_GND"] + [phantom_ch]
+    chassis_shorted["DGND"] = chassis_shorted["DGND"] + [phantom_ch]
+    msg = _assert_fails(chassis_shorted, good_values, "share a PIN directly", "CHASSIS_GND/DGND direct short")
+    results.append(f"Chassis earth CHASSIS_GND/DGND direct short (NT3 bypassed): caught -- {msg}")
+
+    # Power-good LED reversed: D40's own pins swapped between +12V's own resistor node
+    # and AGND -- exactly what a physically-reversed LED looks like in the netlist (same
+    # construction as the D1-reversed reverse-polarity-diode test above).
+    led_reversed = copy.deepcopy(good_nets)
+    r192_node = next(name for name, ns in led_reversed.items() if any(n.ref == "R192" and n.pin == "2" for n in ns))
+    d40_on_node = next(n for n in led_reversed[r192_node] if n.ref == "D40")
+    d40_on_agnd = next(n for n in led_reversed["AGND"] if n.ref == "D40")
+    led_reversed[r192_node] = [n for n in led_reversed[r192_node] if n.ref != "D40"] + [
+        Node(ref="D40", pin=d40_on_agnd.pin, pinfunction=d40_on_agnd.pinfunction, pintype=d40_on_agnd.pintype)
+    ]
+    led_reversed["AGND"] = [n for n in led_reversed["AGND"] if n.ref != "D40"] + [
+        Node(ref="D40", pin=d40_on_node.pin, pinfunction=d40_on_node.pinfunction, pintype=d40_on_node.pintype)
+    ]
+    msg = _assert_fails(led_reversed, good_values, "D40", "power-good LED D40 installed backwards")
+    results.append(f"Power-good LED D40 installed backwards (anode/cathode swapped): caught -- {msg}")
+
+    # Power-good LED value drift/wrong part: D42's own Value edited.
+    led_drifted = dict(good_values)
+    led_drifted["D42"] = "LED_RED"
+    msg = _assert_fails(good_nets, led_drifted, "D42: expected Value 'LED'", "D42 value drift")
+    results.append(f"Power-good LED D42 value drift ('LED' -> 'LED_RED'): caught -- {msg}")
+
+    # Rail test point missing: drop TP3 (+5V's own test point) entirely.
+    tp_missing = copy.deepcopy(good_nets)
+    tp_missing["+5V"] = [n for n in tp_missing["+5V"] if n.ref != "TP3"]
+    msg = _assert_fails(tp_missing, good_values, "expected exactly 1 test point", "TP3 (+5V test point) dropped")
+    results.append(f"Rail test point TP3 dropped from +5V: caught -- {msg}")
+
+    # Rail test point shared across two rails: -12V's own TP2 is REPLACED by a copy of
+    # TP1 (still exactly one TP-prefixed ref per rail individually, so the per-rail-count
+    # check above stays satisfied -- this corruption is isolated to the cross-rail
+    # uniqueness check specifically). Both nets are non-isolated, so this does not also
+    # trip the unrelated, already-tested isolation-barrier check.
+    tp_wrong_rail = copy.deepcopy(good_nets)
+    tp1_node = next(n for n in tp_wrong_rail["+12V"] if n.ref == "TP1")
+    tp_wrong_rail["-12V"] = [n for n in tp_wrong_rail["-12V"] if n.ref != "TP2"] + [
+        Node(ref="TP1", pin=tp1_node.pin, pinfunction=tp1_node.pinfunction, pintype=tp1_node.pintype)
+    ]
+    msg = _assert_fails(tp_wrong_rail, good_values, "shared across more than one rail", "TP1 reused on -12V instead of its own TP2")
+    results.append(f"Rail test point TP1 reused on -12V in place of TP2 (same ref, two rails): caught -- {msg}")
 
     return results
 

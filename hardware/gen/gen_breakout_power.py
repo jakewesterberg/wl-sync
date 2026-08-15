@@ -147,6 +147,21 @@ FOOTPRINT_FUSE = "Fuse:Fuse_1206_3216Metric_Pad1.42x1.75mm_HandSolder"  # Littel
 # hold-current sizing derivation and hardware/procurement-check.md for the sourcing
 # record.
 FOOTPRINT_HDR1X03 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+# Panel-instrumentation task (2026-08-15, spec Sec.9.8) -- main input fusing, power-good
+# LEDs, rail test points, and a chassis earth stud. Every footprint below is a real stock
+# KiCad entry; see each placement function's own docstring for the sourcing/sizing
+# rationale behind the VALUE chosen with each one.
+FOOTPRINT_LED = "LED_SMD:LED_0603_1608Metric_Pad1.05x0.95mm_HandSolder"  # same 0603
+# HandSolder-pad discipline as every other small SMD part on this board (FOOTPRINT_DIODE/
+# FOOTPRINT_FERRITE's own comments) -- a generic indicator LED, real stock footprint.
+FOOTPRINT_MOUNTINGHOLE_EARTH = "MountingHole:MountingHole_3.2mm_M3_Pad"  # an M3-clearance
+# mounting hole WITH a connected copper pad -- a real stock KiCad footprint modelling
+# exactly what a chassis earth stud needs to be: simultaneously a mechanical mounting
+# point and a genuine electrical land, not two separate parts.
+FOOTPRINT_TESTPOINT = "TestPoint:TestPoint_THTPad_2.0x2.0mm_Drill1.0mm"  # a real THT pad
+# with a drill -- easy to hook a scope/DMM probe or loop a wire onto during bring-up,
+# same "comfortable hand-assembly margin" discipline as every other footprint choice in
+# this file.
 # Real pad geometry checked directly against the .kicad_mod file, not assumed from the
 # symbol name (constraint 5, "check the footprint's real pad geometry... if anything you
 # add depends on physical adjacency"): pads 1/2/3 sit at (0,0)/(0,2.54)/(0,5.08) -- one
@@ -216,6 +231,23 @@ X_FAN_HDR, Y_FAN_HDR0 = GRID(520), GRID(30.48)        # first of 4 fan headers
 FAN_HDR_DY = GRID(25.4)                                # row spacing, headers 2-4
 X_NOTE_FAN, Y_NOTE_FAN = GRID(440), GRID(160)
 FAN_NOTE_DY = GRID(5.08)
+
+# Panel-instrumentation task anchors (2026-08-15). Checked directly against the pre-task
+# committed power.kicad_sch before picking these, not assumed clear: the fan block's own
+# docstring already recorded the PRE-fan-header bounding box (X -29.21..380.49,
+# Y -8.89..326.39); the fan block itself adds X>=440, Y roughly -9..236 (its own note
+# block, X_NOTE_FAN/Y_NOTE_FAN, tops out around 236 with ~15 lines at FAN_NOTE_DY). Y=450
+# sits below BOTH regions on the same A2 sheet -- clear of everything already placed.
+X_FUSE_MAIN = GRID(45)  # main-input fuses -- between J1 (X=20) and the diode column
+# (X_DIODE=66.04), same Y row as each rail's own existing reverse-polarity diode.
+X_EARTH, Y_EARTH = GRID(20), GRID(450)          # chassis earth stud
+X_EARTH_TIE = GRID(50)                           # NT3: CHASSIS_GND <-> DGND
+X_PGOOD, Y_PGOOD0 = GRID(100), GRID(450)        # power-good LEDs, one row per rail
+PGOOD_DY = GRID(25.4)
+X_TP, Y_TP0 = GRID(250), GRID(450)              # rail test points, one row per rail
+TP_DY = GRID(15.24)
+X_NOTE7, Y_NOTE7 = GRID(400), GRID(450)
+NOTE7_DY = GRID(5.08)
 
 
 def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
@@ -363,6 +395,7 @@ def _place_inlet(sch, refs):
     """
     refs["inlet_diode"] = []
     refs["inlet_cap"] = []
+    refs["inlet_fuse"] = []
 
     j1_ref = sch.next_ref("J")
     j1_pins = sch.place("wl-sync", "M12A_5", j1_ref, "M12A_5", X_J1, Y_J1, footprint=FOOTPRINT_M12A5)
@@ -372,11 +405,67 @@ def _place_inlet(sch, refs):
         sch.label(net, x, y)
     refs["j1"] = j1_ref
 
+    # MAIN INPUT FUSING (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item 5):
+    # "The fans already have a polyfuse; these [+-12V and +5V] did not." One Littelfuse
+    # 1206L050/15YR PPTC per rail -- the SAME already-qualified, hand-solderable, real
+    # part F1 (the fan feed) already uses, reused here rather than a fourth new fuse part
+    # number, closest to the connector on each rail (upstream of that rail's own
+    # reverse-polarity diode, so a downstream fault that stresses the diode itself is
+    # also within the fuse's own protected span): P12_RAW/N12_RAW/P5_RAW (the M12
+    # connector's own raw pins, UNCHANGED labels -- J1 itself is not touched) each now
+    # feed a fuse first; D1/D2/D3's own raw-side label moves to a new "*_FUSED"
+    # intermediate node (their protected-side label is UNCHANGED). D1/D2/D3 themselves
+    # keep their EXISTING references -- this is a value/label edit at their own existing
+    # call sites, not a new component insertion, so constraint 3 (never renumber an
+    # existing refdes) is satisfied by construction for them; only the three fuses
+    # (F2/F3/F4) are genuinely new, minted out of band (see build()'s own comment for the
+    # whole-board baseline).
+    #
+    # SIZING: +5V is explicitly budgeted at 400mA (Sec.8.2) -- 500mA hold / 1A trip gives
+    # 1.25x hold margin (tighter than this file's own established 1.5-2x band for a
+    # tightly-optimized budget line, e.g. the NI pull-up sizing in spec Sec.8.1) but is
+    # accepted here because a MAIN INPUT fuse is a gross-fault (miswired cable, dead
+    # short) guard, not a continuous-operation budget the way a pull-up is, and 1A trip
+    # is still 2.5x the nominal load. +-12V's own real total draw is NOT independently
+    # re-derived here to the same precision as +5V's: it sums IH1215D's own input current
+    # (~66mA*2 outputs*15V / ~0.78 typical small-DCDC efficiency / 12V-in ~ 215mA,
+    # computed from the part's own real +-15V/66mA/2W spec, not assumed), the fan feed
+    # (240mA, F1's own already-fused branch -- current still passes through THIS fuse
+    # too, being upstream), the LM339 comparator and the eight ADG1206 muxes' own
+    # quiescent draw (each low-single-digit-mA at most, comparators.kicad_sch/
+    # mux-intan.kicad_sch), and an UNCHARACTERIZED contribution from the +-12V-referenced
+    # op-amp stages on analog-frontend.kicad_sch/analog-ni.kicad_sch (dozens of
+    # amplifier channels, each low-single-digit mA typically, but no per-part Icc was
+    # totalled here) -- flagged explicitly, in the same "tell me if it doesn't fit"
+    # posture task-7-report.md's own +5V-budget concern already established for this
+    # exact rail, rather than presented as a closed number. A larger, higher-voltage-
+    # rated PPTC (Bourns MF-SM) was considered and REJECTED: its own datasheet states
+    # "Hand soldering is not recommended for these devices", which would make it this
+    # board's THIRD accepted hand-solderability exception (this project's own global
+    # constraint permits exactly two: the MCP4728 DAC at 0.5mm pitch and the two
+    # exposed-pad regulators) -- so 1206L050/15YR is reused instead, at whatever margin
+    # the ±12V rail's own real total turns out to need re-checking against a bench
+    # measurement before this is treated as final.
+    for raw_net, fused_net, y_row, ref_name in (
+        ("P12_RAW", "P12_FUSED", Y_D_P12, "F2"),
+        ("N12_RAW", "N12_FUSED", Y_D_N12, "F3"),
+        ("P5_RAW", "P5_FUSED", Y_D_P5, "F4"),
+    ):
+        fpins = sch.place(
+            "Device", "Polyfuse", ref_name, "1206L050/15YR", X_FUSE_MAIN, y_row,
+            footprint=FOOTPRINT_FUSE,
+        )
+        x, y = pin_pos(X_FUSE_MAIN, y_row, fpins["1"])
+        sch.label(raw_net, x, y)
+        x, y = pin_pos(X_FUSE_MAIN, y_row, fpins["2"])
+        sch.label(fused_net, x, y)
+        refs["inlet_fuse"].append(ref_name)
+
     # D1: +12V -- anode (raw, source side) -> cathode (protected net, load side).
     d1 = sch.next_ref("D")
     d1_pins = sch.place("Diode", "SS14", d1, "SS14", X_DIODE, Y_D_P12, footprint=FOOTPRINT_DIODE)
     ax, ay = pin_pos(X_DIODE, Y_D_P12, d1_pins["2"])  # A
-    sch.label("P12_RAW", ax, ay)
+    sch.label("P12_FUSED", ax, ay)
     kx, ky = pin_pos(X_DIODE, Y_D_P12, d1_pins["1"])  # K
     sch.label("+12V", kx, ky)
     refs["inlet_diode"].append(d1)
@@ -388,7 +477,7 @@ def _place_inlet(sch, refs):
     ax, ay = pin_pos(X_DIODE, Y_D_N12, d2_pins["2"])  # A
     sch.label("-12V", ax, ay)
     kx, ky = pin_pos(X_DIODE, Y_D_N12, d2_pins["1"])  # K
-    sch.label("N12_RAW", kx, ky)
+    sch.label("N12_FUSED", kx, ky)
     refs["inlet_diode"].append(d2)
 
     # D3: +5V (fix round 1) -- anode (raw, source side) -> cathode (protected net, load
@@ -396,7 +485,7 @@ def _place_inlet(sch, refs):
     d3 = sch.next_ref("D")
     d3_pins = sch.place("Diode", "SS14", d3, "SS14", X_DIODE, Y_D_P5, footprint=FOOTPRINT_DIODE)
     ax, ay = pin_pos(X_DIODE, Y_D_P5, d3_pins["2"])  # A
-    sch.label("P5_RAW", ax, ay)
+    sch.label("P5_FUSED", ax, ay)
     kx, ky = pin_pos(X_DIODE, Y_D_P5, d3_pins["1"])  # K
     sch.label("+5V", kx, ky)
     refs["inlet_diode"].append(d3)
@@ -745,6 +834,183 @@ def _place_fan_headers(sch, refs):
         sch.text(line, X_NOTE_FAN, Y_NOTE_FAN + line_idx * FAN_NOTE_DY)
 
 
+def _place_chassis_earth(sch, refs):
+    """Panel-instrumentation task (2026-08-15), spec Sec.9.8 item 1: a chassis earth
+    stud -- "a mounting point the cage-to-rack bond can land on". Spec Sec.5.6 says the
+    Faraday cage and the rack should be bonded to each other at ONE DELIBERATE POINT, but
+    (before this task) the board offered nowhere to land that bond -- so somebody would
+    improvise one (a random chassis screw, a wire wrapped around a standoff), which is
+    exactly the kind of undocumented mechanical fact this whole project exists to design
+    out (see hardware/README.md's own framing of the board itself: "a rig is reproducible
+    by construction rather than by documentation discipline").
+
+    J56 (Connector_Generic:Conn_01x01, footprint MountingHole:MountingHole_3.2mm_M3_Pad --
+    an M3-clearance hole WITH a connected copper pad, a real stock KiCad footprint
+    modelling exactly this: a single fastener that is simultaneously the mechanical
+    mounting point and the electrical land) carries a NEW net, CHASSIS_GND -- not tied
+    directly to DGND at its own pin, but joined to DGND through NT3, a THIRD NetTie_2,
+    mirroring NT2's own FAN_RTN<->DGND treatment exactly: DGND is itself joined to AGND
+    at exactly one point (NT1, _place_inlet()), so CHASSIS_GND reaches the WHOLE board's
+    single star point too, transitively, through NT3 then NT1/NT2 -- never by a second,
+    competing direct path. This is what makes the earth stud a genuine part of the
+    single-star-point discipline spec Sec.5.6 asks for, not a fourth, uncoordinated
+    ground reference.
+
+    A dedicated CHASSIS_GND net (rather than landing the stud directly on DGND) also
+    keeps the stud's own real-world role honest: it exists specifically to carry a
+    MECHANICAL bond (cage-to-rack), a different kind of connection than a signal return,
+    and naming it separately is what lets a future reviewer see, from the netlist alone,
+    that it was a deliberate choice with its own tie point -- not an accidental short
+    discovered later.
+
+    #PWR11 (out-of-band -- see build()'s own comment for the whole-board baseline):
+    CHASSIS_GND has no genuine power_out pin anywhere (the stud's own connector pin and
+    NT3's own pins are all passive-typed), so it gets the identical defensive PWR_FLAG
+    treatment FAN_RTN already has for the same underlying reason.
+    """
+    j56_pins = sch.place(
+        "Connector_Generic", "Conn_01x01", "J56", "Chassis earth stud", X_EARTH, Y_EARTH,
+        footprint=FOOTPRINT_MOUNTINGHOLE_EARTH,
+    )
+    x, y = pin_pos(X_EARTH, Y_EARTH, j56_pins["1"])
+    sch.label("CHASSIS_GND", x, y)
+
+    nt3_pins = sch.place("Device", "NetTie_2", "NT3", "NetTie_2", X_EARTH_TIE, Y_EARTH, footprint=FOOTPRINT_NETTIE)
+    x1, y1 = pin_pos(X_EARTH_TIE, Y_EARTH, nt3_pins["1"])
+    sch.label("CHASSIS_GND", x1, y1)
+    x2, y2 = pin_pos(X_EARTH_TIE, Y_EARTH, nt3_pins["2"])
+    sch.label("DGND", x2, y2)
+
+    sch.power_flag("CHASSIS_GND", GRID(X_EARTH), GRID(Y_EARTH - 15.24))
+
+    refs["chassis_earth_j"] = "J56"
+    refs["chassis_earth_tie"] = "NT3"
+
+
+def _place_power_good_leds(sch, refs):
+    """Panel-instrumentation task (2026-08-15), spec Sec.9.8 item 2: one power-good LED
+    per rail (+12V, -12V, +5V) -- "a failed one is otherwise invisible until the data is
+    wrong". Three rails, three LEDs, each a series resistor + Device:LED between the rail
+    and its own local ground reference -- AGND for +-12V (matching every other +-12V
+    entry-point component on this sheet, e.g. the bulk/bypass caps at _place_inlet()),
+    DGND for +5V (matching +5V's own established DGND reference throughout this file --
+    see _place_inlet()'s own docstring on why +5V's entry caps are DGND-, not
+    AGND-referenced).
+
+    -12V's own LED is oriented the SAME reasoned way D2 already is (_place_inlet()'s own
+    docstring): conventional current has to flow from the higher potential (AGND, 0V) to
+    the lower one (-12V), so the resistor and the LED's own anode sit on the AGND side,
+    the cathode on -12V -- mirrored from the +12V/+5V case, not a copy-paste of it.
+
+    Current target: ~4.5mA per LED (a generic red/green indicator LED, Vf~2V assumed) --
+    bright enough to be a genuinely useful bring-up/at-a-glance indicator, comfortably
+    low relative to any of the three rails' own real budgets (+5V's own 400mA figure,
+    Sec.8.2; +-12V's, less precisely characterized -- see the main-fusing note in
+    _place_inlet()) so this addition cannot plausibly move any of them. R = (Vrail -
+    Vf) / target current, rounded to the nearest E24 value: +12V/-12V both (12-2)/0.0045
+    ~ 2.2k; +5V (5-2)/0.0045 ~ 680R (E24's own nearest values, not re-derived per rail
+    from a single formula pasted three times).
+    """
+    for rail, gnd, r_val, d_ref, r_ref, y in (
+        ("+12V", "AGND", "2.2k", "D40", "R192", Y_PGOOD0),
+        ("+5V", "DGND", "680", "D42", "R194", Y_PGOOD0 + 2 * PGOOD_DY),
+    ):
+        node = f"PGOOD_{d_ref}"
+        r_pins = sch.place("Device", "R", r_ref, r_val, X_PGOOD, y, footprint=FOOTPRINT_R)
+        x, yy = pin_pos(X_PGOOD, y, r_pins["1"])
+        sch.label(rail, x, yy)
+        x, yy = pin_pos(X_PGOOD, y, r_pins["2"])
+        sch.label(node, x, yy)
+        d_pins = sch.place("Device", "LED", d_ref, "LED", X_PGOOD + GRID(15.24), y, footprint=FOOTPRINT_LED)
+        x, yy = pin_pos(X_PGOOD + GRID(15.24), y, d_pins["2"])  # A (anode)
+        sch.label(node, x, yy)
+        x, yy = pin_pos(X_PGOOD + GRID(15.24), y, d_pins["1"])  # K (cathode)
+        sch.label(gnd, x, yy)
+
+    # -12V -- mirrored orientation, see docstring above.
+    y = Y_PGOOD0 + PGOOD_DY
+    node = "PGOOD_D41"
+    r_pins = sch.place("Device", "R", "R193", "2.2k", X_PGOOD, y, footprint=FOOTPRINT_R)
+    x, yy = pin_pos(X_PGOOD, y, r_pins["1"])
+    sch.label("AGND", x, yy)
+    x, yy = pin_pos(X_PGOOD, y, r_pins["2"])
+    sch.label(node, x, yy)
+    d_pins = sch.place("Device", "LED", "D41", "LED", X_PGOOD + GRID(15.24), y, footprint=FOOTPRINT_LED)
+    x, yy = pin_pos(X_PGOOD + GRID(15.24), y, d_pins["2"])  # A (anode, on the AGND/resistor side)
+    sch.label(node, x, yy)
+    x, yy = pin_pos(X_PGOOD + GRID(15.24), y, d_pins["1"])  # K (cathode, on -12V)
+    sch.label("-12V", x, yy)
+
+    refs["pgood_led"] = ["D40", "D41", "D42"]
+    refs["pgood_r"] = ["R192", "R193", "R194"]
+
+
+def _place_rail_test_points(sch, refs):
+    """Panel-instrumentation task (2026-08-15), spec Sec.9.8 item 4: "the bring-up
+    procedure says to measure each rail before seating ICs and there is nowhere to put a
+    probe. One per rail including the isolated ones." Six voltage rails on this board
+    (+12V, -12V, +5V, +3V3, ISO_P12, ISO_N12) each get a dedicated Connector:TestPoint --
+    a genuine THT pad+drill, not a bare via, so a hook probe or DMM lead lands somewhere
+    solid without hunting for an exposed component lead.
+
+    A SEVENTH test point, on INTAN_GND, is what actually makes the two ISOLATED rail
+    measurements possible: ISO_P12/ISO_N12 are referenced to INTAN_GND, a genuinely
+    separate, galvanically isolated node from AGND/DGND (spec Sec.5.3/5.5) -- without a
+    probe point on INTAN_GND itself, a bring-up technician has no return path to complete
+    an ISO_P12 or ISO_N12 measurement AT ALL, isolated-rail test points or not. This is
+    the literal reading of "including the isolated ones": the isolated rails need their
+    OWN reference, not just their own rail tap.
+
+    AGND and DGND themselves do not get dedicated test points here -- unlike the six
+    voltage rails and the one isolated reference above, both are already trivially
+    probable at any of dozens of already-placed component ground pins/pads on this same
+    sheet (every bulk/bypass capacitor's own return, both net ties), so a DEDICATED point
+    for either would be redundant rather than filling a genuine gap the way INTAN_GND's
+    own isolation makes it. Scoped this way deliberately, not by oversight.
+    """
+    rails = ["+12V", "-12V", "+5V", "+3V3", "ISO_P12", "ISO_N12", "INTAN_GND"]
+    refs["rail_tp"] = []
+    for i, net in enumerate(rails):
+        ref = f"TP{i + 1}"
+        y = Y_TP0 + i * TP_DY
+        pins = sch.place("Connector", "TestPoint", ref, net, X_TP, y, footprint=FOOTPRINT_TESTPOINT)
+        x, yy = pin_pos(X_TP, y, pins["1"])
+        sch.label(net, x, yy)
+        refs["rail_tp"].append(ref)
+
+    for line_idx, line in enumerate([
+        "PANEL-INSTRUMENTATION ADDITIONS (2026-08-15, spec Sec.9.8) -- five things a",
+        "rack instrument needs that this board lacked; all landing on this sheet:",
+        "",
+        "1. Chassis earth stud (J56): a mounting point the cage-to-rack bond (Sec.5.6)",
+        "   can land on. CHASSIS_GND joins DGND at exactly one point (NT3), mirroring",
+        "   FAN_RTN's own NT2 -- reaches the board's single star point transitively.",
+        "",
+        "2. Power-good LED per rail (D40/D41/D42, +12V/-12V/+5V): a failed rail is",
+        "   otherwise invisible until the data is wrong. ~4.5mA each, negligible",
+        "   against any rail's own real budget.",
+        "",
+        "3. Rail test points (TP1-7): one per voltage rail (+12V/-12V/+5V/+3V3/",
+        "   ISO_P12/ISO_N12) PLUS one on INTAN_GND -- the isolated rails' own",
+        "   reference, without which ISO_P12/ISO_N12 cannot be measured at all",
+        "   (INTAN_GND is galvanically separate from AGND/DGND, Sec.5.3/5.5).",
+        "   AGND/DGND themselves are not dedicated here -- already trivially",
+        "   probable at any of this sheet's own many ground pads.",
+        "",
+        "4. Main input fusing (F2/F3/F4, +12V/-12V/+5V): the fans already had a",
+        "   polyfuse (F1); the main rails did not. Same real part (Littelfuse",
+        "   1206L050/15YR) as F1, placed upstream of each rail's own existing",
+        "   reverse-polarity diode (_place_inlet()) -- see that function's own",
+        "   docstring for the sizing and the +-12V margin caveat.",
+        "",
+        "(Item 5, barcode heartbeat LED, is not on this sheet -- it lives on",
+        "pi-interface.kicad_sch, driven from a spare buffered leg of the trigger",
+        "buffer already placed there, per spec Sec.9.8's own instruction not to",
+        "load the barcode net itself.)",
+    ]):
+        sch.text(line, X_NOTE7, Y_NOTE7 + line_idx * NOTE7_DY)
+
+
 def build() -> tuple[Sch, dict]:
     """Returns (sch, refs) -- `refs` maps a role name to the reference designator(s)
     that play it, same convention gen_mule.py's own build() established, kept here for
@@ -842,6 +1108,21 @@ def build() -> tuple[Sch, dict]:
     # calls mint #PWR9/#PWR10, not #PWR8 (opto-ni.kicad_sch's own NI_5V flag) again.
     sch.power_flag("FAN_12V", GRID(X_PWRFLAG0 + 7 * PWRFLAG_DX), GRID(Y_PWRFLAG))
     sch.power_flag("FAN_RTN", GRID(X_PWRFLAG0 + 8 * PWRFLAG_DX), GRID(Y_PWRFLAG))
+
+    # Panel-instrumentation task (2026-08-15, spec Sec.9.8) -- four of the five additions
+    # land on this sheet (the fifth, the barcode heartbeat LED, is on
+    # pi-interface.kicad_sch -- see gen_breakout_pi_interface.py). Main-input fusing
+    # (F2-4) is wired inside _place_inlet() itself, already called above; the remaining
+    # three get their own functions, called here, at the END of build() -- deliberately
+    # AFTER every pre-existing power_flag() call: _place_chassis_earth()'s own
+    # power_flag("CHASSIS_GND", ...) call uses ORDINARY next_ref("#PWR"), which is only
+    # correct (producing "#PWR11", not colliding with the two FAN_* flags just above)
+    # because ref_counters["#PWR"] is already sitting at 10 by the time it runs -- true
+    # here because this call comes after them, in this exact position; moving it earlier
+    # would silently produce a colliding #PWR9 or #PWR10 again.
+    _place_power_good_leds(sch, refs)
+    _place_rail_test_points(sch, refs)
+    _place_chassis_earth(sch, refs)
 
     return sch, refs
 

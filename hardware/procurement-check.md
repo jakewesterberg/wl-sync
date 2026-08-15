@@ -92,6 +92,71 @@ brick must source, not a new BOM line of its own; recorded here so whoever specs
 re-quotes the external supply sees the corrected figure rather than the pre-fan-header
 one.
 
+**Addendum, 2026-08-15 — panel instrumentation (Changes A/B/D): reward one-shot, real
+reward connectors, TRS removed, and five new-to-the-board additions (spec §9.8).** Genuinely
+new component references: `U69` (Nexperia `74HCT123D`, reward one-shot monostable), `R191`
+(442k, its own Rext), `C149` (1uF, its own Cext), `C150` (100nF, its own decoupling);
+`F2`–`F4` (main-input fuses, same `1206L050/15YR` as `F1`); `D40`–`D43` (LED, three
+power-good indicators + the barcode heartbeat) with `R192`–`R195` their own series
+resistors; `TP1`–`TP7` (rail test points); `J56` (chassis earth stud) and `NT3` (its own
+net tie to `DGND`). Two EXISTING references change footprint, not identity: `J4` (manual
+reward button, `Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical` →
+`Button_Switch_THT:SW_PUSH-12mm`) and `J5`/`J6` (remote jack / reward-driver-out, the same
+generic 2-pin header → `Connector_Coaxial:BNC_PanelMountable_Vertical`, matching every
+other BNC on the board) — no new BOM row for these three, their EXISTING rows' Footprint/
+Order-Code/Note columns update in place.
+
+**§5.2's own TRS row is now CLOSED, not open.** This position (the remote reward jack) is a
+real BNC, not a 3.5mm TRS — the "But see §6" flag that row used to carry no longer applies;
+see `breakout-bom-order.csv`'s own `J5` row for the current sourcing note. **No 3.5mm TRS
+footprint exists anywhere on this board** (grepped across every generator and every
+committed sheet; also asserted directly by `check_taskpc_digital_netlist.py`'s own
+whole-board footprint scan, with a negative control confirming it fires if one is ever
+reintroduced) — do not source a TRS jack against any line in either BOM CSV.
+
+Sourcing, checked 2026-08-15:
+
+- **`74HCT123D` (Nexperia) × 1/board = 5.** Active, current production. **8,232 units in
+  stock at DigiKey** (part `74HCT123D,653`), **4,769 immediate + 10,000 on order at Mouser**,
+  additional stock at TME — all checked directly this session. **NOT a TI part**: TI's own
+  catalog entry for this function (`CD74HCT123M`/`MT`) is confirmed OBSOLETE — checked and
+  rejected before choosing Nexperia, not assumed from KiCad's own generic `74HCT123` library
+  symbol name. No risk at this volume.
+- **`1206L050/15YR` × 3 more/board = 15 more (F2–F4, main-input fusing).** Same real,
+  well-stocked part as `F1` above (122,476 units at DigiKey at last check) — folds into that
+  same sourcing conclusion, not a new part class. A larger-current, higher-voltage PPTC
+  (Bourns `MF-SM` series) was evaluated and REJECTED for the ±12V rails specifically: its own
+  datasheet states "hand soldering is not recommended," which would add a THIRD accepted
+  hand-solderability exception beyond the two spec §10.1 already documents (`MCP4728`, the
+  two exposed-pad regulators) — see `gen_breakout_power.py`'s own `_place_inlet()` docstring
+  for the full reasoning and the residual ±12V margin flagged there for bench confirmation.
+- **`LED_0603_1608Metric` × 4/board = 20 (D40–D43, power-good ×3 + barcode heartbeat).**
+  Generic 0603 SMD indicator LED — no locked MPN, any ~2V-Vf red/green part from
+  Kingbright/Lite-On/Rohm/Everlight or equivalent. Commodity, no risk.
+- **`TestPoint_THTPad_2.0x2.0mm_Drill1.0mm` × 7/board = 35 (TP1–TP7).** Bare THT pad + drill
+  — not a purchasable component at all (same non-purchasable treatment §5.2/§2 already give
+  net-tie artwork).
+- **`MountingHole_3.2mm_M3_Pad` × 1/board = 5 (J56, chassis earth stud).** An M3 clearance
+  hole with a connected pad — the purchasable items are commodity M3 hardware (screw/stud)
+  plus a solder lug or ring terminal, not a single MPN; a panel-machining-time decision, same
+  status as the BNC/pushbutton family rows.
+- **`Button_Switch_THT:SW_PUSH-12mm` × 1/board = 5 (J4, recessed panel pushbutton).** Real
+  panel/chassis-mount momentary pushbutton footprint class (e.g. APEM/E-Switch 12–16mm IP65
+  metal pushbutton families commonly offer a recessed/flush actuator). Not locked to a
+  specific MPN — same status as every BNC on this board; confirm before the panel is
+  machined.
+- **Isolated BNC × 2 more/board = 10 more (J5, J6 — now real, were generic headers).** Folds
+  into §5.2's own existing Amphenol RF BNC-family conclusion (1,000+ units/candidate MPN at
+  DigiKey, no supply risk) — not a new part class, two more populated positions of the same
+  family already tracked.
+
+**Resolved 2026-08-15 — both CSVs regenerated against this exact delta**, using the same
+per-row convention every pre-existing row of the same component class already uses (real
+Order Code for `74HCT123D`/`F2`–`F4`; `GENERIC` for the LEDs/resistors/test points/
+pushbutton/mounting-hole; non-purchasable for `NT3`, folded into `NT1`'s own row). Cross-
+checked by set comparison over both files' expanded Reference columns: **527 references
+each side, zero only-in-raw, zero only-in-order.**
+
 ---
 
 ## 1. How the BOM was produced, and two tooling findings worth recording
@@ -262,9 +327,10 @@ DigiKey unless noted. "Active" = manufacturer lifecycle status, not a comment on
 | Part | Qty/bd ×5 | Distributor | Stock | Mfr. lead time | Note |
 |---|---:|---|---:|---:|---|
 | MDR68 male right-angle (MH Connectors `3700-0121-01`) | 4 × 5 = 20 | **Not found at DigiKey or Mouser** in this check | RS Components (stock #813-3313): search-result snippet shows ~541 units; Distrelec: search-result snippet shows in-stock, next-day delivery. **Corrected, fix round 1** — real regional stock exists; neither figure is from an authenticated distributor login | Not obtained by direct fetch, either session (RS/Distrelec blocked 403/timeout both times) — the stock figures at left are search-result level only | **Watch item, not the widest error bar — see §6 (corrected, fix round 1).** ~541 units at RS alone covers this run's 20-unit need many times over. Still worth a direct account-based stock check before the production order — a search snippet is not a live quote — but this is no longer the standout schedule risk the original framing implied |
-| Isolated BNC, right-angle, PCB-mount (Amphenol RF family, e.g. `031-6575`/`031-6576`) | 29 × 5 = 145 | DigiKey | Multiple compatible MPNs, 1,000+ units each ("Immediate") | — | No risk — several real, current, well-stocked isolated right-angle BNC part numbers exist in this exact family; exact MPN is still a layout-stage decision per this project's own established convention (footprint is generic `BNC_PanelMountable_Vertical`) |
+| Isolated BNC, right-angle, PCB-mount (Amphenol RF family, e.g. `031-6575`/`031-6576`) | 31 × 5 = 155 | DigiKey | Multiple compatible MPNs, 1,000+ units each ("Immediate") | — | No risk — several real, current, well-stocked isolated right-angle BNC part numbers exist in this exact family; exact MPN is still a layout-stage decision per this project's own established convention (footprint is generic `BNC_PanelMountable_Vertical`). Qty grew 29→31 (panel-instrumentation task, 2026-08-15): `J5`/`J6` (remote reward / reward-driver-out) are now real BNCs too — see the addendum below |
 | `M12A-05PFFP-SF8001` (5-pos inlet) | 1 × 5 = 5 | DigiKey | 811 | 15 weeks | Re-confirmed independently this session — same 811-unit figure hardware/README.md already recorded at Task 7. Current stock covers the run; 15-week figure only matters if DigiKey depletes first |
-| 3.5 mm TRS, PCB mount (remote reward jack) | 1 × 5 = 5 | DigiKey | Several Switchcraft/Same Sky options in stock (e.g. `SJ1-3523NG`) | — | No risk. **But see §6** — the schematic currently represents this position as a generic 2-pin header placeholder, not a real TRS footprint |
+| ~~3.5 mm TRS, PCB mount (remote reward jack)~~ **REMOVED FROM THE DESIGN, 2026-08-15** | — | — | — | — | **Closed, not a supply question any more.** The remote reward jack (`J5`) is a real BNC now, not a TRS — no 3.5mm TRS footprint exists anywhere on this board (confirmed by grep and by `check_taskpc_digital_netlist.py`'s own whole-board footprint scan). Do not source a TRS jack against this board. See the panel-instrumentation addendum below for the full account |
+| Recessed panel momentary pushbutton (`J4`, manual reward button) | 1 × 5 = 5 | — | Real footprint class (`Button_Switch_THT:SW_PUSH-12mm`), MPN not locked | — | No risk — commodity 12mm panel-pushbutton class (APEM/E-Switch and equivalents commonly offer a recessed/flush actuator). Layout-stage MPN decision, same status as the BNC family above. New position, panel-instrumentation task 2026-08-15 — see the addendum below |
 | `Conn_02x03` + 2-gang shorting block (misc ÷1/÷2 jumpers) | 3 headers + 3 blocks per bd | — | Generic 2.54 mm pin-header family, multiple manufacturers (Sullins, TE, Amphenol, Adam Tech) | — | No risk — this is a commodity part class; not individually spot-checked beyond confirming the family is common, since the design's own footprint/pad-adjacency requirement (README's "Contact arrangement" discipline applied to this connector) is already independently enforced by `check_breakout_analog_frontend_netlist.py`'s `verify_footprint_pad_adjacency()`, not a sourcing question |
 
 ### 5.3 Other active components (specialty analog / power)
