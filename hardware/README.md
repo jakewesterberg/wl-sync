@@ -107,11 +107,15 @@ to a wrong pin and confirms the checker fires (this defect class is invisible to
 transposed physical pin is still a fully-connected, 0-error netlist, and only fails on a
 bench during PIO capture bring-up).
 
-The remaining seven hierarchical sheet symbols (`analog-frontend`, `analog-ni`,
-`mux-intan`, `comparators`, `opto-ni`, `opto-intan`, `control-usb-i2c`) each still
-reference a `sheets/<name>.kicad_sch` child file that does not exist yet — later tasks
-each create and populate their own (see "Sheet symbols referencing a child file that
-doesn't exist yet" below for why the root sheet doesn't pre-create them).
+**As of Task 12, all ten hierarchical sheet symbols reference a populated child file** --
+the seven that were still empty as of this paragraph's own original writing
+(`analog-frontend`, `analog-ni`, `mux-intan`, `comparators`, `opto-ni`, `opto-intan`,
+`control-usb-i2c`) were filled in by Tasks 10a-12; see each sheet's own dedicated section
+below ("ADG1206 mux address truth table", "MCP4728 comparator-threshold DAC and I²C bus",
+"Opto-NI", "Opto-Intan", "Control / USB-I²C bus") for what each one carries, rather than
+duplicating that content into this already-long introductory paragraph. (See "Sheet
+symbols referencing a child file that doesn't exist yet" below for why the root sheet
+never pre-created any of them as empty placeholders in the first place.)
 
 ## Toolchain
 
@@ -585,6 +589,107 @@ generator's own docstring already specified. `check_breakout_pi_interface_netlis
 `BARCODE_PI` fan-out count moved 5→6 at Task 11's `opto-ni.kicad_sch` (its first real load)
 and 6→7 here (opto-intan's own).
 
+## Control / USB-I²C bus (Task 12)
+
+`hardware/breakout/sheets/control-usb-i2c.kicad_sch` is the last schematic-capture sheet on
+this board: an `MCP2221A` USB-I²C bridge, on the internal 4-pin USB header
+`pi-interface.kicad_sch` (Task 9) already placed (`USB_VBUS_PI`/`USB_DP_PI`/`USB_DM_PI`/
+`DGND`), driving an I²C bus that carries two `MCP23017` 16-bit GPIO expanders (32 outputs →
+`MUX1_A0`..`MUX8_A3`, exact fit, no spares) and the `MCP4728` quad DAC `comparators.kicad_sch`
+(Task 10d) already placed and powered — this sheet only connects to it, it does not
+duplicate it. See `hardware/gen/gen_breakout_control_usb_i2c.py`'s own module docstring for
+the full design and `hardware/gen/check_breakout_control_usb_i2c_netlist.py` for its
+verification. This chain hangs off USB rather than GPIO because mux selection and DAC
+thresholds are configuration-time state with no timing requirement, and the sync module's
+own 40-pin header is already fully assigned regardless (`pi-interface.kicad_sch`'s own
+`GPIO_PIN_SPEC`).
+
+**I²C addresses — three devices, three distinct addresses, no collision** (recorded here
+per this task's own instruction, so whoever writes the control software does not have to
+re-derive any of this from the schematic):
+
+| Device | Address | How it's set |
+|---|---|---|
+| `MCP23017` #1 | `0x20` | Hardware pins A2=A1=A0=0, all tied `DGND` |
+| `MCP23017` #2 | `0x21` | Hardware pins A2=A1=0 (`DGND`), A0=1 (`+3V3`) |
+| `MCP4728` (comparators.kicad_sch, Task 10d) | `0x60` | The part's own EEPROM factory default — no hardware ADDR pins exist on this part at all |
+
+`0x60` was already recorded at Task 10d; checked here against `{0x20, 0x21}` and confirmed
+distinct — `check_breakout_control_usb_i2c_netlist.py`'s own `_decode_expander_addr()`
+independently DECODES each `MCP23017`'s real address from its own A2/A1/A0 pin-to-rail
+wiring (never from a Value-string claim), the same "two candidates wired to one net is a
+short, not a redundancy" rigor this project's own ADG1206 A3 near-miss
+(task-10c-report.md) already established, applied here to a 1-bit address field instead of
+a pin identity.
+
+**GPIO-to-mux-address-line map** (this sheet's own declared, arbitrary-but-fixed
+convention — no datasheet fixes this, the same class of board-specific choice
+`mux-intan.kicad_sch`'s own `ALL_16_NETS`/`S_PIN_NUMBERS` pairing already is): each
+expander's own `GPA0-3` drives its first mux's `A0-A3`, `GPA4-7` the next mux's, `GPB0-3`
+the next, `GPB4-7` the last — 16 pins, 4 muxes, exactly. Expander #1 (`0x20`) covers
+`MUX1`-`MUX4`; expander #2 (`0x21`) covers `MUX5`-`MUX8`. The mux truth table itself
+(`A3 A2 A1 A0` = `0000` → `S1` … `1111` → `S16`, `EN` active-high) is unchanged by this
+task — see "ADG1206 mux address truth table" above, confirmed still accurate and reachable
+(re-verified against `mux-intan.kicad_sch`'s own committed source while writing this
+sheet, not merely assumed carried over).
+
+**MCP2221A powers 3.3V SELF-POWERED (Microchip DS20005565B §1.6.2.3), not USB
+bus-powered** — `VDD` and `VUSB` both tie to `+3V3` (this board's own existing rail, not a
+new LDO derived from `USB_VBUS_PI`), because the datasheet is explicit that `VDD` sets the
+GPIO/SDA/SCL logic-'1' level, and this bus's other two device classes (both `MCP23017`s,
+and the `MCP4728`) already run at `+3V3` — powering the bridge from 5V `USB_VBUS_PI` would
+put a 5V-referenced driver on a 3.3V-expecting bus, the same class of hazard this project's
+own destroy-hardware discipline (comparators.kicad_sch's `+3V3`-not-`+5V` pull-ups;
+pi-interface.kicad_sch's `RWD_DLVR` level shift) exists to catch before silicon.
+`USB_VBUS_PI` is therefore **deliberately left unconnected** on this sheet — not an
+omission; see the generator's own module docstring for the full, datasheet-sourced
+reasoning (D+/D-/GND, the header's other three pins, all get real connections).
+
+**I²C bus pull-ups: 2.2 kΩ** on `I2C_SDA`/`I2C_SCL` — this sheet's own sizing decision
+(`comparators.kicad_sch`'s own module docstring explicitly defers it here), a standard
+two-sided derivation (NXP UM10204, Fast-mode 400 kHz — the `MCP2221A`'s own I²C master
+ceiling) landing comfortably inside a ~967 Ω–~3.5 kΩ window; see the generator's own module
+docstring for the full numbers.
+
+**ERC warnings: 38 → 3, before/after Task 12** (`hardware/breakout/erc.rpt`, all
+`isolated_pin_label`, 0 errors both before and after). 35 cleared — the 32 `MUX{n}_A{bit}`
+lines (Task 10c's own exposed-but-undriven address lines), `I2C_SDA` (Task 10d's own
+exposed-but-undriven DAC bus pin — `I2C_SCL` was already clear pre-Task-12, covered by a
+now-deleted temporary `PWR_FLAG`, see below), and `USB_DP_PI`/`USB_DM_PI` (Task 9's own
+header, now reaching the bridge's own D+/D- pins) — all finally get a real second
+occurrence once this sheet drives them. **3 remain, all named, none awaiting a future
+task:**
+
+1. **`USB_VBUS_PI`** — deliberately unconnected by design (3.3V self-powered mode; see
+   above). Not a gap.
+2. **`OPTO_INTAN_SPARE1_IN`**, **3. `OPTO_INTAN_SPARE2_ISO`** — `opto-intan.kicad_sch`'s
+   own genuine spare optocoupler channels (Task 11: "channels 2 and 4 are the genuine
+   spares, one per direction" — see "Opto-Intan" above), outside this task's own scope
+   (digital event/isolation channels, unrelated to I²C/mux addressing) and outside every
+   other task's scope too — a permanent, documented spare, not a defect.
+
+**A stale `PWR_FLAG` deleted, not left redundant** — the same "a `PWR_FLAG` left on a net
+that later gains a real driving pin doesn't just become redundant, check before assuming
+one is still needed" discipline this file's own "KiCad gotchas" section already
+documents (below): `comparators.kicad_sch` (Task 10d) placed a temporary `sch.power_flag
+("I2C_SCL", ...)` because nothing drove `I2C_SCL` yet; deleted here, at Task 12, the moment
+`control-usb-i2c.kicad_sch` wires the `MCP2221A`'s own real `bidirectional`-typed SCL pin
+(plus both `MCP23017`s' own SCL inputs) onto it — confirmed empirically (0 ERC errors
+before and after the deletion, once the real driver existed).
+
+**Two sibling checkers needed small, targeted fixes as a direct consequence of this sheet
+existing, not signs of a defect in either:** `check_breakout_power_netlist.py`'s own
+`RAIL_BYPASS_EXPECTED` for `("+3V3", "DGND")` moved 6→10 (this sheet's own 4 new
+decouplers — `MCP2221A`'s `VDD`+`VUSB` caps, one per `MCP23017`) — the same "will need
+updating again once Tasks 10-12 add their own" extension that dict's own comment history
+already flagged at every prior task. `check_breakout_pi_interface_netlist.py`'s own
+internal-USB-header check moved from a union-based "exactly one reference across
+`USB_VBUS_PI`/`USB_DP_PI`/`USB_DM_PI`" assertion (correct when the header was the only
+consumer of any of the three) to an intersection-based one (the header is the one
+reference common to **all three**, which still correctly identifies it now that this
+sheet legitimately adds a second reference — the bridge — on two of the three, deliberately
+not the third).
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or
@@ -914,6 +1019,41 @@ generated — don't rediscover them.
   is what lets a checker confirm a "populate option" part is genuinely marked unpopulated
   (`check_breakout_comparators_netlist.py`'s own `parse_dnp_refs()`) without re-parsing the
   raw schematic source for it.
+- **`kicad-cli sch export netlist`'s own `(net (code ...) (name ...))` line is NOT
+  single-space-separated in KiCad 10.0.5's real output — it is one field per line, tab
+  -indented** (`(net\n\t\t\t(code "1")\n\t\t\t(name "+3V3")...`). Found writing
+  `tests/hardware/test_netlist.py` (Task 12): task-12-brief.md's own literal example regex
+  (`r'\(net \(code "\d+"\) \(name "([^"]+)"\)'`, single literal spaces between tokens)
+  matches **zero** nets against the real, current artifact — not a vacuous pass, an
+  outright `nets() == set()` that fails every one of the brief's own assertions
+  immediately and loudly (a `KeyError`/empty-set failure, not a silent wrong answer, so
+  this one is self-announcing rather than dangerous the way constraint 1's bare-keyed
+  `lib_symbols` failure is) the moment the resulting test file is actually run against a
+  real export rather than merely written and assumed correct. `\s*`/`\s+` (matching
+  `hardware/gen/check_mule_netlist.py`'s own proven-correct, whitespace-tolerant
+  `parse_netlist()` regex, unchanged since Task 2) is what actually reads the real file
+  this project's own toolchain produces — worth using that technique (or importing/
+  reusing it) rather than a literal transcription of any example regex, in this file or
+  any brief, that has not itself been run against a real, current export.
+- **A netlist "does reference A and B" check based on shared REFERENCE (not shared PIN) can
+  false-positive on any multi-pin IC that happens to have one, electrically unrelated, pin
+  on each of the two nets being compared.** Found writing `tests/hardware/test_netlist.py`
+  (Task 12)'s own comparator/I²C pull-up-domain checks: an early version flagged `U11`
+  (`SN74HCT541PW`, `taskpc-digital.kicad_sch`'s own outbound buffer) as "bridging"
+  `+5V`↔`PD1_COMP`, because its own pin 20 (`VCC`) legitimately sits on `+5V` (its own
+  power supply) while a completely different, unrelated pin (one buffer channel's own
+  input) legitimately sits on `PD1_COMP` (receiving the comparator's own output to buffer
+  toward the task PC) — the two pins are not connected to each other inside the part at
+  all. Every `hardware/gen/check_breakout_*_netlist.py` checker in this project already
+  avoids this by restricting a "bridging component" search to `R`-prefixed references
+  specifically (`_find_bridging_resistor()`, present in every checker from Task 7 onward);
+  `tests/hardware/test_netlist.py`'s own `_bridging_resistor_refs()` applies the identical
+  restriction, independently re-derived rather than imported (this file's own "why not
+  import hardware/gen/'s checkers" reasoning applies here too). A **pin**-level check (not
+  reference-level) has no such false-positive exposure at all — `check_mule_netlist.py`'s
+  own isolation-barrier check, and `tests/hardware/test_netlist.py`'s own project-wide
+  isolated-domain and `AGND`/`DGND`/`RWD_CMD`-vs-`RWD_DLVR` checks, use exactly that
+  stronger form and need no per-part-class filtering at all.
 
 ## Byte-reproducibility
 

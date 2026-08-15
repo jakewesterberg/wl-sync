@@ -418,20 +418,16 @@ def build() -> tuple[Sch, dict]:
     lbl(sch, X_COMP, Y_DAC, dpins, MCP4728_PIN_VDD, "+3V3")
     lbl(sch, X_COMP, Y_DAC, dpins, MCP4728_PIN_SCL, "I2C_SCL")
     # SCL is the DAC's own `input`-typed pin (SDA is `bidirectional`, which ERC accepts
-    # undriven -- see module docstring). Nothing on THIS sheet drives SCL: Task 12's own
-    # USB-I2C bridge (the real bus master) does not exist yet, so kicad-cli sch erc's own
-    # `pin_not_driven` rule correctly reports it as undriven on the CURRENT, incomplete
-    # project (confirmed empirically, same "genuine, not false, finding" situation
-    # gen_breakout_taskpc_digital.py's own _place_outbound() already documented for
-    # PD1_COMP/PD2_COMP/ACC_TRIG before this task existed). A PWR_FLAG clears it, same
-    # "assert this net IS driven, even though ERC can't see why from here" mechanism
-    # gen_breakout_power.py's own build() uses for ISO_P15_FILT/ISO_N15_FILT --
-    # DELETE this call the moment Task 12 wires its own bus master's SCL driver to
-    # I2C_SCL; left in place after that, it does NOT trip pin_to_pin the way a PWR_FLAG
-    # on an open_collector net does (a real I2C master's SCL driver is typically a
-    # push-pull or open-drain OUTPUT-class pin, not open_collector specifically), but it
-    # is still redundant and should go -- flagged here and in this task's own report.
-    sch.power_flag("I2C_SCL", GRID(30), Y_DAC)
+    # undriven -- see module docstring). Originally carried a `sch.power_flag("I2C_SCL",
+    # ...)` here, placed because nothing on THIS sheet drives SCL and Task 12's own USB-I2C
+    # bridge (the real bus master) did not exist yet -- a genuine, not a false, finding at
+    # the time (same situation gen_breakout_taskpc_digital.py's own _place_outbound()
+    # already documented for PD1_COMP/PD2_COMP/ACC_TRIG before Task 10d existed). DELETED
+    # at Task 12, exactly as this comment originally specified: control-usb-i2c.kicad_sch
+    # now wires its own MCP2221A's real `bidirectional`-typed SCL pin (plus both MCP23017
+    # expanders' own SCL inputs) onto I2C_SCL, a genuine driver kicad-cli sch erc no longer
+    # needs a flag to explain -- confirmed empirically (0 ERC errors after deletion, same
+    # as before).
     lbl(sch, X_COMP, Y_DAC, dpins, MCP4728_PIN_SDA, "I2C_SDA")
     lbl(sch, X_COMP, Y_DAC, dpins, MCP4728_PIN_LDAC, "AGND")
     px, py = pin_pos(X_COMP, Y_DAC, dpins[MCP4728_PIN_RDYBSY])

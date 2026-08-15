@@ -11,6 +11,8 @@
 	(lib (name "Converter_DCDC_Isolated") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Converter_DCDC_Isolated.kicad_sym") (options "") (descr "Isolated DC/DC converter symbols"))
 	(lib (name "Regulator_Linear") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Regulator_Linear.kicad_sym") (options "") (descr "Linear regulator symbols"))
 	(lib (name "Interface_UART") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Interface_UART.kicad_sym") (options "") (descr "UART interface symbols"))
+	(lib (name "Interface_USB") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Interface_USB.kicad_sym") (options "") (descr "USB interface symbols"))
+	(lib (name "Interface_Expansion") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Interface_Expansion.kicad_sym") (options "") (descr "I/O expansion symbols"))
 	(lib (name "Connector") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Connector.kicad_sym") (options "") (descr "Connector symbols (Examples: Terminal Block, D-SUB, DIN, USB...)"))
 	(lib (name "Connector_Generic") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Connector_Generic.kicad_sym") (options "") (descr "Generic connectors, footprint assignment by user"))
 	(lib (name "power") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/power.kicad_sym") (options "") (descr "Power symbols, special power flags"))

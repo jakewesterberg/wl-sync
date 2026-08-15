@@ -192,6 +192,16 @@ NON_ISO_NETS = [
 # Confirmed directly against the regenerated whole-project netlist via this same
 # `_rail_bypass_cap_count()`, not guessed. WILL need the same treatment again once Tasks
 # 11-12 place their own +12V/-12V-powered parts.
+#
+# RECOMPUTED AGAIN AT TASK 12: control-usb-i2c.kicad_sch adds FOUR more +3V3-powered
+# decouplers -- the MCP2221A's own VDD (100nF) and VUSB (220nF) caps (both topologically
+# +3V3<->DGND pairs in this sheet's own 3.3V-self-powered configuration, see that
+# generator's own module docstring), plus one 100nF decoupler per MCP23017 instance (x2) --
+# +4 on +3V3/DGND (6->10). +12V/AGND, -12V/AGND, +5V/DGND, +12V/DGND, and every ISO_*
+# pair are UNCHANGED: this sheet places nothing on any of them. Confirmed directly against
+# the regenerated whole-project netlist via this same `_rail_bypass_cap_count()`, not
+# guessed. This is the LAST schematic-capture sheet on this board, so this dict needs no
+# further "will need updating again" note.
 RAIL_BYPASS_EXPECTED = {
     ("+12V", "AGND"): 33,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
                                    # 1; +15 from analog-frontend.kicad_sch's own 15 op-amp
@@ -214,11 +224,12 @@ RAIL_BYPASS_EXPECTED = {
                                    # decoupling is entirely on NI_5V/NI_GND)
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
-    ("+3V3", "DGND"): 6,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk
+    ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk
                                    # (power.kicad_sch); + 3 from taskpc-digital.kicad_sch's
                                    # own 3 LVC541 packages (Task 8); + 1 from
                                    # pi-interface.kicad_sch's own RWD_DLVR level-shift
-                                   # (Task 9)
+                                   # (Task 9); + 4 from control-usb-i2c.kicad_sch's own
+                                   # MCP2221A (VDD+VUSB) and 2x MCP23017 decouplers (Task 12)
     ("ISO_P12", "INTAN_GND"): 10,  # C14, C15 -- U3 COUT + extra HF bypass; +8 from
                                    # mux-intan.kicad_sch's own 8 INA105KU difference
                                    # amplifiers (Task 10c)

@@ -387,9 +387,24 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     for name in ("USB_VBUS_PI", "USB_DP_PI", "USB_DM_PI"):
         check(name in nets, f"missing net: {name!r}")
         check(len(nets[name]) >= 1, f"{name}: no nodes at all")
-    usb_refs = {n.ref for name in ("USB_VBUS_PI", "USB_DP_PI", "USB_DM_PI") for n in nets[name]}
-    check(len(usb_refs) == 1, f"USB_VBUS_PI/USB_DP_PI/USB_DM_PI should share ONE connector reference, found {usb_refs}")
-    usb_ref = next(iter(usb_refs))
+    # The physical header is the ONE reference present on ALL THREE nets -- found via
+    # INTERSECTION, not union. Before Task 12, the header was the only consumer of any of
+    # these three nets, so a union-based "exactly one reference across all three" held
+    # trivially. Task 12's own control-usb-i2c.kicad_sch legitimately adds a SECOND
+    # reference (its MCP2221A bridge) on USB_DP_PI/USB_DM_PI only -- deliberately NOT on
+    # USB_VBUS_PI, which that sheet's own module docstring documents leaving unconnected
+    # (3.3V self-powered mode needs no VBUS connection) -- so the union now has two members
+    # by design, not by defect. The header's own reference is still the one common to all
+    # three (the bridge touches only two of them), which is what actually identifies it.
+    usb_ref_sets = [{n.ref for n in nets[name]} for name in ("USB_VBUS_PI", "USB_DP_PI", "USB_DM_PI")]
+    common_refs = usb_ref_sets[0] & usb_ref_sets[1] & usb_ref_sets[2]
+    check(
+        len(common_refs) == 1,
+        f"USB_VBUS_PI/USB_DP_PI/USB_DM_PI should share exactly ONE common connector "
+        f"reference (present on all three -- the header itself), found {common_refs} "
+        f"(per-net reference sets: {usb_ref_sets})",
+    )
+    usb_ref = next(iter(common_refs))
     usb_pin_map = {"1": "USB_VBUS_PI", "2": "USB_DM_PI", "3": "USB_DP_PI"}
     for pin, net in usb_pin_map.items():
         nodes = [n for n in nets[net] if n.ref == usb_ref and n.pin == pin]
