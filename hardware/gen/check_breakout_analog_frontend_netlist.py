@@ -36,6 +36,27 @@ checks (2), (3) below are unchanged in substance; check (1) and a NEW check (4) 
 fix round 1 left open by confirming both legs' own jumper headers resolve to the SAME
 component reference, not merely the same topology.
 
+FIX ROUND 3 (task-10b-report.md, this round): fix round 2's own Conn_02x03_Top_Bottom pin
+assignment (row 1 = signal leg pins 1-3, row 2 = shield leg pins 4-6) assumed a physical pad
+adjacency the REAL footprint (PinHeader_2x03_P2.54mm_Vertical) does not have -- confirmed by
+rendering the real .kicad_mod (`kicad-cli fp export svg`) and reading its pad coordinates
+directly (`hardware/gen/kicad_pcb.py`'s own `footprint_pads()`): the real part is
+COLUMN-paired (pins (1,2)/(3,4)/(5,6) adjacent at the header's own 2.54mm pitch), not
+row-paired the way Top_Bottom's own SCHEMATIC SYMBOL drawing suggested -- Conn_02x03_Top_
+Bottom's own pin N/pin N+3 pairing sits 3.59mm apart on the diagonal, not adjacent at all.
+Under fix round 2's assignment, NO shunt position on the real part achieved "both legs at
+the same tap" -- worse than the leg-asymmetry defect fix round 1 closed out.
+`gen_breakout_analog_frontend.py` now uses Conn_02x03_Odd_Even with pins INTERLEAVED
+(column A = pins 1,3,5 = signal leg's own raw/div/mid, column B = pins 2,4,6 = shield leg's),
+matching the real footprint's actual geometry; `_check_header_pin_roles()`'s own calls below
+are updated to the new pin numbers, and a NEW check, `verify_footprint_pad_adjacency()`
+(bottom of this file, parallel to `verify_instance_paths()`), reads the real footprint's pad
+geometry directly and asserts the pin pairs this generator relies on being physically
+bridgeable actually are -- closing the process gap (nothing in this toolchain previously
+read footprint geometry at all; ERC and every netlist-based check, including every other one
+in this file, can only ever see electrical connectivity, which is orthogonal to a jumper
+header's physical pad layout by construction), not just this one instance.
+
 Regenerate the netlist this reads via:
     kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net \\
         hardware/breakout/breakout.kicad_sch
@@ -49,6 +70,7 @@ a description of the first failure otherwise.
 from __future__ import annotations
 
 import copy
+import math
 import sys
 from pathlib import Path
 
@@ -60,6 +82,7 @@ from check_mule_netlist import (  # noqa: E402
     parse_component_values,
     parse_netlist,
 )
+from kicad_pcb import footprint_pads  # noqa: E402
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
     find_root_uuid,
@@ -182,12 +205,12 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
         )
         j_refs = {n.ref for n in nets[shield_net] if n.ref.startswith("J")}
         # MISC channels' own shield leg carries a SECOND J-ref: the /1//2 shunt header's
-        # own pin 4 (fix round 2 -- ONE Conn_02x03 header now carries both legs, row 2 =
-        # shield leg; pin 1 lands directly on this net, the same relationship the signal
-        # leg's own pins 1-3 already have to the CLAMP node) -- _check_misc_leg_symmetry()
-        # checks that header's own full topology, including that both legs' own headers
-        # are genuinely the SAME physical part; this just widens the connector-count
-        # expectation for these 3 channels specifically.
+        # own pin 2 (fix round 3 -- ONE Conn_02x03_Odd_Even header now carries both legs,
+        # column B = shield leg raw/div/mid; pin 2 lands directly on this net, the same
+        # relationship the signal leg's own pin 1 already has to its own CLAMP node) --
+        # _check_misc_leg_symmetry() checks that header's own full topology, including
+        # that both legs' own headers are genuinely the SAME physical part; this just
+        # widens the connector-count expectation for these 3 channels specifically.
         expected_j_count = 2 if name in MISC_CHANNELS else 1
         check(
             len(j_refs) == expected_j_count,
@@ -221,11 +244,15 @@ def _check_header_pin_roles(
     not just three nets that happen to share a component reference. Used by
     _check_misc_leg_symmetry() for BOTH legs of every MISC channel, with DIFFERENT pin
     numbers per leg since fix round 2 (task-10b-report.md) merged what were two separate
-    Conn_01x03 headers (each its own pins 1/2/3) into ONE Conn_02x03 header whose row 1
-    (pins 1-3) carries the signal leg and row 2 (pins 4-6) the shield leg -- see
-    gen_breakout_analog_frontend.py's own _atten_leg_pair() docstring for the full
-    rationale. Written generically (raw/mid/div, not "clamp/shield") so it applies
-    identically to either leg, whatever its own pin numbers are.
+    Conn_01x03 headers (each its own pins 1/2/3) into ONE Conn_02x03 header. Fix round 3
+    (task-10b-report.md, this round) corrected the pin map itself: the header is
+    Conn_02x03_Odd_Even, column A (pins 1,3,5) carries the signal leg and column B (pins
+    2,4,6) the shield leg -- see gen_breakout_analog_frontend.py's own _atten_leg_pair()
+    docstring for the full rationale (fix round 2's original row-based
+    Conn_02x03_Top_Bottom assignment assumed a pin adjacency the real footprint does not
+    have -- see verify_footprint_pad_adjacency() below). Written generically (raw/mid/div,
+    not "clamp/shield") so it applies identically to either leg, whatever its own pin
+    numbers are.
     """
     j_raw = {n.ref for n in nets.get(raw_net, []) if n.ref.startswith("J")}
     j_mid = {n.ref for n in nets.get(mid_net, []) if n.ref.startswith("J")}
@@ -265,11 +292,12 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
         EITHER jumper position, not just in whichever position happened to be exercised by
         some other check.
     (4) FIX ROUND 2 (task-10b-report.md): both legs' own headers are the SAME PHYSICAL
-        COMPONENT -- one Conn_02x03 carrying signal leg on pins 1-3 and shield leg on pins
-        4-6, populated with a single 2-gang shorting block, not two independent Conn_01x03
-        headers that could disagree. This is the fact that makes "both jumpers MUST be set
-        to the same position" a physical impossibility to violate rather than merely a
-        documented instruction -- checked here by confirming BOTH legs' own
+        COMPONENT -- one Conn_02x03 (Odd_Even variant, pin map corrected at fix round 3;
+        column A = signal leg pins 1,3,5, column B = shield leg pins 2,4,6) populated with
+        a single 2-gang shorting block, not two independent Conn_01x03 headers that could
+        disagree. This is the fact that makes "both jumpers MUST be set to the same
+        position" a physical impossibility to violate rather than merely a documented
+        instruction -- checked here by confirming BOTH legs' own
         `_check_header_pin_roles()` calls return the identical reference.
     """
     for name in MISC_CHANNELS:
@@ -312,11 +340,14 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
                 f"mode), found {values.get(rref)!r}",
             )
 
-        # Fix round 2's own /1//2 header pin map: row 1 (pins 1-3) = signal leg
-        # (raw/common/tap), row 2 (pins 4-6) = shield leg -- see
-        # gen_breakout_analog_frontend.py's own _atten_leg_pair() docstring.
-        sig_jref = _check_header_pin_roles(nets, clamp_net, mid_net, div_net, "1", "2", "3", f"{name} signal leg")
-        shld_jref = _check_header_pin_roles(nets, shld_net, shld_mid_net, shld_div_net, "4", "5", "6", f"{name} shield leg")
+        # Fix round 3's own /1//2 header pin map (corrected from fix round 2's row-based
+        # Conn_02x03_Top_Bottom assignment, which assumed a pin adjacency the real
+        # PinHeader_2x03_P2.54mm_Vertical footprint does not have -- see
+        # verify_footprint_pad_adjacency() below and gen_breakout_analog_frontend.py's own
+        # _atten_leg_pair() docstring): Conn_02x03_Odd_Even, column A (pins 1,3,5) = signal
+        # leg (raw/common/tap), column B (pins 2,4,6) = shield leg.
+        sig_jref = _check_header_pin_roles(nets, clamp_net, mid_net, div_net, "1", "3", "5", f"{name} signal leg")
+        shld_jref = _check_header_pin_roles(nets, shld_net, shld_mid_net, shld_div_net, "2", "4", "6", f"{name} shield leg")
         check(
             sig_jref == shld_jref,
             f"{name}: signal-leg jumper header ({sig_jref}) and shield-leg jumper header "
@@ -331,10 +362,10 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
         f"All {len(MISC_CHANNELS)} /1//2-switchable channels (MISC1-3) confirmed leg-"
         f"symmetric: both signal and shield legs feed the INA105 through their own "
         f"matched ({DIVIDER_R_VALUE}) divider, selected by ONE mechanically-ganged "
-        f"Conn_02x03 jumper header per channel (signal leg on pins 1-3, shield leg on "
-        f"pins 4-6, confirmed to be the SAME physical component) -- so /2 mode divides "
-        f"both legs equally and a shield disturbance still cancels at the output, in "
-        f"either jumper position, and the two legs' own jumper positions cannot disagree."
+        f"Conn_02x03_Odd_Even jumper header per channel (signal leg on pins 1,3,5, shield "
+        f"leg on pins 2,4,6, confirmed to be the SAME physical component) -- so /2 mode "
+        f"divides both legs equally and a shield disturbance still cancels at the output, "
+        f"in either jumper position, and the two legs' own jumper positions cannot disagree."
     )
 
 
@@ -711,6 +742,191 @@ def values_ref_is_1M(values: dict[str, str], ref: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Footprint pad-adjacency check (FIX ROUND 3, task-10b-report.md) -- closes the process gap
+# the pin-numbering defect above exposed, not just this one instance: nothing in this
+# toolchain previously checked a symbol's assumed pin ADJACENCY against its paired
+# footprint's real physical pad geometry. Same second-track-check pattern as
+# verify_instance_paths()/self_test_instance_paths() below -- this doesn't fit the
+# nets/values shape verify()/self_test() above take (it reads a .kicad_mod directly, not
+# the exported netlist), so it gets its own top-level verify/self_test pair, wired into
+# main() alongside that other pair.
+# ---------------------------------------------------------------------------
+
+JUMPER_FOOTPRINT_LIB = "Connector_PinHeader_2.54mm"
+JUMPER_FOOTPRINT_MOD = "PinHeader_2x03_P2.54mm_Vertical"  # must match
+# gen_breakout_analog_frontend.py's own FOOTPRINT_HDR2X03 -- re-stated here rather than
+# imported from the generator, same independence discipline every fact in this file already
+# follows (module docstring: "re-derives... independently of gen_breakout_analog_frontend.
+# py's own choices").
+
+# The pin pairs _atten_leg_pair() relies on a SINGLE shorting-block position bridging
+# together -- signal leg's own raw-div and div-mid steps (column A, pins 1,3,5), shield
+# leg's own (column B, pins 2,4,6). Restated here, independent of the generator's own
+# choices, same as every other fact this file checks.
+REQUIRED_ADJACENT_PIN_PAIRS = [
+    ("1", "3", "signal leg raw(1)-div(3)"),
+    ("3", "5", "signal leg div(3)-mid(5)"),
+    ("2", "4", "shield leg raw(2)-div(4)"),
+    ("4", "6", "shield leg div(4)-mid(6)"),
+]
+# The DISCARDED fix-round-2 assumption (Conn_02x03_Top_Bottom's own row pairing: pin N
+# adjacent to pin N+3) -- must NOT hold on the real footprint, or this check would not
+# actually have caught fix round 2's own defect.
+DISCARDED_ADJACENCY_ASSUMPTION = [("1", "4"), ("2", "5"), ("3", "6")]
+
+
+def _pad_center(pads: dict[str, list[tuple[float, float, float]]], pin: str) -> tuple[float, float]:
+    entries = pads.get(pin)
+    check(entries is not None and len(entries) == 1, f"footprint pad {pin!r} missing or ambiguous: {entries}")
+    x, y, _angle = entries[0]
+    return (x, y)
+
+
+def verify_footprint_pad_adjacency(
+    pads: dict[str, list[tuple[float, float, float]]] | None = None,
+) -> str:
+    """THE close-the-blind-spot check. gen_breakout_analog_frontend.py's own
+    _atten_leg_pair() assigns symbol pin NUMBERS to nets on the assumption that certain
+    pairs of them are physically adjacent on the real board, so ONE mechanical 2-gang
+    shorting block can bridge each pair simultaneously. kicad_sch.py's own
+    extract_symbol()/unit_pins() machinery (used by every generator in this project) reads
+    ONLY the .kicad_sym symbol library -- never the .kicad_mod footprint a symbol happens
+    to be paired with via `footprint=` -- so nothing in this toolchain otherwise confirms a
+    symbol's assumed pin adjacency matches the REAL footprint's physical pad layout. This
+    is invisible to ERC and to every OTHER check in this file by construction: they all
+    reason about electrical CONNECTIVITY (which pins share a net), and physical pad
+    adjacency is not a connectivity fact -- two pads sitting right next to each other on
+    the real part deliberately carry NO shared net until a shunt is added; that is the
+    entire point of a jumper header.
+
+    This is exactly the shape of defect fix round 2 (task-10b-report.md) shipped with: it
+    picked Conn_02x03_Top_Bottom and assigned row 1 (pins 1-3) = signal leg, row 2 (pins
+    4-6) = shield leg, reasoning -- confirmed, per that version's own docstring, "directly
+    against the raw Connector_Generic library text via kicad_sch.py's own
+    extract_symbol()/unit_pins()" -- that pin N and pin N+3 share a physical column. That
+    confirmation checked the SCHEMATIC SYMBOL's own drawn geometry, not the footprint
+    actually assigned to the part. A reviewer rendered the real
+    PinHeader_2x03_P2.54mm_Vertical.kicad_mod (`kicad-cli fp export svg`) and found its
+    true pad layout is COLUMN-paired: pads (1,2)/(3,4)/(5,6) sit at the header's own
+    2.54mm minimum pitch, while (1,4)/(2,5)/(3,6) -- the pairing Top_Bottom's row
+    assignment needed -- sit 3.59mm apart on the diagonal, not adjacent at all. Fix round
+    2's own netlist was fully connected and ERC-clean (0 errors) with this defect present:
+    every check in this file above passed cleanly on it, because none of them reads
+    footprint geometry.
+
+    FIX ROUND 3 (task-10b-report.md, this round) corrected the pin assignment (see
+    gen_breakout_analog_frontend.py's own _atten_leg_pair() docstring) to
+    Conn_02x03_Odd_Even, interleaved: column A (pins 1,3,5) = signal leg's own
+    raw/div/mid, column B (pins 2,4,6) = shield leg's. This function is the fix for the
+    PROCESS gap, not just this one instance: it reads the REAL footprint's pad geometry
+    directly, via `kicad_pcb.footprint_pads()` -- already-existing, general machinery this
+    project's own PCB-layout generator (gen_mule_pcb.py) uses for placement, imported here
+    rather than reimplemented, and usable against ANY footprint in either .pretty root by
+    libname/modname, not hardcoded to this one part -- and asserts, in Euclidean distance
+    terms, that every pin pair _atten_leg_pair() relies on being physically bridgeable
+    really does sit at the header's own minimum pad pitch, AND that the discarded
+    Top_Bottom-style pairing does NOT (proving this check would actually have caught fix
+    round 2's own defect, not merely that it passes on whatever assignment happens to be
+    current).
+
+    NOT generalized to audit every connector this project places -- the general form of
+    the gap this closes. Most connectors here (the panel BNCs, the ACCESIO DB37, the
+    digital IDC headers) carry no electrical requirement that any two of their own pins be
+    physically adjacent; only a jumper/shorting-block application like this one does, so a
+    blanket "diff every placed connector's footprint against its symbol" pass would have
+    nothing meaningful to assert for them -- there is no generic notion of "the symbol's
+    pin-adjacency assumption" to compare against for a part with no adjacency assumption
+    at all. Deliberately restricted to the one part in this project where physical pad
+    adjacency IS an electrical-correctness precondition. A later task adding another
+    shorting-block-style jumper anywhere in this project should add its own call here (or
+    promote this into a shared kicad_sch.py/kicad_pcb.py helper if a second instance ever
+    makes the duplication worth generalizing) -- tracked explicitly, not silently assumed
+    closed by this one check existing.
+
+    `pads` is injectable (defaults to the real footprint_pads() read) purely so
+    self_test_footprint_pad_adjacency() below can exercise a corrupted layout without
+    touching the real .kicad_mod on disk.
+    """
+    if pads is None:
+        pads = footprint_pads(JUMPER_FOOTPRINT_LIB, JUMPER_FOOTPRINT_MOD)
+    check(
+        set(pads) == {"1", "2", "3", "4", "5", "6"},
+        f"{JUMPER_FOOTPRINT_LIB}:{JUMPER_FOOTPRINT_MOD}: expected exactly pads 1-6, found {sorted(pads)}",
+    )
+
+    def dist(pin_a: str, pin_b: str) -> float:
+        (xa, ya), (xb, yb) = _pad_center(pads, pin_a), _pad_center(pads, pin_b)
+        return math.hypot(xa - xb, ya - yb)
+
+    pitch = dist("1", "2")  # the header's own minimum pad spacing, re-derived from the
+    # real footprint rather than hardcoded as a literal 2.54 -- stays meaningful even if a
+    # future footprint swap changes the pitch, as long as it's internally consistent.
+    check(0 < pitch < 10, f"{JUMPER_FOOTPRINT_MOD}: pin 1-2 spacing ({pitch}mm) is not a sane header pitch")
+
+    for pin_a, pin_b, label in REQUIRED_ADJACENT_PIN_PAIRS:
+        d = dist(pin_a, pin_b)
+        check(
+            abs(d - pitch) < 1e-6,
+            f"{JUMPER_FOOTPRINT_MOD}: {label} (pins {pin_a}/{pin_b}) are {d:.4f}mm apart "
+            f"on the REAL footprint, not the header's own {pitch:.4f}mm minimum pitch -- "
+            f"_atten_leg_pair()'s own pin assignment assumes a single mechanical shorting "
+            f"block can bridge these two pins directly; if this fires, that assumption no "
+            f"longer holds for whatever footprint is actually assigned",
+        )
+
+    for pin_a, pin_b in DISCARDED_ADJACENCY_ASSUMPTION:
+        d = dist(pin_a, pin_b)
+        check(
+            abs(d - pitch) > 1e-6,
+            f"{JUMPER_FOOTPRINT_MOD}: pins {pin_a}/{pin_b} unexpectedly sit at the "
+            f"header's own minimum pitch ({pitch:.4f}mm) -- this footprint's real "
+            f"geometry has changed such that the discarded fix-round-2 Top_Bottom-style "
+            f"adjacency assumption (pin N adjacent to pin N+3) would ALSO hold; "
+            f"re-examine whether that changes which symbol/pin-assignment combination is "
+            f"actually correct",
+        )
+
+    return (
+        f"MISC1-3's own /1//2 shunt header footprint "
+        f"({JUMPER_FOOTPRINT_LIB}:{JUMPER_FOOTPRINT_MOD}) pad geometry read directly from "
+        f"its real .kicad_mod (not the schematic symbol) and confirmed: signal leg (pins "
+        f"1-3-5) and shield leg (pins 2-4-6) each form a straight-line {pitch:.2f}mm-pitch "
+        f"ladder a single shorting block can walk, and the discarded Top_Bottom-style "
+        f"adjacency (pin N / pin N+3) does NOT hold on the real part."
+    )
+
+
+def self_test_footprint_pad_adjacency(
+    good_pads: dict[str, list[tuple[float, float, float]]],
+) -> list[str]:
+    """Negative control: confirm verify_footprint_pad_adjacency() actually fires on a
+    corrupted footprint layout, rather than passing vacuously -- same self-test discipline
+    every other check in this project already establishes.
+    """
+    corrupted = copy.deepcopy(good_pads)
+    # Move pin 3 (signal leg's own DIV/common pin) off its real adjacent position onto
+    # pin 6's -- simulating a footprint swap (or a future pin-assignment edit) that breaks
+    # the "signal leg raw-div-mid forms one straight adjacent ladder" assumption
+    # _atten_leg_pair() relies on. Still a syntactically well-formed pads dict.
+    corrupted["3"] = corrupted["6"]
+    try:
+        verify_footprint_pad_adjacency(corrupted)
+    except CheckFailure as e:
+        check(
+            "signal leg raw(1)-div(3)" in str(e),
+            f"self-test 'pin 3 moved off its real adjacent position': "
+            f"verify_footprint_pad_adjacency() failed, but not with the expected "
+            f"complaint, got: {e}",
+        )
+        return [f"Jumper header pin moved off its real physically-adjacent footprint position: caught -- {e}"]
+    raise CheckFailure(
+        "self-test 'pin 3 moved off its real adjacent position': "
+        "verify_footprint_pad_adjacency() did NOT raise on a corrupted pad layout -- the "
+        "check this self-test exists to validate is passing vacuously"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Instance-path ancestor-chain check -- same mechanism/rationale as every other checker in
 # this project's own verify_instance_paths()/self_test_instance_paths().
 # ---------------------------------------------------------------------------
@@ -844,6 +1060,23 @@ def main() -> int:
         return 1
     print("SELF-TEST PASS (negative controls fired as expected):")
     for line in path_self_test_results:
+        print(f"  - {line}")
+
+    try:
+        pad_summary = verify_footprint_pad_adjacency()
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {pad_summary}")
+
+    good_pads = footprint_pads(JUMPER_FOOTPRINT_LIB, JUMPER_FOOTPRINT_MOD)
+    try:
+        pad_self_test_results = self_test_footprint_pad_adjacency(good_pads)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print("SELF-TEST PASS (negative controls fired as expected):")
+    for line in pad_self_test_results:
         print(f"  - {line}")
     return 0
 

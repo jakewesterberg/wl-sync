@@ -177,6 +177,58 @@ channel-to-topology mapping restated in CHANNEL_KIND below):
      /2, previously undivided) -- so common-mode margin at the amplifier's own inputs can
      only improve or hold relative to the design that already passed review, never worsen.
 
+     FIX ROUND 3 (post-review; task-10b-report.md, this round): fix round 2's own pin
+     assignment turned out to assume the WRONG physical geometry for the footprint it was
+     actually paired with. `_atten_leg_pair()` picked `Conn_02x03_Top_Bottom` and reasoned
+     that pin N and pin N+3 (e.g. 1 and 4) share one physical column -- confirmed, per that
+     version's own docstring, "directly against the raw Connector_Generic library text via
+     kicad_sch.py's own extract_symbol()/unit_pins()". That confirmation was real but
+     checked the SCHEMATIC SYMBOL's own drawn pin geometry, not the FOOTPRINT
+     (`PinHeader_2x03_P2.54mm_Vertical`) actually assigned to the part -- and nothing in
+     this toolchain ever cross-checks the two: kicad_sch.py's own extract_symbol()/
+     unit_pins() machinery reads ONLY the .kicad_sym library (see that file's own module
+     docstring), never the .kicad_mod a symbol happens to be paired with via `footprint=`.
+     A reviewer rendered the real .kicad_mod (`kicad-cli fp export svg`, cross-checked pad-
+     by-pad against the raw coordinates via `hardware/gen/kicad_pcb.py`'s own
+     `footprint_pads()`) and found its true pad layout is COLUMN-paired, not row-paired:
+     pads (1,2), (3,4), (5,6) sit 2.54mm apart (the header's own minimum pitch) in a
+     straight line, while (1,4), (2,5), (3,6) -- the pairing fix round 2's numbering
+     assumed shared a column -- sit 3.59mm apart on the diagonal, not adjacent at all. This
+     is a standard "odd column / even column" 2xN pin header (column A = pins 1,3,5, column
+     B = pins 2,4,6), not the top/bottom-row layout `Conn_02x03_Top_Bottom`'s own symbol
+     art (misleadingly, for THIS footprint) suggests. Under fix round 2's row 1=signal/
+     row 2=shield assignment, no shorting-block position on the REAL part achieves "both
+     legs at the same divider tap": pins 1-2 (adjacent) are both RAW nodes (no divider
+     selection there), pin 3 (signal DIV, the node that actually reaches the amplifier) is
+     nowhere near pin 4 (shield DIV) -- every physically reachable shunt position leaves
+     one leg's own INA105 input floating, worse than the leg-asymmetry defect fix round 1
+     closed out.
+
+     Fixed by swapping the SYMBOL, not the footprint: `Conn_02x03_Odd_Even` (same
+     `Connector_Generic` family, confirmed by the same extract_symbol()/unit_pins()
+     evidence trail as before -- this time cross-checked against the real footprint's own
+     pad coordinates, not just the schematic art) numbers its pins to match this exact
+     footprint's real geometry, and `_atten_leg_pair()` now assigns pins INTERLEAVED rather
+     than by row: pin1=sig_raw, pin2=shld_raw, pin3=sig_div, pin4=shld_div, pin5=sig_mid,
+     pin6=shld_mid -- column A (pins 1,3,5) is the signal leg's own raw/div/mid ladder,
+     column B (pins 2,4,6) the shield leg's, each column individually reproducing the exact
+     straight-line 2.54mm-pitch adjacency a single-leg `Conn_01x03` header already had pre-
+     fix-round-2 (fix round 1's own two independent headers), just placed side by side on
+     one physical part instead of as two separate ones. A 2-gang shorting block spanning
+     both columns at one row-pair now bridges pins 1-3 AND 2-4 together (x1, both legs
+     undivided) or pins 3-5 AND 4-6 together (x2, both legs divided) -- the same x1/x2
+     semantics fix round 2 intended, now actually achievable on the real installed part.
+     `check_breakout_analog_frontend_netlist.py` gained a new check,
+     `verify_footprint_pad_adjacency()`, that reads this exact footprint's real pad
+     geometry (via `kicad_pcb.footprint_pads()`) and asserts every pin pair this function
+     relies on being physically bridgeable actually sits at the header's own minimum pitch
+     -- closing the process gap, not just this one instance: no check in this toolchain
+     previously read footprint geometry at all (every existing check, and ERC itself,
+     reasons about electrical connectivity, which is orthogonal to physical pad placement
+     for a jumper by construction). See that function's own docstring for why it is scoped
+     to this one connector rather than generalized to audit every connector this project
+     places.
+
 Consumes (Task 7, already committed on power.kicad_sch, same global-label names): `+12V`,
 `-12V`, `AGND`. Produces (this task's own net contract, spec Sec.3.2's "16 sources" table):
 `A_EYE_LX`, `A_EYE_LY`, `A_EYE_RX`, `A_EYE_RY`, `A_EYE_LP`, `A_EYE_RP`, `A_PD1`, `A_PD2`,
@@ -248,8 +300,12 @@ FOOTPRINT_SOIC8 = "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"             # INA105KU, 
 FOOTPRINT_SOIC14 = "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"           # OPA4197xD
 FOOTPRINT_HDR1X03 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
 FOOTPRINT_HDR2X03 = "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"  # MISC1-3's
-# /1//2 shunt header, fix round 2 -- see _atten_leg_pair()'s own docstring. Same
+# /1//2 shunt header, fix rounds 2-3 -- see _atten_leg_pair()'s own docstring. Same
 # Connector_PinHeader_2.54mm family/pitch as FOOTPRINT_HDR1X03 above, already registered.
+# The FOOTPRINT itself is unchanged across fix rounds 2 and 3 -- only the SYMBOL
+# (Conn_02x03_Top_Bottom -> Conn_02x03_Odd_Even) and pin assignment changed, to match this
+# footprint's own real pad geometry (fix round 3 confirmed it column-paired, not
+# row-paired -- see _atten_leg_pair()'s own docstring for the full derivation).
 FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"     # same isolated (2-pad,
 # no separate chassis pad) BNC every other panel BNC on this board uses -- spec Sec.9.1's
 # "Isolated BNCs throughout", not a different/new part for these 10 positions.
@@ -528,33 +584,59 @@ def _atten_divider(sch, x_div, y, raw_net, tag):
 def _atten_leg_pair(sch, x_div_sig, x_div_shld, y, x_jum, y_jum, sig_raw_net, shld_raw_net, tag, desc):
     """FIX ROUND 2 (post-review; task-10b-report.md): replaces fix round 1's own TWO
     INDEPENDENT `Conn_01x03` shunt headers (one per leg, each its own physically separate
-    jumper -- see task-10a-report.md's own "Fix round 1") with ONE `Conn_02x03_Top_Bottom`
-    header carrying BOTH legs, so a single mechanically-ganged 2-GANG SHORTING BLOCK (never
-    two independent 1-gang shunts -- see this header's own Description property and the
-    on-sheet note below) bridges both legs' identical column position simultaneously. This
+    jumper -- see task-10a-report.md's own "Fix round 1") with ONE `Conn_02x03` header
+    carrying BOTH legs, so a single mechanically-ganged 2-GANG SHORTING BLOCK (never two
+    independent 1-gang shunts -- see this header's own Description property and the
+    on-sheet note below) bridges both legs' identical divider position simultaneously. This
     is what upgrades "both jumpers MUST be set to the same position" from a documentation-
     only requirement -- fix round 1's own residual risk, named explicitly in its own
     docstring: "A single mechanically-ganged 2-pole part... would remove that residual
     assembly-discipline risk, but was judged more component-library risk than this fix
-    warrants" -- to a PHYSICAL IMPOSSIBILITY: a 2-gang shorting block spanning columns (1,2)
-    or (2,3) cannot be placed with one gang at one column and the other gang at a different
-    column, because it is one mechanical part. `Connector_Generic:Conn_02x03` is already a
-    registered, already-used symbol family on this sheet (Conn_01x03), so this needs no new
-    symbol or footprint authoring -- see hardware/README.md.
+    warrants" -- to a PHYSICAL IMPOSSIBILITY: a 2-gang shorting block spanning two adjacent
+    divider positions cannot be placed with one gang at one position and the other gang at
+    a different position, because it is one mechanical part. `Connector_Generic:Conn_02x03`
+    is already a registered, already-used symbol family on this sheet (Conn_01x03), so this
+    needs no new footprint authoring -- see hardware/README.md.
 
-    `Conn_02x03_Top_Bottom`'s own pin numbering (confirmed directly against the raw
-    Connector_Generic library text via kicad_sch.py's own extract_symbol()/unit_pins(), not
-    assumed): physical ROW 1 = pins 1,2,3 (one column position each), ROW 2 = pins 4,5,6,
-    with pin N and pin N+3 sharing the SAME column position (e.g. pins 1 and 4 both sit at
-    the header's own first column) -- exactly the geometry a 2-gang shorting block needs,
-    since it spans two ADJACENT COLUMNS across BOTH rows at once. Row 1 (pins 1-3) carries
-    the SIGNAL leg, row 2 (pins 4-6) the SHIELD leg, each at the identical per-leg role fix
-    round 1's own single-header pin1=raw/pin2=common/pin3=mid convention already
-    established: pin1=sig_raw pin2=sig_common(to amp) pin3=sig_mid; pin4=shld_raw
-    pin5=shld_common(to amp) pin6=shld_mid. A 2-gang shorting block at column position
-    (1,2) bridges pin1-pin2 AND pin4-pin5 together (x1, both legs undivided); at (2,3) it
-    bridges pin2-pin3 AND pin5-pin6 together (x2, both legs divided) -- the same x1/x2
-    semantics fix round 1 already had, now unable to disagree between legs by construction.
+    FIX ROUND 3 (post-review; task-10b-report.md, this round) corrected which VARIANT of
+    that family, and which pin assignment: fix round 2 originally used
+    `Conn_02x03_Top_Bottom` with row 1 (pins 1-3) = signal leg, row 2 (pins 4-6) = shield
+    leg, reasoning -- from that symbol's own SCHEMATIC drawing, confirmed directly against
+    the raw Connector_Generic library text via kicad_sch.py's own extract_symbol()/
+    unit_pins() -- that pin N and pin N+3 share a physical column. A reviewer rendered the
+    REAL footprint (`PinHeader_2x03_P2.54mm_Vertical`, via `kicad-cli fp export svg`,
+    cross-checked pad-by-pad against `hardware/gen/kicad_pcb.py`'s own `footprint_pads()`)
+    and found its true pad geometry is COLUMN-paired, not row-paired: pads (1,2)/(3,4)/
+    (5,6) sit 2.54mm apart (the header's own minimum pitch, i.e. genuinely adjacent), while
+    (1,4)/(2,5)/(3,6) -- what the Top_Bottom assignment needed to be adjacent for a
+    shorting block to gang both legs -- sit 3.59mm apart on the diagonal. Nothing in this
+    toolchain had ever checked a symbol's assumed pin adjacency against its paired
+    footprint's real pad geometry before (kicad_sch.py's own extract_symbol()/unit_pins()
+    read ONLY the .kicad_sym; see that file's own module docstring), so this mismatch was
+    invisible to ERC and to every netlist-topology checker in this project -- all of them
+    reason about electrical connectivity, which a jumper header's pins deliberately lack
+    until a shunt is added. On the real part, fix round 2's row 1/row 2 assignment left NO
+    shorting-block position achieving "both legs at the same tap": pins 1-2 (the adjacent
+    pair) are both RAW nodes, and pin 3 (signal DIV) sits nowhere near pin 4 (shield DIV)
+    -- every physically reachable position leaves one leg's own INA105 input floating,
+    worse than the leg-asymmetry defect fix round 1 closed out.
+
+    Fixed by using `Conn_02x03_Odd_Even` instead (same family, no new footprint -- only the
+    SYMBOL and pin ASSIGNMENT change) with pins INTERLEAVED rather than row-grouped: column
+    A (pins 1,3,5, confirmed 2.54mm-pitch adjacent on the real footprint) carries the
+    SIGNAL leg's own raw/div/mid ladder, column B (pins 2,4,6, same real adjacency) the
+    SHIELD leg's -- pin1=sig_raw pin2=shld_raw pin3=sig_div(common,to amp)
+    pin4=shld_div(common,to amp) pin5=sig_mid pin6=shld_mid. Electrically this is fix round
+    1's own two independent per-leg ladders (pin1=raw/pin2=common/pin3=mid) placed side by
+    side on ONE physical part instead of two, not a new topology. A 2-gang shorting block
+    spanning both columns at one row-pair bridges pins 1-3 AND 2-4 together (x1, both legs
+    undivided) or pins 3-5 AND 4-6 together (x2, both legs divided) -- the same x1/x2
+    semantics fix round 2 intended, now actually achievable on the real installed part.
+    `check_breakout_analog_frontend_netlist.py`'s new `verify_footprint_pad_adjacency()`
+    reads this exact footprint's real pad geometry and asserts these four pairs (and not
+    the discarded 1-4/2-5/3-6 pairing) sit at the header's own minimum pitch, so a future
+    edit that drifts the pin assignment and the footprint apart from each other fails a
+    check that actually reads physical geometry, not just connectivity.
 
     Returns (sig_div_net, shld_div_net) -- what the amplifier's own "+"/"-" inputs wire to.
     """
@@ -563,22 +645,26 @@ def _atten_leg_pair(sch, x_div_sig, x_div_shld, y, x_jum, y_jum, sig_raw_net, sh
 
     jref = sch.next_ref("J")
     jpins = sch.place(
-        "Connector_Generic", "Conn_02x03_Top_Bottom", jref,
-        f"{desc} -- /1//2 shunt header, BOTH legs (fix round 2): row 1 (pins 1-3) = "
-        f"SIGNAL leg, row 2 (pins 4-6) = SHIELD leg. Populate with ONE 2-GANG SHORTING "
-        f"BLOCK spanning both rows at the SAME column position -- pins 1-2 + 4-5 for x1 "
-        f"(direct), pins 2-3 + 5-6 for x2 (divider tap) -- NEVER two independent 1-gang "
-        f"shunts: that is the exact defect this header replaces (fix round 1 left it "
-        f"physically possible for the two legs' own jumpers to disagree; a mechanically-"
-        f"ganged 2-gang block makes disagreement physically impossible instead of merely "
-        f"documented against).",
+        "Connector_Generic", "Conn_02x03_Odd_Even", jref,
+        f"{desc} -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): "
+        f"column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD "
+        f"leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL "
+        f"PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + "
+        f"kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's "
+        f"Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint "
+        f"does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both "
+        f"columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 "
+        f"for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact "
+        f"defect this header replaces (fix round 1 left it physically possible for the "
+        f"two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes "
+        f"disagreement physically impossible instead of merely documented against).",
         x_jum, y_jum, footprint=FOOTPRINT_HDR2X03,
     )
     lbl(sch, x_jum, y_jum, jpins, "1", sig_raw_net)
-    lbl(sch, x_jum, y_jum, jpins, "2", sig_div)
-    lbl(sch, x_jum, y_jum, jpins, "3", sig_mid)
-    lbl(sch, x_jum, y_jum, jpins, "4", shld_raw_net)
-    lbl(sch, x_jum, y_jum, jpins, "5", shld_div)
+    lbl(sch, x_jum, y_jum, jpins, "2", shld_raw_net)
+    lbl(sch, x_jum, y_jum, jpins, "3", sig_div)
+    lbl(sch, x_jum, y_jum, jpins, "4", shld_div)
+    lbl(sch, x_jum, y_jum, jpins, "5", sig_mid)
     lbl(sch, x_jum, y_jum, jpins, "6", shld_mid)
     return sig_div, shld_div
 
@@ -891,15 +977,23 @@ def build() -> tuple[Sch, dict]:
         "OR the /2 tap (/2) at assembly/field-reconfiguration time -- not a schematic-",
         "level electrical fact, so every header pin is wired to its own distinct net here",
         "and the bridge is left to the physical shunt. BOTH LEGS NOW SHARE ONE PHYSICAL",
-        "Conn_02x03 HEADER, populated with a SINGLE 2-GANG SHORTING BLOCK spanning both",
-        "rows at the same column position (row 1 = signal leg pins 1-3, row 2 = shield",
-        "leg pins 4-6; bridge 1-2+4-5 for x1, 2-3+5-6 for x2) -- replacing fix round 1's",
-        "own two INDEPENDENT Conn_01x03 headers, which left it physically possible (not",
-        "just against instructions) for the two legs to disagree: a real risk years from",
-        "now when someone reconfigures a channel's range and forgets the second jumper,",
-        "silently re-creating the exact half-cancelled-shield-disturbance defect fix",
-        "round 1 closed out. NEVER populate this header with two independent 1-gang",
-        "shunts -- that reintroduces the identical defect on a 2-row footprint.",
+        "Conn_02x03 HEADER, populated with a SINGLE 2-GANG SHORTING BLOCK -- replacing",
+        "fix round 1's own two INDEPENDENT Conn_01x03 headers, which left it physically",
+        "possible (not just against instructions) for the two legs to disagree: a real",
+        "risk years from now when someone reconfigures a channel's range and forgets the",
+        "second jumper, silently re-creating the exact half-cancelled-shield-disturbance",
+        "defect fix round 1 closed out. NEVER populate this header with two independent",
+        "1-gang shunts -- that reintroduces the identical defect on a 2-column footprint.",
+        "",
+        "FIX ROUND 3 (task-10b-report.md, this round): fix round 2's own PIN ASSIGNMENT",
+        "assumed the wrong physical geometry for the real PinHeader_2x03_P2.54mm_Vertical",
+        "footprint (row-paired, pin N adjacent to pin N+3) -- the real part is COLUMN-",
+        "paired instead (confirmed via kicad-cli fp export svg + kicad_pcb.py's own",
+        "footprint_pads()), which left NO shunt position on the real part achieving",
+        "'both legs at the same tap'. Symbol changed to Conn_02x03_Odd_Even, pins now",
+        "INTERLEAVED: column A (pins 1,3,5) = SIGNAL raw/div/mid, column B (pins 2,4,6) =",
+        "SHIELD raw/div/mid. Bridge pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2",
+        "(divider tap) -- STILL NEVER two independent 1-gang shunts.",
         "Both dividers sit BEFORE the amplifier: INA105's own linear common-mode range",
         "does not want a raw +-10V swing directly.",
     ]):
