@@ -1,7 +1,79 @@
-ERC report (2026-08-15T01:08:47, Encoding UTF8)
+ERC report (2026-08-15T02:01:37, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 16.51 mm): Global Label 'MUX1_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 19.05 mm): Global Label 'MUX1_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 21.59 mm): Global Label 'MUX1_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 80.01 mm): Global Label 'MUX2_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 82.55 mm): Global Label 'MUX2_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 85.09 mm): Global Label 'MUX2_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 143.51 mm): Global Label 'MUX3_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 146.05 mm): Global Label 'MUX3_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 148.59 mm): Global Label 'MUX3_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 207.01 mm): Global Label 'MUX4_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 209.55 mm): Global Label 'MUX4_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 212.09 mm): Global Label 'MUX4_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 270.51 mm): Global Label 'MUX5_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 273.05 mm): Global Label 'MUX5_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 275.59 mm): Global Label 'MUX5_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 334.01 mm): Global Label 'MUX6_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 336.55 mm): Global Label 'MUX6_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 339.09 mm): Global Label 'MUX6_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 397.51 mm): Global Label 'MUX7_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 400.05 mm): Global Label 'MUX7_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 402.59 mm): Global Label 'MUX7_A2'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 461.01 mm): Global Label 'MUX8_A0'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 463.55 mm): Global Label 'MUX8_A1'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(78.74 mm, 466.09 mm): Global Label 'MUX8_A2'
 [isolated_pin_label]: Label connected to only one pin
     ; warning
     @(322.58 mm, 48.26 mm): Global Label 'EVT_D0_BUF'
@@ -89,7 +161,7 @@ Report includes: Errors, Warnings
 
 ***** Sheet /control-usb-i2c/
 
- ** ERC messages: 22  Errors 0  Warnings 22
+ ** ERC messages: 46  Errors 0  Warnings 46
 
  ** Ignored checks:
     - Global label only appears once in the schematic

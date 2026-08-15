@@ -170,14 +170,27 @@ NON_ISO_NETS = [
 # against the regenerated whole-project netlist via this same `_rail_bypass_cap_count()`,
 # not guessed. WILL need the same treatment again once Tasks 10c-10d (and 11-12) place
 # their own +12V/-12V-powered parts.
+#
+# RECOMPUTED AGAIN AT TASK 10c: mux-intan.kicad_sch adds two more part POPULATIONS on TWO
+# DIFFERENT rail-pair groups, not just one -- the first time a single child sheet touches
+# both an already-tracked non-isolated pair AND an already-tracked isolated pair in one
+# commit. Its 8 ADG1206YRUZ muxes (the AGND-domain half of the sheet, spec Sec.6.3's own
+# "the mux sits in AGND") decouple +12V/AGND and -12V/AGND same as every other dual-supply
+# IC on this project -- +8 on EACH (24->32 both). Its 8 INA105KU difference amplifiers (the
+# INTAN_GND-domain half -- see this sheet's own module docstring for why THESE, not the
+# muxes, are the parts that legitimately straddle the isolation boundary) decouple ISO_P12/
+# INTAN_GND and ISO_N12/INTAN_GND -- +8 on EACH (2->10 both). Confirmed directly against the
+# regenerated whole-project netlist via this same `_rail_bypass_cap_count()`, not guessed
+# (32/32/10/10, checked before writing these numbers in). WILL need the same treatment
+# again once Task 10d (and 11-12) place their own rail-powered parts.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 24,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
+    ("+12V", "AGND"): 32,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
                                    # +15 from analog-frontend.kicad_sch's own 15 op-amp
                                    # packages (Task 10a); +7 from analog-ni.kicad_sch's own
-                                   # 7 quad-buffer packages (Task 10b)
-    ("-12V", "AGND"): 24,         # C3, C4 -- ditto, -12V rail; +15 from analog-frontend.kicad_sch
-                                   # (Task 10a) +7 from analog-ni.kicad_sch (Task 10b), same
-                                   # reasoning as +12V/AGND above
+                                   # 7 quad-buffer packages (Task 10b); +8 from
+                                   # mux-intan.kicad_sch's own 8 ADG1206YRUZ muxes (Task 10c)
+    ("-12V", "AGND"): 32,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
+                                   # 10b) +8 (Task 10c), same reasoning as +12V/AGND above
     ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
@@ -189,8 +202,12 @@ RAIL_BYPASS_EXPECTED = {
                                    # own 3 LVC541 packages (Task 8); + 1 from
                                    # pi-interface.kicad_sch's own RWD_DLVR level-shift
                                    # (Task 9)
-    ("ISO_P12", "INTAN_GND"): 2,  # C14, C15 -- U3 COUT + extra HF bypass
-    ("ISO_N12", "INTAN_GND"): 2,  # C20, C21 -- U4 COUT + extra HF bypass
+    ("ISO_P12", "INTAN_GND"): 10,  # C14, C15 -- U3 COUT + extra HF bypass; +8 from
+                                   # mux-intan.kicad_sch's own 8 INA105KU difference
+                                   # amplifiers (Task 10c)
+    ("ISO_N12", "INTAN_GND"): 10,  # C20, C21 -- U4 COUT + extra HF bypass; +8 from
+                                   # mux-intan.kicad_sch's own 8 INA105KU (Task 10c), same
+                                   # reasoning as ISO_P12/INTAN_GND above
     ("ISO_P15_RAW", "INTAN_GND"): 1,   # C10 -- positive pi filter's first 10uF
     ("ISO_P15_FILT", "INTAN_GND"): 1,  # C11 -- positive pi filter's second 10uF / U3 CIN
     ("ISO_N15_RAW", "INTAN_GND"): 1,   # C16 -- negative pi filter's first 10uF

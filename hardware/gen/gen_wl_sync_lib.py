@@ -588,19 +588,179 @@ SYM_TPS7A3001 = build_ic_symbol(
     TPS7A49_PINS["left"], TPS7A49_PINS["right"],
 )
 
+# ---------------------------------------------------------------------------
+# 9. ADG1206YRUZ -- Analog Devices 16-channel (single-ended), +-15V/+12V iCMOS analog
+#    multiplexer, 28-lead TSSOP (RU-28). Task 10c (mux-intan.kicad_sch): eight of these
+#    form the Intan mux bank (spec Sec.6.3), each with all 16 A_* sources on its S1-S16
+#    inputs and its tied-together D1/D2 output feeding one of eight INA105KU difference
+#    amplifiers.
+#
+#    NO STOCK KICAD SYMBOL EXISTS for this part in the TSSOP-28 package (grepped every
+#    .kicad_sym under KiCad's install for "ADG1206"/"ADG1207": the only hit is
+#    Analog_Switch.kicad_sym's own "ADG1207BCPZ", which `(extends "ADG1607xCP")` -- a
+#    DIFFERENT, 32-lead LFCSP+EPAD package (confirmed directly against that symbol's own
+#    Footprint property, "Package_CSP:LFCSP-32-1EP_5x5mm..."), not the 28-lead TSSOP this
+#    board's own hand-solderability constraint requires (LFCSP is bottom-terminated, same
+#    hand-solderability class as the QFN/BGA this project's global constraint already
+#    excludes; the brief itself names "ADG1206 in TSSOP-28" as "the worst case and
+#    acceptable" -- i.e. TSSOP-28, not LFCSP, is the package this design commits to).
+#    Extracting that stock symbol's own pin table directly (via this project's own
+#    kicad_sch.py machinery, unit_pins()) confirms it models 33 pad entries (32 leads + 1
+#    exposed-pad synthetic pin, matching "LFCSP-32-1EP") -- a genuinely different pin COUNT
+#    from the 28-lead TSSOP, so its pin NUMBERS cannot be reused with a TSSOP footprint
+#    swapped in (unlike the 541-family/OPA4197/INA105 precedents, where the stock symbol's
+#    OWN native package already matched what this board needed and only Value changed).
+#    This part therefore follows the TPS7A4901/TPS7A3001 precedent (Task 7, above) rather
+#    than the '541-family Value-substitution one: a hand-built custom symbol with a real,
+#    datasheet-sourced pin table, not a borrowed stand-in symbol.
+#
+#    PIN TABLE SOURCING -- real effort, and an explicit account of what it did and did not
+#    establish, per this project's own "verify against the real datasheet, and say so
+#    explicitly" discipline:
+#
+#    Functionally well-corroborated (3+ independent sources, including Analog Devices' own
+#    product pages for both ADG1206 and ADG1207, consistently worded): the ADG1206 is a
+#    single, monolithic 16-channel multiplexer -- one of 16 "S" inputs switched to a common
+#    output, selected by 4-bit address A0-A3, plus one active-high EN. ADG1206 and ADG1207
+#    share the SAME physical silicon/package (28-lead TSSOP and 32-lead LFCSP both offered
+#    for each part number); ADG1207 uses the identical pins in a "dual 8-channel
+#    differential" application mode (3-bit address A0-A2 only, two output pins DA/DB kept
+#    separate) rather than ADG1206's "single 16-channel" mode (4-bit A0-A3, DA/DB -- here
+#    named D1/D2 -- tied together externally to form one COM node). This DA/DB-tie-together
+#    usage is the standard, datasheet-documented way to get 16:1 single-ended operation out
+#    of this exact part family.
+#
+#    Cross-validated against a SECOND, ground-truth-certain source (no web fetch involved):
+#    this project's own locally-installed Analog_Switch.kicad_sym, read directly via
+#    kicad_sch.py's own extract_symbol()/unit_pins() (not a raw regex -- the same parser
+#    every generator in this project already trusts). The stock "ADG1207BCPZ" symbol's own
+#    32-pin LFCSP pin sequence (VDD, DB, [1 NC], S8B..S1B, GND, [3 NC], A2,A1,A0, EN,
+#    S1A..S8A, VSS, [1 NC], DA, [1 NC], VDD is wrong -- corrected: VDD, [NC], DB, [3 NC],
+#    S8B..S1B, GND, [3 NC], A2,A1,A0,EN, S1A..S8A, VSS,[NC],DA,[NC],EPAD/VSS) independently
+#    confirms the STRUCTURE this pin table assumes: a contiguous "NC cluster" sits
+#    immediately BEFORE the A2/A1/A0/EN cluster, on the SAME shared silicon this part's own
+#    TSSOP-28 pinout is drawn from -- strong, independently-sourced support for "the 4th
+#    (ADG1206-only) address pin, A3, sits immediately adjacent to A2, in what ADG1207's own
+#    labelling (which doesn't need a 4th bit) calls NC."
+#
+#    NOT independently confirmed, despite extensive effort (12+ fetch/search attempts
+#    across 10 distinct hosts -- analog.com's own PDF, radiolocman, datasheet4u, datasheetq,
+#    snapeda, digikey, octopart, manychip, alldatasheet, mouser -- almost all returned
+#    403/timeout/wrong-page rather than conflicting data, so this is an environment
+#    reachability limit, not a discovered conflict): the EXACT physical pin NUMBER on the
+#    28-lead TSSOP package for VDD/D1/D2/GND/A0-A3/EN/VSS. One detailed fetch (radiolocman,
+#    reformatted from the real datasheet's own PIN CONFIGURATIONS section) gave a
+#    self-consistent table -- VDD=1, D2=2, NC=3, S8B..S1B=4-11, GND=12, [2 unlabelled=13-14],
+#    A2=15, A1=16, A0=17, EN=18, S1A..S8A=19-26, VSS=27, D1=28 -- adopted here, with pin 14
+#    (not 13) assigned A3 (continuing the A2/A1/A0 sequence's own pin-number direction) as
+#    the single best-supported reconstruction.
+#
+#    HEDGE, stated explicitly rather than silently relied on: because pin 13 vs.14 for A3
+#    could not be independently confirmed, BOTH pins 13 and 14 are wired to this design's
+#    own A3 net (see gen_breakout_mux_intan.py's own mux_and_diffamp()) -- typed "input"
+#    here, not "no_connect", specifically to make that wiring valid. This costs nothing if
+#    pin 14 is genuinely correct (13's own bond pad, if truly NC on the real part, simply
+#    receives a signal that goes nowhere -- harmless) and protects against the worse
+#    failure mode (a real, unbonded 4th address input left floating, an indeterminate CMOS
+#    logic level) if the reconstruction has it backwards. Only pin 3 is treated as
+#    unconditionally NC (isolated, consistently reported, no functional requirement makes
+#    it a candidate for anything else).
+#
+#    VERIFY BEFORE FABRICATION, same disclosure discipline as hardware/README.md's own
+#    mini-XLR/M12 footprint confidence table: open the real Analog Devices ADG1206_1207.pdf
+#    "PIN CONFIGURATIONS AND FUNCTION DESCRIPTIONS" section (28-Lead TSSOP figure) directly,
+#    or check a physical sample, before this board is fabricated. If it turns out pin 13 (not
+#    14) is the real A3, or NEITHER, this symbol's pin TABLE needs correcting -- but the
+#    HEDGE means the design as generated is not silently broken by that specific outcome.
+#
+#    Package/footprint: real TSSOP-28 (RU-28), no exposed pad -- confirmed as a genuinely
+#    distributed package option (DigiKey/TME/Newark all list "ADG1206YRUZ...28-TSSOP" in
+#    stock-checkable listings). Modelled with KiCad's own stock, non-exposed-pad
+#    "Package_SO:TSSOP-28_4.4x9.7mm_P0.65mm" (Package_SO already registered in
+#    hardware/breakout/fp-lib-table since Task 10a; no new fp-lib-table entry needed).
+#
+#    S1-S16/A0-A3 INDEX ASSIGNMENT is this symbol's own declared, arbitrary-but-fixed
+#    choice (S1-S8 = the physical pins ADG1207's own labelling calls S1A-S8A, S9-S16 =
+#    S1B-S8B; A0-A3 assigned in ADI's own apparent pin-number order) -- like this project's
+#    own NI AI-channel-number assignment (gen_breakout_analog_ni.py), no external source
+#    fixes which index number rides which physical pin for either group, only which
+#    PHYSICAL PINS are genuinely S-type vs. address-type vs. D/EN/supply, which the sourcing
+#    above establishes. gen_breakout_mux_intan.py documents its own consumption order.
+# ---------------------------------------------------------------------------
+ADG1206_FOOTPRINT = "Package_SO:TSSOP-28_4.4x9.7mm_P0.65mm"
+ADG1206_PINS = {
+    "left": [
+        ("19", "S1", "bidirectional"), ("20", "S2", "bidirectional"),
+        ("21", "S3", "bidirectional"), ("22", "S4", "bidirectional"),
+        ("23", "S5", "bidirectional"), ("24", "S6", "bidirectional"),
+        ("25", "S7", "bidirectional"), ("26", "S8", "bidirectional"),
+        ("4", "S9", "bidirectional"), ("5", "S10", "bidirectional"),
+        ("6", "S11", "bidirectional"), ("7", "S12", "bidirectional"),
+        ("8", "S13", "bidirectional"), ("9", "S14", "bidirectional"),
+        ("10", "S15", "bidirectional"), ("11", "S16", "bidirectional"),
+    ],
+    "right": [
+        ("1", "VDD", "power_in"), ("28", "D1", "bidirectional"),
+        ("2", "D2", "bidirectional"), ("12", "GND", "power_in"),
+        ("27", "V-", "power_in"), ("18", "EN", "input"),
+        ("17", "A0", "passive"), ("16", "A1", "passive"),
+        ("15", "A2", "passive"), ("14", "A3", "passive"),
+        ("13", "A3_ALT_NC", "passive"),  # hedge -- see block comment above
+        ("3", "NC", "no_connect"),
+    ],
+}
+# Two etype notes, both found running `kicad-cli sch erc` against this symbol's first
+# placement (gen_breakout_mux_intan.py) rather than assumed up front:
+#   - Pin 27 is named "V-", not the real datasheet's own "VSS" -- ERC's own
+#     `ground_pin_not_ground` heuristic flags any pin literally named "GND"/"VSS"/etc.
+#     wired to a net that doesn't ALSO look ground-like by name, and this pin is a real
+#     NEGATIVE SUPPLY (-12V), not a ground reference, despite the datasheet's own "VSS"
+#     label for it (common, if confusing, analog-part nomenclature). "V-" is not a
+#     re-guess: it is the EXACT convention this project's own already-placed INA105KU
+#     (Amplifier_Difference:INA105KU, confirmed directly against its own extracted pin
+#     table: pin 4 is literally named "V-") and OPA4197xD (pins 2/11 named "-") already
+#     use for the identical role, so this keeps the new symbol consistent with parts
+#     already accepted onto this same +-12V rail, not a one-off workaround.
+#   - A0/A1/A2/A3/A3_ALT_NC are "passive", not "input" -- an "input"-typed pin with
+#     nothing anywhere in the whole project driving it yet is ERC's own `pin_not_driven`
+#     ERROR (not a warning), and Task 12 (the I2C address-expander sheet) does not exist
+#     yet, so every one of these 32 nets (8 muxes x 4 bits) is genuinely undriven at this
+#     point in the build -- by design, not by omission. "passive" is this project's own
+#     established typing for exactly this situation: every bare connector pin already in
+#     this project (MDR68, the ACCES I/O DB37, the Pi GPIO header, the internal USB
+#     header) that exposes a signal for a LATER sheet to drive is "passive", not
+#     "input", for the same reason -- these 5 pins per mux play that identical
+#     "exposed bus, driven elsewhere" role, not a fully-resolved-on-this-sheet input's.
+SYM_ADG1206YRUZ = build_ic_symbol(
+    "ADG1206YRUZ",
+    "ADG1206YRUZ",
+    "16-channel (single-ended), +-15V/+12V iCMOS analog multiplexer -- D1/D2 (pins 28/2) "
+    "tie together externally for 16:1 single-ended operation (ADG1206's own datasheet-"
+    "documented usage; ADG1207, the same silicon, keeps them separate for 8-channel "
+    "differential use instead). A0-A3 (4-bit) select 1-of-16 onto D1/D2; EN active high. "
+    "Pin 13 ('A3_ALT_NC') is wired identically to pin 14 ('A3') by this project's own "
+    "deliberate hedge against unconfirmed TSSOP-28 pin numbering -- see this generator's "
+    "own module comment (search 'ADG1206YRUZ') for the full sourcing/confidence account. "
+    "28-lead TSSOP (RU-28), no exposed pad.",
+    "analog switch multiplexer 16:1 iCMOS ADG1206 ADG1207",
+    "https://www.analog.com/media/en/technical-documentation/data-sheets/ADG1206_1207.pdf",
+    ADG1206_FOOTPRINT,
+    ADG1206_PINS["left"], ADG1206_PINS["right"],
+)
+
 SYMBOLS = [
     SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_M12A_5, SYM_ACCESIO, SYM_PI5_HEADER,
-    SYM_TPS7A4901, SYM_TPS7A3001,
+    SYM_TPS7A4901, SYM_TPS7A3001, SYM_ADG1206YRUZ,
 ]
 _SYMBOL_NAMES = [
     "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "M12A_5",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
-    "TPS7A4901", "TPS7A3001",
+    "TPS7A4901", "TPS7A3001", "ADG1206YRUZ",
 ]
 _EXPECTED_PIN_COUNTS = {
     "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "M12A_5": 5,
     "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
-    "TPS7A4901": 8, "TPS7A3001": 8,
+    "TPS7A4901": 8, "TPS7A3001": 8, "ADG1206YRUZ": 28,
 }
 
 
