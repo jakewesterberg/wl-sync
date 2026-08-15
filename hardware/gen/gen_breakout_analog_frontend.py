@@ -104,22 +104,24 @@ channel-to-topology mapping restated in CHANNEL_KIND below):
      its own output -- a unity-gain follower with a defined input, the standard way to leave
      an unused op-amp section from going undefined/oscillating).
 
-  4. MISC 1-3: DIFFERENCE RECEIVE + SWITCHABLE /1//2, BOTH LEGS (3 of 16: A_MISC1-3) --
-     spec Sec.6.1: board-wide analog convention is +-5V, and "the three misc inputs carry
-     switchable /1//2 attenuation so they accept +-10V". Otherwise identical to topology 1
-     (INA105), with a 3-pin-header-selectable divider inserted on BOTH legs -- signal
-     (between the clamp node and the amplifier's own "+" input) AND shield (between the
-     shield node and the amplifier's own "-" input): two ALWAYS-PRESENT 10.0k 0.1%
-     resistors per leg form a fixed /2 tap (loading the clamp/shield node negligibly -- 20k
-     into a source the 1k series resistor, or the shield's own 10R AGND bond, already
-     limits); each leg's own 3-pin header's COMMON pin (2, the one that actually reaches
-     the amplifier) is bridged by a physical shunt jumper to EITHER pin 1 (raw node
-     directly = /1) OR pin 3 (the /2 tap) at assembly/config time -- which position is
-     populated is not a schematic-level electrical fact (same "the file that places a
-     symbol only wires ITS OWN board" discipline this project already applies to
-     placeholder connectors), so this generator wires all header pins to their own
-     distinct nets and leaves the actual bridge to the physical shunt, documented
-     on-sheet. Built once as `_atten_leg()` and called per leg, not hand-duplicated.
+  4. MISC 1-3: DIFFERENCE RECEIVE + SWITCHABLE /1//2, BOTH LEGS, MECHANICALLY GANGED (3 of
+     16: A_MISC1-3) -- spec Sec.6.1: board-wide analog convention is +-5V, and "the three
+     misc inputs carry switchable /1//2 attenuation so they accept +-10V". Otherwise
+     identical to topology 1 (INA105), with a shunt-selectable divider inserted on BOTH
+     legs -- signal (between the clamp node and the amplifier's own "+" input) AND shield
+     (between the shield node and the amplifier's own "-" input): two ALWAYS-PRESENT 10.0k
+     0.1% resistors per leg form a fixed /2 tap (loading the clamp/shield node negligibly --
+     20k into a source the 1k series resistor, or the shield's own 10R AGND bond, already
+     limits); each leg's own COMMON node (the one that actually reaches the amplifier) is
+     bridged by a physical shunt to EITHER the raw node directly (/1) OR the /2 tap (/2) at
+     assembly/config time -- which position is populated is not a schematic-level electrical
+     fact (same "the file that places a symbol only wires ITS OWN board" discipline this
+     project already applies to placeholder connectors), so this generator wires every
+     header pin to its own distinct net and leaves the actual bridge to the physical shunt,
+     documented on-sheet. Divider resistors built once as `_atten_divider()` and called per
+     leg; the jumper header itself is built once as `_atten_leg_pair()` and called ONCE per
+     channel, carrying BOTH legs on one physical part (fix round 2, below) -- neither is
+     hand-duplicated.
 
      FIX ROUND 1 (post-review; task-10a-report.md): the version of this sheet that first
      passed architecture review divided ONLY the signal leg, leaving the shield leg wired
@@ -139,17 +141,31 @@ channel-to-topology mapping restated in CHANNEL_KIND below):
      diff-amp already uses 0.1% parts, since a leg-to-leg mismatch (not just an individual
      divider's own accuracy) is exactly what this fix exists to close out.
 
-     The two per-channel jumpers (signal leg, shield leg) MUST be set to the SAME
-     position -- documented on both headers' own description text and on-sheet (note 5),
-     not enforced by the schematic itself: which position a shunt jumper occupies is
-     already a physical/assembly-time fact this project's own convention leaves out of
-     schematic capture (same as the original single jumper's own position). A single
-     mechanically-ganged 2-pole part (a 2-row header plus a dual shunt, or a DPDT switch)
-     would remove that residual assembly-discipline risk, but was judged more component-
-     library risk than this fix warrants: two of an ALREADY-PROVEN part
-     (Connector_Generic:Conn_01x03, used elsewhere on this exact sheet), matched by value
-     and topology, versus a part this project has never used and this task's brief does
-     not call for.
+     Fix round 1 left the two per-channel jumpers (signal leg, shield leg) on TWO
+     INDEPENDENT `Conn_01x03` headers, documented -- both headers' own description text and
+     on-sheet -- as "MUST be set to the SAME position", not enforced by the schematic
+     itself: which position a shunt jumper occupies is already a physical/assembly-time
+     fact this project's own convention leaves out of schematic capture. Fix round 1's own
+     docstring named the residual risk explicitly: "A single mechanically-ganged 2-pole
+     part... would remove that residual assembly-discipline risk, but was judged more
+     component-library risk than this fix warrants: two of an ALREADY-PROVEN part
+     (Connector_Generic:Conn_01x03)... versus a part this project has never used."
+
+     FIX ROUND 2 (post-review; task-10b-report.md): the judgment call fix round 1 made
+     turned out wrong the moment a reviewer asked "what happens years from now when someone
+     reconfigures one channel's range and forgets the second jumper" -- a genuine
+     field-reconfiguration risk, not merely an initial-assembly one, and "documented on two
+     headers" does not survive that scenario: nothing on the board stops the two shunts
+     from disagreeing, silently re-creating the exact half-cancelled-disturbance defect fix
+     round 1 itself closed out. Replaces the two independent `Conn_01x03` headers with ONE
+     `Conn_02x03` header (`_atten_leg_pair()`, below) populated with a SINGLE 2-gang
+     shorting block spanning both legs at the same column position -- `Conn_02x03` is
+     already in the `Connector_Generic` family this exact sheet already uses (`Conn_01x03`),
+     so this needed no new symbol or footprint authoring, resolving fix round 1's own
+     "more component-library risk than this fix warrants" concern: there IS no new
+     component library risk here, only a different member of an already-proven family.
+     Both legs' own jumper positions are now the SAME PHYSICAL PART -- disagreement is a
+     structural impossibility, not an assembly-discipline hope.
 
      Placed BEFORE the amplifier (not after), on both legs, same as the original design:
      INA105's own linear common-mode range is comfortably exceeded by a raw +-10V input on
@@ -231,6 +247,9 @@ FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"                       # BAT54S
 FOOTPRINT_SOIC8 = "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"             # INA105KU, OPA2197xD
 FOOTPRINT_SOIC14 = "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"           # OPA4197xD
 FOOTPRINT_HDR1X03 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+FOOTPRINT_HDR2X03 = "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"  # MISC1-3's
+# /1//2 shunt header, fix round 2 -- see _atten_leg_pair()'s own docstring. Same
+# Connector_PinHeader_2.54mm family/pitch as FOOTPRINT_HDR1X03 above, already registered.
 FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"     # same isolated (2-pad,
 # no separate chassis pad) BNC every other panel BNC on this board uses -- spec Sec.9.1's
 # "Isolated BNCs throughout", not a different/new part for these 10 positions.
@@ -276,19 +295,24 @@ DECOUPLE_DY = GRID(5.08)  # NOT 7.62: Device:C's own pins sit +-3.81mm local fro
 # collision). 5.08+3.81=8.89mm reach, comfortably inside half a row (11.43mm) with margin.
 
 X_DIV = GRID(80)          # MISC only: /1//2 divider resistors (SIGNAL leg)
-X_JUMPER = GRID(80)       # MISC only: 3-pin header, offset below the divider (SIGNAL leg)
+X_JUMPER = GRID(80)       # MISC only: the /1//2 shunt header (BOTH legs, fix round 2 --
+# see _atten_leg_pair()'s own docstring), offset below the SIGNAL leg's own divider.
 JUMPER_DY = GRID(11.43)
-X_DIV_SHLD = GRID(99)     # MISC only: mirrored /1//2 divider + header (SHIELD leg, fix
-X_JUMPER_SHLD = GRID(99)  # round 1) -- a FRESH X column, deliberately not X_DIV/X_JUMPER
-# offset by some new Y delta: this sheet's own history (task-10a-report.md, Concern 2)
-# already hit a real rail short from two rows' own Y arithmetic coinciding exactly, and
-# the same trap is live here too -- (X_DIV, row_y - JUMPER_DY) for row i lands EXACTLY on
-# (X_DIV, row_y + JUMPER_DY) for row i-1 (both MISC rows; JUMPER_DY is exactly half of
-# ROW_DY), so mirroring the shield leg at the signal leg's own X with a flipped-sign Y
-# offset would silently short row i's own shield-leg header onto row (i-1)'s own signal-
-# leg header. A distinct X sidesteps the question by construction; confirmed empirically
-# collision-free (not merely reasoned about) by this task's own coordinate-collision scan
-# and by `kicad-cli sch erc` reporting zero new violations -- see task-10a-report.md.
+X_DIV_SHLD = GRID(99)     # MISC only: mirrored /1//2 divider resistors (SHIELD leg, fix
+# round 1) -- a FRESH X column, deliberately not X_DIV: this sheet's own history
+# (task-10a-report.md, Concern 2) already hit a real rail short from two rows' own Y
+# arithmetic coinciding exactly, and the same trap is live here too -- (X_DIV, row_y -
+# JUMPER_DY) for row i lands EXACTLY on (X_DIV, row_y + JUMPER_DY) for row i-1 (both MISC
+# rows; JUMPER_DY is exactly half of ROW_DY), so mirroring the shield leg's own divider at
+# the signal leg's own X with a flipped-sign Y offset would silently short row i's own
+# shield-leg divider onto row (i-1)'s own signal-leg jumper header. A distinct X sidesteps
+# the question by construction; confirmed empirically collision-free (not merely reasoned
+# about) by this task's own coordinate-collision scan and by `kicad-cli sch erc` reporting
+# zero new violations -- see task-10a-report.md. (Fix round 2 removed the shield leg's own
+# SEPARATE jumper-header X column, X_JUMPER_SHLD == X_DIV_SHLD pre-fix-round-2: there is
+# now only ONE merged header, placed at X_JUMPER, carrying both legs -- see
+# _atten_leg_pair()'s own docstring. X_DIV_SHLD remains, unchanged, for the shield leg's
+# own divider RESISTORS, which fix round 2 does not touch.)
 X_DIFFAMP_MISC = GRID(118)
 
 X_TIA = GRID(90)          # photodiode TIA op-amp unit
@@ -478,27 +502,18 @@ def plain_bnc_channel(sch, y, name, desc):
     diffamp_ina105(sch, X_DIFFAMP, y, clamp_net, shield_net, name)
 
 
-def _atten_leg(sch, x_div, y, x_jum, y_jum, raw_net, tag, jumper_desc):
-    """One leg's own /1//2 selectable divider -- see module docstring, topology 4
-    ("FIX ROUND 1"), for the full derivation. Factored out of misc_channel() so BOTH legs
-    (signal and shield) get the IDENTICAL structure, matched resistor-for-resistor,
-    rather than a hand-duplicated copy that can silently drift out of sync with the
-    original -- exactly how this sheet ended up with an asymmetric (signal-only) divider
-    the first time around.
-
-    Two ALWAYS-PRESENT 10.0k 0.1% resistors form a fixed /2 tap from raw_net to AGND
-    (0.1%, not the original single-leg divider's unstated/1% -- leg-to-leg matching now
-    matters here, the same CMRR reason mic_channel()'s own discrete diff-amp already uses
-    0.1% parts for). A 3-pin header's own COMMON pin (2, the one that reaches the
-    amplifier) is bridged by a physical shunt jumper to EITHER pin 1 (raw_net direct = /1)
-    OR pin 3 (the /2 tap) at assembly/config time -- which position is populated is not a
-    schematic-level electrical fact (same discipline the original divider already
-    established), so this places all three header pins on their own distinct nets and
-    leaves the bridge to the physical shunt. Returns the header's own COMMON net -- what
-    the amplifier's own "+"/"-" input actually sees.
+def _atten_divider(sch, x_div, y, raw_net, tag):
+    """One leg's own ALWAYS-PRESENT /2-tap divider -- unchanged in substance from fix round
+    1's own single-leg `_atten_leg()`, factored out separately now that the JUMPER header
+    itself is shared between both legs (see `_atten_leg_pair()`) rather than placed once per
+    leg. Two 10.0k 0.1% resistors form a fixed /2 tap from raw_net to AGND (0.1%: leg-to-leg
+    matching matters here, the same CMRR reason mic_channel()'s own discrete diff-amp
+    already uses 0.1% parts for). Returns (mid_net, div_net) -- div_net is NOT yet wired to
+    anything (the header doesn't exist until the caller places it); it is simply this leg's
+    own reserved "COMMON, to the amplifier" net name.
     """
     mid_net = f"{tag}_MID"   # the /2 tap (always present, whether or not selected)
-    div_net = f"{tag}_DIV"   # the header's own COMMON pin -- what the amplifier actually sees
+    div_net = f"{tag}_DIV"   # what the amplifier's own "+"/"-" input actually sees
     two_pin(
         sch, "Device", "R", "R", "10.0k 0.1%", x_div, y - GRID(6.35), raw_net, mid_net,
         footprint=FOOTPRINT_R,
@@ -507,37 +522,84 @@ def _atten_leg(sch, x_div, y, x_jum, y_jum, raw_net, tag, jumper_desc):
         sch, "Device", "R", "R", "10.0k 0.1%", x_div, y + GRID(6.35), mid_net, "AGND",
         footprint=FOOTPRINT_R,
     )
+    return mid_net, div_net
+
+
+def _atten_leg_pair(sch, x_div_sig, x_div_shld, y, x_jum, y_jum, sig_raw_net, shld_raw_net, tag, desc):
+    """FIX ROUND 2 (post-review; task-10b-report.md): replaces fix round 1's own TWO
+    INDEPENDENT `Conn_01x03` shunt headers (one per leg, each its own physically separate
+    jumper -- see task-10a-report.md's own "Fix round 1") with ONE `Conn_02x03_Top_Bottom`
+    header carrying BOTH legs, so a single mechanically-ganged 2-GANG SHORTING BLOCK (never
+    two independent 1-gang shunts -- see this header's own Description property and the
+    on-sheet note below) bridges both legs' identical column position simultaneously. This
+    is what upgrades "both jumpers MUST be set to the same position" from a documentation-
+    only requirement -- fix round 1's own residual risk, named explicitly in its own
+    docstring: "A single mechanically-ganged 2-pole part... would remove that residual
+    assembly-discipline risk, but was judged more component-library risk than this fix
+    warrants" -- to a PHYSICAL IMPOSSIBILITY: a 2-gang shorting block spanning columns (1,2)
+    or (2,3) cannot be placed with one gang at one column and the other gang at a different
+    column, because it is one mechanical part. `Connector_Generic:Conn_02x03` is already a
+    registered, already-used symbol family on this sheet (Conn_01x03), so this needs no new
+    symbol or footprint authoring -- see hardware/README.md.
+
+    `Conn_02x03_Top_Bottom`'s own pin numbering (confirmed directly against the raw
+    Connector_Generic library text via kicad_sch.py's own extract_symbol()/unit_pins(), not
+    assumed): physical ROW 1 = pins 1,2,3 (one column position each), ROW 2 = pins 4,5,6,
+    with pin N and pin N+3 sharing the SAME column position (e.g. pins 1 and 4 both sit at
+    the header's own first column) -- exactly the geometry a 2-gang shorting block needs,
+    since it spans two ADJACENT COLUMNS across BOTH rows at once. Row 1 (pins 1-3) carries
+    the SIGNAL leg, row 2 (pins 4-6) the SHIELD leg, each at the identical per-leg role fix
+    round 1's own single-header pin1=raw/pin2=common/pin3=mid convention already
+    established: pin1=sig_raw pin2=sig_common(to amp) pin3=sig_mid; pin4=shld_raw
+    pin5=shld_common(to amp) pin6=shld_mid. A 2-gang shorting block at column position
+    (1,2) bridges pin1-pin2 AND pin4-pin5 together (x1, both legs undivided); at (2,3) it
+    bridges pin2-pin3 AND pin5-pin6 together (x2, both legs divided) -- the same x1/x2
+    semantics fix round 1 already had, now unable to disagree between legs by construction.
+
+    Returns (sig_div_net, shld_div_net) -- what the amplifier's own "+"/"-" inputs wire to.
+    """
+    sig_mid, sig_div = _atten_divider(sch, x_div_sig, y, sig_raw_net, tag)
+    shld_mid, shld_div = _atten_divider(sch, x_div_shld, y, shld_raw_net, f"{tag}_SHLD")
+
     jref = sch.next_ref("J")
     jpins = sch.place(
-        "Connector_Generic", "Conn_01x03", jref, jumper_desc,
-        x_jum, y_jum, footprint=FOOTPRINT_HDR1X03,
+        "Connector_Generic", "Conn_02x03_Top_Bottom", jref,
+        f"{desc} -- /1//2 shunt header, BOTH legs (fix round 2): row 1 (pins 1-3) = "
+        f"SIGNAL leg, row 2 (pins 4-6) = SHIELD leg. Populate with ONE 2-GANG SHORTING "
+        f"BLOCK spanning both rows at the SAME column position -- pins 1-2 + 4-5 for x1 "
+        f"(direct), pins 2-3 + 5-6 for x2 (divider tap) -- NEVER two independent 1-gang "
+        f"shunts: that is the exact defect this header replaces (fix round 1 left it "
+        f"physically possible for the two legs' own jumpers to disagree; a mechanically-"
+        f"ganged 2-gang block makes disagreement physically impossible instead of merely "
+        f"documented against).",
+        x_jum, y_jum, footprint=FOOTPRINT_HDR2X03,
     )
-    lbl(sch, x_jum, y_jum, jpins, "1", raw_net)
-    lbl(sch, x_jum, y_jum, jpins, "2", div_net)
-    lbl(sch, x_jum, y_jum, jpins, "3", mid_net)
-    return div_net
+    lbl(sch, x_jum, y_jum, jpins, "1", sig_raw_net)
+    lbl(sch, x_jum, y_jum, jpins, "2", sig_div)
+    lbl(sch, x_jum, y_jum, jpins, "3", sig_mid)
+    lbl(sch, x_jum, y_jum, jpins, "4", shld_raw_net)
+    lbl(sch, x_jum, y_jum, jpins, "5", shld_div)
+    lbl(sch, x_jum, y_jum, jpins, "6", shld_mid)
+    return sig_div, shld_div
 
 
 def misc_channel(sch, y, name, desc):
     """Adds a /1//2 selectable divider on BOTH legs -- signal (clamp_net) and shield --
-    between the clamp/shield nodes and the amplifier's own "+"/"-" inputs, via two
-    separate but electrically matched `_atten_leg()` instances, so common-mode shield
-    disturbance still cancels at the INA105 output regardless of which position the
-    (matched pair of) jumpers is set to. See module docstring, topology 4 ("FIX ROUND 1"),
-    for the full derivation of why the shield leg needs this too -- the original version
-    of this channel divided the signal leg only, which left half the shield disturbance
-    uncancelled in /2 mode.
+    between the clamp/shield nodes and the amplifier's own "+"/"-" inputs, the two legs'
+    own dividers matched resistor-for-resistor and their own jumper positions now
+    MECHANICALLY GANGED on one `Conn_02x03` header (fix round 2 -- see
+    `_atten_leg_pair()`'s own docstring), so common-mode shield disturbance still cancels
+    at the INA105 output regardless of which position the (now physically inseparable)
+    2-gang shorting block is set to. See module docstring, topology 4 ("FIX ROUND 1"), for
+    the full derivation of why the shield leg needs its own divider at all -- the original
+    version of this channel divided the signal leg only, which left half the shield
+    disturbance uncancelled in /2 mode; fix round 2 (this version) closes the RESIDUAL risk
+    fix round 1 left open, that the two legs' own separately-settable jumpers could still
+    be left in disagreeing positions by an assembly or field-reconfiguration mistake.
     """
     clamp_net, shield_net = bnc_front_end(sch, X_SRC, y, name, desc)
-    sig_div = _atten_leg(
-        sch, X_DIV, y, X_JUMPER, y + JUMPER_DY, clamp_net, name,
-        f"{desc} -- SIGNAL leg shunt jumper: bridge 1-2 for x1 (direct), 2-3 for x2 "
-        f"(divider tap). MUST be set to the SAME position as the shield-leg jumper.",
-    )
-    shld_div = _atten_leg(
-        sch, X_DIV_SHLD, y, X_JUMPER_SHLD, y + JUMPER_DY, shield_net, f"{name}_SHLD",
-        f"{desc} -- SHIELD leg shunt jumper: bridge 1-2 for x1 (direct), 2-3 for x2 "
-        f"(divider tap). MUST be set to the SAME position as the signal-leg jumper.",
+    sig_div, shld_div = _atten_leg_pair(
+        sch, X_DIV, X_DIV_SHLD, y, X_JUMPER, y + JUMPER_DY, clamp_net, shield_net, name, desc,
     )
     diffamp_ina105(sch, X_DIFFAMP_MISC, y, sig_div, shld_div, name)
 
@@ -822,14 +884,22 @@ def build() -> tuple[Sch, dict]:
         "(fix round 1 -- task-10a-report.md: dividing the signal leg alone left half the",
         "shield disturbance uncancelled in /2 mode). Each leg (signal = clamp node,",
         "shield = shield node) gets its OWN matched pair of ALWAYS-PRESENT 10.0k 0.1%",
-        "resistors forming a fixed /2 tap to AGND, and its OWN 3-pin header whose common",
-        "pin (2, wired to the amplifier) is bridged by a physical shunt jumper to EITHER",
-        "pin 1 (direct = /1) OR pin 3 (the /2 tap) at assembly time -- not a schematic-",
-        "level electrical fact, so all header pins are wired to their own distinct nets",
-        "here and the bridge is left to the physical shunt (silkscreen/assembly note).",
-        "THE TWO JUMPERS (signal leg, shield leg) MUST BE SET TO THE SAME POSITION -- a",
-        "physical/assembly discipline, like the jumper position itself, not something",
-        "this schematic enforces; both headers' own description text repeats this.",
+        "resistors forming a fixed /2 tap to AGND.",
+        "",
+        "FIX ROUND 2 (task-10b-report.md): both legs' own COMMON node (wired to the",
+        "amplifier) is bridged by a physical shunt to EITHER the raw node (direct = /1)",
+        "OR the /2 tap (/2) at assembly/field-reconfiguration time -- not a schematic-",
+        "level electrical fact, so every header pin is wired to its own distinct net here",
+        "and the bridge is left to the physical shunt. BOTH LEGS NOW SHARE ONE PHYSICAL",
+        "Conn_02x03 HEADER, populated with a SINGLE 2-GANG SHORTING BLOCK spanning both",
+        "rows at the same column position (row 1 = signal leg pins 1-3, row 2 = shield",
+        "leg pins 4-6; bridge 1-2+4-5 for x1, 2-3+5-6 for x2) -- replacing fix round 1's",
+        "own two INDEPENDENT Conn_01x03 headers, which left it physically possible (not",
+        "just against instructions) for the two legs to disagree: a real risk years from",
+        "now when someone reconfigures a channel's range and forgets the second jumper,",
+        "silently re-creating the exact half-cancelled-shield-disturbance defect fix",
+        "round 1 closed out. NEVER populate this header with two independent 1-gang",
+        "shunts -- that reintroduces the identical defect on a 2-row footprint.",
         "Both dividers sit BEFORE the amplifier: INA105's own linear common-mode range",
         "does not want a raw +-10V swing directly.",
     ]):

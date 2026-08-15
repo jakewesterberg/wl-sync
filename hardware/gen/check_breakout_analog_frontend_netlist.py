@@ -26,6 +26,16 @@ transimpedance amplifier's own reference input) -- same "a checker that trusted 
 would only be checking the generator against itself" discipline every prior checker in this
 project already follows for its own contract nets.
 
+FIX ROUND 2 (task-10b-report.md): MISC1-3's own /1//2 attenuator jumpers, previously two
+INDEPENDENT Conn_01x03 headers per channel (one per leg) that fix round 1's own leg-symmetry
+checks below could confirm were WIRED symmetrically but never confirm were physically
+GANGED (nothing stopped the two shunts from being left in disagreeing positions -- a real
+field-reconfiguration risk, not just an initial-assembly one), are now ONE Conn_02x03 header
+per channel populated with a single 2-gang shorting block. `_check_misc_leg_symmetry()`'s own
+checks (2), (3) below are unchanged in substance; check (1) and a NEW check (4) close the gap
+fix round 1 left open by confirming both legs' own jumper headers resolve to the SAME
+component reference, not merely the same topology.
+
 Regenerate the netlist this reads via:
     kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net \\
         hardware/breakout/breakout.kicad_sch
@@ -171,11 +181,13 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
             f"'~10 Ohm'), found {values.get(r_ref)!r}",
         )
         j_refs = {n.ref for n in nets[shield_net] if n.ref.startswith("J")}
-        # MISC channels' own shield leg carries a SECOND J-ref (fix round 1): the shield-
-        # leg's own /1//2 jumper header, whose pin 1 lands directly on this net (the same
-        # relationship the signal leg's own header already has to the CLAMP node) --
-        # _check_misc_leg_symmetry() checks that header's own full topology; this just
-        # widens the connector-count expectation for these 3 channels specifically.
+        # MISC channels' own shield leg carries a SECOND J-ref: the /1//2 shunt header's
+        # own pin 4 (fix round 2 -- ONE Conn_02x03 header now carries both legs, row 2 =
+        # shield leg; pin 1 lands directly on this net, the same relationship the signal
+        # leg's own pins 1-3 already have to the CLAMP node) -- _check_misc_leg_symmetry()
+        # checks that header's own full topology, including that both legs' own headers
+        # are genuinely the SAME physical part; this just widens the connector-count
+        # expectation for these 3 channels specifically.
         expected_j_count = 2 if name in MISC_CHANNELS else 1
         check(
             len(j_refs) == expected_j_count,
@@ -200,12 +212,20 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
     )
 
 
-def _check_header_pin_roles(nets: dict[str, list[Node]], raw_net: str, mid_net: str, div_net: str, label: str) -> str:
-    """Confirm ONE 3-pin shunt-jumper header genuinely implements "pin 1 = raw node
-    direct, pin 2 = COMMON (to the amplifier), pin 3 = /2 tap" across raw_net/div_net/
-    mid_net -- not just three nets that happen to share a component reference. Used by
-    _check_misc_leg_symmetry() for BOTH legs of every MISC channel (fix round 1); written
-    generically (raw/mid/div, not "clamp/shield") so it applies identically to either.
+def _check_header_pin_roles(
+    nets: dict[str, list[Node]], raw_net: str, mid_net: str, div_net: str,
+    raw_pin: str, div_pin: str, mid_pin: str, label: str,
+) -> str:
+    """Confirm ONE shunt-jumper header genuinely implements "raw_pin = raw node direct,
+    div_pin = COMMON (to the amplifier), mid_pin = /2 tap" across raw_net/div_net/mid_net --
+    not just three nets that happen to share a component reference. Used by
+    _check_misc_leg_symmetry() for BOTH legs of every MISC channel, with DIFFERENT pin
+    numbers per leg since fix round 2 (task-10b-report.md) merged what were two separate
+    Conn_01x03 headers (each its own pins 1/2/3) into ONE Conn_02x03 header whose row 1
+    (pins 1-3) carries the signal leg and row 2 (pins 4-6) the shield leg -- see
+    gen_breakout_analog_frontend.py's own _atten_leg_pair() docstring for the full
+    rationale. Written generically (raw/mid/div, not "clamp/shield") so it applies
+    identically to either leg, whatever its own pin numbers are.
     """
     j_raw = {n.ref for n in nets.get(raw_net, []) if n.ref.startswith("J")}
     j_mid = {n.ref for n in nets.get(mid_net, []) if n.ref.startswith("J")}
@@ -217,9 +237,9 @@ def _check_header_pin_roles(nets: dict[str, list[Node]], raw_net: str, mid_net: 
         f"{mid_net!r}, found {common} (raw={j_raw}, div={j_div}, mid={j_mid})",
     )
     jref = next(iter(common))
-    check(any(n.ref == jref and n.pin == "1" for n in nets[raw_net]), f"{label}: header {jref}'s pin 1 is not on {raw_net!r}")
-    check(any(n.ref == jref and n.pin == "2" for n in nets[div_net]), f"{label}: header {jref}'s pin 2 is not on {div_net!r}")
-    check(any(n.ref == jref and n.pin == "3" for n in nets[mid_net]), f"{label}: header {jref}'s pin 3 is not on {mid_net!r}")
+    check(any(n.ref == jref and n.pin == raw_pin for n in nets[raw_net]), f"{label}: header {jref}'s pin {raw_pin} is not on {raw_net!r}")
+    check(any(n.ref == jref and n.pin == div_pin for n in nets[div_net]), f"{label}: header {jref}'s pin {div_pin} is not on {div_net!r}")
+    check(any(n.ref == jref and n.pin == mid_pin for n in nets[mid_net]), f"{label}: header {jref}'s pin {mid_pin} is not on {mid_net!r}")
     return jref
 
 
@@ -231,7 +251,7 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
     compared the two legs' own attenuation against each other. This is the assertion that
     closes that gap: for every one of the 3 channels with a jumper-selectable divider
     (MISC1-3 -- the only channels on this sheet where either leg is anything but a direct
-    wire), confirm BOTH legs divide by the SAME ratio, checked three ways so a future
+    wire), confirm BOTH legs divide by the SAME ratio, checked four ways so a future
     regression cannot slip through any one of them alone:
 
     (1) The INA105's own "+"/"-" pins are fed by EACH leg's own divider COMMON pin (not
@@ -240,10 +260,17 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
     (2) Both legs' divider resistors (4 total: raw->mid and mid->AGND, per leg) carry the
         IDENTICAL matched value (DIVIDER_R_VALUE) -- a value drift on just one leg breaks
         the match even if the topology still looks right.
-    (3) Each leg's own header genuinely implements the "pin 1 = raw, pin 2 = amplifier
-        input, pin 3 = /2 tap" jumper-selector topology (via _check_header_pin_roles()),
-        so both legs really do move together in EITHER jumper position, not just in
-        whichever position happened to be exercised by some other check.
+    (3) Each leg's own header genuinely implements the "raw/common/tap" jumper-selector
+        topology (via _check_header_pin_roles()), so both legs really do move together in
+        EITHER jumper position, not just in whichever position happened to be exercised by
+        some other check.
+    (4) FIX ROUND 2 (task-10b-report.md): both legs' own headers are the SAME PHYSICAL
+        COMPONENT -- one Conn_02x03 carrying signal leg on pins 1-3 and shield leg on pins
+        4-6, populated with a single 2-gang shorting block, not two independent Conn_01x03
+        headers that could disagree. This is the fact that makes "both jumpers MUST be set
+        to the same position" a physical impossibility to violate rather than merely a
+        documented instruction -- checked here by confirming BOTH legs' own
+        `_check_header_pin_roles()` calls return the identical reference.
     """
     for name in MISC_CHANNELS:
         clamp_net, mid_net, div_net = f"{name}_CLAMP", f"{name}_MID", f"{name}_DIV"
@@ -285,16 +312,29 @@ def _check_misc_leg_symmetry(nets: dict[str, list[Node]], values: dict[str, str]
                 f"mode), found {values.get(rref)!r}",
             )
 
-        _check_header_pin_roles(nets, clamp_net, mid_net, div_net, f"{name} signal leg")
-        _check_header_pin_roles(nets, shld_net, shld_mid_net, shld_div_net, f"{name} shield leg")
+        # Fix round 2's own /1//2 header pin map: row 1 (pins 1-3) = signal leg
+        # (raw/common/tap), row 2 (pins 4-6) = shield leg -- see
+        # gen_breakout_analog_frontend.py's own _atten_leg_pair() docstring.
+        sig_jref = _check_header_pin_roles(nets, clamp_net, mid_net, div_net, "1", "2", "3", f"{name} signal leg")
+        shld_jref = _check_header_pin_roles(nets, shld_net, shld_mid_net, shld_div_net, "4", "5", "6", f"{name} shield leg")
+        check(
+            sig_jref == shld_jref,
+            f"{name}: signal-leg jumper header ({sig_jref}) and shield-leg jumper header "
+            f"({shld_jref}) are NOT the same component. Fix round 2's entire point is that "
+            f"ONE physical Conn_02x03 header carries both legs, populated with a single "
+            f"2-gang shorting block, so the two legs' own jumper positions CANNOT disagree "
+            f"-- two different refs here means fix round 1's own original defect (two "
+            f"independently-settable jumpers) is back.",
+        )
 
     return (
         f"All {len(MISC_CHANNELS)} /1//2-switchable channels (MISC1-3) confirmed leg-"
         f"symmetric: both signal and shield legs feed the INA105 through their own "
-        f"matched ({DIVIDER_R_VALUE}) divider, each selected by a genuine 3-pin jumper "
-        f"header (pin 1 = raw, pin 2 = amplifier input, pin 3 = /2 tap) -- so /2 mode "
-        f"divides both legs equally and a shield disturbance still cancels at the output, "
-        f"in either jumper position."
+        f"matched ({DIVIDER_R_VALUE}) divider, selected by ONE mechanically-ganged "
+        f"Conn_02x03 jumper header per channel (signal leg on pins 1-3, shield leg on "
+        f"pins 4-6, confirmed to be the SAME physical component) -- so /2 mode divides "
+        f"both legs equally and a shield disturbance still cancels at the output, in "
+        f"either jumper position, and the two legs' own jumper positions cannot disagree."
     )
 
 
@@ -623,6 +663,28 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     )
     results.append(f"MISC shield-leg divider resistor value drift (matched topology, mismatched ratio): caught -- {msg}")
 
+    # (4d) FIX ROUND 2's own central defect, reintroduced synthetically: A_MISC3's own
+    # shield-leg header pins (4/5/6) relabelled onto a FAKE second reference ("J9001"),
+    # simulating a future edit that reverts to two independent headers (fix round 1's own
+    # original risk) instead of the one mechanically-ganged Conn_02x03 -- still a fully-
+    # connected, topologically-correct, 0-error netlist (every OTHER check above passes
+    # cleanly on it), and still nothing _check_header_pin_roles() alone would catch (each
+    # leg's own header, in isolation, still correctly implements raw/common/tap) -- only
+    # the cross-leg "same ref" assertion added this round catches it.
+    degang = copy.deepcopy(good_nets)
+    real_jref = next(n.ref for n in good_nets["A_MISC3_SHLD_DIV"] if n.ref.startswith("J"))
+    for net in ("A_MISC3_SHLD", "A_MISC3_SHLD_DIV", "A_MISC3_SHLD_MID"):
+        degang[net] = [
+            Node("J9001", n.pin, n.pinfunction, n.pintype) if (n.ref == real_jref) else n
+            for n in degang[net]
+        ]
+    msg = _assert_fails(
+        degang, good_values, "NOT the same component",
+        "A_MISC3's shield-leg header pins relabelled onto a fake second ref (simulating a "
+        "reverted-to-two-independent-headers defect, fix round 1's own original risk)",
+    )
+    results.append(f"Shield-leg jumper header split back onto a second (fake) physical part, un-ganging the two legs: caught -- {msg}")
+
     # (5) Photodiode TIA feedback resistor removed entirely (simulating an edit that
     # deletes the feedback path -- an open-loop comparator-like mess, not a TIA).
     no_fb = copy.deepcopy(good_nets)
@@ -666,14 +728,15 @@ def verify_instance_paths(af_sch_text: str, breakout_sch_text: str) -> str:
 
     paths = find_all_instance_paths(af_sch_text)
     check(
-        len(paths) >= 128,
+        len(paths) >= 120,
         f"only found {len(paths)} (instances (path ...)) entries in analog-frontend.kicad_sch "
-        f"-- expected >=128 (recomputed directly against this task's own real output: 134 "
-        f"placed instances as originally committed at 4ecae2f, 143 after fix round 1 added "
-        f"9 more -- 2 divider resistors + 1 header per MISC channel's new shield leg, x3 -- "
-        f"not guessed either time; the >=128 floor itself is intentionally left below both "
-        f"real counts so a future edit that adds or removes a handful of components doesn't "
-        f"need this floor bumped in lockstep)",
+        f"-- expected >=120 (recomputed directly against this task's own real output: 134 "
+        f"placed instances as originally committed at 4ecae2f, 143 after fix round 1 added 9 "
+        f"more (2 divider resistors + 1 header per MISC channel's new shield leg, x3), 140 "
+        f"after fix round 2 removed 3 (two Conn_01x03 headers merged into one Conn_02x03 per "
+        f"MISC channel, x3) -- not guessed any of the three times; the >=120 floor itself is "
+        f"intentionally left below all three real counts so a future edit that adds or "
+        f"removes a handful of components doesn't need this floor bumped in lockstep)",
     )
     bad = [p for p in paths if p != expected_prefix]
     check(
