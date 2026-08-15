@@ -9,11 +9,11 @@ top of. 10d (comparators) is a separate sheet this task does not touch.
 THE SHEET'S JOB, restated once here: give Intan a software-selectable window onto 8 of the
 16 `A_*` sources. Eight `ADG1206YRUZ` 16:1 muxes, each with EVERY ONE of the 16 `A_*`
 sources on its own S1-S16 inputs (so any source can reach any of Intan's 8 channels) and
-`EN` tied high (always enabled -- selection is by address only). Each mux's own D1/D2
-output (tied together externally, this part's own datasheet-documented way to get 16:1
-single-ended operation -- see gen_wl_sync_lib.py's own ADG1206YRUZ block comment) feeds
-`MUX_OUT{n}` (plan.md's own net-naming table) into one `INA105KU` difference amplifier,
-whose OUTPUT reaches Intan via a 100R series resistor and a BNC as `INTAN_AO{n}`.
+`EN` tied high (always enabled -- selection is by address only). Each mux's own single D
+output (pin 28, this part's own one common drain -- see gen_wl_sync_lib.py's own
+ADG1206YRUZ block comment) feeds `MUX_OUT{n}` (plan.md's own net-naming table) into one
+`INA105KU` difference amplifier, whose OUTPUT reaches Intan via a 100R series resistor and
+a BNC as `INTAN_AO{n}`.
 
 WHY A DIFFERENCE AMPLIFIER HERE, AND WHY IT IS NOT REDUNDANT WITH 10a'S OWN FRONT ENDS:
 10a's 16 difference receivers reject a ground offset between each SENSOR's own return and
@@ -51,7 +51,7 @@ DC-DC converter -- straddles by design without tripping it) already tolerates: n
 PIN of any INA105KU here sits on two nets at once, only the REFERENCE (component) has some
 pins in AGND and others in ISO_P12/ISO_N12/INTAN_GND, exactly the pattern that checker's
 own docstring explains is legitimate. Nothing else on this sheet straddles: the muxes'
-S1-S16/D1/D2/EN/VDD/VSS/GND are ALL either the 16 (already-AGND-referenced) `A_*` nets,
+S1-S16/D/EN/VDD/VSS/GND are ALL either the 16 (already-AGND-referenced) `A_*` nets,
 `MUX_OUT{n}` (also AGND-domain), or `+12V`/`-12V`/`AGND` themselves -- never `ISO_P12`/
 `ISO_N12`/`INTAN_GND`. The BNCs' own shells go directly to `INTAN_GND` (never `AGND`) --
 Intan's shield IS its return (spec Sec.5.5), so a solid bond is the correct termination at
@@ -67,10 +67,12 @@ ships a differently-configured relative of in its stock Analog_Switch library, i
 package this board commits to). Built as a new custom symbol in hardware/lib/wl-sync.
 kicad_sym (gen_wl_sync_lib.py, following the TPS7A4901/TPS7A3001 precedent -- a hand-built
 symbol with a REAL, datasheet-sourced pin table, not a Value-overridden stand-in, because
-no stock symbol shares this part's real 28-pin TSSOP numbering). See that generator's own
-ADG1206YRUZ block comment for the full pin-table sourcing effort, what was and was not
-independently confirmed, and the deliberate two-pin hedge (pins 13 AND 14 both wired to
-this design's own A3 net) adopted for the one fact that effort could not fully settle.
+no stock symbol shares this part's real 28-pin TSSOP numbering). Pin table is Analog
+Devices' own ADG1206/ADG1207 Rev.0 datasheet, Table 4 "ADG1206 Pin Function Descriptions"
+(28-Lead TSSOP), transcribed verbatim -- see that generator's own ADG1206YRUZ block
+comment for the full table, the fix-round-1 account of the two-pin A3 hedge it replaced
+(task-10c-report.md), and the address truth table (also hardware/README.md). A3 is pin
+14; pins 2, 3, and 13 are this part's only NC pins and carry no net on this sheet.
 Package_SO:TSSOP-28_4.4x9.7mm_P0.65mm (stock, already registered) models the real part;
 no new fp-lib-table/sym-lib-table entries needed (Amplifier_Difference, Connector_Coaxial,
 Device, Package_SO, and wl-sync were all already registered by Task 6/10a).
@@ -79,19 +81,27 @@ EN TIED HIGH, TO +12V SPECIFICALLY -- this task's own "Consumes" list names `+12
 `AGND`/`ISO_P12`/`ISO_N12`/`INTAN_GND` and nothing else; +12V is both already-present on
 this sheet (every mux's own VDD) and an unambiguous, always-valid CMOS logic high referenced
 to GND/VSS for ANY digital input, so tying EN there needs no new rail this task's own
-contract doesn't already name. (The 32 address lines, MUX1_A0..MUX8_A3, are the OPPOSITE
+contract doesn't already name. EN is confirmed active-high by Table 4 itself (see
+gen_wl_sync_lib.py's own ADG1206YRUZ block comment): low disables the device (all switches
+off), high enables it and lets A0-A3 select -- exactly the always-enabled, address-only
+behaviour this tie is meant to produce. (The 32 address lines, MUX1_A0..MUX8_A3, are the OPPOSITE
 case -- genuinely left for Task 12's own I2C expanders to drive, appearing here only as
 `isolated_pin_label` ERC warnings awaiting that task, exactly like 10a/10b's own *_TPC/*_BUF
 labels awaited THEIR consuming tasks.)
 
-S1-S16/A0-A3 INDEX ASSIGNMENT is this sheet's own declared, arbitrary-but-fixed convention
+S1-S16/A0-A3 PIN NAMES are Analog Devices' own (Table 4 of the real datasheet -- see
+gen_wl_sync_lib.py's own ADG1206YRUZ block comment, fix round 1, task-10c-report.md), not
+this project's reconstruction: physical pin 19 IS S1, physical pin 14 IS A3, a sourced
+fact, not a choice. What remains this SHEET's own declared, arbitrary-but-fixed convention
 (matching gen_breakout_analog_ni.py's own precedent for its AI-channel-number assignment):
-no external source fixes which of the 16 `A_*` sources rides physical pin "S1" vs. "S9", or
-which physical address pin is software's "A0" vs. "A3" -- only WHICH PHYSICAL PINS are
-genuinely S-type/address-type at all is a sourced fact (see gen_wl_sync_lib.py). `ALL_16_
-NETS` below is consumed in list order against `S_PIN_NUMBERS` (also list order): `ALL_16_
-NETS[i]` rides the physical pin at `S_PIN_NUMBERS[i]` on EVERY one of the 8 muxes (same
-order on all 8, so a given address value selects the same relative source on every mux).
+which of the 16 `A_*` sources rides physical pin "S1" vs. "S9" on every mux -- no
+datasheet fixes a board's own source-to-channel assignment. `ALL_16_NETS` below is
+consumed in list order against `S_PIN_NUMBERS` (also list order): `ALL_16_NETS[i]` rides
+the physical pin at `S_PIN_NUMBERS[i]` on EVERY one of the 8 muxes (same order on all 8,
+so a given address value selects the same relative source on every mux). The address-
+value-to-S-number truth table itself (0000 selects S1 ... 1111 selects S16, EN high
+throughout) is Table 4's own fact too, recorded for Task 12 in hardware/README.md ("ADG1206
+mux address truth table").
 
 COORDINATE COLLISIONS -- this project has hit a real rail short from exactly this class of
 defect before (analog-frontend.kicad_sch's own task-10a-report.md). Avoided here by
@@ -116,9 +126,11 @@ own "KiCad gotchas"; constraint numbers match this task's own brief):
   4. Coordinate collisions -- see above.
   5. Footprint pad adjacency -- N/A to this sheet's own parts: nothing here relies on two
      SPECIFIC pads of one footprint being physically adjacent the way a jumper/shorting
-     block does (task-10b-report.md's own finding). The mux's pin-13/14 hedge relies only
-     on each pin independently reaching the SAME net by its own trace, never on physical
-     adjacency between them on the footprint.
+     block does (task-10b-report.md's own finding). (Fix round 1, task-10c-report.md,
+     removed the one thing on this sheet that had come close -- a two-pin A3 hedge relying
+     on two independent traces to one net, never on physical pad adjacency; the real
+     datasheet made the hedge unnecessary, so this constraint now has nothing at all to
+     check on this sheet.)
 
 Run directly: `python3 hardware/gen/gen_breakout_mux_intan.py` (writes
 hardware/breakout/sheets/mux-intan.kicad_sch). Requires hardware/breakout/breakout.kicad_sch
@@ -210,19 +222,26 @@ ALL_16_NETS = [
 assert len(ALL_16_NETS) == 16
 assert len(set(ALL_16_NETS)) == 16
 
-# ADG1206YRUZ's own S1-S16 physical pins, in S1..S16 order (gen_wl_sync_lib.py's own
-# ADG1206_PINS["left"]) -- ALL_16_NETS[i] rides S_PIN_NUMBERS[i] on every one of the 8
-# muxes (this sheet's own declared, arbitrary-but-fixed convention -- see module docstring).
-S_PIN_NUMBERS = ["19", "20", "21", "22", "23", "24", "25", "26", "4", "5", "6", "7", "8", "9", "10", "11"]
+# ADG1206YRUZ's own S1-S16 physical pins, in S1..S16 order -- Table 4 of the real
+# datasheet (gen_wl_sync_lib.py's own ADG1206_PINS["left"]), a sourced fact as of fix
+# round 1 (task-10c-report.md). ALL_16_NETS[i] rides S_PIN_NUMBERS[i] on every one of the
+# 8 muxes -- THAT pairing (which A_* source is "S1") is this sheet's own declared,
+# arbitrary-but-fixed convention (see module docstring); the S-number-to-physical-pin
+# side of it is not.
+S_PIN_NUMBERS = ["19", "20", "21", "22", "23", "24", "25", "26", "11", "10", "9", "8", "7", "6", "5", "4"]
 assert len(S_PIN_NUMBERS) == 16
 assert len(set(S_PIN_NUMBERS)) == 16
 
 N_MUX = 8
 
 # ADG1206YRUZ non-S pins used by this sheet (see gen_wl_sync_lib.py's own ADG1206_PINS).
+# Pins 2, 3, and 13 are this part's only NC pins (Table 4) and are not labelled by this
+# sheet at all -- left genuinely unconnected, like every other NC pin in this project.
 MUX_PIN_VDD = "1"
-MUX_PIN_D1 = "28"
-MUX_PIN_D2 = "2"
+MUX_PIN_D = "28"  # single common output -- Table 4 names it "D"; pin 2 is NC, not a
+# second drain (fix round 1, task-10c-report.md, corrected the prior D1/D2-tied-together
+# assumption, which had reasoned by analogy from ADG1207's separate DA/DB pins instead of
+# the ADG1206's own real, single-output pin table).
 MUX_PIN_GND = "12"
 MUX_PIN_VSS = "27"
 MUX_PIN_EN = "18"
@@ -230,7 +249,6 @@ MUX_PIN_A0 = "17"
 MUX_PIN_A1 = "16"
 MUX_PIN_A2 = "15"
 MUX_PIN_A3 = "14"
-MUX_PIN_A3_ALT = "13"  # hedge -- wired to the SAME net as MUX_PIN_A3, see module docstring
 
 # INA105 pin roles -- real TI datasheet pinout (SOIC-8), redefined here independently of
 # gen_breakout_analog_frontend.py's own diffamp_ina105() (whose REF/"-" wiring differs from
@@ -283,7 +301,7 @@ def decouple(sch, x, y, rail, gnd):
 
 def mux_and_diffamp(sch, y, n):
     """One of the 8 Intan channels, at row `y`: ADG1206YRUZ (all 16 A_* sources on its
-    S1-S16, D1/D2 tied together to MUX_OUT{n}, EN tied to +12V, address on MUX{n}_A0..A3)
+    S1-S16, single D output to MUX_OUT{n}, EN tied to +12V, address on MUX{n}_A0..A3)
     -> INA105KU ("+"=MUX_OUT{n}, "-"=AGND, REF=INTAN_GND, SENSE=OUT unity gain, powered
     ISO_P12/ISO_N12) -> 100R series -> INTAN_AO{n} -> BNC (shell to INTAN_GND). Returns
     (mux_ref, diffamp_ref, bnc_ref).
@@ -297,19 +315,19 @@ def mux_and_diffamp(sch, y, n):
     )
     for source_net, pin_num in zip(ALL_16_NETS, S_PIN_NUMBERS):
         lbl(sch, X_MUX, y, mpins, pin_num, source_net)
-    lbl(sch, X_MUX, y, mpins, MUX_PIN_D1, mux_out_net)
-    lbl(sch, X_MUX, y, mpins, MUX_PIN_D2, mux_out_net)
+    lbl(sch, X_MUX, y, mpins, MUX_PIN_D, mux_out_net)
     lbl(sch, X_MUX, y, mpins, MUX_PIN_VDD, "+12V")
     lbl(sch, X_MUX, y, mpins, MUX_PIN_VSS, "-12V")
     lbl(sch, X_MUX, y, mpins, MUX_PIN_GND, "AGND")
-    lbl(sch, X_MUX, y, mpins, MUX_PIN_EN, "+12V")  # tied high -- always enabled
+    lbl(sch, X_MUX, y, mpins, MUX_PIN_EN, "+12V")  # tied high -- active-high per Table 4,
+    # always enabled
     lbl(sch, X_MUX, y, mpins, MUX_PIN_A0, f"MUX{n}_A0")
     lbl(sch, X_MUX, y, mpins, MUX_PIN_A1, f"MUX{n}_A1")
     lbl(sch, X_MUX, y, mpins, MUX_PIN_A2, f"MUX{n}_A2")
     lbl(sch, X_MUX, y, mpins, MUX_PIN_A3, f"MUX{n}_A3")
-    lbl(sch, X_MUX, y, mpins, MUX_PIN_A3_ALT, f"MUX{n}_A3")  # hedge, same net as A3
-    # pin 3 (NC) is typed no_connect in the symbol itself -- no explicit marker needed,
-    # same precedent as 10a's own INA105KU pin 8.
+    # pins 2, 3, 13 (NC) are typed no_connect in the symbol itself -- no explicit marker
+    # needed, same precedent as 10a's own INA105KU pin 8. No hedge pin to label (fix round
+    # 1, task-10c-report.md): Table 4 confirms A3 is pin 14 alone.
     decouple(sch, X_MUX - DECOUPLE_DX, y - DECOUPLE_DY, "+12V", "AGND")
     decouple(sch, X_MUX - DECOUPLE_DX, y + DECOUPLE_DY, "-12V", "AGND")
 
@@ -374,15 +392,17 @@ def build() -> tuple[Sch, dict]:
     for line_idx, line in enumerate([
         "Intan mux bank (Task 10c) -- eight ADG1206YRUZ 16:1 analog multiplexers, each",
         "with ALL 16 A_* sources (Task 10a) on its own S1-S16 inputs, so any source can",
-        "reach any of Intan's 8 channels. EN tied to +12V (always enabled -- selection",
-        "is by address only). Each mux's own D1/D2 output (tied together, this part's",
-        "own datasheet way to get 16:1 single-ended operation) feeds MUX_OUT{n} into one",
+        "reach any of Intan's 8 channels. EN tied to +12V (active-high per Table 4,",
+        "always enabled -- selection is by address only). Each mux's own single D",
+        "output (pin 28, this part's own one common drain) feeds MUX_OUT{n} into one",
         "INA105KU difference amplifier -> 100R series -> BNC as INTAN_AO1..INTAN_AO8.",
         "",
         "Address lines MUX1_A0..MUX8_A3 (32 nets) are exposed here and consumed by Task",
         "12's own I2C GPIO expanders -- they show as isolated_pin_label ERC warnings on",
         "THIS sheet until that task adds a driver, same pattern as every prior child",
-        "sheet's own labels awaiting a later task (10a's *_TPC, 10b's *_BUF).",
+        "sheet's own labels awaiting a later task (10a's *_TPC, 10b's *_BUF). Address",
+        "truth table (A3 A2 A1 A0 = 0000 selects S1 ... 1111 selects S16, EN high",
+        "throughout) is in hardware/README.md for Task 12.",
         "",
         "Why 8 of 16, in software rather than a jumper: Intan's own ceiling is 8 analog",
         "inputs (2 base controller + 6 I/O Expander). The mux makes the choice of which",
@@ -396,7 +416,7 @@ def build() -> tuple[Sch, dict]:
         "on-resistance (~100-200R typical) is harmless into the INA105KU's own",
         "high(er)-impedance input, and charge injection from an address change appears",
         "only at switch time, never during a steady recording. Every mux pin used here",
-        "(S1-S16, D1/D2, EN, VDD/VSS/GND) is one of the 16 A_* nets, MUX_OUT{n}, or",
+        "(S1-S16, D, EN, VDD/VSS/GND) is one of the 16 A_* nets, MUX_OUT{n}, or",
         "+12V/-12V/AGND -- NEVER ISO_P12/ISO_N12/INTAN_GND. The mux itself never",
         "straddles the isolation boundary.",
         "",
@@ -441,30 +461,33 @@ def build() -> tuple[Sch, dict]:
         "a real, datasheet-sourced pin table, not a Value-overridden stand-in (no",
         "stock symbol shares this part's real 28-pin numbering to stand in for).",
         "",
-        "PIN MAP CONFIDENCE, stated explicitly per this task's own instruction: pin",
-        "roles (16 S-type, 2 D-type, 4 address, EN, VDD/VSS/GND) are well-corroborated",
-        "against multiple independent sources AND this project's own locally-installed",
-        "ADG1207BCPZ stock symbol (same manufacturer family, same NC-cluster-before-",
-        "address-cluster structure). The EXACT physical pin NUMBER for A3 on the real",
-        "TSSOP-28 (pin 13 vs. 14) could not be independently confirmed despite",
-        "extensive effort (12+ fetch attempts, mostly blocked/timed out rather than",
-        "conflicting) -- hedged by wiring BOTH pins 13 and 14 to this design's own A3",
-        "net (harmless if one is truly NC; protects against a floating real address",
-        "input if the reconstruction has it backwards). See gen_wl_sync_lib.py's own",
-        "ADG1206YRUZ block comment for the full account. VERIFY AGAINST THE REAL",
-        "DATASHEET OR A PHYSICAL SAMPLE BEFORE FABRICATION, same disclosure discipline",
-        "as hardware/README.md's own mini-XLR/M12 footprint confidence table.",
+        "PIN MAP, DEFINITIVE (fix round 1, task-10c-report.md): Table 4 of Analog",
+        "Devices' own ADG1206/ADG1207 Rev.0 datasheet, 28-Lead TSSOP column,",
+        "transcribed verbatim -- see gen_wl_sync_lib.py's own ADG1206YRUZ block comment",
+        "for the full 28-pin table. A3 is pin 14. Pins 2, 3, and 13 are this part's",
+        "only NC pins and carry no net on this sheet.",
+        "",
+        "NO HEDGE: the originally committed version of this symbol could not",
+        "independently confirm pin 13 vs. 14 for A3 (12+ fetch attempts, mostly",
+        "blocked/timed out rather than conflicting) and wired BOTH pins to the same",
+        "A3 net rather than guess silently. That was not a safe hedge -- two different",
+        "physical pins tied to one net is a short between whatever those pins actually",
+        "are, and would have been a fault, not a redundancy, had pin 13 turned out to",
+        "be a supply or source pin instead of NC. This fix round replaced the hedge",
+        "with the real datasheet table above.",
     ]):
         sch.text(line, X_NOTE4, Y_NOTE4 + line_idx * NOTE_DY)
 
     for line_idx, line in enumerate([
-        "S1-S16/A0-A3 index assignment (which A_* source rides which mux pin; which",
-        "physical address pin is software's A0 vs. A3) is this sheet's own declared,",
-        "arbitrary-but-fixed choice (ALL_16_NETS/S_PIN_NUMBERS list order) -- like",
-        "gen_breakout_analog_ni.py's own AI-channel-number assignment, no external",
-        "source fixes this the way a real datasheet fixes WHICH PHYSICAL PINS are",
-        "S-type/address-type at all. Same order used on all 8 muxes, so one address",
-        "value selects the same relative source everywhere.",
+        "S1-S16/A0-A3 pin NAMES are the datasheet's own (Table 4, fix round 1,",
+        "task-10c-report.md) -- physical pin 19 IS S1, physical pin 14 IS A3, a",
+        "sourced fact, not a choice. WHICH A_* source rides which mux pin (S1 vs.",
+        "S9) is still this sheet's own declared, arbitrary-but-fixed choice",
+        "(ALL_16_NETS/S_PIN_NUMBERS list order) -- like gen_breakout_analog_ni.py's",
+        "own AI-channel-number assignment, no datasheet fixes a board's own source-",
+        "to-channel assignment. Same order used on all 8 muxes, so one address value",
+        "selects the same relative source everywhere. Address truth table (0000",
+        "selects S1 ... 1111 selects S16, EN high) is in hardware/README.md.",
         "",
         "INA105KU substitutes for the brief's named INA134 (no stock KiCad symbol,",
         "audio-specific part) -- same substitution 10a's own 13 plain difference",

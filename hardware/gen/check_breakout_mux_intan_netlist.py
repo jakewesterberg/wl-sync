@@ -41,6 +41,16 @@ THE central risks this file exists to catch, named explicitly by this task's own
      parsing this sheet's own raw rendered text for every global-label (x, y),
      independently of the exported netlist (which only reports CONNECTIVITY, not the
      geometry that could have accidentally created it).
+  7. No two of a mux's own 21 signal pins (S1-S16/A0-A3/D) may ever share a net, and its 3
+     NC pins (2, 3, 13) must carry no net at all -- added at fix round 1 (task-10c-
+     report.md) after the originally committed version of this sheet wired candidate pins
+     13 AND 14 to the same A3 net as a hedge against unconfirmed TSSOP-28 pin numbering.
+     That was not a safe hedge: two different physical pins tied to one net is a short
+     between whatever those two pins actually are, and would have been a real fault, not a
+     redundancy, had pin 13 turned out to be a supply or a source pin instead of NC. Now
+     that Table 4 of the real datasheet is definitive (no reconstruction, no hedge), this
+     risk is checked generically -- for A3, for every other signal pin, and for every NC
+     pin -- so a hedge of this kind cannot pass silently again, on this part or the next.
 
 `verify()` below re-derives, independently of gen_breakout_mux_intan.py's own choices, the
 full channel/pin contract -- same "a checker that trusted the generator would only be
@@ -103,10 +113,14 @@ DIFFAMP_VALUE = "INA105KU"
 SERIES_R_VALUE = "100"
 
 # ADG1206YRUZ pin map (gen_wl_sync_lib.py's own ADG1206_PINS) -- redefined independently.
-S_PIN_NUMBERS = ["19", "20", "21", "22", "23", "24", "25", "26", "4", "5", "6", "7", "8", "9", "10", "11"]
+# Table 4 of Analog Devices' own ADG1206/ADG1207 Rev.0 datasheet, 28-Lead TSSOP column,
+# transcribed verbatim (fix round 1, task-10c-report.md, replaced a two-pin A3 hedge --
+# see _check_32_address_nets()'s own history in git blame / the report -- with this real,
+# sourced table; no reconstruction remains).
+S_PIN_NUMBERS = ["19", "20", "21", "22", "23", "24", "25", "26", "11", "10", "9", "8", "7", "6", "5", "4"]
 assert len(S_PIN_NUMBERS) == 16
-MUX_PIN_D1 = "28"
-MUX_PIN_D2 = "2"
+MUX_PIN_D = "28"  # single common output -- pin 2 is NC on the real part, not a second
+# drain; there is no D1/D2 tie to check.
 MUX_PIN_VDD = "1"
 MUX_PIN_VMINUS = "27"
 MUX_PIN_GND = "12"
@@ -115,8 +129,18 @@ MUX_PIN_A0 = "17"
 MUX_PIN_A1 = "16"
 MUX_PIN_A2 = "15"
 MUX_PIN_A3 = "14"
-MUX_PIN_A3_ALT = "13"
 MUX_ADDR_PINS = {0: MUX_PIN_A0, 1: MUX_PIN_A1, 2: MUX_PIN_A2, 3: MUX_PIN_A3}
+MUX_NC_PINS = ("2", "3", "13")  # this part's only NC pins (Table 4) -- must carry no net.
+# The 21 "signal" pins whose whole purpose is to carry ONE logical, per-channel role
+# (unlike VDD/GND/VSS/EN, which legitimately share a rail net with other pins on the SAME
+# instance -- e.g. EN and VDD both land on +12V by design). No two of these 21 physical
+# pins may EVER share a net on the SAME mux instance: that is exactly the shape of the
+# original A3 hedge defect (two different physical pins, at most one of which is really
+# the signal it was labelled as, tied to one net -- a short, not a redundancy, if the
+# other pin ever turns out to be live). See _check_no_signal_pin_collisions().
+MUX_SIGNAL_PINS = tuple(S_PIN_NUMBERS) + (MUX_PIN_A0, MUX_PIN_A1, MUX_PIN_A2, MUX_PIN_A3, MUX_PIN_D)
+assert len(MUX_SIGNAL_PINS) == 21
+assert len(set(MUX_SIGNAL_PINS)) == 21
 
 # INA105 pin roles -- real TI datasheet pinout (SOIC-8), redefined independently (matches
 # check_breakout_analog_frontend_netlist.py's own INA105 dict).
@@ -204,10 +228,12 @@ def _check_all_sources_reach_all_muxes(nets: dict[str, list[Node]], mux_refs: li
 
 def _check_32_address_nets(nets: dict[str, list[Node]], mux_refs: list[str]) -> str:
     """All 32 MUX{n}_A{b} nets exist, are uniquely named (the canonical set, no collision,
-    no omission), and each lands on the RIGHT mux instance's RIGHT address pin. MUX{n}_A3
-    additionally reaches BOTH candidate physical pins (14 and 13 -- this design's own
-    deliberate hedge against unconfirmed TSSOP-28 pin numbering, see gen_wl_sync_lib.py's
-    own ADG1206YRUZ block comment) on the SAME mux instance, not two different ones.
+    no omission), and each lands on the RIGHT mux instance's RIGHT address pin -- including
+    MUX{n}_A3, on its own single, datasheet-confirmed physical pin (14), with no second
+    candidate pin to also check (fix round 1, task-10c-report.md, retired the two-pin A3
+    hedge this check used to also verify -- see _check_no_signal_pin_collisions() and
+    _check_nc_pins_carry_no_net() below for the general replacement: no hedge of this kind,
+    for A3 or any other signal pin, can pass silently again).
     """
     present = {n for n in nets if re.fullmatch(r"MUX[1-8]_A[0-3]", n)}
     check(
@@ -225,18 +251,94 @@ def _check_32_address_nets(nets: dict[str, list[Node]], mux_refs: list[str]) -> 
                 f"{net}: expected a pin on {ref} at physical pin {addr_pin}, found {nodes} "
                 f"-- either a wrong mux instance or a permuted address-bit assignment",
             )
-        # A3's own hedge: pin 13 (A3_ALT_NC) must ALSO be on THIS SAME mux's A3 net.
-        a3_net = f"MUX{i}_A3"
-        check(
-            any(n.ref == ref and n.pin == MUX_PIN_A3_ALT for n in nets[a3_net]),
-            f"{a3_net}: expected {ref}'s own hedge pin ({MUX_PIN_A3_ALT}) also on this net "
-            f"-- the deliberate two-pin hedge against unconfirmed A3 pin numbering is "
-            f"missing or landed on the wrong mux instance",
-        )
     return (
         f"All 32 address nets (MUX1_A0..MUX8_A3) present, uniquely named, each landing on "
-        f"its own expected mux instance and physical pin (A3 additionally hedged onto both "
-        f"candidate pins of the SAME instance)."
+        f"its own expected mux instance and physical pin."
+    )
+
+
+def _check_no_signal_pin_collisions(nets: dict[str, list[Node]], mux_refs: list[str]) -> str:
+    """No two of a mux's own 21 signal pins (S1-S16, A0-A3, D -- MUX_SIGNAL_PINS) ever
+    share a net on the SAME instance, and every one of the 21 carries exactly one net.
+    This is the GENERAL form of the defect the original A3 hedge WAS (fix round 1,
+    task-10c-report.md): two different physical pins, at most one of which is really the
+    signal it was wired as, tied to the same net -- a short between whatever those two
+    pins actually are, not a redundancy (and would have been a real fault, not a harmless
+    hedge, had the second candidate pin turned out to be a supply or another source
+    terminal instead of NC). Checked per instance, independently of which specific
+    pins/nets are involved, so ANY future two-pins-one-net hedge on ANY signal pin of this
+    part -- not just A3 -- fails loudly here instead of passing silently the way the
+    original hedge did.
+    """
+    for ref in mux_refs:
+        net_of_pin: dict[str, str] = {}
+        for net_name, nodes in nets.items():
+            for node in nodes:
+                if node.ref != ref or node.pin not in MUX_SIGNAL_PINS:
+                    continue
+                prior = net_of_pin.get(node.pin)
+                check(
+                    prior is None or prior == net_name,
+                    f"{ref}: signal pin {node.pin} is itself on more than one net "
+                    f"({prior!r} and {net_name!r}) -- a single physical pin must belong "
+                    f"to exactly one net",
+                )
+                net_of_pin[node.pin] = net_name
+        check(
+            set(net_of_pin) == set(MUX_SIGNAL_PINS),
+            f"{ref}: expected all 21 signal pins ({sorted(MUX_SIGNAL_PINS, key=int)}) to "
+            f"carry a net, found {sorted(net_of_pin, key=int)} -- missing: "
+            f"{sorted(set(MUX_SIGNAL_PINS) - set(net_of_pin), key=int)}",
+        )
+        nets_used = list(net_of_pin.values())
+        dupes = {n for n in nets_used if nets_used.count(n) > 1}
+        check(
+            not dupes,
+            f"{ref}: two or more of its own 21 signal pins (S1-S16/A0-A3/D) share a net "
+            f"-- a two-pins-one-net hedge of exactly the kind fix round 1 "
+            f"(task-10c-report.md) removed for A3: pins "
+            f"{sorted((p for p, n in net_of_pin.items() if n in dupes), key=int)} all "
+            f"land on {sorted(dupes)}",
+        )
+    return (
+        f"No two of any mux's own 21 signal pins (S1-S16/A0-A3/D) share a net on the same "
+        f"instance, across all {len(mux_refs)} muxes -- each of the 21 carries its own "
+        f"distinct net."
+    )
+
+
+def _check_nc_pins_carry_no_net(nets: dict[str, list[Node]], mux_refs: list[str]) -> str:
+    """This part's only three NC pins (2, 3, 13 -- Table 4, MUX_NC_PINS) carry no REAL net
+    on any mux instance. A genuinely no_connect-typed pin that nothing labels still shows
+    up in kicad-cli's own exported netlist -- confirmed empirically against this sheet's
+    own real export, not assumed -- but only as kicad-cli's own synthetic, always-
+    single-node "unconnected-(REF-...)" net (same shape 10a's own INA105KU pin 8 already
+    produces, e.g. "unconnected-(U39-Pad8)"). This check accepts exactly that shape and
+    rejects anything else: an NC pin appearing on any OTHER (real) net, or sharing even
+    its own synthetic net with a second node, means something now drives a pin this
+    part's datasheet says has no internal connection. This is the other half of what the
+    original A3 hedge got wrong: pin 13 is genuinely NC, and a correct design must leave
+    it that way, not merely avoid re-hedging it onto some OTHER signal.
+    """
+    for ref in mux_refs:
+        for pin in MUX_NC_PINS:
+            hits = [name for name, nodes in nets.items() for n in nodes if n.ref == ref and n.pin == pin]
+            for name in hits:
+                check(
+                    name.startswith("unconnected-"),
+                    f"{ref}: NC pin {pin} unexpectedly carries a real net ({name!r}) -- "
+                    f"pins {MUX_NC_PINS} are this part's only NC pins (Table 4) and must "
+                    f"remain genuinely unconnected",
+                )
+            check(
+                len(hits) <= 1,
+                f"{ref}: NC pin {pin} appears on more than one net ({hits}) -- expected at "
+                f"most kicad-cli's own single synthetic 'unconnected-*' net",
+            )
+    return (
+        f"NC pins {MUX_NC_PINS} carry no real net on any of the {len(mux_refs)} mux "
+        f"instances -- genuinely unconnected (kicad-cli's own synthetic 'unconnected-*' "
+        f"net only), as Table 4 requires."
     )
 
 
@@ -274,7 +376,7 @@ def _check_diffamp_reference(nets: dict[str, list[Node]], values: dict[str, str]
         check(
             any(n.ref == ref and n.pin == INA105["plus"] for n in nets.get(plus_net, [])),
             f"{ref} (Intan channel {i}): '+' pin is not on {plus_net!r} (the mux's own "
-            f"tied-together D1/D2 output)",
+            f"single D output)",
         )
         buf_net = f"INTAN_AO{i}_BUF"
         check(buf_net in nets, f"missing internal net: {buf_net!r}")
@@ -453,6 +555,8 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 
     summary.append(_check_all_sources_reach_all_muxes(nets, mux_refs))
     summary.append(_check_32_address_nets(nets, mux_refs))
+    summary.append(_check_no_signal_pin_collisions(nets, mux_refs))
+    summary.append(_check_nc_pins_carry_no_net(nets, mux_refs))
     summary.append(_check_diffamp_reference(nets, values, diffamp_refs))
     # BNC-shell-specific check BEFORE the general isolation-barrier check: the BNC shell
     # (INTAN_GND) and AGND are both tracked by the isolation check too, so ordering this
@@ -569,6 +673,31 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     no_en["+12V"] = [n for n in no_en["+12V"] if not (n.ref == en_victim and n.pin == MUX_PIN_EN)]
     msg = _assert_fails(no_en, good_values, "EN pin", f"{en_victim}'s own EN tie to +12V removed")
     results.append(f"Mux EN no longer tied to +12V ({en_victim}): caught -- {msg}")
+
+    # (9) THE central negative control fix round 1 (task-10c-report.md) added: a
+    # two-pins-one-net hedge of the SAME general shape as the original A3 defect, but not
+    # A3-specific this time (confirming _check_no_signal_pin_collisions() catches the
+    # defect CLASS, not just the one historical instance it was written to explain).
+    # Simulated by MOVING the 4th mux's own D pin (28) off its real net (MUX_OUT4) and
+    # onto its own A3 net (MUX4_A3) instead -- two different signal pins (14 and 28) now
+    # both land on MUX4_A3, exactly the shape "two candidate pins wired to the same net"
+    # takes when the pins involved are NOT both harmless NC.
+    collided = copy.deepcopy(good_nets)
+    victim_mux4 = mux_refs[3]
+    d_node = next(n for n in good_nets["MUX_OUT4"] if n.ref == victim_mux4 and n.pin == MUX_PIN_D)
+    collided["MUX_OUT4"] = [n for n in collided["MUX_OUT4"] if not (n.ref == victim_mux4 and n.pin == MUX_PIN_D)]
+    collided.setdefault("MUX4_A3", []).append(d_node)
+    msg = _assert_fails(collided, good_values, "share a net", f"{victim_mux4}'s own D pin (28) moved onto its own A3 net (MUX4_A3)")
+    results.append(f"Signal pin collision reintroduced (D pin also wired onto A3's net, 4th mux, {victim_mux4}): caught -- {msg}")
+
+    # (10) THE OTHER half of the original A3 hedge: a genuinely NC pin (13, the hedge's
+    # own other candidate) stray-wired onto a real net instead of being left unconnected --
+    # simulating a future edit that starts (mis)using this pin for something.
+    nc_live = copy.deepcopy(good_nets)
+    victim_mux8 = mux_refs[7]
+    nc_live.setdefault("+12V", []).append(Node(victim_mux8, "13", None, "passive"))
+    msg = _assert_fails(nc_live, good_values, "unexpectedly carries a real net", f"{victim_mux8}'s own NC pin 13 stray-wired onto +12V")
+    results.append(f"NC pin carrying a net reintroduced (pin 13 wired onto +12V, 8th mux, {victim_mux8}): caught -- {msg}")
 
     return results
 

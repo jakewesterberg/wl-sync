@@ -360,6 +360,76 @@ once samples of the MDR68, mini-XLR, and M12 connectors are in hand:
    general MDR-68 references, not confirmed against a primary drawing for the exact MPN
    procurement locks in.
 
+## ADG1206 mux address truth table (Task 10c)
+
+`hardware/breakout/sheets/mux-intan.kicad_sch` places eight `ADG1206YRUZ` 16:1 analog
+multiplexers (28-lead TSSOP) as Intan's own channel-select bank — see
+`hardware/gen/gen_breakout_mux_intan.py` and `hardware/gen/gen_wl_sync_lib.py`'s own
+`ADG1206YRUZ` block comment for the full design and pin-table sourcing. This part has no
+stock KiCad symbol in this package, so its 28-pin table was hand-built from the real
+datasheet. Task 10c's own fix round 1 replaced an earlier two-pin hedge (physical pin 13
+vs. 14, for the A3 address input — the originally committed version could not
+independently confirm which one was A3 and wired both to the same net rather than guess
+silently) with the definitive pin table below: two different physical pins tied to one net
+is a short between whatever those pins actually are, not a safe hedge, and would have been
+a real fault had the second candidate turned out to be a supply or another source pin
+instead of NC.
+
+Transcribed verbatim from Analog Devices' own ADG1206/ADG1207 Rev.0 datasheet, Table 4
+"ADG1206 Pin Function Descriptions", 28-Lead TSSOP column:
+
+| Pin | Name | Pin | Name |
+|---|---|---|---|
+| 1 | VDD | 15 | A2 |
+| 2 | NC | 16 | A1 |
+| 3 | NC | 17 | A0 |
+| 4 | S16 | 18 | EN |
+| 5 | S15 | 19 | S1 |
+| 6 | S14 | 20 | S2 |
+| 7 | S13 | 21 | S3 |
+| 8 | S12 | 22 | S4 |
+| 9 | S11 | 23 | S5 |
+| 10 | S10 | 24 | S6 |
+| 11 | S9 | 25 | S7 |
+| 12 | GND | 26 | S8 |
+| 13 | NC | 27 | VSS |
+| 14 | A3 | 28 | D (drain / common output) |
+
+A3 is pin 14; pin 13 (the hedge's other candidate) is genuinely NC, along with pins 2 and
+3 — this part's only three NC pins, left unconnected on this board
+(`check_breakout_mux_intan_netlist.py` asserts this directly — see below).
+
+**EN is active-high**: Table 4's own description reads "When this pin is low, the device
+is disabled and all switches are turned off. When this pin is high, the Ax logic inputs
+determine which switch is turned on." This design ties EN to `+12V` on every mux (always
+enabled — channel selection is by address only).
+
+**Address truth table**, for Task 12 (the I²C GPIO-expander sheet that will drive
+`MUX{n}_A0`..`MUX{n}_A3`) so the software side does not have to re-derive it from the
+datasheet: A3-A2-A1-A0 read as a straight 4-bit binary count, EN high throughout.
+
+| A3 A2 A1 A0 | Selects | A3 A2 A1 A0 | Selects |
+|---|---|---|---|
+| 0000 | S1 | 1000 | S9 |
+| 0001 | S2 | 1001 | S10 |
+| 0010 | S3 | 1010 | S11 |
+| 0011 | S4 | 1011 | S12 |
+| 0100 | S5 | 1100 | S13 |
+| 0101 | S6 | 1101 | S14 |
+| 0110 | S7 | 1110 | S15 |
+| 0111 | S8 | 1111 | S16 |
+
+Which of this board's own 16 `A_*` source nets rides physical `S1` vs. `S16` on every mux
+is a separate, board-specific choice this sheet makes on its own (`ALL_16_NETS`/
+`S_PIN_NUMBERS` list order in `gen_breakout_mux_intan.py`), not part of the datasheet's own
+truth table above — see that generator's own module docstring for the full list.
+
+`hardware/gen/check_breakout_mux_intan_netlist.py` asserts, independently of the
+generator's own choices, that no two of a mux's own 21 signal pins (`S1`-`S16`/`A0`-`A3`/
+`D`) ever share a net on one instance, and that the three NC pins (2, 3, 13) carry no real
+net — so a two-pins-one-net hedge of this kind cannot pass silently again, on this part or
+any future one.
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or
