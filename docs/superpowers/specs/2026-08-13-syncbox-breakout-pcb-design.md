@@ -639,6 +639,14 @@ spares. The BOM is constrained so either route works — hand-solderable package
 than SOIC/TSSOP, no BGA or QFN, nothing below 0603) that also exist in a turnkey assembler's
 parts library.
 
+> **One documented exception, found 2026-08-15.** The `MCP4728` quad I²C DAC that sets the
+> comparator thresholds is sold **only** in MSOP-10 at **0.5 mm pitch** — finer than anything
+> else on this board, where the previous worst case was 0.65 mm TSSOP. Microchip offers no other
+> package, so it is unavoidable rather than chosen. It is a real step up in hand-assembly
+> difficulty and is recorded here so it can be planned for — flux, a fine tip and magnification —
+> rather than met by surprise at the bench. Every other part on the board remains within the
+> stated constraint.
+
 ### 10.2 Lead time
 
 | Stage | Estimate |
