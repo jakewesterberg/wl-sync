@@ -178,6 +178,21 @@ duplicating that content into this already-long introductory paragraph. (See "Sh
 symbols referencing a child file that doesn't exist yet" below for why the root sheet
 never pre-created any of them as empty placeholders in the first place.)
 
+## Display sync — dropped entirely, not merely unpopulated (Change C, 2026-08-15)
+
+The private spec's own decisions register (§2, decision 12) closed this position on
+2026-08-15: "the photodiode flip patch measures at the display surface and catches
+post-GPU drops a vsync tap structurally cannot. No component ever existed behind the
+reservation; the panel position is freed." Verified directly against this repository, not
+assumed from that closure note alone: grepped every `hardware/gen/*.py` generator and every
+committed `hardware/breakout/sheets/*.kicad_sch` file for "display sync"/"DISP_SYNC" and any
+variant — **zero hits, anywhere, past or present.** No sheet, footprint, symbol, net, or BOM
+line ever represented this position in this repository's own sources; the reservation was a
+panel-inventory line in the spec document that never reached schematic capture at all. There
+is accordingly nothing to delete here — this section exists so that fact is checked and
+recorded once, rather than re-derived (or silently assumed) by the next person who reads the
+spec's own closure note and goes looking for a component to remove.
+
 ## BOM and procurement
 
 Task 13 produced three files together, and they are not interchangeable:
