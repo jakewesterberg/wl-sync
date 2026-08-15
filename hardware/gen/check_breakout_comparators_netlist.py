@@ -45,6 +45,16 @@ THE central risks this file exists to catch, named explicitly by this task's own
      parsing this sheet's own raw rendered text for every global-label (x, y),
      independently of the exported netlist (which only reports CONNECTIVITY, not the
      geometry that could have accidentally created it).
+  7. No same-column real 2-pin part may have its own pin-to-pin reach overlap another's --
+     the GENERAL form of risk 6 above (a two-pin part's own real pin-to-pin span landing on
+     a row that is some integer multiple of a shared column's own row pitch away, which
+     silently merged NI_5V into a channel's own data net on opto-ni.kicad_sch -- CH_ROW_DY's
+     own account in gen_breakout_opto_ni.py), checked structurally (from real, rendered pin
+     geometry) rather than only after an actual duplicate coordinate appears -- BACK-PORTED
+     here at Task 11 fix round 2 from check_row_pitch_guard.py's own shared
+     check_row_pitch_exceeds_2pin_span(), imported below (this sheet previously carried
+     only risk 6's exact-duplicate-only scan, the same latent exposure task-11-report.md's
+     own "Fix round 1" section flagged as a well-scoped follow-up).
 
 `verify()` below re-derives, independently of gen_breakout_comparators.py's own choices,
 the full channel/pin contract -- same "a checker that trusted the generator would only be
@@ -77,6 +87,10 @@ from check_mule_netlist import (  # noqa: E402
     check,
     parse_component_values,
     parse_netlist,
+)
+from check_row_pitch_guard import (  # noqa: E402
+    check_row_pitch_exceeds_2pin_span,
+    self_test_row_pitch,
 )
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
@@ -749,6 +763,20 @@ def main() -> int:
         print(f"SELF-TEST FAIL: {e}")
         return 1
     print(f"SELF-TEST PASS: coordinate collision reintroduced: caught -- {collision_self_test_msg}")
+
+    try:
+        row_pitch_summary = check_row_pitch_exceeds_2pin_span(comp_sch_text, "comparators.kicad_sch")
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(comp_sch_text, "comparators.kicad_sch", min_instances=10)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
 
     try:
         path_summary = verify_instance_paths(comp_sch_text, breakout_sch_text)

@@ -51,6 +51,21 @@ THE central risks this file exists to catch, named explicitly by this task's own
      that Table 4 of the real datasheet is definitive (no reconstruction, no hedge), this
      risk is checked generically -- for A3, for every other signal pin, and for every NC
      pin -- so a hedge of this kind cannot pass silently again, on this part or the next.
+  8. No same-column real 2-pin part may have its own pin-to-pin reach overlap another's --
+     the GENERAL form of risk 6 above (a two-pin part's own real pin-to-pin span landing on
+     a row that is some integer multiple of a shared column's own row pitch away, which
+     silently merged NI_5V into a channel's own data net on opto-ni.kicad_sch -- CH_ROW_DY's
+     own account in gen_breakout_opto_ni.py), checked structurally (from real, rendered pin
+     geometry) rather than only after an actual duplicate coordinate appears -- BACK-PORTED
+     here at Task 11 fix round 2 from check_row_pitch_guard.py's own shared
+     check_row_pitch_exceeds_2pin_span(), imported below (this sheet previously carried
+     only risk 6's exact-duplicate-only scan, the same latent exposure task-11-report.md's
+     own "Fix round 1" section flagged as a well-scoped follow-up). This sheet's own 8
+     `Connector:Conn_Coaxial` BNCs (INTAN_AO1..8's own output jacks) get the SAME non-
+     vertical-2-pin-part exclusion opto-intan.kicad_sch's own BNCs already established
+     (fix round 1) rather than being force-fit into the vertical-pitch model -- inherited
+     automatically from check_row_pitch_guard.py's own shared two_pin_reach_intervals(),
+     not re-derived here.
 
 `verify()` below re-derives, independently of gen_breakout_mux_intan.py's own choices, the
 full channel/pin contract -- same "a checker that trusted the generator would only be
@@ -81,6 +96,10 @@ from check_mule_netlist import (  # noqa: E402
     check,
     parse_component_values,
     parse_netlist,
+)
+from check_row_pitch_guard import (  # noqa: E402
+    check_row_pitch_exceeds_2pin_span,
+    self_test_row_pitch,
 )
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
@@ -863,6 +882,20 @@ def main() -> int:
         print(f"SELF-TEST FAIL: {e}")
         return 1
     print(f"SELF-TEST PASS: coordinate collision reintroduced: caught -- {collision_self_test_msg}")
+
+    try:
+        row_pitch_summary = check_row_pitch_exceeds_2pin_span(mi_sch_text, "mux-intan.kicad_sch")
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(mi_sch_text, "mux-intan.kicad_sch", min_instances=25)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
 
     try:
         path_summary = verify_instance_paths(mi_sch_text, breakout_sch_text)
