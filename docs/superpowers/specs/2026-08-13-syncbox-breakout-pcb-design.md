@@ -415,12 +415,17 @@ output drives the reward driver and is buffered out as "reward delivered" (§3.1
 
 | Crossing | Channels |
 |---|---|
-| Into NI_GND | 22 |
+| Into NI_GND | **24** |
 | Into INTAN_GND | 5 |
 | Out of INTAN_GND (RHS stim output) | 1 |
-| **Total** | **28** |
+| **Total** | **30** |
 
-Seven quad packages in SOIC-16, all hand-solderable. Drive current is set conservatively: the timing budget is hundreds of
+> **Corrected 2026-08-15.** This table read 22/5/1 = 28. Routing the two photodiode comparators
+> to NI (§3.1) took the NI-bound digital count from 22 to 24, and that change was propagated to
+> §3.1's line counts but not to here — so the optocoupler total was stale by two channels and one
+> package. Found while dispatching the sheet that builds them.
+
+**Eight** quad packages in SOIC-16, all hand-solderable. Drive current is set conservatively: the timing budget is hundreds of
 microseconds, so there is large margin against current-transfer-ratio degradation over the
 board's intended decade of service.
 
@@ -444,14 +449,14 @@ there (§5.5). As the only switcher in the enclosure it receives the whole filte
 
 ### 8.2 +5 V comes from the external supply, not from +12 V on board
 
-The +5 V rail feeds the optocoupler LEDs, and there are 28 isolated channels. Worst-case
-simultaneous conduction is about **26 LEDs** — all 16 data bits high at once, plus strobe,
+The +5 V rail feeds the optocoupler LEDs, and there are **30** isolated channels. Worst-case
+simultaneous conduction is about **28 LEDs** — all 16 data bits high at once, plus strobe,
 barcode, reward commanded, reward delivered, stim trigger, and the five Intan-bound copies:
 
 | Drive per LED | Worst-case rail current |
 |---|---|
-| 6.3 mA (HCPL-4661 family recommended minimum) | ~180 mA |
-| 10 mA (as used on the mule for edge quality) | ~260 mA |
+| 6.3 mA (HCPL-4661 family recommended minimum) | ~176 mA |
+| 10 mA (as used on the mule for edge quality) | ~280 mA |
 
 **Budget: 400 mA**, so downstream sheets have headroom without reopening this.
 
