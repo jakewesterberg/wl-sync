@@ -1,34 +1,7 @@
-ERC report (2026-08-14T23:24:12, Encoding UTF8)
+ERC report (2026-08-15T00:20:04, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(10.16 mm, 579.12 mm): Global Label 'A_MISC1_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(10.16 mm, 586.74 mm): Global Label 'A_JOY_X_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(10.16 mm, 591.82 mm): Global Label 'A_EYE_RY_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(10.16 mm, 599.44 mm): Global Label 'A_EYE_LY_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(10.16 mm, 601.98 mm): Global Label 'A_MISC3_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(30.48 mm, 574.04 mm): Global Label 'A_MISC2_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(30.48 mm, 581.66 mm): Global Label 'A_JOY_Y_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(30.48 mm, 594.36 mm): Global Label 'A_EYE_RX_TPC'
-[isolated_pin_label]: Label connected to only one pin
-    ; warning
-    @(30.48 mm, 601.98 mm): Global Label 'A_EYE_LX_TPC'
 [isolated_pin_label]: Label connected to only one pin
     ; warning
     @(322.58 mm, 48.26 mm): Global Label 'EVT_D0_BUF'
@@ -116,7 +89,7 @@ Report includes: Errors, Warnings
 
 ***** Sheet /control-usb-i2c/
 
- ** ERC messages: 31  Errors 0  Warnings 31
+ ** ERC messages: 22  Errors 0  Warnings 22
 
  ** Ignored checks:
     - Global label only appears once in the schematic

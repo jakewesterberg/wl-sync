@@ -160,13 +160,24 @@ NON_ISO_NETS = [
 # Confirmed directly against the regenerated whole-project netlist via this same
 # `_rail_bypass_cap_count()`, not guessed. Exactly the update this comment's own prior
 # entry predicted would be needed "once Tasks 10-12 add their own" -- WILL need the same
-# treatment again once Tasks 10b-10d (and 11-12) place their own +12V/-12V-powered parts.
+# treatment again once Tasks 10c-10d (and 11-12) place their own +12V/-12V-powered parts.
+#
+# RECOMPUTED AGAIN AT TASK 10b: analog-ni.kicad_sch decouples each of its 7 OPA4192-value
+# quad-buffer packages (4 for the 16-channel NI bank, 3 for the 9-channel task-PC bank) on
+# BOTH +12V/AGND and -12V/AGND, same one-decoupling-pair-per-package discipline every dual-
+# supply IC on this project already follows -- +7 on EACH rail pair (17->24 both), not just
+# one, since every one of those 7 packages is genuinely dual-supply. Confirmed directly
+# against the regenerated whole-project netlist via this same `_rail_bypass_cap_count()`,
+# not guessed. WILL need the same treatment again once Tasks 10c-10d (and 11-12) place
+# their own +12V/-12V-powered parts.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 17,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
+    ("+12V", "AGND"): 24,         # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step 1;
                                    # +15 from analog-frontend.kicad_sch's own 15 op-amp
-                                   # packages (Task 10a)
-    ("-12V", "AGND"): 17,         # C3, C4 -- ditto, -12V rail; +15 from analog-frontend.kicad_sch
-                                   # (Task 10a), same reasoning as +12V/AGND above
+                                   # packages (Task 10a); +7 from analog-ni.kicad_sch's own
+                                   # 7 quad-buffer packages (Task 10b)
+    ("-12V", "AGND"): 24,         # C3, C4 -- ditto, -12V rail; +15 from analog-frontend.kicad_sch
+                                   # (Task 10a) +7 from analog-ni.kicad_sch (Task 10b), same
+                                   # reasoning as +12V/AGND above
     ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
