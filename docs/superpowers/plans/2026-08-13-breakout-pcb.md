@@ -655,7 +655,12 @@ then a BNC.
 - [ ] **Step 5: Comparators**
 
 One `LM339` quad. Channels: `A_PD1`→`PD1_COMP`, `A_PD2`→`PD2_COMP`, `A_ACC`→`ACC_TRIG`, fourth
-brought to `A_MISC1` unpopulated. Hysteresis by 1 MΩ feedback to the non-inverting input.
+brought to `A_MISC1` unpopulated. Hysteresis by 1 MΩ feedback to the non-inverting input, **plus a ~10 kΩ series resistor between
+the source and that input.** The series resistor is not optional: Task 10a drives these from a
+buffered, near-zero-impedance output, and positive feedback can only shift a threshold against a
+source impedance. With the buffer driving directly, 1 MΩ of feedback produces **essentially no
+hysteresis at all** — which is exactly the chattering this design calls mandatory to avoid. 10 kΩ
+gives roughly 33 mV of hysteresis at ~1% gain error.
 Threshold on each inverting input comes from an `MCP4728` quad I²C DAC.
 
 **Open-collector pull-ups go to `+3V3`, never `+5V`, and this is a destroy-the-module
