@@ -481,12 +481,22 @@ NI's device specifications give **250 mA per connector** on the +5 V pins. Twent
 optocoupler output stages at a typical 5–7 mA each is already 120–170 mA, so the pull-up choice
 is not free:
 
-| Pull-up | Pull-up current, 24 ch | Edge into ~50 pF | Verdict |
-|---|---|---|---|
-| 1 kΩ | ~60 mA | 0.05 µs | Pushes the domain to the limit for no benefit |
-| **10 kΩ** | **~6 mA** | **0.5 µs** | Against a 500 µs strobe, irrelevant |
+| Pull-up | Pull-up current, 24 ch | Edge into ~50 pF | Domain total | Verdict |
+|---|---|---|---|---|
+| 1 kΩ | 120 mA | 0.05 µs | 240–288 mA | Over budget |
+| **3.9 kΩ** | **31 mA** | **0.2 µs** | **151–199 mA** | **Within budget and within the part's spec** |
+| 10 kΩ | 12 mA | 0.5 µs | 132–180 mA | Saves 19 mA by exceeding the datasheet |
 
-**10 kΩ on the NI side.** This deliberately differs from the mule board, where 1 kΩ was chosen
+**3.9 kΩ on the NI side.**
+
+> **Corrected 2026-08-15, revising an earlier ruling of 10 kΩ.** That figure came from comparing
+> against the mule's 1 kΩ and never checked the optocoupler's own limit: the `ACSL-6400`
+> specifies a **maximum** load resistance of 4 kΩ. 10 kΩ exceeds it to save 19 mA on a rail that
+> already fits at 3.9 kΩ — a bad trade. The edge cost is 0.2 µs into ~50 pF against a 500 µs
+> strobe, which is irrelevant either way.
+
+Note the mule board deliberately uses **1 kΩ** to sharpen edges *for measurement*; different
+board, different objective, and it has no 250 mA ceiling to respect. This deliberately differs from the mule board, where 1 kΩ was chosen
 to sharpen edges for measurement — different board, different objective.
 
 That lands the domain near 150 mA against 250 mA. If bench measurement disagrees, the fallbacks
