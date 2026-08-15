@@ -2,14 +2,15 @@
 (.superpowers/sdd/2026-08-13-breakout-pcb/task-12-report.md's own "Concerns" section named
 this gap; this file is the fix).
 
-THE PROBLEM THIS FIXES: `tests/hardware/test_netlist.py`'s 26 assertions (this board's
+THE PROBLEM THIS FIXES: `tests/hardware/test_netlist.py`'s assertions (26 at the time,
+34 now -- this board's
 hard-won invariants -- no +5V reaching a 3.3V GPIO, comparator/I2C pull-ups on +3V3, AISENSE
 tied to AGND, isolated domains pin-disjoint, Intan capped at exactly 8 analog outputs, and
 seven more) used to read `hardware/breakout/breakout.net` directly. That file is
 `*.net`-gitignored BY DESIGN (mechanical, fully re-derivable from the checked-in schematic --
 see "Byte-reproducibility" below), so it does not exist on a fresh checkout, and this
 project's CI has no `kicad-cli` to produce it. The test file's own `pytestmark` therefore
-SKIPPED all 26 assertions on every CI run -- not failed, skipped, which reports green and
+SKIPPED every one of them on every CI run -- not failed, skipped, which reports green and
 reads as coverage while testing nothing. That is worse than no test at all: a skip that
 looks like a pass trains reviewers to stop checking, exactly backwards from what a contract
 guarding "this board's invariants were each violated for real, at least once, during this
@@ -18,7 +19,7 @@ build" is supposed to do.
 THE FIX: commit a canonical, UUID-free, deterministically-formatted JSON rendering of the
 exported netlist -- `hardware/breakout/netlist-contract.json`, built by this script --
 instead of the raw `.net`. `tests/hardware/test_netlist.py` now loads THIS file (committed,
-always present, zero KiCad dependency) and its 26 assertions run unconditionally, in every
+always present, zero KiCad dependency) and all of its assertions run unconditionally, in every
 environment, CI included. `tests/hardware/test_netlist_contract_freshness.py` is the
 separate, locally-gated check that this snapshot still matches what `kicad-cli` produces
 from the CURRENTLY checked-in schematic right now -- it may skip when `kicad-cli` is
@@ -34,7 +35,7 @@ UUID churn in front of every reviewer on every schematic edit, burying the handf
 that actually changed (a net gaining or losing a connection) in noise indistinguishable from
 "nothing electrically changed, just regenerated." This file strips every UUID: it keeps only
 each net's sorted `(reference, pin, pinfunction, pintype)` tuples and each component's
-`Value` string -- exactly the fields `tests/hardware/test_netlist.py`'s 12 checks (26 with
+`Value` string -- exactly the fields `tests/hardware/test_netlist.py`'s 14 checks (34 with
 negative controls) read, nothing that changes without an electrical or component-value
 change also changing.
 

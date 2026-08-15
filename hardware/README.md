@@ -714,7 +714,7 @@ not the third).
 
 ## Whole-board netlist contract (Task 12 fix round 1)
 
-`tests/hardware/test_netlist.py` is a 26-assertion whole-board contract (12 checks, each
+`tests/hardware/test_netlist.py` is a 34-assertion whole-board contract (14 checks, each
 with its own negative control) covering this board's hard-won invariants: no `+5V` net
 reaching a 3.3V sync-module GPIO, every comparator/I²C pull-up landing on `+3V3` and never
 `+5V`, `AISENSE` tied to `AGND` on both NI connectors, both isolated domains pin-disjoint
@@ -724,13 +724,31 @@ brief's own five original checks. Every one of these guards a property that was 
 violated, by omission, at least once during this board's own build — see the check-level
 docstrings in that file for which task, which sheet.
 
+**Checks 13 and 14 are a different shape from the first twelve, deliberately.** Checks
+1–12 ask one-hop questions about *nets* ("is this node on that net"). A whole-branch review
+found that every verification blind spot on this board was a two-hop question about a
+*path*, which no amount of one-hop checking reaches: check 6 matches only a literal `+5V`
+node on a GPIO pin and check 7 sees only resistor bridges, so neither can see
+`+5V → 430 Ω → optocoupler LED → GPIO`; nothing anywhere examined a driver's own **negative
+rail** (an open-collector output's LOW level is its part's V−, so an LM339 on −12 V put
+≈ −11.9 V straight onto GPIO20/21/25); and nothing summed a net's total sink load **across
+sheets**, so five nets each carried two optocoupler LEDs — structurally invisible per-sheet,
+because `opto-ni` sees one LED on the net and `opto-intan` sees one LED on the same net.
+Check 13 is a pintype-aware one-hop walk out from every GPIO net (an open-collector output
+cannot source, so an LM339 on +12 V is correct by design while the same part on −12 V is
+not — distinguishing those two is the entire difficulty, and a check that could not would
+have to be loosened until it stopped seeing the real defect); check 14 sums LED and pull-up
+current per driver pin against a per-part table. Both were validated against the real
+pre-fix netlist before being committed: check 13 returns exactly the 5 real hazard paths
+and zero false positives against the HCT541/HCT32 input pins that are correct by design.
+
 **The contract runs against a committed snapshot, not the raw exported netlist.**
 `hardware/breakout/breakout.net` is `*.net`-gitignored on purpose (mechanical, fully
 re-derivable from the checked-in schematic — see `hardware/.gitignore`'s own comment and
 "Byte-reproducibility" below), and this project's CI (`.github/workflows/ci.yml`) installs
 no KiCad, so `kicad-cli` never exists there. The first version of this test file parsed
 `breakout.net` directly and skipped (via `pytest.mark.skipif`) when that file was absent —
-which meant all 26 assertions skipped on every single CI run: green, but testing nothing,
+which meant every assertion in it (26 at the time) skipped on every single CI run: green, but testing nothing,
 which reads as coverage while providing none. That was found and disclosed in
 `task-12-report.md`'s own "Concerns" section, then fixed (fix round 1, same task):
 
@@ -742,7 +760,7 @@ which reads as coverage while providing none. That was found and disclosed in
   sorted (`R2` before `R10`), so a net gaining or losing a connection shows up as a
   one-line diff in review, not buried in ~2200 lines of unrelated regenerated noise.
 - **This file IS committed** (not gitignored, unlike `breakout.net` itself) —
-  `tests/hardware/test_netlist.py` loads it directly and its 26 assertions now run
+  `tests/hardware/test_netlist.py` loads it directly and all 34 of its assertions now run
   unconditionally, in every environment, CI included, with zero dependency on `kicad-cli`
   or even `hardware/gen/` being importable.
 - **`tests/hardware/test_netlist_contract_freshness.py`** is the separate, locally-gated
@@ -761,7 +779,7 @@ the next time they run `pytest` — it fails loudly, with a diff-shaped message 
 exact regenerate command, if the committed `netlist-contract.json` no longer matches what
 `kicad-cli` produces from the sheet as just edited. This is a local, pre-commit-style
 gate, not a CI-enforced one — CI has no `kicad-cli` to run the freshness check with, so a
-snapshot committed stale would still pass CI (the 26 assertions test the snapshot
+snapshot committed stale would still pass CI (the assertions test the snapshot
 faithfully; they cannot independently know it fell out of sync with the schematic). The
 "Regenerating fab outputs" recipe below documents the snapshot-regeneration step as a
 required part of any sheet change for the same reason — the automated local gate and the

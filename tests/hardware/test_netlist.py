@@ -20,7 +20,7 @@ account of why this changed). The first version of this file parsed
 `hardware/breakout/breakout.net` directly, with its own small self-contained regexes -- but
 that file is `*.net`-gitignored on purpose (mechanical, fully re-derivable from the checked-
 in schematic; see hardware/.gitignore's own comment) and this project's CI has no
-`kicad-cli` to produce it, so the 26 assertions below SKIPPED on every single CI run. A skip
+`kicad-cli` to produce it, so the assertions below (26 at the time; 34 now) SKIPPED on every single CI run. A skip
 reports green and reads as coverage while testing nothing -- worse than no test at all for a
 contract whose entire reason to exist is that every one of these properties was actually
 violated at least once, by omission, during this board's own build (see each check's own
@@ -30,7 +30,7 @@ The fix: `hardware/gen/gen_breakout_netlist_contract.py` renders the exported ne
 `hardware/breakout/netlist-contract.json` -- a sorted, UUID-free `{net: [(ref, pin,
 pinfunction, pintype), ...]}` + `{ref: value}` snapshot, committed to the repository (NOT
 gitignored, unlike the raw `.net` it is derived from). This file loads THAT committed
-snapshot below (`_load_snapshot()`), so the 26 assertions run unconditionally in every
+snapshot below (`_load_snapshot()`), so all 34 assertions run unconditionally in every
 environment, CI included, with zero dependency on KiCad or `hardware/gen/` being
 importable -- an even stronger form of the isolation the paragraph above already wanted:
 previously this file still depended on correctly guessing kicad-cli's own export
@@ -89,6 +89,25 @@ risk on THIS board, each one a real, previously-caught defect on a sibling sheet
   12. RWD_CMD and RWD_DLVR are not merely both PRESENT (brief check #4, name-only) but
       genuinely DISTINCT nets -- share no PIN (a silently collapsed pair would make
       commanded and delivered indistinguishable in every recording).
+
+THEN TWO MORE, ADDED AFTER A WHOLE-BRANCH REVIEW FOUND THAT CHECKS 1-12 ALL SHARE ONE
+BLIND SPOT: they ask ONE-HOP questions about NETS ("is this node on that net"), and the
+hazards that got through are TWO-HOP questions about PATHS. Check 6 matches only a literal
+"+5V" node on a GPIO pin; check 7 sees only resistor bridges; neither can see
+`+5V -> 430R -> optocoupler LED -> GPIO`. Nothing anywhere examined a driver's own
+NEGATIVE rail, or summed a net's total sink load across sheets.
+
+  13. No pin on a sync-module GPIO net can impose a voltage outside 0V..+3V3 on it --
+      evaluated PER PINTYPE, because that is the whole difficulty. An open-collector
+      output cannot source, so an LM339 on +12V is correct by design while the same part
+      on -12V puts ~-11.9V straight onto GPIO20/21/25; a passive pin's reach runs through
+      one two-terminal passive, which is what sees an optocoupler LED whose anode is one
+      430R resistor from +5V. Validated against the real pre-fix netlist: exactly 5
+      hazard paths, zero false positives.
+  14. No driver pin is asked to sink more than this board allows that part -- LED cathodes
+      plus pull-ups, SUMMED ACROSS SHEETS. The defect was five nets each carrying two
+      optocoupler LEDs, which is structurally invisible to any per-sheet checker: opto-ni
+      sees one LED on the net and opto-intan sees one LED on the same net.
 
 This file reads the committed snapshot:
     hardware/breakout/netlist-contract.json
@@ -524,3 +543,352 @@ def test_reward_cmd_and_dlvr_are_electrically_distinct_fires_on_collapsed_nets(n
     corrupted["RWD_DLVR"] = list(nodes["RWD_CMD"])  # simulate the two nets merging
     with pytest.raises(AssertionError, match="IDENTICAL node sets"):
         _check_reward_nets_electrically_distinct(corrupted)
+
+
+# ===========================================================================
+# 13-14: TWO-HOP questions about PATHS, which no one-hop question about a NET can
+# answer.
+#
+# Every verification blind spot found on this branch has had the same shape. Checks 6
+# and 7 above are the two clearest examples, and they sit right next to each other:
+# `_check_no_5v_on_sync_module_gpio` matches only a LITERAL "+5V" node on a GPIO pin, and
+# `_check_comparator_pullups_on_3v3_never_5v` sees only resistor BRIDGES. Neither can see
+# `+5V -> 430R -> optocoupler LED -> GPIO`, which is the same hazard two hops out; nothing
+# anywhere examined a DRIVER'S OWN NEGATIVE RAIL (an open-collector output's LOW level is
+# its part's V-, so an LM339 on -12V put -11.9V onto GPIO20/21/25 through no protection at
+# all); and nothing summed a net's total sink load ACROSS SHEETS, so five nets each carried
+# two optocoupler LEDs -- invisible to any checker reasoning one sheet at a time, because
+# opto-ni sees one LED on the net and opto-intan sees one LED on the net.
+#
+# Both checks below are deliberately written over the WHOLE snapshot rather than over an
+# enumerated list of known-interesting nets: the defects they exist to catch all arrived
+# as a LATER sheet adding a node to an EARLIER sheet's net, which no enumerated list
+# written before that sheet existed could have anticipated.
+# ===========================================================================
+
+# Rails, and what each one actually is in volts. Hardcoded on purpose: this board has a
+# small, fixed rail set, and the whole point of check 13 is to reason about VOLTAGE, which
+# a netlist does not carry. `_rail_nets()` below cross-checks this table against the
+# snapshot so a new rail cannot be added to the board without being given a voltage here.
+RAIL_VOLTS = {
+    "+3V3": 3.3, "+5V": 5.0, "+12V": 12.0, "-12V": -12.0,
+    "AGND": 0.0, "DGND": 0.0,
+    "NI_5V": 5.0, "NI_5V_FB_RAW": 5.0, "NI_GND": 0.0,
+    "ISO_5V": 5.0, "INTAN_GND": 0.0,
+    "ISO_P12": 12.0, "ISO_N12": -12.0,
+    "ISO_P15_RAW": 15.0, "ISO_P15_FILT": 15.0,
+    "ISO_N15_RAW": -15.0, "ISO_N15_FILT": -15.0,
+}
+
+# What a sync-module GPIO pad tolerates: 0V to +3V3. The module is 3.3V and NOT 5V
+# tolerant, and its pads' absolute minimum is -0.5V (spec Sec.4; pi-interface.kicad_sch's
+# own GPIO_PIN_SPEC records that several of these nets reach the header with kind="direct"
+# -- no series resistance, no clamp, nothing).
+GPIO_SAFE_MIN_V, GPIO_SAFE_MAX_V = 0.0, 3.3
+
+
+def _rail_nets(nodes: dict[str, list[Node]]) -> set[str]:
+    """Every net carrying at least one power pin -- derived from the snapshot, not listed
+    by hand, so a rail that appears on a future sheet is picked up automatically. Asserts
+    each one has a voltage in RAIL_VOLTS: a rail nobody has assigned a voltage to would
+    otherwise be silently treated as harmless by check 13."""
+    rails = {
+        name for name, nl in nodes.items()
+        if any("power" in pt for _ref, _pin, _pf, pt in nl)
+    }
+    unpriced = rails - set(RAIL_VOLTS)
+    assert not unpriced, (
+        f"rail(s) {sorted(unpriced)} carry power pins but have no entry in RAIL_VOLTS -- "
+        f"add one. Check 13 reasons about VOLTAGE, and an unpriced rail would be silently "
+        f"treated as safe to put on a 3.3V-only GPIO pad."
+    )
+    return rails
+
+
+def _two_terminal_passive_refs(nodes: dict[str, list[Node]]) -> dict[str, set[str]]:
+    """{reference: {net, net}} for every component with EXACTLY two pins in the whole
+    snapshot -- resistors, capacitors, ferrites, 2-pin headers. These are the parts a
+    voltage can propagate straight through (a resistor to a rail IS that rail, softened),
+    which is what makes them the right unit for "one hop"."""
+    pins: dict[str, set[tuple[str, str]]] = {}
+    nets_of: dict[str, set[str]] = {}
+    for name, nl in nodes.items():
+        for ref, pin, _pf, _pt in nl:
+            pins.setdefault(ref, set()).add((ref, pin))
+            nets_of.setdefault(ref, set()).add(name)
+    return {ref: nets_of[ref] for ref, p in pins.items() if len(p) == 2}
+
+
+def _part_nets(nodes: dict[str, list[Node]]) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for name, nl in nodes.items():
+        for ref, _pin, _pf, _pt in nl:
+            out.setdefault(ref, set()).add(name)
+    return out
+
+
+def _reachable_rails(node: Node, rails, part_nets, two_pin) -> set[str]:
+    """Which rails the given pin can actually impose on the net it sits on.
+
+    PINTYPE-AWARE, and that is the entire point. The naive version of this check -- "does
+    this pin's part touch a rail outside {+3V3, GND}" -- flags the LM339 comparator for
+    its +12V supply, which is correct BY DESIGN: an open-collector output cannot source at
+    all, so it can never pull its net above the +3V3 its own external pull-up provides. The
+    same naive version therefore has to be relaxed until it stops seeing the real -12V
+    defect too. Distinguishing the two is exactly the "examine the driver's NEGATIVE rail"
+    question nothing on this board was asking:
+
+      - open_collector: pulls DOWN only, to its part's most-negative supply. That rail,
+        and only that rail, is what this pin can impose.
+      - output / tri_state / bidirectional (push-pull): can drive to EITHER of its part's
+        supplies.
+      - power_in / power_out: the rail itself.
+      - passive: no supply of its own, so the reach is structural -- any rail its part
+        touches, plus any rail ONE two-terminal passive away from a net its part touches.
+        That second clause is what sees `+5V -> 430R -> LED anode ... LED cathode -> GPIO`:
+        the optocoupler is not a two-terminal part, so no bridge-shaped check can see
+        through it, but its LED's anode net is one resistor from +5V.
+      - input: nothing. A receiver imposes no voltage, which is why the HCT541/HCT32 input
+        pins legitimately sitting on these nets are not false positives.
+    """
+    ref, _pin, _pf, pintype = node
+    own = {n for n in part_nets.get(ref, set()) if n in rails}
+    if "no_connect" in pintype:
+        return set()
+    if "power" in pintype:
+        return own
+    if "open_collector" in pintype:
+        return {min(own, key=lambda n: RAIL_VOLTS[n])} if own else set()
+    if any(k in pintype for k in ("output", "tri_state", "bidirectional")):
+        return own
+    # passive
+    reach = set(own)
+    for net in part_nets.get(ref, set()):
+        for other_ref, other_nets in two_pin.items():
+            if other_ref == ref or net not in other_nets:
+                continue
+            reach |= {n for n in other_nets if n in rails}
+    return reach
+
+
+def _check_gpio_nets_reach_no_unsafe_rail(nodes: dict[str, list[Node]]) -> None:
+    rails = _rail_nets(nodes)
+    part_nets = _part_nets(nodes)
+    two_pin = _two_terminal_passive_refs(nodes)
+    header_refs = {
+        ref for nl in nodes.values() for ref, _p, pf, _pt in nl if pf and _GPIO_PINFUNCTION_RE.match(pf)
+    }
+    hazards = []
+    for name, nl in nodes.items():
+        if not any(pf and _GPIO_PINFUNCTION_RE.match(pf) for _r, _p, pf, _pt in nl):
+            continue
+        for node in nl:
+            ref, pin, _pf, pintype = node
+            if ref in header_refs or "input" in pintype:
+                continue
+            unsafe = sorted(
+                r for r in _reachable_rails(node, rails, part_nets, two_pin)
+                if not (GPIO_SAFE_MIN_V <= RAIL_VOLTS[r] <= GPIO_SAFE_MAX_V)
+            )
+            if unsafe:
+                hazards.append((name, ref, pin, pintype, unsafe))
+    assert not hazards, (
+        f"{len(hazards)} path(s) can impose an out-of-range voltage on a sync-module GPIO "
+        f"net (safe range {GPIO_SAFE_MIN_V}V..{GPIO_SAFE_MAX_V}V; the module is 3.3V, is "
+        f"NOT 5V tolerant, and its pads' absolute minimum is -0.5V):\n  "
+        + "\n  ".join(
+            f"{net}: {ref} pin {pin} ({pintype}) reaches {rs}" for net, ref, pin, pintype, rs in hazards
+        )
+        + "\n(net, pin, pintype, reachable rails). Two real defects had exactly this "
+        "shape and neither was visible to any existing check: an LM339 whose V- was -12V, "
+        "making every open-collector output LOW ~-11.9V straight into GPIO20/21/25; and "
+        "ACSL-6400 LEDs on PD1_COMP/PD2_COMP whose anodes sat on +5V through 430R, so "
+        "GPIO20/21 idled ~3.6-3.8V and took ~7mA into an unpowered pad."
+    )
+
+
+def test_gpio_nets_reach_no_unsafe_rail(nodes):
+    _check_gpio_nets_reach_no_unsafe_rail(nodes)
+
+
+def test_gpio_nets_reach_no_unsafe_rail_fires_on_negative_driver_rail(nodes):
+    """The LM339-on--12V defect, reproduced exactly: move the comparator's V- pin from
+    AGND to -12V and nothing else. Every output stays open-collector, every pull-up stays
+    on +3V3, every net keeps the same node count -- the ONLY difference is one power pin's
+    net, which is all the real defect ever was."""
+    lm_vneg = next(n for n in nodes["AGND"] if n[0] == "U54" and n[1] == "12")
+    corrupted = dict(nodes)
+    corrupted["AGND"] = [n for n in nodes["AGND"] if n != lm_vneg]
+    corrupted["-12V"] = list(nodes.get("-12V", [])) + [lm_vneg]
+    with pytest.raises(AssertionError, match=r"open_collector.*-12V"):
+        _check_gpio_nets_reach_no_unsafe_rail(corrupted)
+
+
+def test_gpio_nets_reach_no_unsafe_rail_fires_on_led_two_hops_from_5v(nodes):
+    """The other half: an optocoupler LED cathode put back onto PD1_COMP. +5V is TWO hops
+    away (rail -> 430R -> LED anode net, then through the LED to the cathode), so neither
+    check 6 (literal +5V node on a GPIO pin) nor check 7 (resistor bridge) sees it."""
+    corrupted = dict(nodes)
+    corrupted["PD1_COMP"] = list(nodes["PD1_COMP"]) + [("U61", "6", "CATHODE3_6", "passive")]
+    with pytest.raises(AssertionError, match=r"U61 pin 6"):
+        _check_gpio_nets_reach_no_unsafe_rail(corrupted)
+
+
+def test_gpio_nets_reach_no_unsafe_rail_does_not_fire_on_12v_comparator_supply(nodes):
+    """The false positive this check is specifically shaped to avoid, asserted rather
+    than assumed. The LM339 runs from +12V and its outputs wire straight to GPIO20/21/25;
+    that is correct, because an open-collector output cannot source, so its net is pulled
+    up only by the +3V3 resistor. A check that flagged it would have to be loosened until
+    it stopped seeing the -12V defect as well."""
+    lm_out = next(n for n in nodes["ACC_TRIG"] if n[0] == "U54")
+    assert "open_collector" in lm_out[3]
+    assert "+12V" in _part_nets(nodes)["U54"]
+    _check_gpio_nets_reach_no_unsafe_rail(nodes)
+
+
+# --- 14: per-driver-pin sink load, summed across sheets. --------------------------------
+
+# Maximum sink current this board may ASK OF a given part's output pin, in mA. These are
+# datasheet IOL figures, with exactly one deliberate deviation, recorded here rather than
+# left implicit:
+#
+#   SN74HCT541PW is rated IOL = 6mA (VOL 0.33V max at VCC 4.5V), and every one of its
+#   LED-driving pins is asked for 7.33mA. That is not an oversight and cannot be designed
+#   away: the LED current is set by the ACSL-6400's own requirements -- 7-15mA recommended,
+#   with a 7.0mA WORST-CASE switching threshold -- so anything at or under 6mA risks a
+#   marginal part not switching at all (gen_breakout_opto_ni.py's own derivation). 7.33mA
+#   is 22% over the rated IOL and far inside the part's 25mA per-pin absolute maximum;
+#   SN74AHCT541 (8mA IOL, identical pinout) is the drop-in if strict compliance is ever
+#   wanted. The budget below is set at 7.5mA so this deviation is bounded and explicit,
+#   and a SECOND LED on the same pin (14.7mA) still fails hard.
+MAX_SINK_MA = {
+    "SN74HCT541PW": 7.5,
+    "SN74HCT32D": 4.0,
+    "SN74HCT14D": 4.0,
+    "SN74LVC541APW": 24.0,
+    "ACSL-6400-00TE": 13.0,
+    "ACSL-6420-00TE": 13.0,
+    "LM339": 6.0,
+}
+
+LED_VF_V = 1.52   # ACSL-6400 typ at I_F=10mA, the closest datasheet test point
+DRIVER_VOL_V = 0.33  # SN74HCT541 max at IOL=6mA -- the same approximation
+# gen_breakout_opto_ni.py used to pick 430R in the first place.
+
+
+def _parse_ohms(value: str) -> float | None:
+    v = value.strip().replace("R", "").replace("Ω", "")
+    mult = 1.0
+    if v.endswith("k"):
+        v, mult = v[:-1], 1e3
+    elif v.endswith("M"):
+        v, mult = v[:-1], 1e6
+    try:
+        return float(v) * mult
+    except ValueError:
+        return None
+
+
+def _net_sink_ma(name, nl, nodes, values, rails, two_pin) -> tuple[float, list[str]]:
+    """Total current a driver pulling this net LOW has to sink, and how it breaks down."""
+    total, why = 0.0, []
+    for ref, pin, pf, _pt in nl:
+        # Optocoupler LED: current is set by the series resistor on the MATCHING channel's
+        # anode net, found via the pinfunction's own channel index ("CATHODE3_6" pairs with
+        # "ANODE3_*" on the same package) -- derived, not assumed to be 7.33mA, so a
+        # resistor-value edit moves this number instead of silently invalidating it.
+        if not (pf or "").startswith("CATHODE"):
+            continue
+        chan = pf[len("CATHODE"):].split("_")[0]
+        anode = next(
+            (
+                (n2, r2, p2) for n2, nl2 in nodes.items() for r2, p2, pf2, _t2 in nl2
+                if r2 == ref and (pf2 or "").startswith(f"ANODE{chan}_")
+            ),
+            None,
+        )
+        assert anode, f"{name}: LED cathode {ref}.{pin} ({pf}) has no matching ANODE{chan} pin on {ref}"
+        anode_net = anode[0]
+        for r_ref in {r for r, _p, _pf, _t in nodes[anode_net]} & set(two_pin):
+            rail = next((n for n in two_pin[r_ref] if n in rails), None)
+            ohms = _parse_ohms(values.get(r_ref, ""))
+            if rail is None or not ohms:
+                continue
+            ma = (RAIL_VOLTS[rail] - DRIVER_VOL_V - LED_VF_V) / ohms * 1000
+            total += ma
+            why.append(f"LED {ref}.{pin} via {r_ref} from {rail}: {ma:.2f}mA")
+    for r_ref in {r for r, _p, _pf, _t in nl} & set(two_pin):
+        rail = next((n for n in two_pin[r_ref] if n in rails and RAIL_VOLTS[n] > 0), None)
+        ohms = _parse_ohms(values.get(r_ref, ""))
+        if rail is None or not ohms:
+            continue
+        ma = (RAIL_VOLTS[rail] - DRIVER_VOL_V) / ohms * 1000
+        total += ma
+        why.append(f"pull-up {r_ref} to {rail}: {ma:.2f}mA")
+    return total, why
+
+
+def _check_driver_pin_sink_load(nodes: dict[str, list[Node]], values: dict[str, str]) -> None:
+    rails = _rail_nets(nodes)
+    two_pin = _two_terminal_passive_refs(nodes)
+    overloaded = []
+    for name, nl in nodes.items():
+        drivers = [
+            (ref, pin) for ref, pin, _pf, pt in nl
+            if values.get(ref) in MAX_SINK_MA
+            and any(k in pt for k in ("output", "tri_state", "open_collector"))
+            and "no_connect" not in pt
+        ]
+        if not drivers:
+            continue
+        total, why = _net_sink_ma(name, nl, nodes, values, rails, two_pin)
+        for ref, pin in drivers:
+            budget = MAX_SINK_MA[values[ref]]
+            if total > budget + 1e-6:
+                overloaded.append((name, ref, pin, values[ref], round(total, 2), budget, why))
+    assert not overloaded, (
+        f"{len(overloaded)} driver pin(s) are asked to sink more than this board allows "
+        f"that part:\n  "
+        + "\n  ".join(
+            f"{ref} pin {pin} ({part}) on {net}: {tot}mA > {budget}mA -- " + "; ".join(why)
+            for net, ref, pin, part, tot, budget, why in overloaded
+        )
+        + "\nThis is summed ACROSS SHEETS on purpose. The real defect was five nets each "
+        "carrying two optocoupler LEDs (~14.7mA against a 6mA or 4mA IOL), and no checker "
+        "reasoning one sheet at a time could see it: opto-ni saw one LED on the net and "
+        "opto-intan saw one LED on the same net. The worst case, RWD_DLVR off a 4mA "
+        "74HCT32, would have left RWD_DLVR_PI stuck HIGH -- the sync module recording "
+        "reward-delivered continuously."
+    )
+
+
+def test_driver_pin_sink_load(nodes, values):
+    _check_driver_pin_sink_load(nodes, values)
+
+
+def test_driver_pin_sink_load_fires_on_doubled_led(nodes, values):
+    """The defect verbatim: opto-intan's own LED put back onto the net opto-ni's LED is
+    already on, so one HCT541 pin drives both."""
+    corrupted = dict(nodes)
+    corrupted["EVT_STROBE_BUF"] = list(nodes["EVT_STROBE_BUF"]) + [("U64", "2", "CATHODE1_2", "passive")]
+    with pytest.raises(AssertionError, match=r"U10 pin 18"):
+        _check_driver_pin_sink_load(corrupted, values)
+
+
+def test_driver_pin_sink_load_fires_on_led_on_the_4ma_or_gate(nodes, values):
+    """A SINGLE LED back on the 74HCT32 reward-OR output. One LED is inside the HCT541
+    budget, so this can only fail on the per-part table actually being per-part."""
+    corrupted = dict(nodes)
+    corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [("U60", "8", "CATHODE4_8", "passive")]
+    with pytest.raises(AssertionError, match=r"U12 pin 3 \(SN74HCT32D\)"):
+        _check_driver_pin_sink_load(corrupted, values)
+
+
+def test_driver_pin_sink_load_fires_on_pullup_value_drift(nodes, values):
+    """Not only LEDs: an NI-side pull-up edited from 3.9k to 100R, which alone puts the
+    optocoupler's own output stage over its 13mA."""
+    r_ref = next(iter(_bridging_resistor_refs(nodes, "NI_5V", "EVT_D5_NI")))
+    corrupted_values = dict(values)
+    corrupted_values[r_ref] = "100"
+    with pytest.raises(AssertionError, match=r"EVT_D5_NI"):
+        _check_driver_pin_sink_load(nodes, corrupted_values)
