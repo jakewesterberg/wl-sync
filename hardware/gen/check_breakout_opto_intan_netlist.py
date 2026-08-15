@@ -25,6 +25,11 @@ THE CENTRAL RISKS this file exists to catch, named explicitly by this task's own
      this sheet's own mixed-direction second package, and a bidirectional part's own
      "which two channels go which way" is exactly the kind of fact a permutation could
      silently get wrong while still looking fully connected.
+  6. No same-column real 2-pin part may have its own pin-to-pin reach overlap another's --
+     the GENERAL form of opto-ni.kicad_sch's own real coordinate-collision defect
+     (CH_ROW_DY's own account in gen_breakout_opto_ni.py), checked structurally (from real,
+     rendered pin geometry) rather than only after an actual duplicate coordinate appears
+     -- see _check_row_pitch_exceeds_2pin_span() below, added fix round 1.
 
 `verify()` below re-derives the full channel/pin contract independently of
 gen_breakout_opto_intan.py's own choices -- same "a checker that trusted the generator
@@ -57,9 +62,12 @@ from check_mule_netlist import (  # noqa: E402
     parse_netlist,
 )
 from kicad_sch import (  # noqa: E402
+    extract_symbol,
     find_all_instance_paths,
     find_root_uuid,
     find_sheet_instance_path,
+    pin_pos,
+    unit_pins,
 )
 
 DEFAULT_NET_PATH = Path("/tmp/breakout.net")
@@ -375,6 +383,99 @@ def _check_no_coordinate_collisions(sch_text: str) -> str:
     return f"No coordinate collisions: all {len(coords)} distinct global-label positions in opto-intan.kicad_sch carry exactly one net name each."
 
 
+# ---------------------------------------------------------------------------
+# GENERAL row-pitch-vs-2-pin-part-span guard -- fix round 1 (added on opto-ni.kicad_sch's
+# own checker first; see check_breakout_opto_ni_netlist.py's own module comment for the
+# full "third distinct instance of this defect class" account and rationale, restated only
+# briefly here). `_check_no_coordinate_collisions()` above catches an ACTUAL duplicate
+# label coordinate, which needs the real bad schematic to exist first; this instead checks
+# the STRUCTURAL property (no same-column 2-pin part's own real pin-reach overlaps
+# another's) that prevents one from ever being possible, independently of whether THIS
+# sheet's own current layout happens to trip an exact coincidence.
+# ---------------------------------------------------------------------------
+
+_PLACED_INSTANCE_RE = re.compile(
+    r'\(symbol\s*\n\s*\(lib_id "([^"]+)"\)\s*\n\s*\(at (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)\)\s*\n\s*\(unit (\d+)\)'
+    r'.*?\(property "Reference" "([^"]+)"',
+    re.DOTALL,
+)
+
+
+def _two_pin_reach_intervals(sch_text: str) -> dict[float, list[tuple[str, float, float]]]:
+    """Same technique as check_breakout_opto_ni_netlist.py's own function of this name --
+    duplicated, not imported, per this project's own established per-checker independence
+    discipline. For every PLACED symbol instance in `sch_text` that resolves (via its own
+    real library definition) to exactly 2 pins, compute the REAL rendered [lo_y, hi_y]
+    reach both of its own pins actually land on, grouped by the REAL X column both pins
+    share -- VERTICAL 2-pin parts only (both pins at the same real X), true for every
+    discrete device placed in a shared, repeated per-row column (Device:R/Device:C/
+    Device:FerriteBead) and the actual SHAPE this project's own row-pitch defect class
+    takes. A 2-pin part whose own two pins sit at DIFFERENT real X -- found empirically on
+    THIS sheet's own BNC jacks, `Connector:Conn_Coaxial`'s center/shield pins -- is a
+    genuinely different geometry (individually positioned per instance, not stacked with
+    siblings in a shared column) and is excluded, not force-fit."""
+    by_column: dict[float, list[tuple[str, float, float]]] = {}
+    for m in _PLACED_INSTANCE_RE.finditer(sch_text):
+        lib_id, ax, ay, _rot, unit, ref = m.groups()
+        ax, ay = float(ax), float(ay)
+        libname, _sep, symname = lib_id.partition(":")
+        try:
+            block = extract_symbol(libname, symname)
+            pins = unit_pins(block, symname, int(unit))
+        except (AssertionError, FileNotFoundError):
+            continue
+        if len(pins) != 2:
+            continue
+        real = [pin_pos(ax, ay, p) for p in pins.values()]
+        xs = sorted(round(x, 3) for x, _y in real)
+        if xs[0] != xs[1]:
+            continue  # non-vertical 2-pin part (e.g. Conn_Coaxial's center+shield) --
+            # not subject to the shared-column row-pitch hazard this function models
+        ys = sorted(y for _x, y in real)
+        by_column.setdefault(xs[0], []).append((ref, ys[0], ys[1]))
+    return by_column
+
+
+def _check_row_pitch_exceeds_2pin_span(sch_text: str) -> str:
+    """THE GENERAL guard -- see check_breakout_opto_ni_netlist.py's own function of this
+    name for the full rationale. Every same-column pair of real, placed 2-pin parts on
+    opto-intan.kicad_sch must have strictly disjoint pin-to-pin reach intervals."""
+    by_column = _two_pin_reach_intervals(sch_text)
+    checked_columns = 0
+    checked_parts = 0
+    violations = []
+    for col, members in by_column.items():
+        if len(members) < 2:
+            continue
+        checked_columns += 1
+        checked_parts += len(members)
+        for i in range(len(members)):
+            ref_i, lo_i, hi_i = members[i]
+            for j in range(i + 1, len(members)):
+                ref_j, lo_j, hi_j = members[j]
+                if lo_i <= hi_j and lo_j <= hi_i:
+                    violations.append((col, ref_i, (lo_i, hi_i), ref_j, (lo_j, hi_j)))
+    check(
+        checked_columns > 0,
+        "no column hosted 2+ real 2-pin parts -- suspiciously unable to exercise this "
+        "check at all; is this really opto-intan.kicad_sch's own rendered text, with its "
+        "own real R/C placements?",
+    )
+    check(
+        not violations,
+        f"{len(violations)} same-column 2-pin-part pair(s) have OVERLAPPING real pin-"
+        f"reach intervals in opto-intan.kicad_sch -- the general form of the NI_5V/"
+        f"channel-data-net short opto-ni.kicad_sch already hit once (CH_ROW_DY's own "
+        f"account in gen_breakout_opto_ni.py), independent of whether it currently lands "
+        f"an exact duplicate coordinate: {violations[:5]}",
+    )
+    return (
+        f"Row-pitch-vs-2-pin-part-span guard: {checked_parts} real 2-pin parts across "
+        f"{checked_columns} shared columns in opto-intan.kicad_sch, every same-column "
+        f"pair's own pin-reach interval strictly disjoint from every other."
+    )
+
+
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary = []
     a_summary, a_refs = _check_package_a(nets, values)
@@ -497,6 +598,29 @@ def self_test_collision(good_sch_text: str) -> str:
     raise CheckFailure("self-test 'coordinate collision reintroduced' did NOT raise -- _check_no_coordinate_collisions() is passing vacuously")
 
 
+def self_test_row_pitch(good_sch_text: str) -> str:
+    """Negative control for _check_row_pitch_exceeds_2pin_span() -- same technique as
+    check_breakout_opto_ni_netlist.py's own function of this name: forces one real 2-pin
+    part's own placement Y onto a DIFFERENT, same-column part's own placement Y and
+    confirms the general guard fires."""
+    matches = list(_PLACED_INSTANCE_RE.finditer(good_sch_text))
+    check(len(matches) > 10, "self-test setup failed: too few placed instances found to corrupt")
+    by_column = _two_pin_reach_intervals(good_sch_text)
+    col, members = next(((c, ms) for c, ms in by_column.items() if len(ms) >= 2), (None, None))
+    check(col is not None, "self-test setup failed: no column hosts 2+ real 2-pin parts")
+    ref_a, ref_b = members[0][0], members[1][0]
+    m_a = next(m for m in matches if m.group(6) == ref_a)
+    m_b = next(m for m in matches if m.group(6) == ref_b)
+    corrupted = good_sch_text[: m_b.start(3)] + m_a.group(3) + good_sch_text[m_b.end(3):]
+    check(corrupted != good_sch_text, "self-test setup failed: splice produced no change")
+    try:
+        _check_row_pitch_exceeds_2pin_span(corrupted)
+    except CheckFailure as e:
+        check("OVERLAPPING real pin-reach intervals" in str(e), f"self-test 'row-pitch collision reintroduced': wrong failure message: {e}")
+        return str(e)
+    raise CheckFailure("self-test 'row-pitch collision reintroduced' did NOT raise -- _check_row_pitch_exceeds_2pin_span() is passing vacuously")
+
+
 # ---------------------------------------------------------------------------
 # Instance-path ancestor-chain check.
 # ---------------------------------------------------------------------------
@@ -589,6 +713,20 @@ def main() -> int:
         print(f"SELF-TEST FAIL: {e}")
         return 1
     print(f"SELF-TEST PASS: coordinate collision reintroduced: caught -- {collision_self_test_msg}")
+
+    try:
+        row_pitch_summary = _check_row_pitch_exceeds_2pin_span(opto_sch_text)
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(opto_sch_text)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
 
     try:
         path_summary = verify_instance_paths(opto_sch_text, breakout_sch_text)
