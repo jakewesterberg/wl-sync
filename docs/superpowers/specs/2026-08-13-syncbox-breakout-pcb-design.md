@@ -42,6 +42,9 @@ signal nobody recorded a decision about.
 | 9 | Mux and DAC control over **internal USB**, not GPIO | Preserves two spare GPIO on a header that is otherwise full |
 | 10 | **Comparator threshold range is capped at ~4.1 V.** The `MCP4728` reaches 0–3.3 V from its supply reference or 0–4.096 V from the internal reference at gain 2. The comparator's own input range is fine (0 to ~10.5 V now that it runs from +12 V and AGND), but **a threshold above ~4.1 V is not settable.** Confirm the real signal range at the photodiode TIA output and the accelerometer's motion-energy output; if either swings to +5 V, the top of the useful range is unreachable and the signal needs scaling at its front end. Coupled to item 5 — the same accelerometer-range answer settles both | Before fab |
 | 11 | **Nothing writes the DAC thresholds or the mux addresses yet.** The board supports both over the internal USB → I²C path, and `hardware/README.md` records the addresses and the mux truth table — but the control layer is `wl-sync`'s work and is **outside this plan entirely.** As built, the board powers up with whatever the DAC's power-on default happens to be, and the mux routing is undefined until something sets it. Needs a setup workflow too: thresholds are found by watching the analog copy of the same signal on NI or Intan while sweeping the DAC, since there is no panel affordance by design | Before first use |
+| 12 | ~~Display sync reserved position~~ **Closed 2026-08-15 — dropped entirely.** The photodiode flip patch measures at the display surface and catches post-GPU drops a vsync tap structurally cannot. No component ever existed behind the reservation; the panel position is freed | ~~—~~ |
+| 13 | **What connector does the reward driver take?** Specified BNC to match the panel and because TTL over coax is standard, but the driver is unchosen. This is the only reward position whose connector is set by equipment not yet selected — confirm before the panel is machined | Before fab |
+| 14 | **`RWD_CMD` polarity** is an on-sheet assumption (active-high) that cannot be verified from the board. Needs confirming on the MonkeyLogic side before commissioning — the failure mode it guards against is continuous reward delivery | Before first use |
 | 10 | **No on-board switching regulators** except one isolated DC-DC | Consistency with decision 3: rejecting an RF carrier and then adding a switcher would be incoherent |
 | 11 | 2U rack chassis, board-mount connectors through machined panels | ~40 panel positions do not fit a smaller case; board-mount eliminates internal hand wiring |
 | 12 | One board, not two | Splitting would put 30+ analog signals through an inter-board connector |
@@ -79,6 +82,12 @@ them, NI has a clean digital edge and the analog scan rate becomes a question ab
 fidelity alone. They cost the last two spare lines on connector 1 (§9.2) and buy a cheaper card
 (§9.3).
 
+**Manual reward is a one-shot.** A monostable gives every hand-delivered reward an identical
+duration regardless of how long the button is held, so manual rewards are countable rather than a
+per-press variable nothing measures — which is the point of recording commanded and delivered
+separately at all. Debounce is **10 ms** (10 kΩ × 1 µF), covering both switch bounce and any
+connector transient. Panel button is **recessed** so a sleeve or cable cannot dispense fluid.
+
 **Reward is recorded twice on purpose.** The task PC's commanded TTL and the debounced panel
 button feed an OR gate; the OR output drives the reward driver and is separately recorded as
 "delivered". A manual reward is therefore *delivered without commanded*, derivable with no
@@ -107,6 +116,24 @@ the I/O Expander. Sixteen sources want to reach it; eight can, selected by mux (
 This is a convenience loss rather than a data loss: every device is aligned into session time
 by barcode, so a channel recorded on NI is available in Intan's timebase after preprocessing.
 What Intan's eight buy is a native copy at the amplifier sample rate with no alignment step.
+
+**The two photodiodes have distinct roles, now pinned.** `A_PD1` watches the **task patch** — the
+stimulus-onset signal. `A_PD2` watches the **flip patch**, a corner region alternating every
+refresh, making it a frame clock. Their timing reaches the recorders through the comparator lines;
+the analog copies carry waveform and intensity.
+
+**Default eight for Intan**, settable at any time since the mux makes this software state:
+
+| # | Channel | Why it is here |
+|---|---|---|
+| 1 | `A_PD1` task patch | stimulus onset — the frame clock's timing is better served by its comparator line |
+| 2–4 | `A_EYE_LX`, `A_EYE_LY`, `A_EYE_LP` | **one complete eye** — position and pupil together beats partial data from both |
+| 5–6 | `A_JOY_X`, `A_JOY_Y` | no record anywhere else |
+| 7 | `A_MIC` | no record anywhere else |
+| 8 | `A_ACC` | no record anywhere else |
+
+Ambient light and the misc inputs are not in the default set. Left eye is the default; either eye
+is one mux write away.
 
 **Recommended de-prioritisation for the eight:** the six eye channels have an authoritative
 record on the eye-tracker PC and should be the first dropped. The photodiodes, joystick,
@@ -630,6 +657,70 @@ floorplan, all of which must be settled **before panels are machined**:
 - **Fans are a noise source in both senses.** If a fan is fitted it wants to be a quiet one on
   the rack-facing panel, and its motor is an electrical noise source that should not sit beside
   the microphone preamp or the photodiode front ends.
+
+### 9.6 Panel arrangement — corrected 2026-08-15
+
+**The front/rear assignment was backwards.** This spec assumed equipment-facing meant rear.
+**The Intan controller and the recording NI live on the front of the rack**, so the sync box's
+connections to them belong on the same face; the task PC and the Faraday-cage booth are both
+reached from the rack's back.
+
+| Face | Carries | Linear |
+|---|---|---|
+| **Front** (rack-facing) | 14 Intan BNC · 2× MDR68 recording NI | 394 mm of ~450 |
+| **Back** | 17 BNC (15 rig + reward out + reward remote) · 2× MDR68 task PC · CM5 port cutouts · recessed reward button | 2 rows |
+
+The front's spare width is what makes the fans possible: splitting its connectors into two rows on
+the left frees a **170 × 82 mm full-height strip** on the right.
+
+**31 BNC positions**, all populated. Display sync is **dropped entirely** (§12 item 12), and the
+3.5 mm TRS leaves the design with it — the reward remote became a BNC, which was its last use.
+
+> **Colour-code the reward group.** With every position now an identical BNC, isolated connectors
+> with coloured insulators cost nothing and make a mis-plug visible rather than something found in
+> the data. Worth doing for the camera triggers too.
+
+### 9.7 Airflow — diagonal, filtered, slightly positive
+
+**60 mm fans, not 80 mm.** The binding constraint is height, not width: a 2U face has ~82 mm
+usable and an 80 mm fan needs ~85 mm of cutout including its mounting holes. It misses on *any*
+face in *any* arrangement. 60 mm needs ~65 mm and fits with margin.
+
+**Two 60 mm intake on the front-right strip; two 60 mm exhaust on the left side panel**, so air
+crosses the board **diagonally**. That matters because the board is 430 mm wide and only 240 mm
+deep — straight front-to-back takes the short path and leaves the width stagnant.
+
+**Placement follows from the flow**, and resolves a constraint that was previously delicate:
+
+- **CM5 back-left, at the exhaust.** Its ports need the back panel anyway, so the board's only
+  real heat source sits at the outlet and its 10–15 W leaves without crossing anything.
+- **Analog back-right, in the quietest corner** — furthest from both inlet and outlet, and where
+  its own connectors are. **The analog section does not want cooling, it wants thermal
+  stability**: offset drift responds to changes and gradients, not to absolute temperature, so a
+  still uniformly-warm corner beats a fluctuating airstream.
+
+**Filtered intake, biased slightly positive.** All incoming air passes the two front fans, so one
+filter there means everything entering is filtered; keeping intake ≥ exhaust pushes air out
+through every seam rather than drawing dust in. Over a decade in an animal lab that is the
+difference between a clean box and one with fur settled on the analog section.
+
+**A ceiling the geometry sets:** the board is 430 mm in a ~470 mm internal chassis, so **20 mm of
+clearance per side** — and that gap is the path to the side exhaust. 1,640 mm² per side is ample,
+but two fans at a realistic 12 CFM give ~7 m/s through it, and pushing past ~25 CFM each reaches
+~14 m/s where a slot that size begins to whistle. **Low-speed or PWM-limited fans**, not
+high-static-pressure parts — there is a microphone preamp in this box.
+
+### 9.8 Five things a rack instrument needs that this one lacked
+
+None were specified; all are additions.
+
+| # | Item | Why |
+|---|---|---|
+| 1 | **Chassis earth stud** | §5.6 says the cage and rack bond at one deliberate point — there was no point to bond *to*, so somebody would improvise one |
+| 2 | **Power-good LED per rail** | Three rails (+12, −12, +5) and a failed one is invisible until the data is wrong |
+| 3 | **Barcode heartbeat LED** | The barcode is a 1 Hz pulse; an LED on it says the sync box is alive from across the room |
+| 4 | **Rail test points** | Bring-up says to measure each rail before seating ICs, and there is nowhere to put a probe |
+| 5 | **Main input fusing** | The fans got a polyfuse; ±12 V and +5 V did not |
 
 ### 9.5 Fan headers — added 2026-08-15, and they were missing
 
