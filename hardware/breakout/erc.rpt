@@ -1,0 +1,41 @@
+ERC report (2026-08-15T10:30:15, Encoding UTF8)
+Report includes: Errors, Warnings
+
+***** Sheet /
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(10.16 mm, 317.50 mm): Global Label 'USB_VBUS_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(60.96 mm, 80.01 mm): Global Label 'OPTO_INTAN_SPARE1_IN'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(119.38 mm, 77.47 mm): Global Label 'OPTO_INTAN_SPARE2_ISO'
+
+***** Sheet /power/
+
+***** Sheet /taskpc-digital/
+
+***** Sheet /pi-interface/
+
+***** Sheet /analog-frontend/
+
+***** Sheet /analog-ni/
+
+***** Sheet /mux-intan/
+
+***** Sheet /comparators/
+
+***** Sheet /opto-ni/
+
+***** Sheet /opto-intan/
+
+***** Sheet /control-usb-i2c/
+
+ ** ERC messages: 3  Errors 0  Warnings 3
+
+ ** Ignored checks:
+    - Global label only appears once in the schematic
+    - Four connection points are joined together
+    - SPICE model issue
+    - Assigned footprint doesn't match footprint filters

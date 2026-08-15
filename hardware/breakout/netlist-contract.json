@@ -1,0 +1,4127 @@
+{
+  "generated_by": "hardware/gen/gen_breakout_netlist_contract.py",
+  "source_schematic": "hardware/breakout/breakout.kicad_sch",
+  "component_values": {
+    "C1": "10uF",
+    "C2": "100nF",
+    "C3": "10uF",
+    "C4": "100nF",
+    "C5": "10uF",
+    "C6": "100nF",
+    "C7": "100nF",
+    "C8": "10uF",
+    "C9": "100nF",
+    "C10": "10uF",
+    "C11": "10uF",
+    "C12": "10nF",
+    "C13": "10nF",
+    "C14": "10uF",
+    "C15": "100nF",
+    "C16": "10uF",
+    "C17": "10uF",
+    "C18": "10nF",
+    "C19": "10nF",
+    "C20": "10uF",
+    "C21": "100nF",
+    "C22": "100nF",
+    "C23": "100nF",
+    "C24": "100nF",
+    "C25": "100nF",
+    "C26": "100nF",
+    "C27": "100nF",
+    "C28": "100nF",
+    "C29": "100nF",
+    "C30": "100nF",
+    "C31": "100nF",
+    "C32": "100nF",
+    "C33": "100nF",
+    "C34": "100nF",
+    "C35": "100nF",
+    "C36": "100nF",
+    "C37": "100nF",
+    "C38": "100nF",
+    "C39": "100nF",
+    "C40": "100nF",
+    "C41": "100nF",
+    "C42": "100nF",
+    "C43": "100nF",
+    "C44": "100nF",
+    "C45": "100nF",
+    "C46": "100nF",
+    "C47": "100nF",
+    "C48": "3.3pF",
+    "C49": "6.8nF",
+    "C50": "3.3pF",
+    "C51": "6.8nF",
+    "C52": "100nF",
+    "C53": "100nF",
+    "C54": "1.2nF",
+    "C55": "1.0nF",
+    "C56": "1.5nF",
+    "C57": "220pF",
+    "C58": "100nF",
+    "C59": "100nF",
+    "C60": "100nF",
+    "C61": "100nF",
+    "C62": "100nF",
+    "C63": "100nF",
+    "C64": "100nF",
+    "C65": "100nF",
+    "C66": "100nF",
+    "C67": "100nF",
+    "C68": "100nF",
+    "C69": "100nF",
+    "C70": "100nF",
+    "C71": "100nF",
+    "C72": "100nF",
+    "C73": "100nF",
+    "C74": "100nF",
+    "C75": "100nF",
+    "C76": "100nF",
+    "C77": "100nF",
+    "C78": "100nF",
+    "C79": "100nF",
+    "C80": "100nF",
+    "C81": "100nF",
+    "C82": "100nF",
+    "C83": "100nF",
+    "C84": "100nF",
+    "C85": "100nF",
+    "C86": "100nF",
+    "C87": "100nF",
+    "C88": "100nF",
+    "C89": "100nF",
+    "C90": "100nF",
+    "C91": "100nF",
+    "C92": "100nF",
+    "C93": "100nF",
+    "C94": "100nF",
+    "C95": "100nF",
+    "C96": "100nF",
+    "C97": "100nF",
+    "C98": "100nF",
+    "C99": "100nF",
+    "C100": "100nF",
+    "C101": "100nF",
+    "C102": "100nF",
+    "C103": "100nF",
+    "C104": "100nF",
+    "C105": "100nF",
+    "C106": "100nF",
+    "C107": "100nF",
+    "C108": "100nF",
+    "C109": "100nF",
+    "C110": "100nF",
+    "C111": "100nF",
+    "C112": "100nF",
+    "C113": "100nF",
+    "C114": "100nF",
+    "C115": "100nF",
+    "C116": "100nF",
+    "C117": "100nF",
+    "C118": "100nF",
+    "C119": "100nF",
+    "C120": "100nF",
+    "C121": "100nF",
+    "C122": "100nF",
+    "C123": "100nF",
+    "C124": "100nF",
+    "C125": "100nF",
+    "C126": "100nF",
+    "C127": "100nF",
+    "C128": "100nF",
+    "C129": "100nF",
+    "C130": "100nF",
+    "C131": "100nF",
+    "C132": "100nF",
+    "C133": "10uF",
+    "C134": "100nF",
+    "C135": "10uF",
+    "C136": "10uF",
+    "C137": "100nF",
+    "C138": "10uF",
+    "C139": "100nF",
+    "C140": "100nF",
+    "C141": "100nF",
+    "C142": "100nF",
+    "C143": "100nF",
+    "C144": "220nF",
+    "C145": "100nF",
+    "C146": "100nF",
+    "C147": "10uF",
+    "C148": "100nF",
+    "D1": "SS14",
+    "D2": "SS14",
+    "D3": "SS14",
+    "D4": "BAT54S",
+    "D5": "BAT54S",
+    "D6": "BAT54S",
+    "D7": "BAT54S",
+    "D8": "BAT54S",
+    "D9": "BAT54S",
+    "D10": "BAT54S",
+    "D11": "BAT54S",
+    "D12": "BAT54S",
+    "D13": "BAT54S",
+    "D14": "BAT54S",
+    "D15": "BAT54S",
+    "D16": "BAT54S",
+    "D17": "BAT54S",
+    "D18": "BAT54S",
+    "D19": "BAT54S",
+    "D20": "BAT54S",
+    "D21": "BAT54S",
+    "D22": "BAT54S",
+    "D23": "BAT54S",
+    "D24": "BAT54S",
+    "D25": "BAT54S",
+    "D26": "BAT54S",
+    "D27": "BAT54S",
+    "D28": "BAT54S",
+    "D29": "BAT54S",
+    "D30": "BAT54S",
+    "D31": "BAT54S",
+    "D32": "BAT54S",
+    "D33": "BAT54S",
+    "D34": "BAT54S",
+    "D35": "BAT54S",
+    "D36": "BAT54S",
+    "D37": "BAT54S",
+    "D38": "BAT54S",
+    "D39": "BAT54S",
+    "F1": "1206L050/15YR",
+    "FB1": "600R@100MHz",
+    "FB2": "600R@100MHz",
+    "FB3": "600R@100MHz",
+    "J1": "M12A_5",
+    "J2": "Connector 0 (analog + AISENSE, task PC NI)",
+    "J3": "Connector 1 (digital, task PC NI)",
+    "J4": "Manual reward button (panel)",
+    "J5": "Remote reward jack (parallel to panel button)",
+    "J6": "Reward driver out (BNC, placeholder)",
+    "J7": "Sync-module 40-pin GPIO header (Raspberry Pi 5 / CM5 IO Board -- see module docstring)",
+    "J8": "Barcode -> NI optocoupler (Task 11 placeholder)",
+    "J9": "Barcode -> Intan optocoupler (Task 11 placeholder)",
+    "J10": "Barcode spare 1",
+    "J11": "Barcode spare 2",
+    "J12": "Barcode spare 3",
+    "J13": "Eye camera trigger out (BNC)",
+    "J14": "Behavior camera trigger out 1 (BNC)",
+    "J15": "Behavior camera trigger out 2 (BNC)",
+    "J16": "Behavior camera trigger out 3 (BNC)",
+    "J17": "Behavior camera trigger out 4 (BNC)",
+    "J18": "Internal USB-A (sync-module port -> Task 12 USB-I2C bridge)",
+    "J19": "ACCES I/O USB-AO16-8A mating DB37 -- six eye channels (spec Sec.3.2)",
+    "J20": "Photodiode 1 (passive, coax, photovoltaic mode)",
+    "J21": "Photodiode 2 (passive, coax, photovoltaic mode)",
+    "J22": "Microphone (battery-powered, in booth)",
+    "J23": "Ambient light sensor (battery-powered, in booth)",
+    "J24": "Accelerometer motion energy (battery-powered custom device)",
+    "J25": "Joystick X (battery-powered, in booth)",
+    "J26": "Joystick Y (battery-powered, in booth)",
+    "J27": "Misc analog input 1 (panel BNC, /1//2 selectable)",
+    "J28": "Misc analog input 1 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
+    "J29": "Misc analog input 2 (panel BNC, /1//2 selectable)",
+    "J30": "Misc analog input 2 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
+    "J31": "Misc analog input 3 (panel BNC, /1//2 selectable)",
+    "J32": "Misc analog input 3 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
+    "J36": "Connector 0 (analog + AISENSE, recording NI)",
+    "J37": "Intan analog output 1 (BNC)",
+    "J38": "Intan analog output 2 (BNC)",
+    "J39": "Intan analog output 3 (BNC)",
+    "J40": "Intan analog output 4 (BNC)",
+    "J41": "Intan analog output 5 (BNC)",
+    "J42": "Intan analog output 6 (BNC)",
+    "J43": "Intan analog output 7 (BNC)",
+    "J44": "Intan analog output 8 (BNC)",
+    "J45": "Connector 1 (digital, recording NI)",
+    "J46": "Intan opto out: EVT_STROBE_INTAN (BNC)",
+    "J47": "Intan opto out: BARCODE_INTAN (BNC)",
+    "J48": "Intan opto out: RWD_CMD_INTAN (BNC)",
+    "J49": "Intan opto out: RWD_DLVR_INTAN (BNC)",
+    "J50": "Intan opto out: STIM_TRIG_INTAN (BNC)",
+    "J51": "Intan RHS stim status in (BNC)",
+    "J52": "Chassis fan 1",
+    "J53": "Chassis fan 2",
+    "J54": "Chassis fan 3",
+    "J55": "Chassis fan 4",
+    "NT1": "NetTie_2",
+    "NT2": "NetTie_2",
+    "R1": "90.9k",
+    "R2": "10.0k",
+    "R3": "93.1k",
+    "R4": "10.0k",
+    "R5": "100",
+    "R6": "100",
+    "R7": "100",
+    "R8": "100",
+    "R9": "100",
+    "R10": "100",
+    "R11": "100",
+    "R12": "100",
+    "R13": "100",
+    "R14": "100",
+    "R15": "100",
+    "R16": "100",
+    "R17": "100",
+    "R18": "100",
+    "R19": "100",
+    "R20": "100",
+    "R21": "100",
+    "R22": "100",
+    "R23": "100",
+    "R24": "10k",
+    "R25": "330",
+    "R26": "330",
+    "R27": "10",
+    "R28": "1k",
+    "R29": "1k",
+    "R30": "1k",
+    "R31": "1k",
+    "R32": "1k",
+    "R33": "1k",
+    "R34": "1k",
+    "R35": "10",
+    "R36": "1k",
+    "R37": "10",
+    "R38": "1M",
+    "R39": "1.6k",
+    "R40": "1M",
+    "R41": "1.6k",
+    "R42": "1k",
+    "R43": "10",
+    "R44": "10.0k 0.1%",
+    "R45": "10.0k 0.1%",
+    "R46": "10.0k 0.1%",
+    "R47": "10.0k 0.1%",
+    "R48": "12.1k",
+    "R49": "12.1k",
+    "R50": "23.2k",
+    "R51": "23.2k",
+    "R52": "1k",
+    "R53": "10",
+    "R54": "1k",
+    "R55": "10",
+    "R56": "1k",
+    "R57": "10",
+    "R58": "1k",
+    "R59": "10",
+    "R60": "1k",
+    "R61": "10",
+    "R62": "10.0k 0.1%",
+    "R63": "10.0k 0.1%",
+    "R64": "10.0k 0.1%",
+    "R65": "10.0k 0.1%",
+    "R66": "1k",
+    "R67": "10",
+    "R68": "10.0k 0.1%",
+    "R69": "10.0k 0.1%",
+    "R70": "10.0k 0.1%",
+    "R71": "10.0k 0.1%",
+    "R72": "1k",
+    "R73": "10",
+    "R74": "10.0k 0.1%",
+    "R75": "10.0k 0.1%",
+    "R76": "10.0k 0.1%",
+    "R77": "10.0k 0.1%",
+    "R78": "100",
+    "R79": "100",
+    "R80": "100",
+    "R81": "100",
+    "R82": "100",
+    "R83": "100",
+    "R84": "100",
+    "R85": "100",
+    "R86": "100",
+    "R87": "100",
+    "R88": "100",
+    "R89": "100",
+    "R90": "100",
+    "R91": "100",
+    "R92": "100",
+    "R93": "100",
+    "R94": "100",
+    "R95": "100",
+    "R96": "100",
+    "R97": "100",
+    "R98": "100",
+    "R99": "100",
+    "R100": "100",
+    "R101": "100",
+    "R102": "100",
+    "R103": "100",
+    "R104": "100",
+    "R105": "100",
+    "R106": "100",
+    "R107": "100",
+    "R108": "100",
+    "R109": "100",
+    "R110": "100",
+    "R111": "10k",
+    "R112": "1M",
+    "R113": "10k",
+    "R114": "10k",
+    "R115": "1M",
+    "R116": "10k",
+    "R117": "10k",
+    "R118": "1M",
+    "R119": "10k",
+    "R120": "1M",
+    "R121": "10k",
+    "R122": "430",
+    "R123": "3.9k",
+    "R124": "430",
+    "R125": "3.9k",
+    "R126": "430",
+    "R127": "3.9k",
+    "R128": "430",
+    "R129": "3.9k",
+    "R130": "430",
+    "R131": "3.9k",
+    "R132": "430",
+    "R133": "3.9k",
+    "R134": "430",
+    "R135": "3.9k",
+    "R136": "430",
+    "R137": "3.9k",
+    "R138": "430",
+    "R139": "3.9k",
+    "R140": "430",
+    "R141": "3.9k",
+    "R142": "430",
+    "R143": "3.9k",
+    "R144": "430",
+    "R145": "3.9k",
+    "R146": "430",
+    "R147": "3.9k",
+    "R148": "430",
+    "R149": "3.9k",
+    "R150": "430",
+    "R151": "3.9k",
+    "R152": "430",
+    "R153": "3.9k",
+    "R154": "430",
+    "R155": "3.9k",
+    "R156": "430",
+    "R157": "3.9k",
+    "R158": "430",
+    "R159": "3.9k",
+    "R160": "430",
+    "R161": "3.9k",
+    "R162": "430",
+    "R163": "3.9k",
+    "R164": "430",
+    "R165": "3.9k",
+    "R166": "430",
+    "R167": "3.9k",
+    "R168": "430",
+    "R169": "3.9k",
+    "R170": "0",
+    "R171": "430",
+    "R172": "3.9k",
+    "R173": "430",
+    "R174": "3.9k",
+    "R175": "430",
+    "R176": "3.9k",
+    "R177": "430",
+    "R178": "3.9k",
+    "R179": "430",
+    "R180": "3.9k",
+    "R181": "430",
+    "R182": "3.9k",
+    "R183": "430",
+    "R184": "3.9k",
+    "R185": "430",
+    "R186": "3.9k",
+    "R187": "100",
+    "R188": "2.2k",
+    "R189": "2.2k",
+    "R190": "10k",
+    "U1": "LD1117S33TR_SOT223",
+    "U2": "IH1215D",
+    "U3": "TPS7A4901",
+    "U4": "TPS7A3001",
+    "U5": "SN74LVC541APW",
+    "U6": "SN74LVC541APW",
+    "U7": "SN74LVC541APW",
+    "U8": "SN74AHCT541PW",
+    "U9": "SN74AHCT541PW",
+    "U10": "SN74AHCT541PW",
+    "U11": "SN74AHCT541PW",
+    "U12": "SN74HCT32D",
+    "U13": "SN74HCT14D",
+    "U14": "SN74LVC541APW",
+    "U15": "SN74AHCT541PW",
+    "U16": "INA105KU",
+    "U17": "INA105KU",
+    "U18": "INA105KU",
+    "U19": "INA105KU",
+    "U20": "INA105KU",
+    "U21": "INA105KU",
+    "U22": "OPA2197IDR",
+    "U23": "OPA4197IDR",
+    "U24": "INA105KU",
+    "U25": "INA105KU",
+    "U26": "INA105KU",
+    "U27": "INA105KU",
+    "U28": "INA105KU",
+    "U29": "INA105KU",
+    "U30": "INA105KU",
+    "U31": "OPA4192IDR",
+    "U32": "OPA4192IDR",
+    "U33": "OPA4192IDR",
+    "U34": "OPA4192IDR",
+    "U35": "OPA4192IDR",
+    "U36": "OPA4192IDR",
+    "U37": "OPA4192IDR",
+    "U38": "ADG1206YRUZ",
+    "U39": "INA105KU",
+    "U40": "ADG1206YRUZ",
+    "U41": "INA105KU",
+    "U42": "ADG1206YRUZ",
+    "U43": "INA105KU",
+    "U44": "ADG1206YRUZ",
+    "U45": "INA105KU",
+    "U46": "ADG1206YRUZ",
+    "U47": "INA105KU",
+    "U48": "ADG1206YRUZ",
+    "U49": "INA105KU",
+    "U50": "ADG1206YRUZ",
+    "U51": "INA105KU",
+    "U52": "ADG1206YRUZ",
+    "U53": "INA105KU",
+    "U54": "LM339",
+    "U55": "MCP4728",
+    "U56": "ACSL-6400-00TE",
+    "U57": "ACSL-6400-00TE",
+    "U58": "ACSL-6400-00TE",
+    "U59": "ACSL-6400-00TE",
+    "U60": "ACSL-6400-00TE",
+    "U61": "ACSL-6400-00TE",
+    "U62": "TMA-0505S",
+    "U63": "LD1117S50TR_SOT223",
+    "U64": "ACSL-6400-00TE",
+    "U65": "ACSL-6420-00TE",
+    "U66": "MCP2221A",
+    "U67": "MCP23017 (I2C 0x20)",
+    "U68": "MCP23017 (I2C 0x21)"
+  },
+  "nets": {
+    "+3V3": [
+      ["C7", "1", "", "passive"],
+      ["C8", "1", "", "passive"],
+      ["C22", "1", "", "passive"],
+      ["C23", "1", "", "passive"],
+      ["C24", "1", "", "passive"],
+      ["C32", "1", "", "passive"],
+      ["C120", "1", "", "passive"],
+      ["C143", "1", "", "passive"],
+      ["C144", "1", "", "passive"],
+      ["C145", "1", "", "passive"],
+      ["C146", "1", "", "passive"],
+      ["R113", "1", "", "passive"],
+      ["R116", "1", "", "passive"],
+      ["R119", "1", "", "passive"],
+      ["R121", "1", "", "passive"],
+      ["R188", "1", "", "passive"],
+      ["R189", "1", "", "passive"],
+      ["U1", "2", "VO_2", "power_out"],
+      ["U5", "20", "VCC_20", "power_in"],
+      ["U6", "20", "VCC_20", "power_in"],
+      ["U7", "20", "VCC_20", "power_in"],
+      ["U14", "20", "VCC_20", "power_in"],
+      ["U55", "1", "VDD_1", "power_in"],
+      ["U66", "1", "VDD_1", "power_in"],
+      ["U66", "11", "VUSB_11", "passive"],
+      ["U67", "9", "V_{DD}_9", "power_in"],
+      ["U67", "18", "~{RESET}_18", "input"],
+      ["U68", "9", "V_{DD}_9", "power_in"],
+      ["U68", "15", "A0_15", "input"],
+      ["U68", "18", "~{RESET}_18", "input"]
+    ],
+    "+5V": [
+      ["C5", "1", "", "passive"],
+      ["C6", "1", "", "passive"],
+      ["C25", "1", "", "passive"],
+      ["C26", "1", "", "passive"],
+      ["C27", "1", "", "passive"],
+      ["C28", "1", "", "passive"],
+      ["C30", "1", "", "passive"],
+      ["C31", "1", "", "passive"],
+      ["C33", "1", "", "passive"],
+      ["C141", "1", "", "passive"],
+      ["D3", "1", "K_1", "passive"],
+      ["D4", "2", "K_2", "passive"],
+      ["D5", "2", "K_2", "passive"],
+      ["D6", "2", "K_2", "passive"],
+      ["D7", "2", "K_2", "passive"],
+      ["D8", "2", "K_2", "passive"],
+      ["D9", "2", "K_2", "passive"],
+      ["D10", "2", "K_2", "passive"],
+      ["D11", "2", "K_2", "passive"],
+      ["D12", "2", "K_2", "passive"],
+      ["D13", "2", "K_2", "passive"],
+      ["D14", "2", "K_2", "passive"],
+      ["D15", "2", "K_2", "passive"],
+      ["D16", "2", "K_2", "passive"],
+      ["D17", "2", "K_2", "passive"],
+      ["D18", "2", "K_2", "passive"],
+      ["D19", "2", "K_2", "passive"],
+      ["D20", "2", "K_2", "passive"],
+      ["D21", "2", "K_2", "passive"],
+      ["D22", "2", "K_2", "passive"],
+      ["R24", "1", "", "passive"],
+      ["R122", "1", "", "passive"],
+      ["R124", "1", "", "passive"],
+      ["R126", "1", "", "passive"],
+      ["R128", "1", "", "passive"],
+      ["R130", "1", "", "passive"],
+      ["R132", "1", "", "passive"],
+      ["R134", "1", "", "passive"],
+      ["R136", "1", "", "passive"],
+      ["R138", "1", "", "passive"],
+      ["R140", "1", "", "passive"],
+      ["R142", "1", "", "passive"],
+      ["R144", "1", "", "passive"],
+      ["R146", "1", "", "passive"],
+      ["R148", "1", "", "passive"],
+      ["R150", "1", "", "passive"],
+      ["R152", "1", "", "passive"],
+      ["R154", "1", "", "passive"],
+      ["R156", "1", "", "passive"],
+      ["R158", "1", "", "passive"],
+      ["R160", "1", "", "passive"],
+      ["R162", "1", "", "passive"],
+      ["R164", "1", "", "passive"],
+      ["R166", "1", "", "passive"],
+      ["R168", "1", "", "passive"],
+      ["R171", "1", "", "passive"],
+      ["R173", "1", "", "passive"],
+      ["R175", "1", "", "passive"],
+      ["R177", "1", "", "passive"],
+      ["R179", "1", "", "passive"],
+      ["R181", "1", "", "passive"],
+      ["R184", "1", "", "passive"],
+      ["R186", "1", "", "passive"],
+      ["U1", "3", "VI_3", "power_in"],
+      ["U8", "20", "VCC_20", "power_in"],
+      ["U9", "20", "VCC_20", "power_in"],
+      ["U10", "20", "VCC_20", "power_in"],
+      ["U11", "20", "VCC_20", "power_in"],
+      ["U12", "14", "VCC_14", "power_in"],
+      ["U13", "14", "VCC_14", "power_in"],
+      ["U15", "20", "VCC_20", "power_in"],
+      ["U62", "1", "+Vin_1", "power_in"],
+      ["U65", "4", "VDD1_4", "power_in"]
+    ],
+    "+12V": [
+      ["C1", "1", "", "passive"],
+      ["C2", "1", "", "passive"],
+      ["C9", "1", "", "passive"],
+      ["C34", "1", "", "passive"],
+      ["C36", "1", "", "passive"],
+      ["C38", "1", "", "passive"],
+      ["C40", "1", "", "passive"],
+      ["C42", "1", "", "passive"],
+      ["C44", "1", "", "passive"],
+      ["C46", "1", "", "passive"],
+      ["C52", "1", "", "passive"],
+      ["C58", "1", "", "passive"],
+      ["C60", "1", "", "passive"],
+      ["C62", "1", "", "passive"],
+      ["C64", "1", "", "passive"],
+      ["C66", "1", "", "passive"],
+      ["C68", "1", "", "passive"],
+      ["C70", "1", "", "passive"],
+      ["C72", "1", "", "passive"],
+      ["C74", "1", "", "passive"],
+      ["C76", "1", "", "passive"],
+      ["C78", "1", "", "passive"],
+      ["C80", "1", "", "passive"],
+      ["C82", "1", "", "passive"],
+      ["C84", "1", "", "passive"],
+      ["C86", "1", "", "passive"],
+      ["C90", "1", "", "passive"],
+      ["C94", "1", "", "passive"],
+      ["C98", "1", "", "passive"],
+      ["C102", "1", "", "passive"],
+      ["C106", "1", "", "passive"],
+      ["C110", "1", "", "passive"],
+      ["C114", "1", "", "passive"],
+      ["C118", "1", "", "passive"],
+      ["C119", "1", "", "passive"],
+      ["D1", "1", "K_1", "passive"],
+      ["D23", "2", "K_2", "passive"],
+      ["D24", "2", "K_2", "passive"],
+      ["D25", "2", "K_2", "passive"],
+      ["D26", "2", "K_2", "passive"],
+      ["D27", "2", "K_2", "passive"],
+      ["D28", "2", "K_2", "passive"],
+      ["D29", "2", "K_2", "passive"],
+      ["D30", "2", "K_2", "passive"],
+      ["D31", "2", "K_2", "passive"],
+      ["D32", "2", "K_2", "passive"],
+      ["D33", "2", "K_2", "passive"],
+      ["D34", "2", "K_2", "passive"],
+      ["D35", "2", "K_2", "passive"],
+      ["D36", "2", "K_2", "passive"],
+      ["D37", "2", "K_2", "passive"],
+      ["D38", "2", "K_2", "passive"],
+      ["F1", "1", "", "passive"],
+      ["U2", "3", "+Vin_3", "power_in"],
+      ["U16", "7", "V+_7", "power_in"],
+      ["U17", "7", "V+_7", "power_in"],
+      ["U18", "7", "V+_7", "power_in"],
+      ["U19", "7", "V+_7", "power_in"],
+      ["U20", "7", "V+_7", "power_in"],
+      ["U21", "7", "V+_7", "power_in"],
+      ["U22", "8", "V+_8", "power_in"],
+      ["U23", "4", "V+_4", "power_in"],
+      ["U24", "7", "V+_7", "power_in"],
+      ["U25", "7", "V+_7", "power_in"],
+      ["U26", "7", "V+_7", "power_in"],
+      ["U27", "7", "V+_7", "power_in"],
+      ["U28", "7", "V+_7", "power_in"],
+      ["U29", "7", "V+_7", "power_in"],
+      ["U30", "7", "V+_7", "power_in"],
+      ["U31", "4", "V+_4", "power_in"],
+      ["U32", "4", "V+_4", "power_in"],
+      ["U33", "4", "V+_4", "power_in"],
+      ["U34", "4", "V+_4", "power_in"],
+      ["U35", "4", "V+_4", "power_in"],
+      ["U36", "4", "V+_4", "power_in"],
+      ["U37", "4", "V+_4", "power_in"],
+      ["U38", "1", "VDD_1", "power_in"],
+      ["U38", "18", "EN_18", "input"],
+      ["U40", "1", "VDD_1", "power_in"],
+      ["U40", "18", "EN_18", "input"],
+      ["U42", "1", "VDD_1", "power_in"],
+      ["U42", "18", "EN_18", "input"],
+      ["U44", "1", "VDD_1", "power_in"],
+      ["U44", "18", "EN_18", "input"],
+      ["U46", "1", "VDD_1", "power_in"],
+      ["U46", "18", "EN_18", "input"],
+      ["U48", "1", "VDD_1", "power_in"],
+      ["U48", "18", "EN_18", "input"],
+      ["U50", "1", "VDD_1", "power_in"],
+      ["U50", "18", "EN_18", "input"],
+      ["U52", "1", "VDD_1", "power_in"],
+      ["U52", "18", "EN_18", "input"],
+      ["U54", "3", "V+_3", "power_in"]
+    ],
+    "-12V": [
+      ["C3", "1", "", "passive"],
+      ["C4", "1", "", "passive"],
+      ["C35", "1", "", "passive"],
+      ["C37", "1", "", "passive"],
+      ["C39", "1", "", "passive"],
+      ["C41", "1", "", "passive"],
+      ["C43", "1", "", "passive"],
+      ["C45", "1", "", "passive"],
+      ["C47", "1", "", "passive"],
+      ["C53", "1", "", "passive"],
+      ["C59", "1", "", "passive"],
+      ["C61", "1", "", "passive"],
+      ["C63", "1", "", "passive"],
+      ["C65", "1", "", "passive"],
+      ["C67", "1", "", "passive"],
+      ["C69", "1", "", "passive"],
+      ["C71", "1", "", "passive"],
+      ["C73", "1", "", "passive"],
+      ["C75", "1", "", "passive"],
+      ["C77", "1", "", "passive"],
+      ["C79", "1", "", "passive"],
+      ["C81", "1", "", "passive"],
+      ["C83", "1", "", "passive"],
+      ["C85", "1", "", "passive"],
+      ["C87", "1", "", "passive"],
+      ["C91", "1", "", "passive"],
+      ["C95", "1", "", "passive"],
+      ["C99", "1", "", "passive"],
+      ["C103", "1", "", "passive"],
+      ["C107", "1", "", "passive"],
+      ["C111", "1", "", "passive"],
+      ["C115", "1", "", "passive"],
+      ["D2", "2", "A_2", "passive"],
+      ["D23", "1", "A_1", "passive"],
+      ["D24", "1", "A_1", "passive"],
+      ["D25", "1", "A_1", "passive"],
+      ["D26", "1", "A_1", "passive"],
+      ["D27", "1", "A_1", "passive"],
+      ["D28", "1", "A_1", "passive"],
+      ["D29", "1", "A_1", "passive"],
+      ["D30", "1", "A_1", "passive"],
+      ["D31", "1", "A_1", "passive"],
+      ["D32", "1", "A_1", "passive"],
+      ["D33", "1", "A_1", "passive"],
+      ["D34", "1", "A_1", "passive"],
+      ["D35", "1", "A_1", "passive"],
+      ["D36", "1", "A_1", "passive"],
+      ["D37", "1", "A_1", "passive"],
+      ["D38", "1", "A_1", "passive"],
+      ["U16", "4", "V-_4", "power_in"],
+      ["U17", "4", "V-_4", "power_in"],
+      ["U18", "4", "V-_4", "power_in"],
+      ["U19", "4", "V-_4", "power_in"],
+      ["U20", "4", "V-_4", "power_in"],
+      ["U21", "4", "V-_4", "power_in"],
+      ["U22", "4", "V-_4", "power_in"],
+      ["U23", "11", "V-_11", "power_in"],
+      ["U24", "4", "V-_4", "power_in"],
+      ["U25", "4", "V-_4", "power_in"],
+      ["U26", "4", "V-_4", "power_in"],
+      ["U27", "4", "V-_4", "power_in"],
+      ["U28", "4", "V-_4", "power_in"],
+      ["U29", "4", "V-_4", "power_in"],
+      ["U30", "4", "V-_4", "power_in"],
+      ["U31", "11", "V-_11", "power_in"],
+      ["U32", "11", "V-_11", "power_in"],
+      ["U33", "11", "V-_11", "power_in"],
+      ["U34", "11", "V-_11", "power_in"],
+      ["U35", "11", "V-_11", "power_in"],
+      ["U36", "11", "V-_11", "power_in"],
+      ["U37", "11", "V-_11", "power_in"],
+      ["U38", "27", "V-_27", "power_in"],
+      ["U40", "27", "V-_27", "power_in"],
+      ["U42", "27", "V-_27", "power_in"],
+      ["U44", "27", "V-_27", "power_in"],
+      ["U46", "27", "V-_27", "power_in"],
+      ["U48", "27", "V-_27", "power_in"],
+      ["U50", "27", "V-_27", "power_in"],
+      ["U52", "27", "V-_27", "power_in"]
+    ],
+    "ACCESIO_AGND": [
+      ["J19", "1", "AGND_1", "passive"],
+      ["J19", "2", "AGND_2", "passive"],
+      ["J19", "3", "AGND_3", "passive"],
+      ["J19", "4", "AGND_4", "passive"],
+      ["J19", "5", "AGND_5", "passive"],
+      ["J19", "6", "AGND_6", "passive"],
+      ["J19", "7", "AGND_7", "passive"],
+      ["J19", "8", "AGND_8", "passive"],
+      ["J19", "9", "AGND_9", "passive"],
+      ["J19", "10", "AGND_10", "passive"],
+      ["J19", "11", "AGND_11", "passive"],
+      ["J19", "12", "AGND_12", "passive"],
+      ["J19", "13", "AGND_13", "passive"],
+      ["J19", "14", "AGND_14", "passive"],
+      ["J19", "15", "AGND_15", "passive"],
+      ["J19", "16", "AGND_16", "passive"],
+      ["J19", "17", "AGND_17", "passive"],
+      ["J19", "18", "AGND_18", "passive"],
+      ["J19", "19", "AGND_19", "passive"],
+      ["R27", "1", "", "passive"],
+      ["U16", "2", "-_2", "passive"],
+      ["U17", "2", "-_2", "passive"],
+      ["U18", "2", "-_2", "passive"],
+      ["U19", "2", "-_2", "passive"],
+      ["U20", "2", "-_2", "passive"],
+      ["U21", "2", "-_2", "passive"]
+    ],
+    "ACC_TRIG": [
+      ["J7", "22", "GPIO25_22", "passive"],
+      ["R118", "1", "", "passive"],
+      ["R119", "2", "", "passive"],
+      ["U11", "4", "A2_4", "input"],
+      ["U54", "13", "", "open_collector"]
+    ],
+    "ACC_TRIG_FB": [
+      ["R117", "2", "", "passive"],
+      ["R118", "2", "", "passive"],
+      ["U54", "11", "+_11", "input"]
+    ],
+    "ACC_TRIG_THR": [
+      ["U54", "10", "-_10", "input"],
+      ["U55", "8", "VOUTC_8", "output"]
+    ],
+    "ACC_TRIG_TPC": [
+      ["J3", "40", "40_40", "passive"],
+      ["U11", "16", "Y2_16", "tri_state"]
+    ],
+    "AGND": [
+      ["C1", "2", "", "passive"],
+      ["C2", "2", "", "passive"],
+      ["C3", "2", "", "passive"],
+      ["C4", "2", "", "passive"],
+      ["C34", "2", "", "passive"],
+      ["C35", "2", "", "passive"],
+      ["C36", "2", "", "passive"],
+      ["C37", "2", "", "passive"],
+      ["C38", "2", "", "passive"],
+      ["C39", "2", "", "passive"],
+      ["C40", "2", "", "passive"],
+      ["C41", "2", "", "passive"],
+      ["C42", "2", "", "passive"],
+      ["C43", "2", "", "passive"],
+      ["C44", "2", "", "passive"],
+      ["C45", "2", "", "passive"],
+      ["C46", "2", "", "passive"],
+      ["C47", "2", "", "passive"],
+      ["C49", "2", "", "passive"],
+      ["C51", "2", "", "passive"],
+      ["C52", "2", "", "passive"],
+      ["C53", "2", "", "passive"],
+      ["C55", "2", "", "passive"],
+      ["C57", "2", "", "passive"],
+      ["C58", "2", "", "passive"],
+      ["C59", "2", "", "passive"],
+      ["C60", "2", "", "passive"],
+      ["C61", "2", "", "passive"],
+      ["C62", "2", "", "passive"],
+      ["C63", "2", "", "passive"],
+      ["C64", "2", "", "passive"],
+      ["C65", "2", "", "passive"],
+      ["C66", "2", "", "passive"],
+      ["C67", "2", "", "passive"],
+      ["C68", "2", "", "passive"],
+      ["C69", "2", "", "passive"],
+      ["C70", "2", "", "passive"],
+      ["C71", "2", "", "passive"],
+      ["C72", "2", "", "passive"],
+      ["C73", "2", "", "passive"],
+      ["C74", "2", "", "passive"],
+      ["C75", "2", "", "passive"],
+      ["C76", "2", "", "passive"],
+      ["C77", "2", "", "passive"],
+      ["C78", "2", "", "passive"],
+      ["C79", "2", "", "passive"],
+      ["C80", "2", "", "passive"],
+      ["C81", "2", "", "passive"],
+      ["C82", "2", "", "passive"],
+      ["C83", "2", "", "passive"],
+      ["C84", "2", "", "passive"],
+      ["C85", "2", "", "passive"],
+      ["C86", "2", "", "passive"],
+      ["C87", "2", "", "passive"],
+      ["C90", "2", "", "passive"],
+      ["C91", "2", "", "passive"],
+      ["C94", "2", "", "passive"],
+      ["C95", "2", "", "passive"],
+      ["C98", "2", "", "passive"],
+      ["C99", "2", "", "passive"],
+      ["C102", "2", "", "passive"],
+      ["C103", "2", "", "passive"],
+      ["C106", "2", "", "passive"],
+      ["C107", "2", "", "passive"],
+      ["C110", "2", "", "passive"],
+      ["C111", "2", "", "passive"],
+      ["C114", "2", "", "passive"],
+      ["C115", "2", "", "passive"],
+      ["C118", "2", "", "passive"],
+      ["C119", "2", "", "passive"],
+      ["C120", "2", "", "passive"],
+      ["J1", "4", "4_4", "passive"],
+      ["J1", "5", "5_5", "passive"],
+      ["J2", "62", "62_62", "passive"],
+      ["J36", "62", "62_62", "passive"],
+      ["NT1", "1", "1_1", "passive"],
+      ["R27", "2", "", "passive"],
+      ["R35", "2", "", "passive"],
+      ["R37", "2", "", "passive"],
+      ["R43", "2", "", "passive"],
+      ["R47", "2", "", "passive"],
+      ["R53", "2", "", "passive"],
+      ["R55", "2", "", "passive"],
+      ["R57", "2", "", "passive"],
+      ["R59", "2", "", "passive"],
+      ["R61", "2", "", "passive"],
+      ["R63", "2", "", "passive"],
+      ["R65", "2", "", "passive"],
+      ["R67", "2", "", "passive"],
+      ["R69", "2", "", "passive"],
+      ["R71", "2", "", "passive"],
+      ["R73", "2", "", "passive"],
+      ["R75", "2", "", "passive"],
+      ["R77", "2", "", "passive"],
+      ["U16", "1", "REF_1", "passive"],
+      ["U17", "1", "REF_1", "passive"],
+      ["U18", "1", "REF_1", "passive"],
+      ["U19", "1", "REF_1", "passive"],
+      ["U20", "1", "REF_1", "passive"],
+      ["U21", "1", "REF_1", "passive"],
+      ["U23", "12", "+_12", "input"],
+      ["U24", "1", "REF_1", "passive"],
+      ["U25", "1", "REF_1", "passive"],
+      ["U26", "1", "REF_1", "passive"],
+      ["U27", "1", "REF_1", "passive"],
+      ["U28", "1", "REF_1", "passive"],
+      ["U29", "1", "REF_1", "passive"],
+      ["U30", "1", "REF_1", "passive"],
+      ["U37", "5", "+_5", "input"],
+      ["U37", "10", "+_10", "input"],
+      ["U37", "12", "+_12", "input"],
+      ["U38", "12", "GND_12", "power_in"],
+      ["U39", "2", "-_2", "passive"],
+      ["U40", "12", "GND_12", "power_in"],
+      ["U41", "2", "-_2", "passive"],
+      ["U42", "12", "GND_12", "power_in"],
+      ["U43", "2", "-_2", "passive"],
+      ["U44", "12", "GND_12", "power_in"],
+      ["U45", "2", "-_2", "passive"],
+      ["U46", "12", "GND_12", "power_in"],
+      ["U47", "2", "-_2", "passive"],
+      ["U48", "12", "GND_12", "power_in"],
+      ["U49", "2", "-_2", "passive"],
+      ["U50", "12", "GND_12", "power_in"],
+      ["U51", "2", "-_2", "passive"],
+      ["U52", "12", "GND_12", "power_in"],
+      ["U53", "2", "-_2", "passive"],
+      ["U54", "12", "V-_12", "power_in"],
+      ["U55", "4", "~{LDAC}_4", "input"],
+      ["U55", "10", "VSS_10", "power_in"]
+    ],
+    "A_ACC": [
+      ["R117", "1", "", "passive"],
+      ["U25", "5", "SENSE_5", "passive"],
+      ["U25", "6", "", "output"],
+      ["U33", "5", "+_5", "input"],
+      ["U38", "10", "S10_10", "bidirectional"],
+      ["U40", "10", "S10_10", "bidirectional"],
+      ["U42", "10", "S10_10", "bidirectional"],
+      ["U44", "10", "S10_10", "bidirectional"],
+      ["U46", "10", "S10_10", "bidirectional"],
+      ["U48", "10", "S10_10", "bidirectional"],
+      ["U50", "10", "S10_10", "bidirectional"],
+      ["U52", "10", "S10_10", "bidirectional"]
+    ],
+    "A_ACC_CLAMP": [
+      ["D33", "3", "COM_3", "passive"],
+      ["R54", "2", "", "passive"],
+      ["U25", "3", "+_3", "passive"]
+    ],
+    "A_ACC_NI": [
+      ["J36", "66", "66_66", "passive"],
+      ["R87", "2", "", "passive"]
+    ],
+    "A_ACC_NI_BUF": [
+      ["R87", "1", "", "passive"],
+      ["U33", "6", "-_6", "input"],
+      ["U33", "7", "", "output"]
+    ],
+    "A_ACC_RAW": [
+      ["J24", "1", "In_1", "passive"],
+      ["R54", "1", "", "passive"]
+    ],
+    "A_ACC_SHLD": [
+      ["J24", "2", "Ext_2", "passive"],
+      ["R55", "1", "", "passive"],
+      ["U25", "2", "-_2", "passive"]
+    ],
+    "A_AMB": [
+      ["U24", "5", "SENSE_5", "passive"],
+      ["U24", "6", "", "output"],
+      ["U33", "3", "+_3", "input"],
+      ["U38", "11", "S9_11", "bidirectional"],
+      ["U40", "11", "S9_11", "bidirectional"],
+      ["U42", "11", "S9_11", "bidirectional"],
+      ["U44", "11", "S9_11", "bidirectional"],
+      ["U46", "11", "S9_11", "bidirectional"],
+      ["U48", "11", "S9_11", "bidirectional"],
+      ["U50", "11", "S9_11", "bidirectional"],
+      ["U52", "11", "S9_11", "bidirectional"]
+    ],
+    "A_AMB_CLAMP": [
+      ["D32", "3", "COM_3", "passive"],
+      ["R52", "2", "", "passive"],
+      ["U24", "3", "+_3", "passive"]
+    ],
+    "A_AMB_NI": [
+      ["J36", "34", "34_34", "passive"],
+      ["R86", "2", "", "passive"]
+    ],
+    "A_AMB_NI_BUF": [
+      ["R86", "1", "", "passive"],
+      ["U33", "1", "", "output"],
+      ["U33", "2", "-_2", "input"]
+    ],
+    "A_AMB_RAW": [
+      ["J23", "1", "In_1", "passive"],
+      ["R52", "1", "", "passive"]
+    ],
+    "A_AMB_SHLD": [
+      ["J23", "2", "Ext_2", "passive"],
+      ["R53", "1", "", "passive"],
+      ["U24", "2", "-_2", "passive"]
+    ],
+    "A_EYE_LP": [
+      ["U20", "5", "SENSE_5", "passive"],
+      ["U20", "6", "", "output"],
+      ["U32", "3", "+_3", "input"],
+      ["U38", "23", "S5_23", "bidirectional"],
+      ["U40", "23", "S5_23", "bidirectional"],
+      ["U42", "23", "S5_23", "bidirectional"],
+      ["U44", "23", "S5_23", "bidirectional"],
+      ["U46", "23", "S5_23", "bidirectional"],
+      ["U48", "23", "S5_23", "bidirectional"],
+      ["U50", "23", "S5_23", "bidirectional"],
+      ["U52", "23", "S5_23", "bidirectional"]
+    ],
+    "A_EYE_LP_CLAMP": [
+      ["D27", "3", "COM_3", "passive"],
+      ["R32", "2", "", "passive"],
+      ["U20", "3", "+_3", "passive"]
+    ],
+    "A_EYE_LP_DAC": [
+      ["J19", "24", "DAC4_24", "passive"],
+      ["R32", "1", "", "passive"]
+    ],
+    "A_EYE_LP_NI": [
+      ["J36", "28", "28_28", "passive"],
+      ["R82", "2", "", "passive"]
+    ],
+    "A_EYE_LP_NI_BUF": [
+      ["R82", "1", "", "passive"],
+      ["U32", "1", "", "output"],
+      ["U32", "2", "-_2", "input"]
+    ],
+    "A_EYE_LX": [
+      ["U16", "5", "SENSE_5", "passive"],
+      ["U16", "6", "", "output"],
+      ["U31", "3", "+_3", "input"],
+      ["U35", "3", "+_3", "input"],
+      ["U38", "19", "S1_19", "bidirectional"],
+      ["U40", "19", "S1_19", "bidirectional"],
+      ["U42", "19", "S1_19", "bidirectional"],
+      ["U44", "19", "S1_19", "bidirectional"],
+      ["U46", "19", "S1_19", "bidirectional"],
+      ["U48", "19", "S1_19", "bidirectional"],
+      ["U50", "19", "S1_19", "bidirectional"],
+      ["U52", "19", "S1_19", "bidirectional"]
+    ],
+    "A_EYE_LX_CLAMP": [
+      ["D23", "3", "COM_3", "passive"],
+      ["R28", "2", "", "passive"],
+      ["U16", "3", "+_3", "passive"]
+    ],
+    "A_EYE_LX_DAC": [
+      ["J19", "20", "DAC0_20", "passive"],
+      ["R28", "1", "", "passive"]
+    ],
+    "A_EYE_LX_NI": [
+      ["J36", "68", "68_68", "passive"],
+      ["R78", "2", "", "passive"]
+    ],
+    "A_EYE_LX_NI_BUF": [
+      ["R78", "1", "", "passive"],
+      ["U31", "1", "", "output"],
+      ["U31", "2", "-_2", "input"]
+    ],
+    "A_EYE_LX_TPC": [
+      ["J2", "68", "68_68", "passive"],
+      ["R94", "2", "", "passive"]
+    ],
+    "A_EYE_LX_TPC_BUF": [
+      ["R94", "1", "", "passive"],
+      ["U35", "1", "", "output"],
+      ["U35", "2", "-_2", "input"]
+    ],
+    "A_EYE_LY": [
+      ["U17", "5", "SENSE_5", "passive"],
+      ["U17", "6", "", "output"],
+      ["U31", "5", "+_5", "input"],
+      ["U35", "5", "+_5", "input"],
+      ["U38", "20", "S2_20", "bidirectional"],
+      ["U40", "20", "S2_20", "bidirectional"],
+      ["U42", "20", "S2_20", "bidirectional"],
+      ["U44", "20", "S2_20", "bidirectional"],
+      ["U46", "20", "S2_20", "bidirectional"],
+      ["U48", "20", "S2_20", "bidirectional"],
+      ["U50", "20", "S2_20", "bidirectional"],
+      ["U52", "20", "S2_20", "bidirectional"]
+    ],
+    "A_EYE_LY_CLAMP": [
+      ["D24", "3", "COM_3", "passive"],
+      ["R29", "2", "", "passive"],
+      ["U17", "3", "+_3", "passive"]
+    ],
+    "A_EYE_LY_DAC": [
+      ["J19", "21", "DAC1_21", "passive"],
+      ["R29", "1", "", "passive"]
+    ],
+    "A_EYE_LY_NI": [
+      ["J36", "33", "33_33", "passive"],
+      ["R79", "2", "", "passive"]
+    ],
+    "A_EYE_LY_NI_BUF": [
+      ["R79", "1", "", "passive"],
+      ["U31", "6", "-_6", "input"],
+      ["U31", "7", "", "output"]
+    ],
+    "A_EYE_LY_TPC": [
+      ["J2", "33", "33_33", "passive"],
+      ["R95", "2", "", "passive"]
+    ],
+    "A_EYE_LY_TPC_BUF": [
+      ["R95", "1", "", "passive"],
+      ["U35", "6", "-_6", "input"],
+      ["U35", "7", "", "output"]
+    ],
+    "A_EYE_RP": [
+      ["U21", "5", "SENSE_5", "passive"],
+      ["U21", "6", "", "output"],
+      ["U32", "5", "+_5", "input"],
+      ["U38", "24", "S6_24", "bidirectional"],
+      ["U40", "24", "S6_24", "bidirectional"],
+      ["U42", "24", "S6_24", "bidirectional"],
+      ["U44", "24", "S6_24", "bidirectional"],
+      ["U46", "24", "S6_24", "bidirectional"],
+      ["U48", "24", "S6_24", "bidirectional"],
+      ["U50", "24", "S6_24", "bidirectional"],
+      ["U52", "24", "S6_24", "bidirectional"]
+    ],
+    "A_EYE_RP_CLAMP": [
+      ["D28", "3", "COM_3", "passive"],
+      ["R33", "2", "", "passive"],
+      ["U21", "3", "+_3", "passive"]
+    ],
+    "A_EYE_RP_DAC": [
+      ["J19", "25", "DAC5_25", "passive"],
+      ["R33", "1", "", "passive"]
+    ],
+    "A_EYE_RP_NI": [
+      ["J36", "60", "60_60", "passive"],
+      ["R83", "2", "", "passive"]
+    ],
+    "A_EYE_RP_NI_BUF": [
+      ["R83", "1", "", "passive"],
+      ["U32", "6", "-_6", "input"],
+      ["U32", "7", "", "output"]
+    ],
+    "A_EYE_RX": [
+      ["U18", "5", "SENSE_5", "passive"],
+      ["U18", "6", "", "output"],
+      ["U31", "10", "+_10", "input"],
+      ["U35", "10", "+_10", "input"],
+      ["U38", "21", "S3_21", "bidirectional"],
+      ["U40", "21", "S3_21", "bidirectional"],
+      ["U42", "21", "S3_21", "bidirectional"],
+      ["U44", "21", "S3_21", "bidirectional"],
+      ["U46", "21", "S3_21", "bidirectional"],
+      ["U48", "21", "S3_21", "bidirectional"],
+      ["U50", "21", "S3_21", "bidirectional"],
+      ["U52", "21", "S3_21", "bidirectional"]
+    ],
+    "A_EYE_RX_CLAMP": [
+      ["D25", "3", "COM_3", "passive"],
+      ["R30", "2", "", "passive"],
+      ["U18", "3", "+_3", "passive"]
+    ],
+    "A_EYE_RX_DAC": [
+      ["J19", "22", "DAC2_22", "passive"],
+      ["R30", "1", "", "passive"]
+    ],
+    "A_EYE_RX_NI": [
+      ["J36", "65", "65_65", "passive"],
+      ["R80", "2", "", "passive"]
+    ],
+    "A_EYE_RX_NI_BUF": [
+      ["R80", "1", "", "passive"],
+      ["U31", "8", "", "output"],
+      ["U31", "9", "-_9", "input"]
+    ],
+    "A_EYE_RX_TPC": [
+      ["J2", "65", "65_65", "passive"],
+      ["R96", "2", "", "passive"]
+    ],
+    "A_EYE_RX_TPC_BUF": [
+      ["R96", "1", "", "passive"],
+      ["U35", "8", "", "output"],
+      ["U35", "9", "-_9", "input"]
+    ],
+    "A_EYE_RY": [
+      ["U19", "5", "SENSE_5", "passive"],
+      ["U19", "6", "", "output"],
+      ["U31", "12", "+_12", "input"],
+      ["U35", "12", "+_12", "input"],
+      ["U38", "22", "S4_22", "bidirectional"],
+      ["U40", "22", "S4_22", "bidirectional"],
+      ["U42", "22", "S4_22", "bidirectional"],
+      ["U44", "22", "S4_22", "bidirectional"],
+      ["U46", "22", "S4_22", "bidirectional"],
+      ["U48", "22", "S4_22", "bidirectional"],
+      ["U50", "22", "S4_22", "bidirectional"],
+      ["U52", "22", "S4_22", "bidirectional"]
+    ],
+    "A_EYE_RY_CLAMP": [
+      ["D26", "3", "COM_3", "passive"],
+      ["R31", "2", "", "passive"],
+      ["U19", "3", "+_3", "passive"]
+    ],
+    "A_EYE_RY_DAC": [
+      ["J19", "23", "DAC3_23", "passive"],
+      ["R31", "1", "", "passive"]
+    ],
+    "A_EYE_RY_NI": [
+      ["J36", "30", "30_30", "passive"],
+      ["R81", "2", "", "passive"]
+    ],
+    "A_EYE_RY_NI_BUF": [
+      ["R81", "1", "", "passive"],
+      ["U31", "13", "-_13", "input"],
+      ["U31", "14", "", "output"]
+    ],
+    "A_EYE_RY_TPC": [
+      ["J2", "30", "30_30", "passive"],
+      ["R97", "2", "", "passive"]
+    ],
+    "A_EYE_RY_TPC_BUF": [
+      ["R97", "1", "", "passive"],
+      ["U35", "13", "-_13", "input"],
+      ["U35", "14", "", "output"]
+    ],
+    "A_JOY_X": [
+      ["U26", "5", "SENSE_5", "passive"],
+      ["U26", "6", "", "output"],
+      ["U33", "10", "+_10", "input"],
+      ["U36", "3", "+_3", "input"],
+      ["U38", "9", "S11_9", "bidirectional"],
+      ["U40", "9", "S11_9", "bidirectional"],
+      ["U42", "9", "S11_9", "bidirectional"],
+      ["U44", "9", "S11_9", "bidirectional"],
+      ["U46", "9", "S11_9", "bidirectional"],
+      ["U48", "9", "S11_9", "bidirectional"],
+      ["U50", "9", "S11_9", "bidirectional"],
+      ["U52", "9", "S11_9", "bidirectional"]
+    ],
+    "A_JOY_X_CLAMP": [
+      ["D34", "3", "COM_3", "passive"],
+      ["R56", "2", "", "passive"],
+      ["U26", "3", "+_3", "passive"]
+    ],
+    "A_JOY_X_NI": [
+      ["J36", "31", "31_31", "passive"],
+      ["R88", "2", "", "passive"]
+    ],
+    "A_JOY_X_NI_BUF": [
+      ["R88", "1", "", "passive"],
+      ["U33", "8", "", "output"],
+      ["U33", "9", "-_9", "input"]
+    ],
+    "A_JOY_X_RAW": [
+      ["J25", "1", "In_1", "passive"],
+      ["R56", "1", "", "passive"]
+    ],
+    "A_JOY_X_SHLD": [
+      ["J25", "2", "Ext_2", "passive"],
+      ["R57", "1", "", "passive"],
+      ["U26", "2", "-_2", "passive"]
+    ],
+    "A_JOY_X_TPC": [
+      ["J2", "28", "28_28", "passive"],
+      ["R98", "2", "", "passive"]
+    ],
+    "A_JOY_X_TPC_BUF": [
+      ["R98", "1", "", "passive"],
+      ["U36", "1", "", "output"],
+      ["U36", "2", "-_2", "input"]
+    ],
+    "A_JOY_Y": [
+      ["U27", "5", "SENSE_5", "passive"],
+      ["U27", "6", "", "output"],
+      ["U33", "12", "+_12", "input"],
+      ["U36", "5", "+_5", "input"],
+      ["U38", "8", "S12_8", "bidirectional"],
+      ["U40", "8", "S12_8", "bidirectional"],
+      ["U42", "8", "S12_8", "bidirectional"],
+      ["U44", "8", "S12_8", "bidirectional"],
+      ["U46", "8", "S12_8", "bidirectional"],
+      ["U48", "8", "S12_8", "bidirectional"],
+      ["U50", "8", "S12_8", "bidirectional"],
+      ["U52", "8", "S12_8", "bidirectional"]
+    ],
+    "A_JOY_Y_CLAMP": [
+      ["D35", "3", "COM_3", "passive"],
+      ["R58", "2", "", "passive"],
+      ["U27", "3", "+_3", "passive"]
+    ],
+    "A_JOY_Y_NI": [
+      ["J36", "63", "63_63", "passive"],
+      ["R89", "2", "", "passive"]
+    ],
+    "A_JOY_Y_NI_BUF": [
+      ["R89", "1", "", "passive"],
+      ["U33", "13", "-_13", "input"],
+      ["U33", "14", "", "output"]
+    ],
+    "A_JOY_Y_RAW": [
+      ["J26", "1", "In_1", "passive"],
+      ["R58", "1", "", "passive"]
+    ],
+    "A_JOY_Y_SHLD": [
+      ["J26", "2", "Ext_2", "passive"],
+      ["R59", "1", "", "passive"],
+      ["U27", "2", "-_2", "passive"]
+    ],
+    "A_JOY_Y_TPC": [
+      ["J2", "60", "60_60", "passive"],
+      ["R99", "2", "", "passive"]
+    ],
+    "A_JOY_Y_TPC_BUF": [
+      ["R99", "1", "", "passive"],
+      ["U36", "6", "-_6", "input"],
+      ["U36", "7", "", "output"]
+    ],
+    "A_MIC": [
+      ["C56", "2", "", "passive"],
+      ["U23", "8", "", "output"],
+      ["U23", "9", "-_9", "input"],
+      ["U34", "3", "+_3", "input"],
+      ["U38", "7", "S13_7", "bidirectional"],
+      ["U40", "7", "S13_7", "bidirectional"],
+      ["U42", "7", "S13_7", "bidirectional"],
+      ["U44", "7", "S13_7", "bidirectional"],
+      ["U46", "7", "S13_7", "bidirectional"],
+      ["U48", "7", "S13_7", "bidirectional"],
+      ["U50", "7", "S13_7", "bidirectional"],
+      ["U52", "7", "S13_7", "bidirectional"]
+    ],
+    "A_MIC_CLAMP": [
+      ["D31", "3", "COM_3", "passive"],
+      ["R42", "2", "", "passive"],
+      ["R44", "1", "", "passive"]
+    ],
+    "A_MIC_DA": [
+      ["R45", "2", "", "passive"],
+      ["R48", "1", "", "passive"],
+      ["U23", "1", "", "output"]
+    ],
+    "A_MIC_DAN": [
+      ["R44", "2", "", "passive"],
+      ["R45", "1", "", "passive"],
+      ["U23", "2", "-_2", "input"]
+    ],
+    "A_MIC_DAP": [
+      ["R46", "2", "", "passive"],
+      ["R47", "1", "", "passive"],
+      ["U23", "3", "+_3", "input"]
+    ],
+    "A_MIC_NI": [
+      ["J36", "61", "61_61", "passive"],
+      ["R90", "2", "", "passive"]
+    ],
+    "A_MIC_NI_BUF": [
+      ["R90", "1", "", "passive"],
+      ["U34", "1", "", "output"],
+      ["U34", "2", "-_2", "input"]
+    ],
+    "A_MIC_RAW": [
+      ["J22", "1", "In_1", "passive"],
+      ["R42", "1", "", "passive"]
+    ],
+    "A_MIC_S1": [
+      ["C54", "2", "", "passive"],
+      ["R50", "1", "", "passive"],
+      ["U23", "6", "-_6", "input"],
+      ["U23", "7", "", "output"]
+    ],
+    "A_MIC_S1_SKN": [
+      ["C54", "1", "", "passive"],
+      ["R48", "2", "", "passive"],
+      ["R49", "1", "", "passive"]
+    ],
+    "A_MIC_S1_SKP": [
+      ["C55", "1", "", "passive"],
+      ["R49", "2", "", "passive"],
+      ["U23", "5", "+_5", "input"]
+    ],
+    "A_MIC_SHLD": [
+      ["J22", "2", "Ext_2", "passive"],
+      ["R43", "1", "", "passive"],
+      ["R46", "1", "", "passive"]
+    ],
+    "A_MIC_SKN": [
+      ["C56", "1", "", "passive"],
+      ["R50", "2", "", "passive"],
+      ["R51", "1", "", "passive"]
+    ],
+    "A_MIC_SKP": [
+      ["C57", "1", "", "passive"],
+      ["R51", "2", "", "passive"],
+      ["U23", "10", "+_10", "input"]
+    ],
+    "A_MIC_SPARE_FB": [
+      ["U23", "13", "-_13", "input"],
+      ["U23", "14", "", "output"]
+    ],
+    "A_MISC1": [
+      ["R190", "1", "", "passive"],
+      ["U28", "5", "SENSE_5", "passive"],
+      ["U28", "6", "", "output"],
+      ["U34", "5", "+_5", "input"],
+      ["U36", "10", "+_10", "input"],
+      ["U38", "6", "S14_6", "bidirectional"],
+      ["U40", "6", "S14_6", "bidirectional"],
+      ["U42", "6", "S14_6", "bidirectional"],
+      ["U44", "6", "S14_6", "bidirectional"],
+      ["U46", "6", "S14_6", "bidirectional"],
+      ["U48", "6", "S14_6", "bidirectional"],
+      ["U50", "6", "S14_6", "bidirectional"],
+      ["U52", "6", "S14_6", "bidirectional"]
+    ],
+    "A_MISC1_CLAMP": [
+      ["D36", "3", "COM_3", "passive"],
+      ["J28", "1", "Pin_1_1", "passive"],
+      ["R60", "2", "", "passive"],
+      ["R62", "1", "", "passive"]
+    ],
+    "A_MISC1_COMP": [
+      ["R120", "1", "", "passive"],
+      ["R121", "2", "", "passive"],
+      ["U54", "14", "", "open_collector"]
+    ],
+    "A_MISC1_COMP_FB": [
+      ["R120", "2", "", "passive"],
+      ["R190", "2", "", "passive"],
+      ["U54", "9", "+_9", "input"]
+    ],
+    "A_MISC1_COMP_THR": [
+      ["U54", "8", "-_8", "input"],
+      ["U55", "9", "VOUTD_9", "output"]
+    ],
+    "A_MISC1_DIV": [
+      ["J28", "3", "Pin_3_3", "passive"],
+      ["U28", "3", "+_3", "passive"]
+    ],
+    "A_MISC1_MID": [
+      ["J28", "5", "Pin_5_5", "passive"],
+      ["R62", "2", "", "passive"],
+      ["R63", "1", "", "passive"]
+    ],
+    "A_MISC1_NI": [
+      ["J36", "26", "26_26", "passive"],
+      ["R91", "2", "", "passive"]
+    ],
+    "A_MISC1_NI_BUF": [
+      ["R91", "1", "", "passive"],
+      ["U34", "6", "-_6", "input"],
+      ["U34", "7", "", "output"]
+    ],
+    "A_MISC1_RAW": [
+      ["J27", "1", "In_1", "passive"],
+      ["R60", "1", "", "passive"]
+    ],
+    "A_MISC1_SHLD": [
+      ["J27", "2", "Ext_2", "passive"],
+      ["J28", "2", "Pin_2_2", "passive"],
+      ["R61", "1", "", "passive"],
+      ["R64", "1", "", "passive"]
+    ],
+    "A_MISC1_SHLD_DIV": [
+      ["J28", "4", "Pin_4_4", "passive"],
+      ["U28", "2", "-_2", "passive"]
+    ],
+    "A_MISC1_SHLD_MID": [
+      ["J28", "6", "Pin_6_6", "passive"],
+      ["R64", "2", "", "passive"],
+      ["R65", "1", "", "passive"]
+    ],
+    "A_MISC1_TPC": [
+      ["J2", "25", "25_25", "passive"],
+      ["R100", "2", "", "passive"]
+    ],
+    "A_MISC1_TPC_BUF": [
+      ["R100", "1", "", "passive"],
+      ["U36", "8", "", "output"],
+      ["U36", "9", "-_9", "input"]
+    ],
+    "A_MISC2": [
+      ["U29", "5", "SENSE_5", "passive"],
+      ["U29", "6", "", "output"],
+      ["U34", "10", "+_10", "input"],
+      ["U36", "12", "+_12", "input"],
+      ["U38", "5", "S15_5", "bidirectional"],
+      ["U40", "5", "S15_5", "bidirectional"],
+      ["U42", "5", "S15_5", "bidirectional"],
+      ["U44", "5", "S15_5", "bidirectional"],
+      ["U46", "5", "S15_5", "bidirectional"],
+      ["U48", "5", "S15_5", "bidirectional"],
+      ["U50", "5", "S15_5", "bidirectional"],
+      ["U52", "5", "S15_5", "bidirectional"]
+    ],
+    "A_MISC2_CLAMP": [
+      ["D37", "3", "COM_3", "passive"],
+      ["J30", "1", "Pin_1_1", "passive"],
+      ["R66", "2", "", "passive"],
+      ["R68", "1", "", "passive"]
+    ],
+    "A_MISC2_DIV": [
+      ["J30", "3", "Pin_3_3", "passive"],
+      ["U29", "3", "+_3", "passive"]
+    ],
+    "A_MISC2_MID": [
+      ["J30", "5", "Pin_5_5", "passive"],
+      ["R68", "2", "", "passive"],
+      ["R69", "1", "", "passive"]
+    ],
+    "A_MISC2_NI": [
+      ["J36", "58", "58_58", "passive"],
+      ["R92", "2", "", "passive"]
+    ],
+    "A_MISC2_NI_BUF": [
+      ["R92", "1", "", "passive"],
+      ["U34", "8", "", "output"],
+      ["U34", "9", "-_9", "input"]
+    ],
+    "A_MISC2_RAW": [
+      ["J29", "1", "In_1", "passive"],
+      ["R66", "1", "", "passive"]
+    ],
+    "A_MISC2_SHLD": [
+      ["J29", "2", "Ext_2", "passive"],
+      ["J30", "2", "Pin_2_2", "passive"],
+      ["R67", "1", "", "passive"],
+      ["R70", "1", "", "passive"]
+    ],
+    "A_MISC2_SHLD_DIV": [
+      ["J30", "4", "Pin_4_4", "passive"],
+      ["U29", "2", "-_2", "passive"]
+    ],
+    "A_MISC2_SHLD_MID": [
+      ["J30", "6", "Pin_6_6", "passive"],
+      ["R70", "2", "", "passive"],
+      ["R71", "1", "", "passive"]
+    ],
+    "A_MISC2_TPC": [
+      ["J2", "57", "57_57", "passive"],
+      ["R101", "2", "", "passive"]
+    ],
+    "A_MISC2_TPC_BUF": [
+      ["R101", "1", "", "passive"],
+      ["U36", "13", "-_13", "input"],
+      ["U36", "14", "", "output"]
+    ],
+    "A_MISC3": [
+      ["U30", "5", "SENSE_5", "passive"],
+      ["U30", "6", "", "output"],
+      ["U34", "12", "+_12", "input"],
+      ["U37", "3", "+_3", "input"],
+      ["U38", "4", "S16_4", "bidirectional"],
+      ["U40", "4", "S16_4", "bidirectional"],
+      ["U42", "4", "S16_4", "bidirectional"],
+      ["U44", "4", "S16_4", "bidirectional"],
+      ["U46", "4", "S16_4", "bidirectional"],
+      ["U48", "4", "S16_4", "bidirectional"],
+      ["U50", "4", "S16_4", "bidirectional"],
+      ["U52", "4", "S16_4", "bidirectional"]
+    ],
+    "A_MISC3_CLAMP": [
+      ["D38", "3", "COM_3", "passive"],
+      ["J32", "1", "Pin_1_1", "passive"],
+      ["R72", "2", "", "passive"],
+      ["R74", "1", "", "passive"]
+    ],
+    "A_MISC3_DIV": [
+      ["J32", "3", "Pin_3_3", "passive"],
+      ["U30", "3", "+_3", "passive"]
+    ],
+    "A_MISC3_MID": [
+      ["J32", "5", "Pin_5_5", "passive"],
+      ["R74", "2", "", "passive"],
+      ["R75", "1", "", "passive"]
+    ],
+    "A_MISC3_NI": [
+      ["J36", "23", "23_23", "passive"],
+      ["R93", "2", "", "passive"]
+    ],
+    "A_MISC3_NI_BUF": [
+      ["R93", "1", "", "passive"],
+      ["U34", "13", "-_13", "input"],
+      ["U34", "14", "", "output"]
+    ],
+    "A_MISC3_RAW": [
+      ["J31", "1", "In_1", "passive"],
+      ["R72", "1", "", "passive"]
+    ],
+    "A_MISC3_SHLD": [
+      ["J31", "2", "Ext_2", "passive"],
+      ["J32", "2", "Pin_2_2", "passive"],
+      ["R73", "1", "", "passive"],
+      ["R76", "1", "", "passive"]
+    ],
+    "A_MISC3_SHLD_DIV": [
+      ["J32", "4", "Pin_4_4", "passive"],
+      ["U30", "2", "-_2", "passive"]
+    ],
+    "A_MISC3_SHLD_MID": [
+      ["J32", "6", "Pin_6_6", "passive"],
+      ["R76", "2", "", "passive"],
+      ["R77", "1", "", "passive"]
+    ],
+    "A_MISC3_TPC": [
+      ["J2", "34", "34_34", "passive"],
+      ["R102", "2", "", "passive"]
+    ],
+    "A_MISC3_TPC_BUF": [
+      ["R102", "1", "", "passive"],
+      ["U37", "1", "", "output"],
+      ["U37", "2", "-_2", "input"]
+    ],
+    "A_PD1": [
+      ["C49", "1", "", "passive"],
+      ["R39", "2", "", "passive"],
+      ["R111", "1", "", "passive"],
+      ["U32", "10", "+_10", "input"],
+      ["U38", "25", "S7_25", "bidirectional"],
+      ["U40", "25", "S7_25", "bidirectional"],
+      ["U42", "25", "S7_25", "bidirectional"],
+      ["U44", "25", "S7_25", "bidirectional"],
+      ["U46", "25", "S7_25", "bidirectional"],
+      ["U48", "25", "S7_25", "bidirectional"],
+      ["U50", "25", "S7_25", "bidirectional"],
+      ["U52", "25", "S7_25", "bidirectional"]
+    ],
+    "A_PD1_CLAMP": [
+      ["C48", "2", "", "passive"],
+      ["D29", "3", "COM_3", "passive"],
+      ["R34", "2", "", "passive"],
+      ["R38", "2", "", "passive"],
+      ["U22", "2", "-_2", "input"]
+    ],
+    "A_PD1_NI": [
+      ["J36", "25", "25_25", "passive"],
+      ["R84", "2", "", "passive"]
+    ],
+    "A_PD1_NI_BUF": [
+      ["R84", "1", "", "passive"],
+      ["U32", "8", "", "output"],
+      ["U32", "9", "-_9", "input"]
+    ],
+    "A_PD1_RAW": [
+      ["J20", "1", "In_1", "passive"],
+      ["R34", "1", "", "passive"]
+    ],
+    "A_PD1_RAWOUT": [
+      ["C48", "1", "", "passive"],
+      ["R38", "1", "", "passive"],
+      ["R39", "1", "", "passive"],
+      ["U22", "1", "", "output"]
+    ],
+    "A_PD1_SHLD": [
+      ["J20", "2", "Ext_2", "passive"],
+      ["R35", "1", "", "passive"],
+      ["U22", "3", "+_3", "input"]
+    ],
+    "A_PD2": [
+      ["C51", "1", "", "passive"],
+      ["R41", "2", "", "passive"],
+      ["R114", "1", "", "passive"],
+      ["U32", "12", "+_12", "input"],
+      ["U38", "26", "S8_26", "bidirectional"],
+      ["U40", "26", "S8_26", "bidirectional"],
+      ["U42", "26", "S8_26", "bidirectional"],
+      ["U44", "26", "S8_26", "bidirectional"],
+      ["U46", "26", "S8_26", "bidirectional"],
+      ["U48", "26", "S8_26", "bidirectional"],
+      ["U50", "26", "S8_26", "bidirectional"],
+      ["U52", "26", "S8_26", "bidirectional"]
+    ],
+    "A_PD2_CLAMP": [
+      ["C50", "2", "", "passive"],
+      ["D30", "3", "COM_3", "passive"],
+      ["R36", "2", "", "passive"],
+      ["R40", "2", "", "passive"],
+      ["U22", "6", "-_6", "input"]
+    ],
+    "A_PD2_NI": [
+      ["J36", "57", "57_57", "passive"],
+      ["R85", "2", "", "passive"]
+    ],
+    "A_PD2_NI_BUF": [
+      ["R85", "1", "", "passive"],
+      ["U32", "13", "-_13", "input"],
+      ["U32", "14", "", "output"]
+    ],
+    "A_PD2_RAW": [
+      ["J21", "1", "In_1", "passive"],
+      ["R36", "1", "", "passive"]
+    ],
+    "A_PD2_RAWOUT": [
+      ["C50", "1", "", "passive"],
+      ["R40", "1", "", "passive"],
+      ["R41", "1", "", "passive"],
+      ["U22", "7", "", "output"]
+    ],
+    "A_PD2_SHLD": [
+      ["J21", "2", "Ext_2", "passive"],
+      ["R37", "1", "", "passive"],
+      ["U22", "5", "+_5", "input"]
+    ],
+    "BARCODE_BUF": [
+      ["U15", "15", "Y3_15", "tri_state"],
+      ["U60", "4", "CATHODE2_4", "passive"]
+    ],
+    "BARCODE_INTAN": [
+      ["J47", "1", "In_1", "passive"],
+      ["R174", "2", "", "passive"],
+      ["U64", "13", "VO2_13", "open_collector"]
+    ],
+    "BARCODE_INTAN_BUF": [
+      ["U15", "14", "Y4_14", "tri_state"],
+      ["U64", "4", "CATHODE2_4", "passive"]
+    ],
+    "BARCODE_INTAN_LEDA": [
+      ["R173", "2", "", "passive"],
+      ["U64", "3", "ANODE2_3", "passive"]
+    ],
+    "BARCODE_NI": [
+      ["J45", "3", "3_3", "passive"],
+      ["R157", "2", "", "passive"],
+      ["U60", "13", "VO2_13", "open_collector"]
+    ],
+    "BARCODE_NI_LEDA": [
+      ["R156", "2", "", "passive"],
+      ["U60", "3", "ANODE2_3", "passive"]
+    ],
+    "BARCODE_PI": [
+      ["J8", "1", "Pin_1_1", "passive"],
+      ["J9", "1", "Pin_1_1", "passive"],
+      ["J10", "1", "Pin_1_1", "passive"],
+      ["J11", "1", "Pin_1_1", "passive"],
+      ["J12", "1", "Pin_1_1", "passive"],
+      ["U15", "18", "Y0_18", "tri_state"]
+    ],
+    "BARCODE_RAW": [
+      ["J7", "11", "GPIO17_11", "passive"],
+      ["U15", "2", "A0_2", "input"],
+      ["U15", "5", "A3_5", "input"],
+      ["U15", "6", "A4_6", "input"]
+    ],
+    "CAM_TRIG_BEH": [
+      ["J14", "1", "In_1", "passive"],
+      ["J15", "1", "In_1", "passive"],
+      ["J16", "1", "In_1", "passive"],
+      ["J17", "1", "In_1", "passive"],
+      ["U15", "16", "Y2_16", "tri_state"]
+    ],
+    "CAM_TRIG_BEH_RAW": [
+      ["J7", "35", "GPIO19_35", "passive"],
+      ["U15", "4", "A2_4", "input"]
+    ],
+    "CAM_TRIG_EYE": [
+      ["J13", "1", "In_1", "passive"],
+      ["U15", "17", "Y1_17", "tri_state"]
+    ],
+    "CAM_TRIG_EYE_RAW": [
+      ["J7", "12", "GPIO18_12", "passive"],
+      ["U15", "3", "A1_3", "input"]
+    ],
+    "DGND": [
+      ["C5", "2", "", "passive"],
+      ["C6", "2", "", "passive"],
+      ["C7", "2", "", "passive"],
+      ["C8", "2", "", "passive"],
+      ["C9", "2", "", "passive"],
+      ["C22", "2", "", "passive"],
+      ["C23", "2", "", "passive"],
+      ["C24", "2", "", "passive"],
+      ["C25", "2", "", "passive"],
+      ["C26", "2", "", "passive"],
+      ["C27", "2", "", "passive"],
+      ["C28", "2", "", "passive"],
+      ["C29", "2", "", "passive"],
+      ["C30", "2", "", "passive"],
+      ["C31", "2", "", "passive"],
+      ["C32", "2", "", "passive"],
+      ["C33", "2", "", "passive"],
+      ["C141", "2", "", "passive"],
+      ["C143", "2", "", "passive"],
+      ["C144", "2", "", "passive"],
+      ["C145", "2", "", "passive"],
+      ["C146", "2", "", "passive"],
+      ["D4", "1", "A_1", "passive"],
+      ["D5", "1", "A_1", "passive"],
+      ["D6", "1", "A_1", "passive"],
+      ["D7", "1", "A_1", "passive"],
+      ["D8", "1", "A_1", "passive"],
+      ["D9", "1", "A_1", "passive"],
+      ["D10", "1", "A_1", "passive"],
+      ["D11", "1", "A_1", "passive"],
+      ["D12", "1", "A_1", "passive"],
+      ["D13", "1", "A_1", "passive"],
+      ["D14", "1", "A_1", "passive"],
+      ["D15", "1", "A_1", "passive"],
+      ["D16", "1", "A_1", "passive"],
+      ["D17", "1", "A_1", "passive"],
+      ["D18", "1", "A_1", "passive"],
+      ["D19", "1", "A_1", "passive"],
+      ["D20", "1", "A_1", "passive"],
+      ["D21", "1", "A_1", "passive"],
+      ["D22", "1", "A_1", "passive"],
+      ["J3", "4", "4_4", "passive"],
+      ["J3", "7", "7_7", "passive"],
+      ["J3", "9", "9_9", "passive"],
+      ["J3", "12", "12_12", "passive"],
+      ["J3", "13", "13_13", "passive"],
+      ["J3", "15", "15_15", "passive"],
+      ["J3", "18", "18_18", "passive"],
+      ["J3", "35", "35_35", "passive"],
+      ["J3", "36", "36_36", "passive"],
+      ["J3", "44", "44_44", "passive"],
+      ["J3", "50", "50_50", "passive"],
+      ["J3", "53", "53_53", "passive"],
+      ["J4", "2", "Pin_2_2", "passive"],
+      ["J5", "2", "Pin_2_2", "passive"],
+      ["J6", "2", "Pin_2_2", "passive"],
+      ["J7", "6", "GND_6", "passive"],
+      ["J7", "9", "GND_9", "passive"],
+      ["J7", "14", "GND_14", "passive"],
+      ["J7", "20", "GND_20", "passive"],
+      ["J7", "25", "GND_25", "passive"],
+      ["J7", "30", "GND_30", "passive"],
+      ["J7", "34", "GND_34", "passive"],
+      ["J7", "39", "GND_39", "passive"],
+      ["J8", "2", "Pin_2_2", "passive"],
+      ["J9", "2", "Pin_2_2", "passive"],
+      ["J10", "2", "Pin_2_2", "passive"],
+      ["J11", "2", "Pin_2_2", "passive"],
+      ["J12", "2", "Pin_2_2", "passive"],
+      ["J13", "2", "Ext_2", "passive"],
+      ["J14", "2", "Ext_2", "passive"],
+      ["J15", "2", "Ext_2", "passive"],
+      ["J16", "2", "Ext_2", "passive"],
+      ["J17", "2", "Ext_2", "passive"],
+      ["J18", "4", "Pin_4_4", "passive"],
+      ["NT1", "2", "2_2", "passive"],
+      ["NT2", "2", "2_2", "passive"],
+      ["U1", "1", "GND_1", "power_in"],
+      ["U2", "1", "-Vin_1", "power_in"],
+      ["U5", "1", "G1_1", "input"],
+      ["U5", "10", "GND_10", "power_in"],
+      ["U5", "19", "G2_19", "input"],
+      ["U6", "1", "G1_1", "input"],
+      ["U6", "10", "GND_10", "power_in"],
+      ["U6", "19", "G2_19", "input"],
+      ["U7", "1", "G1_1", "input"],
+      ["U7", "5", "A3_5", "input"],
+      ["U7", "6", "A4_6", "input"],
+      ["U7", "7", "A5_7", "input"],
+      ["U7", "8", "A6_8", "input"],
+      ["U7", "9", "A7_9", "input"],
+      ["U7", "10", "GND_10", "power_in"],
+      ["U7", "19", "G2_19", "input"],
+      ["U8", "1", "G1_1", "input"],
+      ["U8", "10", "GND_10", "power_in"],
+      ["U8", "19", "G2_19", "input"],
+      ["U9", "1", "G1_1", "input"],
+      ["U9", "10", "GND_10", "power_in"],
+      ["U9", "19", "G2_19", "input"],
+      ["U10", "1", "G1_1", "input"],
+      ["U10", "10", "GND_10", "power_in"],
+      ["U10", "19", "G2_19", "input"],
+      ["U11", "1", "G1_1", "input"],
+      ["U11", "8", "A6_8", "input"],
+      ["U11", "9", "A7_9", "input"],
+      ["U11", "10", "GND_10", "power_in"],
+      ["U11", "19", "G2_19", "input"],
+      ["U12", "4", "", "input"],
+      ["U12", "5", "", "input"],
+      ["U12", "7", "GND_7", "power_in"],
+      ["U12", "9", "", "input"],
+      ["U12", "10", "", "input"],
+      ["U12", "12", "", "input"],
+      ["U12", "13", "", "input"],
+      ["U13", "3", "", "input"],
+      ["U13", "5", "", "input"],
+      ["U13", "7", "GND_7", "power_in"],
+      ["U13", "9", "", "input"],
+      ["U13", "11", "", "input"],
+      ["U13", "13", "", "input"],
+      ["U14", "1", "G1_1", "input"],
+      ["U14", "3", "A1_3", "input"],
+      ["U14", "4", "A2_4", "input"],
+      ["U14", "5", "A3_5", "input"],
+      ["U14", "6", "A4_6", "input"],
+      ["U14", "7", "A5_7", "input"],
+      ["U14", "8", "A6_8", "input"],
+      ["U14", "9", "A7_9", "input"],
+      ["U14", "10", "GND_10", "power_in"],
+      ["U14", "19", "G2_19", "input"],
+      ["U15", "1", "G1_1", "input"],
+      ["U15", "7", "A5_7", "input"],
+      ["U15", "8", "A6_8", "input"],
+      ["U15", "9", "A7_9", "input"],
+      ["U15", "10", "GND_10", "power_in"],
+      ["U15", "19", "G2_19", "input"],
+      ["U62", "2", "-Vin_2", "power_in"],
+      ["U65", "1", "GND1_1", "power_in"],
+      ["U66", "14", "VSS_14", "power_in"],
+      ["U67", "10", "V_{SS}_10", "power_in"],
+      ["U67", "15", "A0_15", "input"],
+      ["U67", "16", "A1_16", "input"],
+      ["U67", "17", "A2_17", "input"],
+      ["U68", "10", "V_{SS}_10", "power_in"],
+      ["U68", "16", "A1_16", "input"],
+      ["U68", "17", "A2_17", "input"]
+    ],
+    "EVT_D0_BUF": [
+      ["U8", "18", "Y0_18", "tri_state"],
+      ["U56", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_D0_CLAMP": [
+      ["D4", "3", "COM_3", "passive"],
+      ["R5", "2", "", "passive"],
+      ["U5", "2", "A0_2", "input"],
+      ["U8", "2", "A0_2", "input"]
+    ],
+    "EVT_D0_NI": [
+      ["J45", "52", "52_52", "passive"],
+      ["R123", "2", "", "passive"],
+      ["U56", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_D0_NI_LEDA": [
+      ["R122", "2", "", "passive"],
+      ["U56", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_D0_PI": [
+      ["R25", "1", "", "passive"],
+      ["U5", "18", "Y0_18", "tri_state"]
+    ],
+    "EVT_D0_TPC": [
+      ["J3", "52", "52_52", "passive"],
+      ["R5", "1", "", "passive"]
+    ],
+    "EVT_D1_BUF": [
+      ["U8", "17", "Y1_17", "tri_state"],
+      ["U56", "4", "CATHODE2_4", "passive"]
+    ],
+    "EVT_D1_CLAMP": [
+      ["D5", "3", "COM_3", "passive"],
+      ["R6", "2", "", "passive"],
+      ["U5", "3", "A1_3", "input"],
+      ["U8", "3", "A1_3", "input"]
+    ],
+    "EVT_D1_NI": [
+      ["J45", "17", "17_17", "passive"],
+      ["R125", "2", "", "passive"],
+      ["U56", "13", "VO2_13", "open_collector"]
+    ],
+    "EVT_D1_NI_LEDA": [
+      ["R124", "2", "", "passive"],
+      ["U56", "3", "ANODE2_3", "passive"]
+    ],
+    "EVT_D1_PI": [
+      ["R26", "1", "", "passive"],
+      ["U5", "17", "Y1_17", "tri_state"]
+    ],
+    "EVT_D1_TPC": [
+      ["J3", "17", "17_17", "passive"],
+      ["R6", "1", "", "passive"]
+    ],
+    "EVT_D2_BUF": [
+      ["U8", "16", "Y2_16", "tri_state"],
+      ["U56", "6", "CATHODE3_6", "passive"]
+    ],
+    "EVT_D2_CLAMP": [
+      ["D6", "3", "COM_3", "passive"],
+      ["R7", "2", "", "passive"],
+      ["U5", "4", "A2_4", "input"],
+      ["U8", "4", "A2_4", "input"]
+    ],
+    "EVT_D2_NI": [
+      ["J45", "49", "49_49", "passive"],
+      ["R127", "2", "", "passive"],
+      ["U56", "12", "VO3_12", "open_collector"]
+    ],
+    "EVT_D2_NI_LEDA": [
+      ["R126", "2", "", "passive"],
+      ["U56", "5", "ANODE3_5", "passive"]
+    ],
+    "EVT_D2_PI": [
+      ["J7", "3", "GPIO2_3", "passive"],
+      ["U5", "16", "Y2_16", "tri_state"]
+    ],
+    "EVT_D2_TPC": [
+      ["J3", "49", "49_49", "passive"],
+      ["R7", "1", "", "passive"]
+    ],
+    "EVT_D3_BUF": [
+      ["U8", "15", "Y3_15", "tri_state"],
+      ["U56", "8", "CATHODE4_8", "passive"]
+    ],
+    "EVT_D3_CLAMP": [
+      ["D7", "3", "COM_3", "passive"],
+      ["R8", "2", "", "passive"],
+      ["U5", "5", "A3_5", "input"],
+      ["U8", "5", "A3_5", "input"]
+    ],
+    "EVT_D3_NI": [
+      ["J45", "47", "47_47", "passive"],
+      ["R129", "2", "", "passive"],
+      ["U56", "11", "VO4_11", "open_collector"]
+    ],
+    "EVT_D3_NI_LEDA": [
+      ["R128", "2", "", "passive"],
+      ["U56", "7", "ANODE4_7", "passive"]
+    ],
+    "EVT_D3_PI": [
+      ["J7", "5", "GPIO3_5", "passive"],
+      ["U5", "15", "Y3_15", "tri_state"]
+    ],
+    "EVT_D3_TPC": [
+      ["J3", "47", "47_47", "passive"],
+      ["R8", "1", "", "passive"]
+    ],
+    "EVT_D4_BUF": [
+      ["U8", "14", "Y4_14", "tri_state"],
+      ["U57", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_D4_CLAMP": [
+      ["D8", "3", "COM_3", "passive"],
+      ["R9", "2", "", "passive"],
+      ["U5", "6", "A4_6", "input"],
+      ["U8", "6", "A4_6", "input"]
+    ],
+    "EVT_D4_NI": [
+      ["J45", "19", "19_19", "passive"],
+      ["R131", "2", "", "passive"],
+      ["U57", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_D4_NI_LEDA": [
+      ["R130", "2", "", "passive"],
+      ["U57", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_D4_PI": [
+      ["J7", "7", "GPIO4_7", "passive"],
+      ["U5", "14", "Y4_14", "tri_state"]
+    ],
+    "EVT_D4_TPC": [
+      ["J3", "19", "19_19", "passive"],
+      ["R9", "1", "", "passive"]
+    ],
+    "EVT_D5_BUF": [
+      ["U8", "13", "Y5_13", "tri_state"],
+      ["U57", "4", "CATHODE2_4", "passive"]
+    ],
+    "EVT_D5_CLAMP": [
+      ["D9", "3", "COM_3", "passive"],
+      ["R10", "2", "", "passive"],
+      ["U5", "7", "A5_7", "input"],
+      ["U8", "7", "A5_7", "input"]
+    ],
+    "EVT_D5_NI": [
+      ["J45", "51", "51_51", "passive"],
+      ["R133", "2", "", "passive"],
+      ["U57", "13", "VO2_13", "open_collector"]
+    ],
+    "EVT_D5_NI_LEDA": [
+      ["R132", "2", "", "passive"],
+      ["U57", "3", "ANODE2_3", "passive"]
+    ],
+    "EVT_D5_PI": [
+      ["J7", "29", "GPIO5_29", "passive"],
+      ["U5", "13", "Y5_13", "tri_state"]
+    ],
+    "EVT_D5_TPC": [
+      ["J3", "51", "51_51", "passive"],
+      ["R10", "1", "", "passive"]
+    ],
+    "EVT_D6_BUF": [
+      ["U8", "12", "Y6_12", "tri_state"],
+      ["U57", "6", "CATHODE3_6", "passive"]
+    ],
+    "EVT_D6_CLAMP": [
+      ["D10", "3", "COM_3", "passive"],
+      ["R11", "2", "", "passive"],
+      ["U5", "8", "A6_8", "input"],
+      ["U8", "8", "A6_8", "input"]
+    ],
+    "EVT_D6_NI": [
+      ["J45", "16", "16_16", "passive"],
+      ["R135", "2", "", "passive"],
+      ["U57", "12", "VO3_12", "open_collector"]
+    ],
+    "EVT_D6_NI_LEDA": [
+      ["R134", "2", "", "passive"],
+      ["U57", "5", "ANODE3_5", "passive"]
+    ],
+    "EVT_D6_PI": [
+      ["J7", "31", "GPIO6_31", "passive"],
+      ["U5", "12", "Y6_12", "tri_state"]
+    ],
+    "EVT_D6_TPC": [
+      ["J3", "16", "16_16", "passive"],
+      ["R11", "1", "", "passive"]
+    ],
+    "EVT_D7_BUF": [
+      ["U8", "11", "Y7_11", "tri_state"],
+      ["U57", "8", "CATHODE4_8", "passive"]
+    ],
+    "EVT_D7_CLAMP": [
+      ["D11", "3", "COM_3", "passive"],
+      ["R12", "2", "", "passive"],
+      ["U5", "9", "A7_9", "input"],
+      ["U8", "9", "A7_9", "input"]
+    ],
+    "EVT_D7_NI": [
+      ["J45", "48", "48_48", "passive"],
+      ["R137", "2", "", "passive"],
+      ["U57", "11", "VO4_11", "open_collector"]
+    ],
+    "EVT_D7_NI_LEDA": [
+      ["R136", "2", "", "passive"],
+      ["U57", "7", "ANODE4_7", "passive"]
+    ],
+    "EVT_D7_PI": [
+      ["J7", "26", "GPIO7_26", "passive"],
+      ["U5", "11", "Y7_11", "tri_state"]
+    ],
+    "EVT_D7_TPC": [
+      ["J3", "48", "48_48", "passive"],
+      ["R12", "1", "", "passive"]
+    ],
+    "EVT_D8_BUF": [
+      ["U9", "18", "Y0_18", "tri_state"],
+      ["U58", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_D8_CLAMP": [
+      ["D12", "3", "COM_3", "passive"],
+      ["R13", "2", "", "passive"],
+      ["U6", "2", "A0_2", "input"],
+      ["U9", "2", "A0_2", "input"]
+    ],
+    "EVT_D8_NI": [
+      ["J45", "11", "11_11", "passive"],
+      ["R139", "2", "", "passive"],
+      ["U58", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_D8_NI_LEDA": [
+      ["R138", "2", "", "passive"],
+      ["U58", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_D8_PI": [
+      ["J7", "24", "GPIO8_24", "passive"],
+      ["U6", "18", "Y0_18", "tri_state"]
+    ],
+    "EVT_D8_TPC": [
+      ["J3", "11", "11_11", "passive"],
+      ["R13", "1", "", "passive"]
+    ],
+    "EVT_D9_BUF": [
+      ["U9", "17", "Y1_17", "tri_state"],
+      ["U58", "4", "CATHODE2_4", "passive"]
+    ],
+    "EVT_D9_CLAMP": [
+      ["D13", "3", "COM_3", "passive"],
+      ["R14", "2", "", "passive"],
+      ["U6", "3", "A1_3", "input"],
+      ["U9", "3", "A1_3", "input"]
+    ],
+    "EVT_D9_NI": [
+      ["J45", "10", "10_10", "passive"],
+      ["R141", "2", "", "passive"],
+      ["U58", "13", "VO2_13", "open_collector"]
+    ],
+    "EVT_D9_NI_LEDA": [
+      ["R140", "2", "", "passive"],
+      ["U58", "3", "ANODE2_3", "passive"]
+    ],
+    "EVT_D9_PI": [
+      ["J7", "21", "GPIO9_21", "passive"],
+      ["U6", "17", "Y1_17", "tri_state"]
+    ],
+    "EVT_D9_TPC": [
+      ["J3", "10", "10_10", "passive"],
+      ["R14", "1", "", "passive"]
+    ],
+    "EVT_D10_BUF": [
+      ["U9", "16", "Y2_16", "tri_state"],
+      ["U58", "6", "CATHODE3_6", "passive"]
+    ],
+    "EVT_D10_CLAMP": [
+      ["D14", "3", "COM_3", "passive"],
+      ["R15", "2", "", "passive"],
+      ["U6", "4", "A2_4", "input"],
+      ["U9", "4", "A2_4", "input"]
+    ],
+    "EVT_D10_NI": [
+      ["J45", "43", "43_43", "passive"],
+      ["R143", "2", "", "passive"],
+      ["U58", "12", "VO3_12", "open_collector"]
+    ],
+    "EVT_D10_NI_LEDA": [
+      ["R142", "2", "", "passive"],
+      ["U58", "5", "ANODE3_5", "passive"]
+    ],
+    "EVT_D10_PI": [
+      ["J7", "19", "GPIO10_19", "passive"],
+      ["U6", "16", "Y2_16", "tri_state"]
+    ],
+    "EVT_D10_TPC": [
+      ["J3", "43", "43_43", "passive"],
+      ["R15", "1", "", "passive"]
+    ],
+    "EVT_D11_BUF": [
+      ["U9", "15", "Y3_15", "tri_state"],
+      ["U58", "8", "CATHODE4_8", "passive"]
+    ],
+    "EVT_D11_CLAMP": [
+      ["D15", "3", "COM_3", "passive"],
+      ["R16", "2", "", "passive"],
+      ["U6", "5", "A3_5", "input"],
+      ["U9", "5", "A3_5", "input"]
+    ],
+    "EVT_D11_NI": [
+      ["J45", "42", "42_42", "passive"],
+      ["R145", "2", "", "passive"],
+      ["U58", "11", "VO4_11", "open_collector"]
+    ],
+    "EVT_D11_NI_LEDA": [
+      ["R144", "2", "", "passive"],
+      ["U58", "7", "ANODE4_7", "passive"]
+    ],
+    "EVT_D11_PI": [
+      ["J7", "23", "GPIO11_23", "passive"],
+      ["U6", "15", "Y3_15", "tri_state"]
+    ],
+    "EVT_D11_TPC": [
+      ["J3", "42", "42_42", "passive"],
+      ["R16", "1", "", "passive"]
+    ],
+    "EVT_D12_BUF": [
+      ["U9", "14", "Y4_14", "tri_state"],
+      ["U59", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_D12_CLAMP": [
+      ["D16", "3", "COM_3", "passive"],
+      ["R17", "2", "", "passive"],
+      ["U6", "6", "A4_6", "input"],
+      ["U9", "6", "A4_6", "input"]
+    ],
+    "EVT_D12_NI": [
+      ["J45", "41", "41_41", "passive"],
+      ["R147", "2", "", "passive"],
+      ["U59", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_D12_NI_LEDA": [
+      ["R146", "2", "", "passive"],
+      ["U59", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_D12_PI": [
+      ["J7", "32", "GPIO12_32", "passive"],
+      ["U6", "14", "Y4_14", "tri_state"]
+    ],
+    "EVT_D12_TPC": [
+      ["J3", "41", "41_41", "passive"],
+      ["R17", "1", "", "passive"]
+    ],
+    "EVT_D13_BUF": [
+      ["U9", "13", "Y5_13", "tri_state"],
+      ["U59", "4", "CATHODE2_4", "passive"]
+    ],
+    "EVT_D13_CLAMP": [
+      ["D17", "3", "COM_3", "passive"],
+      ["R18", "2", "", "passive"],
+      ["U6", "7", "A5_7", "input"],
+      ["U9", "7", "A5_7", "input"]
+    ],
+    "EVT_D13_NI": [
+      ["J45", "6", "6_6", "passive"],
+      ["R149", "2", "", "passive"],
+      ["U59", "13", "VO2_13", "open_collector"]
+    ],
+    "EVT_D13_NI_LEDA": [
+      ["R148", "2", "", "passive"],
+      ["U59", "3", "ANODE2_3", "passive"]
+    ],
+    "EVT_D13_PI": [
+      ["J7", "33", "GPIO13_33", "passive"],
+      ["U6", "13", "Y5_13", "tri_state"]
+    ],
+    "EVT_D13_TPC": [
+      ["J3", "6", "6_6", "passive"],
+      ["R18", "1", "", "passive"]
+    ],
+    "EVT_D14_BUF": [
+      ["U9", "12", "Y6_12", "tri_state"],
+      ["U59", "6", "CATHODE3_6", "passive"]
+    ],
+    "EVT_D14_CLAMP": [
+      ["D18", "3", "COM_3", "passive"],
+      ["R19", "2", "", "passive"],
+      ["U6", "8", "A6_8", "input"],
+      ["U9", "8", "A6_8", "input"]
+    ],
+    "EVT_D14_NI": [
+      ["J45", "5", "5_5", "passive"],
+      ["R151", "2", "", "passive"],
+      ["U59", "12", "VO3_12", "open_collector"]
+    ],
+    "EVT_D14_NI_LEDA": [
+      ["R150", "2", "", "passive"],
+      ["U59", "5", "ANODE3_5", "passive"]
+    ],
+    "EVT_D14_PI": [
+      ["J7", "8", "GPIO14_8", "passive"],
+      ["U6", "12", "Y6_12", "tri_state"]
+    ],
+    "EVT_D14_TPC": [
+      ["J3", "5", "5_5", "passive"],
+      ["R19", "1", "", "passive"]
+    ],
+    "EVT_D15_BUF": [
+      ["U9", "11", "Y7_11", "tri_state"],
+      ["U59", "8", "CATHODE4_8", "passive"]
+    ],
+    "EVT_D15_CLAMP": [
+      ["D19", "3", "COM_3", "passive"],
+      ["R20", "2", "", "passive"],
+      ["U6", "9", "A7_9", "input"],
+      ["U9", "9", "A7_9", "input"]
+    ],
+    "EVT_D15_NI": [
+      ["J45", "38", "38_38", "passive"],
+      ["R153", "2", "", "passive"],
+      ["U59", "11", "VO4_11", "open_collector"]
+    ],
+    "EVT_D15_NI_LEDA": [
+      ["R152", "2", "", "passive"],
+      ["U59", "7", "ANODE4_7", "passive"]
+    ],
+    "EVT_D15_PI": [
+      ["J7", "10", "GPIO15_10", "passive"],
+      ["U6", "11", "Y7_11", "tri_state"]
+    ],
+    "EVT_D15_TPC": [
+      ["J3", "38", "38_38", "passive"],
+      ["R20", "1", "", "passive"]
+    ],
+    "EVT_STROBE_BUF": [
+      ["U10", "18", "Y0_18", "tri_state"],
+      ["U60", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_STROBE_CLAMP": [
+      ["D20", "3", "COM_3", "passive"],
+      ["R21", "2", "", "passive"],
+      ["U7", "2", "A0_2", "input"],
+      ["U10", "2", "A0_2", "input"],
+      ["U10", "5", "A3_5", "input"]
+    ],
+    "EVT_STROBE_INTAN": [
+      ["J46", "1", "In_1", "passive"],
+      ["R172", "2", "", "passive"],
+      ["U64", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_STROBE_INTAN_BUF": [
+      ["U10", "15", "Y3_15", "tri_state"],
+      ["U64", "2", "CATHODE1_2", "passive"]
+    ],
+    "EVT_STROBE_INTAN_LEDA": [
+      ["R171", "2", "", "passive"],
+      ["U64", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_STROBE_NI": [
+      ["J45", "37", "37_37", "passive"],
+      ["R155", "2", "", "passive"],
+      ["U60", "14", "VO1_14", "open_collector"]
+    ],
+    "EVT_STROBE_NI_LEDA": [
+      ["R154", "2", "", "passive"],
+      ["U60", "1", "ANODE1_1", "passive"]
+    ],
+    "EVT_STROBE_PI": [
+      ["J7", "36", "GPIO16_36", "passive"],
+      ["U7", "18", "Y0_18", "tri_state"]
+    ],
+    "EVT_STROBE_TPC": [
+      ["J3", "37", "37_37", "passive"],
+      ["R21", "1", "", "passive"]
+    ],
+    "FAN_12V": [
+      ["C147", "1", "", "passive"],
+      ["C148", "1", "", "passive"],
+      ["F1", "2", "", "passive"],
+      ["J52", "2", "Pin_2_2", "passive"],
+      ["J53", "2", "Pin_2_2", "passive"],
+      ["J54", "2", "Pin_2_2", "passive"],
+      ["J55", "2", "Pin_2_2", "passive"]
+    ],
+    "FAN_RTN": [
+      ["C147", "2", "", "passive"],
+      ["C148", "2", "", "passive"],
+      ["J52", "1", "Pin_1_1", "passive"],
+      ["J53", "1", "Pin_1_1", "passive"],
+      ["J54", "1", "Pin_1_1", "passive"],
+      ["J55", "1", "Pin_1_1", "passive"],
+      ["NT2", "1", "1_1", "passive"]
+    ],
+    "GPIO0_HDR": [
+      ["J7", "27", "GPIO0_27", "passive"],
+      ["R25", "2", "", "passive"]
+    ],
+    "GPIO1_HDR": [
+      ["J7", "28", "GPIO1_28", "passive"],
+      ["R26", "2", "", "passive"]
+    ],
+    "I2C_SCL": [
+      ["R188", "2", "", "passive"],
+      ["U55", "2", "SCL_2", "input"],
+      ["U66", "10", "SCL_10", "bidirectional"],
+      ["U67", "12", "SCK_12", "input"],
+      ["U68", "12", "SCK_12", "input"]
+    ],
+    "I2C_SDA": [
+      ["R189", "2", "", "passive"],
+      ["U55", "3", "SDA_3", "bidirectional"],
+      ["U66", "9", "SDA_9", "bidirectional"],
+      ["U67", "13", "SDA_13", "bidirectional"],
+      ["U68", "13", "SDA_13", "bidirectional"]
+    ],
+    "INTAN_AO1": [
+      ["J37", "1", "In_1", "passive"],
+      ["R103", "2", "", "passive"]
+    ],
+    "INTAN_AO1_BUF": [
+      ["R103", "1", "", "passive"],
+      ["U39", "5", "SENSE_5", "passive"],
+      ["U39", "6", "", "output"]
+    ],
+    "INTAN_AO2": [
+      ["J38", "1", "In_1", "passive"],
+      ["R104", "2", "", "passive"]
+    ],
+    "INTAN_AO2_BUF": [
+      ["R104", "1", "", "passive"],
+      ["U41", "5", "SENSE_5", "passive"],
+      ["U41", "6", "", "output"]
+    ],
+    "INTAN_AO3": [
+      ["J39", "1", "In_1", "passive"],
+      ["R105", "2", "", "passive"]
+    ],
+    "INTAN_AO3_BUF": [
+      ["R105", "1", "", "passive"],
+      ["U43", "5", "SENSE_5", "passive"],
+      ["U43", "6", "", "output"]
+    ],
+    "INTAN_AO4": [
+      ["J40", "1", "In_1", "passive"],
+      ["R106", "2", "", "passive"]
+    ],
+    "INTAN_AO4_BUF": [
+      ["R106", "1", "", "passive"],
+      ["U45", "5", "SENSE_5", "passive"],
+      ["U45", "6", "", "output"]
+    ],
+    "INTAN_AO5": [
+      ["J41", "1", "In_1", "passive"],
+      ["R107", "2", "", "passive"]
+    ],
+    "INTAN_AO5_BUF": [
+      ["R107", "1", "", "passive"],
+      ["U47", "5", "SENSE_5", "passive"],
+      ["U47", "6", "", "output"]
+    ],
+    "INTAN_AO6": [
+      ["J42", "1", "In_1", "passive"],
+      ["R108", "2", "", "passive"]
+    ],
+    "INTAN_AO6_BUF": [
+      ["R108", "1", "", "passive"],
+      ["U49", "5", "SENSE_5", "passive"],
+      ["U49", "6", "", "output"]
+    ],
+    "INTAN_AO7": [
+      ["J43", "1", "In_1", "passive"],
+      ["R109", "2", "", "passive"]
+    ],
+    "INTAN_AO7_BUF": [
+      ["R109", "1", "", "passive"],
+      ["U51", "5", "SENSE_5", "passive"],
+      ["U51", "6", "", "output"]
+    ],
+    "INTAN_AO8": [
+      ["J44", "1", "In_1", "passive"],
+      ["R110", "2", "", "passive"]
+    ],
+    "INTAN_AO8_BUF": [
+      ["R110", "1", "", "passive"],
+      ["U53", "5", "SENSE_5", "passive"],
+      ["U53", "6", "", "output"]
+    ],
+    "INTAN_GND": [
+      ["C10", "2", "", "passive"],
+      ["C11", "2", "", "passive"],
+      ["C12", "2", "", "passive"],
+      ["C14", "2", "", "passive"],
+      ["C15", "2", "", "passive"],
+      ["C16", "2", "", "passive"],
+      ["C17", "2", "", "passive"],
+      ["C18", "2", "", "passive"],
+      ["C20", "2", "", "passive"],
+      ["C21", "2", "", "passive"],
+      ["C88", "2", "", "passive"],
+      ["C89", "2", "", "passive"],
+      ["C92", "2", "", "passive"],
+      ["C93", "2", "", "passive"],
+      ["C96", "2", "", "passive"],
+      ["C97", "2", "", "passive"],
+      ["C100", "2", "", "passive"],
+      ["C101", "2", "", "passive"],
+      ["C104", "2", "", "passive"],
+      ["C105", "2", "", "passive"],
+      ["C108", "2", "", "passive"],
+      ["C109", "2", "", "passive"],
+      ["C112", "2", "", "passive"],
+      ["C113", "2", "", "passive"],
+      ["C116", "2", "", "passive"],
+      ["C117", "2", "", "passive"],
+      ["C137", "2", "", "passive"],
+      ["C138", "2", "", "passive"],
+      ["C139", "2", "", "passive"],
+      ["C140", "2", "", "passive"],
+      ["C142", "2", "", "passive"],
+      ["D39", "1", "A_1", "passive"],
+      ["J37", "2", "Ext_2", "passive"],
+      ["J38", "2", "Ext_2", "passive"],
+      ["J39", "2", "Ext_2", "passive"],
+      ["J40", "2", "Ext_2", "passive"],
+      ["J41", "2", "Ext_2", "passive"],
+      ["J42", "2", "Ext_2", "passive"],
+      ["J43", "2", "Ext_2", "passive"],
+      ["J44", "2", "Ext_2", "passive"],
+      ["J46", "2", "Ext_2", "passive"],
+      ["J47", "2", "Ext_2", "passive"],
+      ["J48", "2", "Ext_2", "passive"],
+      ["J49", "2", "Ext_2", "passive"],
+      ["J50", "2", "Ext_2", "passive"],
+      ["J51", "2", "Ext_2", "passive"],
+      ["R2", "2", "", "passive"],
+      ["R4", "2", "", "passive"],
+      ["U2", "6", "0V_6", "power_out"],
+      ["U3", "4", "GND_4", "power_in"],
+      ["U4", "4", "GND_4", "power_in"],
+      ["U39", "1", "REF_1", "passive"],
+      ["U41", "1", "REF_1", "passive"],
+      ["U43", "1", "REF_1", "passive"],
+      ["U45", "1", "REF_1", "passive"],
+      ["U47", "1", "REF_1", "passive"],
+      ["U49", "1", "REF_1", "passive"],
+      ["U51", "1", "REF_1", "passive"],
+      ["U53", "1", "REF_1", "passive"],
+      ["U63", "1", "GND_1", "power_in"],
+      ["U64", "9", "GND_9", "power_in"],
+      ["U64", "16", "GND_16", "power_in"],
+      ["U65", "9", "GND2_9", "power_in"]
+    ],
+    "ISO_5V": [
+      ["C137", "1", "", "passive"],
+      ["C138", "1", "", "passive"],
+      ["C139", "1", "", "passive"],
+      ["C140", "1", "", "passive"],
+      ["C142", "1", "", "passive"],
+      ["D39", "2", "K_2", "passive"],
+      ["R172", "1", "", "passive"],
+      ["R174", "1", "", "passive"],
+      ["R176", "1", "", "passive"],
+      ["R178", "1", "", "passive"],
+      ["R180", "1", "", "passive"],
+      ["R182", "1", "", "passive"],
+      ["R183", "1", "", "passive"],
+      ["R185", "1", "", "passive"],
+      ["U63", "2", "VO_2", "power_out"],
+      ["U64", "10", "VDD_10", "power_in"],
+      ["U64", "15", "VDD_15", "power_in"],
+      ["U65", "12", "VDD2_12", "power_in"]
+    ],
+    "ISO_N12": [
+      ["C19", "2", "", "passive"],
+      ["C20", "1", "", "passive"],
+      ["C21", "1", "", "passive"],
+      ["C89", "1", "", "passive"],
+      ["C93", "1", "", "passive"],
+      ["C97", "1", "", "passive"],
+      ["C101", "1", "", "passive"],
+      ["C105", "1", "", "passive"],
+      ["C109", "1", "", "passive"],
+      ["C113", "1", "", "passive"],
+      ["C117", "1", "", "passive"],
+      ["R3", "1", "", "passive"],
+      ["U4", "1", "OUT_1", "power_out"],
+      ["U39", "4", "V-_4", "power_in"],
+      ["U41", "4", "V-_4", "power_in"],
+      ["U43", "4", "V-_4", "power_in"],
+      ["U45", "4", "V-_4", "power_in"],
+      ["U47", "4", "V-_4", "power_in"],
+      ["U49", "4", "V-_4", "power_in"],
+      ["U51", "4", "V-_4", "power_in"],
+      ["U53", "4", "V-_4", "power_in"]
+    ],
+    "ISO_N15_FILT": [
+      ["C17", "1", "", "passive"],
+      ["FB2", "2", "", "passive"],
+      ["U4", "5", "EN_5", "input"],
+      ["U4", "8", "IN_8", "power_in"]
+    ],
+    "ISO_N15_RAW": [
+      ["C16", "1", "", "passive"],
+      ["FB2", "1", "", "passive"],
+      ["U2", "4", "-Vout_4", "power_out"]
+    ],
+    "ISO_P12": [
+      ["C13", "2", "", "passive"],
+      ["C14", "1", "", "passive"],
+      ["C15", "1", "", "passive"],
+      ["C88", "1", "", "passive"],
+      ["C92", "1", "", "passive"],
+      ["C96", "1", "", "passive"],
+      ["C100", "1", "", "passive"],
+      ["C104", "1", "", "passive"],
+      ["C108", "1", "", "passive"],
+      ["C112", "1", "", "passive"],
+      ["C116", "1", "", "passive"],
+      ["R1", "1", "", "passive"],
+      ["U3", "1", "OUT_1", "power_out"],
+      ["U39", "7", "V+_7", "power_in"],
+      ["U41", "7", "V+_7", "power_in"],
+      ["U43", "7", "V+_7", "power_in"],
+      ["U45", "7", "V+_7", "power_in"],
+      ["U47", "7", "V+_7", "power_in"],
+      ["U49", "7", "V+_7", "power_in"],
+      ["U51", "7", "V+_7", "power_in"],
+      ["U53", "7", "V+_7", "power_in"],
+      ["U63", "3", "VI_3", "power_in"]
+    ],
+    "ISO_P15_FILT": [
+      ["C11", "1", "", "passive"],
+      ["FB1", "2", "", "passive"],
+      ["U3", "5", "EN_5", "input"],
+      ["U3", "8", "IN_8", "power_in"]
+    ],
+    "ISO_P15_RAW": [
+      ["C10", "1", "", "passive"],
+      ["FB1", "1", "", "passive"],
+      ["U2", "5", "+Vout_5", "power_out"]
+    ],
+    "MUX1_A0": [
+      ["U38", "17", "A0_17", "passive"],
+      ["U67", "21", "GPA0_21", "bidirectional"]
+    ],
+    "MUX1_A1": [
+      ["U38", "16", "A1_16", "passive"],
+      ["U67", "22", "GPA1_22", "bidirectional"]
+    ],
+    "MUX1_A2": [
+      ["U38", "15", "A2_15", "passive"],
+      ["U67", "23", "GPA2_23", "bidirectional"]
+    ],
+    "MUX1_A3": [
+      ["U38", "14", "A3_14", "passive"],
+      ["U67", "24", "GPA3_24", "bidirectional"]
+    ],
+    "MUX2_A0": [
+      ["U40", "17", "A0_17", "passive"],
+      ["U67", "25", "GPA4_25", "bidirectional"]
+    ],
+    "MUX2_A1": [
+      ["U40", "16", "A1_16", "passive"],
+      ["U67", "26", "GPA5_26", "bidirectional"]
+    ],
+    "MUX2_A2": [
+      ["U40", "15", "A2_15", "passive"],
+      ["U67", "27", "GPA6_27", "bidirectional"]
+    ],
+    "MUX2_A3": [
+      ["U40", "14", "A3_14", "passive"],
+      ["U67", "28", "GPA7_28", "output"]
+    ],
+    "MUX3_A0": [
+      ["U42", "17", "A0_17", "passive"],
+      ["U67", "1", "GPB0_1", "bidirectional"]
+    ],
+    "MUX3_A1": [
+      ["U42", "16", "A1_16", "passive"],
+      ["U67", "2", "GPB1_2", "bidirectional"]
+    ],
+    "MUX3_A2": [
+      ["U42", "15", "A2_15", "passive"],
+      ["U67", "3", "GPB2_3", "bidirectional"]
+    ],
+    "MUX3_A3": [
+      ["U42", "14", "A3_14", "passive"],
+      ["U67", "4", "GPB3_4", "bidirectional"]
+    ],
+    "MUX4_A0": [
+      ["U44", "17", "A0_17", "passive"],
+      ["U67", "5", "GPB4_5", "bidirectional"]
+    ],
+    "MUX4_A1": [
+      ["U44", "16", "A1_16", "passive"],
+      ["U67", "6", "GPB5_6", "bidirectional"]
+    ],
+    "MUX4_A2": [
+      ["U44", "15", "A2_15", "passive"],
+      ["U67", "7", "GPB6_7", "bidirectional"]
+    ],
+    "MUX4_A3": [
+      ["U44", "14", "A3_14", "passive"],
+      ["U67", "8", "GPB7_8", "output"]
+    ],
+    "MUX5_A0": [
+      ["U46", "17", "A0_17", "passive"],
+      ["U68", "21", "GPA0_21", "bidirectional"]
+    ],
+    "MUX5_A1": [
+      ["U46", "16", "A1_16", "passive"],
+      ["U68", "22", "GPA1_22", "bidirectional"]
+    ],
+    "MUX5_A2": [
+      ["U46", "15", "A2_15", "passive"],
+      ["U68", "23", "GPA2_23", "bidirectional"]
+    ],
+    "MUX5_A3": [
+      ["U46", "14", "A3_14", "passive"],
+      ["U68", "24", "GPA3_24", "bidirectional"]
+    ],
+    "MUX6_A0": [
+      ["U48", "17", "A0_17", "passive"],
+      ["U68", "25", "GPA4_25", "bidirectional"]
+    ],
+    "MUX6_A1": [
+      ["U48", "16", "A1_16", "passive"],
+      ["U68", "26", "GPA5_26", "bidirectional"]
+    ],
+    "MUX6_A2": [
+      ["U48", "15", "A2_15", "passive"],
+      ["U68", "27", "GPA6_27", "bidirectional"]
+    ],
+    "MUX6_A3": [
+      ["U48", "14", "A3_14", "passive"],
+      ["U68", "28", "GPA7_28", "output"]
+    ],
+    "MUX7_A0": [
+      ["U50", "17", "A0_17", "passive"],
+      ["U68", "1", "GPB0_1", "bidirectional"]
+    ],
+    "MUX7_A1": [
+      ["U50", "16", "A1_16", "passive"],
+      ["U68", "2", "GPB1_2", "bidirectional"]
+    ],
+    "MUX7_A2": [
+      ["U50", "15", "A2_15", "passive"],
+      ["U68", "3", "GPB2_3", "bidirectional"]
+    ],
+    "MUX7_A3": [
+      ["U50", "14", "A3_14", "passive"],
+      ["U68", "4", "GPB3_4", "bidirectional"]
+    ],
+    "MUX8_A0": [
+      ["U52", "17", "A0_17", "passive"],
+      ["U68", "5", "GPB4_5", "bidirectional"]
+    ],
+    "MUX8_A1": [
+      ["U52", "16", "A1_16", "passive"],
+      ["U68", "6", "GPB5_6", "bidirectional"]
+    ],
+    "MUX8_A2": [
+      ["U52", "15", "A2_15", "passive"],
+      ["U68", "7", "GPB6_7", "bidirectional"]
+    ],
+    "MUX8_A3": [
+      ["U52", "14", "A3_14", "passive"],
+      ["U68", "8", "GPB7_8", "output"]
+    ],
+    "MUX_OUT1": [
+      ["U38", "28", "D_28", "bidirectional"],
+      ["U39", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT2": [
+      ["U40", "28", "D_28", "bidirectional"],
+      ["U41", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT3": [
+      ["U42", "28", "D_28", "bidirectional"],
+      ["U43", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT4": [
+      ["U44", "28", "D_28", "bidirectional"],
+      ["U45", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT5": [
+      ["U46", "28", "D_28", "bidirectional"],
+      ["U47", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT6": [
+      ["U48", "28", "D_28", "bidirectional"],
+      ["U49", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT7": [
+      ["U50", "28", "D_28", "bidirectional"],
+      ["U51", "3", "+_3", "passive"]
+    ],
+    "MUX_OUT8": [
+      ["U52", "28", "D_28", "bidirectional"],
+      ["U53", "3", "+_3", "passive"]
+    ],
+    "N12_RAW": [
+      ["D2", "1", "K_1", "passive"],
+      ["J1", "2", "2_2", "passive"]
+    ],
+    "NI_5V": [
+      ["C121", "1", "", "passive"],
+      ["C122", "1", "", "passive"],
+      ["C123", "1", "", "passive"],
+      ["C124", "1", "", "passive"],
+      ["C125", "1", "", "passive"],
+      ["C126", "1", "", "passive"],
+      ["C127", "1", "", "passive"],
+      ["C128", "1", "", "passive"],
+      ["C129", "1", "", "passive"],
+      ["C130", "1", "", "passive"],
+      ["C131", "1", "", "passive"],
+      ["C132", "1", "", "passive"],
+      ["C133", "1", "", "passive"],
+      ["C134", "1", "", "passive"],
+      ["J45", "8", "8_8", "passive"],
+      ["J45", "14", "14_14", "passive"],
+      ["R123", "1", "", "passive"],
+      ["R125", "1", "", "passive"],
+      ["R127", "1", "", "passive"],
+      ["R129", "1", "", "passive"],
+      ["R131", "1", "", "passive"],
+      ["R133", "1", "", "passive"],
+      ["R135", "1", "", "passive"],
+      ["R137", "1", "", "passive"],
+      ["R139", "1", "", "passive"],
+      ["R141", "1", "", "passive"],
+      ["R143", "1", "", "passive"],
+      ["R145", "1", "", "passive"],
+      ["R147", "1", "", "passive"],
+      ["R149", "1", "", "passive"],
+      ["R151", "1", "", "passive"],
+      ["R153", "1", "", "passive"],
+      ["R155", "1", "", "passive"],
+      ["R157", "1", "", "passive"],
+      ["R159", "1", "", "passive"],
+      ["R161", "1", "", "passive"],
+      ["R163", "1", "", "passive"],
+      ["R165", "1", "", "passive"],
+      ["R167", "1", "", "passive"],
+      ["R169", "1", "", "passive"],
+      ["R170", "2", "", "passive"],
+      ["U56", "10", "VDD_10", "power_in"],
+      ["U56", "15", "VDD_15", "power_in"],
+      ["U57", "10", "VDD_10", "power_in"],
+      ["U57", "15", "VDD_15", "power_in"],
+      ["U58", "10", "VDD_10", "power_in"],
+      ["U58", "15", "VDD_15", "power_in"],
+      ["U59", "10", "VDD_10", "power_in"],
+      ["U59", "15", "VDD_15", "power_in"],
+      ["U60", "10", "VDD_10", "power_in"],
+      ["U60", "15", "VDD_15", "power_in"],
+      ["U61", "10", "VDD_10", "power_in"],
+      ["U61", "15", "VDD_15", "power_in"]
+    ],
+    "NI_5V_FB_FILT": [
+      ["C136", "1", "", "passive"],
+      ["FB3", "2", "", "passive"],
+      ["R170", "1", "", "passive"]
+    ],
+    "NI_5V_FB_RAW": [
+      ["C135", "1", "", "passive"],
+      ["FB3", "1", "", "passive"],
+      ["U62", "6", "+Vout_6", "power_out"]
+    ],
+    "NI_GND": [
+      ["C121", "2", "", "passive"],
+      ["C122", "2", "", "passive"],
+      ["C123", "2", "", "passive"],
+      ["C124", "2", "", "passive"],
+      ["C125", "2", "", "passive"],
+      ["C126", "2", "", "passive"],
+      ["C127", "2", "", "passive"],
+      ["C128", "2", "", "passive"],
+      ["C129", "2", "", "passive"],
+      ["C130", "2", "", "passive"],
+      ["C131", "2", "", "passive"],
+      ["C132", "2", "", "passive"],
+      ["C133", "2", "", "passive"],
+      ["C134", "2", "", "passive"],
+      ["C135", "2", "", "passive"],
+      ["C136", "2", "", "passive"],
+      ["J45", "4", "4_4", "passive"],
+      ["J45", "7", "7_7", "passive"],
+      ["J45", "9", "9_9", "passive"],
+      ["J45", "12", "12_12", "passive"],
+      ["J45", "13", "13_13", "passive"],
+      ["J45", "15", "15_15", "passive"],
+      ["J45", "18", "18_18", "passive"],
+      ["J45", "35", "35_35", "passive"],
+      ["J45", "36", "36_36", "passive"],
+      ["J45", "44", "44_44", "passive"],
+      ["J45", "50", "50_50", "passive"],
+      ["J45", "53", "53_53", "passive"],
+      ["U56", "9", "GND_9", "power_in"],
+      ["U56", "16", "GND_16", "power_in"],
+      ["U57", "9", "GND_9", "power_in"],
+      ["U57", "16", "GND_16", "power_in"],
+      ["U58", "9", "GND_9", "power_in"],
+      ["U58", "16", "GND_16", "power_in"],
+      ["U59", "9", "GND_9", "power_in"],
+      ["U59", "16", "GND_16", "power_in"],
+      ["U60", "9", "GND_9", "power_in"],
+      ["U60", "16", "GND_16", "power_in"],
+      ["U61", "9", "GND_9", "power_in"],
+      ["U61", "16", "GND_16", "power_in"],
+      ["U62", "4", "-Vout_4", "power_out"]
+    ],
+    "OPTO_INTAN_SPARE1_IN": [
+      ["U65", "8", "CATHODE2_8", "passive"]
+    ],
+    "OPTO_INTAN_SPARE1_ISO": [
+      ["R182", "2", "", "passive"],
+      ["U65", "10", "VO2_10", "open_collector"]
+    ],
+    "OPTO_INTAN_SPARE1_ISO_LEDA": [
+      ["R181", "2", "", "passive"],
+      ["U65", "7", "ANODE2_7", "passive"]
+    ],
+    "OPTO_INTAN_SPARE2_ISO": [
+      ["U65", "15", "CATHODE4_15", "passive"]
+    ],
+    "OPTO_INTAN_SPARE2_OUT": [
+      ["R186", "2", "", "passive"],
+      ["U65", "2", "VO4_2", "open_collector"]
+    ],
+    "OPTO_INTAN_SPARE2_OUT_LEDA": [
+      ["R185", "2", "", "passive"],
+      ["U65", "16", "ANODE4_16", "passive"]
+    ],
+    "P5_RAW": [
+      ["D3", "2", "A_2", "passive"],
+      ["J1", "3", "3_3", "passive"]
+    ],
+    "P12_RAW": [
+      ["D1", "2", "A_2", "passive"],
+      ["J1", "1", "1_1", "passive"]
+    ],
+    "PD1_COMP": [
+      ["J7", "38", "GPIO20_38", "passive"],
+      ["R112", "1", "", "passive"],
+      ["R113", "2", "", "passive"],
+      ["U11", "2", "A0_2", "input"],
+      ["U11", "6", "A4_6", "input"],
+      ["U54", "2", "", "open_collector"]
+    ],
+    "PD1_COMP_BUF": [
+      ["U11", "14", "Y4_14", "tri_state"],
+      ["U61", "6", "CATHODE3_6", "passive"]
+    ],
+    "PD1_COMP_FB": [
+      ["R111", "2", "", "passive"],
+      ["R112", "2", "", "passive"],
+      ["U54", "5", "+_5", "input"]
+    ],
+    "PD1_COMP_NI": [
+      ["J45", "1", "1_1", "passive"],
+      ["R167", "2", "", "passive"],
+      ["U61", "12", "VO3_12", "open_collector"]
+    ],
+    "PD1_COMP_NI_LEDA": [
+      ["R166", "2", "", "passive"],
+      ["U61", "5", "ANODE3_5", "passive"]
+    ],
+    "PD1_COMP_THR": [
+      ["U54", "4", "-_4", "input"],
+      ["U55", "6", "VOUTA_6", "output"]
+    ],
+    "PD1_COMP_TPC": [
+      ["J3", "46", "46_46", "passive"],
+      ["U11", "18", "Y0_18", "tri_state"]
+    ],
+    "PD2_COMP": [
+      ["J7", "40", "GPIO21_40", "passive"],
+      ["R115", "1", "", "passive"],
+      ["R116", "2", "", "passive"],
+      ["U11", "3", "A1_3", "input"],
+      ["U11", "7", "A5_7", "input"],
+      ["U54", "1", "", "open_collector"]
+    ],
+    "PD2_COMP_BUF": [
+      ["U11", "13", "Y5_13", "tri_state"],
+      ["U61", "8", "CATHODE4_8", "passive"]
+    ],
+    "PD2_COMP_FB": [
+      ["R114", "2", "", "passive"],
+      ["R115", "2", "", "passive"],
+      ["U54", "7", "+_7", "input"]
+    ],
+    "PD2_COMP_NI": [
+      ["J45", "39", "39_39", "passive"],
+      ["R169", "2", "", "passive"],
+      ["U61", "11", "VO4_11", "open_collector"]
+    ],
+    "PD2_COMP_NI_LEDA": [
+      ["R168", "2", "", "passive"],
+      ["U61", "7", "ANODE4_7", "passive"]
+    ],
+    "PD2_COMP_THR": [
+      ["U54", "6", "-_6", "input"],
+      ["U55", "7", "VOUTB_7", "output"]
+    ],
+    "PD2_COMP_TPC": [
+      ["J3", "2", "2_2", "passive"],
+      ["U11", "17", "Y1_17", "tri_state"]
+    ],
+    "RHS_STIM_BNC": [
+      ["J51", "1", "In_1", "passive"],
+      ["R187", "1", "", "passive"]
+    ],
+    "RHS_STIM_OUT": [
+      ["R184", "2", "", "passive"],
+      ["U11", "5", "A3_5", "input"],
+      ["U61", "4", "CATHODE2_4", "passive"],
+      ["U65", "3", "VO3_3", "open_collector"]
+    ],
+    "RHS_STIM_OUT_LEDA": [
+      ["R183", "2", "", "passive"],
+      ["U65", "14", "ANODE3_14", "passive"]
+    ],
+    "RHS_STIM_OUT_NI": [
+      ["J45", "40", "40_40", "passive"],
+      ["R165", "2", "", "passive"],
+      ["U61", "13", "VO2_13", "open_collector"]
+    ],
+    "RHS_STIM_OUT_NI_LEDA": [
+      ["R164", "2", "", "passive"],
+      ["U61", "3", "ANODE2_3", "passive"]
+    ],
+    "RHS_STIM_OUT_TPC": [
+      ["J3", "1", "1_1", "passive"],
+      ["U11", "15", "Y3_15", "tri_state"]
+    ],
+    "RHS_STIM_RAW": [
+      ["D39", "3", "COM_3", "passive"],
+      ["R187", "2", "", "passive"],
+      ["U65", "13", "CATHODE3_13", "passive"]
+    ],
+    "RWD_BTN": [
+      ["C29", "1", "", "passive"],
+      ["J4", "1", "Pin_1_1", "passive"],
+      ["J5", "1", "Pin_1_1", "passive"],
+      ["R24", "2", "", "passive"],
+      ["U13", "1", "", "input"]
+    ],
+    "RWD_BTN_DEB": [
+      ["U12", "2", "", "input"],
+      ["U13", "2", "", "output"]
+    ],
+    "RWD_CMD": [
+      ["J7", "15", "GPIO22_15", "passive"],
+      ["U7", "17", "Y1_17", "tri_state"],
+      ["U12", "1", "", "input"]
+    ],
+    "RWD_CMD_BUF": [
+      ["U10", "17", "Y1_17", "tri_state"],
+      ["U60", "6", "CATHODE3_6", "passive"]
+    ],
+    "RWD_CMD_CLAMP": [
+      ["D21", "3", "COM_3", "passive"],
+      ["R22", "2", "", "passive"],
+      ["U7", "3", "A1_3", "input"],
+      ["U10", "3", "A1_3", "input"],
+      ["U10", "6", "A4_6", "input"]
+    ],
+    "RWD_CMD_INTAN": [
+      ["J48", "1", "In_1", "passive"],
+      ["R176", "2", "", "passive"],
+      ["U64", "12", "VO3_12", "open_collector"]
+    ],
+    "RWD_CMD_INTAN_BUF": [
+      ["U10", "14", "Y4_14", "tri_state"],
+      ["U64", "6", "CATHODE3_6", "passive"]
+    ],
+    "RWD_CMD_INTAN_LEDA": [
+      ["R175", "2", "", "passive"],
+      ["U64", "5", "ANODE3_5", "passive"]
+    ],
+    "RWD_CMD_NI": [
+      ["J45", "45", "45_45", "passive"],
+      ["R159", "2", "", "passive"],
+      ["U60", "12", "VO3_12", "open_collector"]
+    ],
+    "RWD_CMD_NI_LEDA": [
+      ["R158", "2", "", "passive"],
+      ["U60", "5", "ANODE3_5", "passive"]
+    ],
+    "RWD_CMD_TPC": [
+      ["J3", "3", "3_3", "passive"],
+      ["R22", "1", "", "passive"]
+    ],
+    "RWD_DLVR": [
+      ["J6", "1", "Pin_1_1", "passive"],
+      ["U10", "8", "A6_8", "input"],
+      ["U10", "9", "A7_9", "input"],
+      ["U12", "3", "", "output"],
+      ["U14", "2", "A0_2", "input"]
+    ],
+    "RWD_DLVR_BUF": [
+      ["U10", "12", "Y6_12", "tri_state"],
+      ["U60", "8", "CATHODE4_8", "passive"]
+    ],
+    "RWD_DLVR_INTAN": [
+      ["J49", "1", "In_1", "passive"],
+      ["R178", "2", "", "passive"],
+      ["U64", "11", "VO4_11", "open_collector"]
+    ],
+    "RWD_DLVR_INTAN_BUF": [
+      ["U10", "11", "Y7_11", "tri_state"],
+      ["U64", "8", "CATHODE4_8", "passive"]
+    ],
+    "RWD_DLVR_INTAN_LEDA": [
+      ["R177", "2", "", "passive"],
+      ["U64", "7", "ANODE4_7", "passive"]
+    ],
+    "RWD_DLVR_NI": [
+      ["J45", "46", "46_46", "passive"],
+      ["R161", "2", "", "passive"],
+      ["U60", "11", "VO4_11", "open_collector"]
+    ],
+    "RWD_DLVR_NI_LEDA": [
+      ["R160", "2", "", "passive"],
+      ["U60", "7", "ANODE4_7", "passive"]
+    ],
+    "RWD_DLVR_PI": [
+      ["J7", "16", "GPIO23_16", "passive"],
+      ["U14", "18", "Y0_18", "tri_state"]
+    ],
+    "STIM_TRIG": [
+      ["J7", "18", "GPIO24_18", "passive"],
+      ["U7", "16", "Y2_16", "tri_state"]
+    ],
+    "STIM_TRIG_BUF": [
+      ["U10", "16", "Y2_16", "tri_state"],
+      ["U61", "2", "CATHODE1_2", "passive"]
+    ],
+    "STIM_TRIG_CLAMP": [
+      ["D22", "3", "COM_3", "passive"],
+      ["R23", "2", "", "passive"],
+      ["U7", "4", "A2_4", "input"],
+      ["U10", "4", "A2_4", "input"],
+      ["U10", "7", "A5_7", "input"]
+    ],
+    "STIM_TRIG_INTAN": [
+      ["J50", "1", "In_1", "passive"],
+      ["R180", "2", "", "passive"],
+      ["U65", "11", "VO1_11", "open_collector"]
+    ],
+    "STIM_TRIG_INTAN_BUF": [
+      ["U10", "13", "Y5_13", "tri_state"],
+      ["U65", "6", "CATHODE1_6", "passive"]
+    ],
+    "STIM_TRIG_INTAN_LEDA": [
+      ["R179", "2", "", "passive"],
+      ["U65", "5", "ANODE1_5", "passive"]
+    ],
+    "STIM_TRIG_NI": [
+      ["J45", "2", "2_2", "passive"],
+      ["R163", "2", "", "passive"],
+      ["U61", "14", "VO1_14", "open_collector"]
+    ],
+    "STIM_TRIG_NI_LEDA": [
+      ["R162", "2", "", "passive"],
+      ["U61", "1", "ANODE1_1", "passive"]
+    ],
+    "STIM_TRIG_TPC": [
+      ["J3", "45", "45_45", "passive"],
+      ["R23", "1", "", "passive"]
+    ],
+    "TPC_SPARE9_FB": [
+      ["U37", "6", "-_6", "input"],
+      ["U37", "7", "", "output"]
+    ],
+    "TPC_SPARE10_FB": [
+      ["U37", "8", "", "output"],
+      ["U37", "9", "-_9", "input"]
+    ],
+    "TPC_SPARE11_FB": [
+      ["U37", "13", "-_13", "input"],
+      ["U37", "14", "", "output"]
+    ],
+    "U3_FB": [
+      ["C13", "1", "", "passive"],
+      ["R1", "2", "", "passive"],
+      ["R2", "1", "", "passive"],
+      ["U3", "2", "FB_2", "input"]
+    ],
+    "U3_NRSS": [
+      ["C12", "1", "", "passive"],
+      ["U3", "6", "NR/SS_6", "passive"]
+    ],
+    "U4_FB": [
+      ["C19", "1", "", "passive"],
+      ["R3", "2", "", "passive"],
+      ["R4", "1", "", "passive"],
+      ["U4", "2", "FB_2", "input"]
+    ],
+    "U4_NRSS": [
+      ["C18", "1", "", "passive"],
+      ["U4", "6", "NR/SS_6", "passive"]
+    ],
+    "USB_DM_PI": [
+      ["J18", "2", "Pin_2_2", "passive"],
+      ["U66", "12", "D-_12", "bidirectional"]
+    ],
+    "USB_DP_PI": [
+      ["J18", "3", "Pin_3_3", "passive"],
+      ["U66", "13", "D+_13", "bidirectional"]
+    ],
+    "USB_VBUS_PI": [
+      ["J18", "1", "Pin_1_1", "passive"]
+    ],
+    "unconnected-(J2-Pad1)": [
+      ["J2", "1", "1_1", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad2)": [
+      ["J2", "2", "2_2", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad3)": [
+      ["J2", "3", "3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad4)": [
+      ["J2", "4", "4_4", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad5)": [
+      ["J2", "5", "5_5", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad6)": [
+      ["J2", "6", "6_6", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad7)": [
+      ["J2", "7", "7_7", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad8)": [
+      ["J2", "8", "8_8", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad9)": [
+      ["J2", "9", "9_9", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad10)": [
+      ["J2", "10", "10_10", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad11)": [
+      ["J2", "11", "11_11", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad12)": [
+      ["J2", "12", "12_12", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad13)": [
+      ["J2", "13", "13_13", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad14)": [
+      ["J2", "14", "14_14", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad15)": [
+      ["J2", "15", "15_15", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad16)": [
+      ["J2", "16", "16_16", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad17)": [
+      ["J2", "17", "17_17", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad18)": [
+      ["J2", "18", "18_18", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad19)": [
+      ["J2", "19", "19_19", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad20)": [
+      ["J2", "20", "20_20", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad21)": [
+      ["J2", "21", "21_21", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad22)": [
+      ["J2", "22", "22_22", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad23)": [
+      ["J2", "23", "23_23", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad24)": [
+      ["J2", "24", "24_24", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad26)": [
+      ["J2", "26", "26_26", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad27)": [
+      ["J2", "27", "27_27", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad29)": [
+      ["J2", "29", "29_29", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad31)": [
+      ["J2", "31", "31_31", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad32)": [
+      ["J2", "32", "32_32", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad35)": [
+      ["J2", "35", "35_35", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad36)": [
+      ["J2", "36", "36_36", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad37)": [
+      ["J2", "37", "37_37", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad38)": [
+      ["J2", "38", "38_38", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad39)": [
+      ["J2", "39", "39_39", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad40)": [
+      ["J2", "40", "40_40", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad41)": [
+      ["J2", "41", "41_41", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad42)": [
+      ["J2", "42", "42_42", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad43)": [
+      ["J2", "43", "43_43", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad44)": [
+      ["J2", "44", "44_44", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad45)": [
+      ["J2", "45", "45_45", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad46)": [
+      ["J2", "46", "46_46", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad47)": [
+      ["J2", "47", "47_47", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad48)": [
+      ["J2", "48", "48_48", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad49)": [
+      ["J2", "49", "49_49", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad50)": [
+      ["J2", "50", "50_50", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad51)": [
+      ["J2", "51", "51_51", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad52)": [
+      ["J2", "52", "52_52", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad53)": [
+      ["J2", "53", "53_53", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad54)": [
+      ["J2", "54", "54_54", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad55)": [
+      ["J2", "55", "55_55", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad56)": [
+      ["J2", "56", "56_56", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad58)": [
+      ["J2", "58", "58_58", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad59)": [
+      ["J2", "59", "59_59", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad61)": [
+      ["J2", "61", "61_61", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad63)": [
+      ["J2", "63", "63_63", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad64)": [
+      ["J2", "64", "64_64", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad66)": [
+      ["J2", "66", "66_66", "passive+no_connect"]
+    ],
+    "unconnected-(J2-Pad67)": [
+      ["J2", "67", "67_67", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad8)": [
+      ["J3", "8", "8_8", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad14)": [
+      ["J3", "14", "14_14", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad20)": [
+      ["J3", "20", "20_20", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad21)": [
+      ["J3", "21", "21_21", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad22)": [
+      ["J3", "22", "22_22", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad23)": [
+      ["J3", "23", "23_23", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad24)": [
+      ["J3", "24", "24_24", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad25)": [
+      ["J3", "25", "25_25", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad26)": [
+      ["J3", "26", "26_26", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad27)": [
+      ["J3", "27", "27_27", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad28)": [
+      ["J3", "28", "28_28", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad29)": [
+      ["J3", "29", "29_29", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad30)": [
+      ["J3", "30", "30_30", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad31)": [
+      ["J3", "31", "31_31", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad32)": [
+      ["J3", "32", "32_32", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad33)": [
+      ["J3", "33", "33_33", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad34)": [
+      ["J3", "34", "34_34", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad39)": [
+      ["J3", "39", "39_39", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad54)": [
+      ["J3", "54", "54_54", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad55)": [
+      ["J3", "55", "55_55", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad56)": [
+      ["J3", "56", "56_56", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad57)": [
+      ["J3", "57", "57_57", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad58)": [
+      ["J3", "58", "58_58", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad59)": [
+      ["J3", "59", "59_59", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad60)": [
+      ["J3", "60", "60_60", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad61)": [
+      ["J3", "61", "61_61", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad62)": [
+      ["J3", "62", "62_62", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad63)": [
+      ["J3", "63", "63_63", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad64)": [
+      ["J3", "64", "64_64", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad65)": [
+      ["J3", "65", "65_65", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad66)": [
+      ["J3", "66", "66_66", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad67)": [
+      ["J3", "67", "67_67", "passive+no_connect"]
+    ],
+    "unconnected-(J3-Pad68)": [
+      ["J3", "68", "68_68", "passive+no_connect"]
+    ],
+    "unconnected-(J7-3V3-Pad1)": [
+      ["J7", "1", "3V3_1", "passive+no_connect"]
+    ],
+    "unconnected-(J7-3V3-Pad17)": [
+      ["J7", "17", "3V3_17", "passive+no_connect"]
+    ],
+    "unconnected-(J7-5V-Pad2)": [
+      ["J7", "2", "5V_2", "passive+no_connect"]
+    ],
+    "unconnected-(J7-5V-Pad4)": [
+      ["J7", "4", "5V_4", "passive+no_connect"]
+    ],
+    "unconnected-(J7-GPIO26-Pad37)": [
+      ["J7", "37", "GPIO26_37", "passive+no_connect"]
+    ],
+    "unconnected-(J7-GPIO27-Pad13)": [
+      ["J7", "13", "GPIO27_13", "passive+no_connect"]
+    ],
+    "unconnected-(J19-A_IN0-Pad36)": [
+      ["J19", "36", "A_IN0_36", "passive+no_connect"]
+    ],
+    "unconnected-(J19-A_IN1-Pad37)": [
+      ["J19", "37", "A_IN1_37", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC6-Pad26)": [
+      ["J19", "26", "DAC6_26", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC7-Pad27)": [
+      ["J19", "27", "DAC7_27", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC8-Pad28)": [
+      ["J19", "28", "DAC8_28", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC9-Pad29)": [
+      ["J19", "29", "DAC9_29", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC10-Pad30)": [
+      ["J19", "30", "DAC10_30", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC11-Pad31)": [
+      ["J19", "31", "DAC11_31", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC12-Pad32)": [
+      ["J19", "32", "DAC12_32", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC13-Pad33)": [
+      ["J19", "33", "DAC13_33", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC14-Pad34)": [
+      ["J19", "34", "DAC14_34", "passive+no_connect"]
+    ],
+    "unconnected-(J19-DAC15-Pad35)": [
+      ["J19", "35", "DAC15_35", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad1)": [
+      ["J36", "1", "1_1", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad2)": [
+      ["J36", "2", "2_2", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad3)": [
+      ["J36", "3", "3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad4)": [
+      ["J36", "4", "4_4", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad5)": [
+      ["J36", "5", "5_5", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad6)": [
+      ["J36", "6", "6_6", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad7)": [
+      ["J36", "7", "7_7", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad8)": [
+      ["J36", "8", "8_8", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad9)": [
+      ["J36", "9", "9_9", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad10)": [
+      ["J36", "10", "10_10", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad11)": [
+      ["J36", "11", "11_11", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad12)": [
+      ["J36", "12", "12_12", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad13)": [
+      ["J36", "13", "13_13", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad14)": [
+      ["J36", "14", "14_14", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad15)": [
+      ["J36", "15", "15_15", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad16)": [
+      ["J36", "16", "16_16", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad17)": [
+      ["J36", "17", "17_17", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad18)": [
+      ["J36", "18", "18_18", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad19)": [
+      ["J36", "19", "19_19", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad20)": [
+      ["J36", "20", "20_20", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad21)": [
+      ["J36", "21", "21_21", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad22)": [
+      ["J36", "22", "22_22", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad24)": [
+      ["J36", "24", "24_24", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad27)": [
+      ["J36", "27", "27_27", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad29)": [
+      ["J36", "29", "29_29", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad32)": [
+      ["J36", "32", "32_32", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad35)": [
+      ["J36", "35", "35_35", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad36)": [
+      ["J36", "36", "36_36", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad37)": [
+      ["J36", "37", "37_37", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad38)": [
+      ["J36", "38", "38_38", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad39)": [
+      ["J36", "39", "39_39", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad40)": [
+      ["J36", "40", "40_40", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad41)": [
+      ["J36", "41", "41_41", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad42)": [
+      ["J36", "42", "42_42", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad43)": [
+      ["J36", "43", "43_43", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad44)": [
+      ["J36", "44", "44_44", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad45)": [
+      ["J36", "45", "45_45", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad46)": [
+      ["J36", "46", "46_46", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad47)": [
+      ["J36", "47", "47_47", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad48)": [
+      ["J36", "48", "48_48", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad49)": [
+      ["J36", "49", "49_49", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad50)": [
+      ["J36", "50", "50_50", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad51)": [
+      ["J36", "51", "51_51", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad52)": [
+      ["J36", "52", "52_52", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad53)": [
+      ["J36", "53", "53_53", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad54)": [
+      ["J36", "54", "54_54", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad55)": [
+      ["J36", "55", "55_55", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad56)": [
+      ["J36", "56", "56_56", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad59)": [
+      ["J36", "59", "59_59", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad64)": [
+      ["J36", "64", "64_64", "passive+no_connect"]
+    ],
+    "unconnected-(J36-Pad67)": [
+      ["J36", "67", "67_67", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad20)": [
+      ["J45", "20", "20_20", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad21)": [
+      ["J45", "21", "21_21", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad22)": [
+      ["J45", "22", "22_22", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad23)": [
+      ["J45", "23", "23_23", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad24)": [
+      ["J45", "24", "24_24", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad25)": [
+      ["J45", "25", "25_25", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad26)": [
+      ["J45", "26", "26_26", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad27)": [
+      ["J45", "27", "27_27", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad28)": [
+      ["J45", "28", "28_28", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad29)": [
+      ["J45", "29", "29_29", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad30)": [
+      ["J45", "30", "30_30", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad31)": [
+      ["J45", "31", "31_31", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad32)": [
+      ["J45", "32", "32_32", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad33)": [
+      ["J45", "33", "33_33", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad34)": [
+      ["J45", "34", "34_34", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad54)": [
+      ["J45", "54", "54_54", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad55)": [
+      ["J45", "55", "55_55", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad56)": [
+      ["J45", "56", "56_56", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad57)": [
+      ["J45", "57", "57_57", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad58)": [
+      ["J45", "58", "58_58", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad59)": [
+      ["J45", "59", "59_59", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad60)": [
+      ["J45", "60", "60_60", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad61)": [
+      ["J45", "61", "61_61", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad62)": [
+      ["J45", "62", "62_62", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad63)": [
+      ["J45", "63", "63_63", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad64)": [
+      ["J45", "64", "64_64", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad65)": [
+      ["J45", "65", "65_65", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad66)": [
+      ["J45", "66", "66_66", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad67)": [
+      ["J45", "67", "67_67", "passive+no_connect"]
+    ],
+    "unconnected-(J45-Pad68)": [
+      ["J45", "68", "68_68", "passive+no_connect"]
+    ],
+    "unconnected-(J52-Pin_3-Pad3)": [
+      ["J52", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J53-Pin_3-Pad3)": [
+      ["J53", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J54-Pin_3-Pad3)": [
+      ["J54", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J55-Pin_3-Pad3)": [
+      ["J55", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(U2-NC-Pad2)": [
+      ["U2", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U3-DNC-Pad7)": [
+      ["U3", "7", "DNC_7", "no_connect"]
+    ],
+    "unconnected-(U3-NC-Pad3)": [
+      ["U3", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U4-DNC-Pad7)": [
+      ["U4", "7", "DNC_7", "no_connect"]
+    ],
+    "unconnected-(U4-NC-Pad3)": [
+      ["U4", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U7-Y3-Pad15)": [
+      ["U7", "15", "Y3_15", "tri_state+no_connect"]
+    ],
+    "unconnected-(U7-Y4-Pad14)": [
+      ["U7", "14", "Y4_14", "tri_state+no_connect"]
+    ],
+    "unconnected-(U7-Y5-Pad13)": [
+      ["U7", "13", "Y5_13", "tri_state+no_connect"]
+    ],
+    "unconnected-(U7-Y6-Pad12)": [
+      ["U7", "12", "Y6_12", "tri_state+no_connect"]
+    ],
+    "unconnected-(U7-Y7-Pad11)": [
+      ["U7", "11", "Y7_11", "tri_state+no_connect"]
+    ],
+    "unconnected-(U11-Y6-Pad12)": [
+      ["U11", "12", "Y6_12", "tri_state+no_connect"]
+    ],
+    "unconnected-(U11-Y7-Pad11)": [
+      ["U11", "11", "Y7_11", "tri_state+no_connect"]
+    ],
+    "unconnected-(U12-Pad6)": [
+      ["U12", "6", "", "output+no_connect"]
+    ],
+    "unconnected-(U12-Pad8)": [
+      ["U12", "8", "", "output+no_connect"]
+    ],
+    "unconnected-(U12-Pad11)": [
+      ["U12", "11", "", "output+no_connect"]
+    ],
+    "unconnected-(U13-Pad4)": [
+      ["U13", "4", "", "output+no_connect"]
+    ],
+    "unconnected-(U13-Pad6)": [
+      ["U13", "6", "", "output+no_connect"]
+    ],
+    "unconnected-(U13-Pad8)": [
+      ["U13", "8", "", "output+no_connect"]
+    ],
+    "unconnected-(U13-Pad10)": [
+      ["U13", "10", "", "output+no_connect"]
+    ],
+    "unconnected-(U13-Pad12)": [
+      ["U13", "12", "", "output+no_connect"]
+    ],
+    "unconnected-(U14-Y1-Pad17)": [
+      ["U14", "17", "Y1_17", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y2-Pad16)": [
+      ["U14", "16", "Y2_16", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y3-Pad15)": [
+      ["U14", "15", "Y3_15", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y4-Pad14)": [
+      ["U14", "14", "Y4_14", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y5-Pad13)": [
+      ["U14", "13", "Y5_13", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y6-Pad12)": [
+      ["U14", "12", "Y6_12", "tri_state+no_connect"]
+    ],
+    "unconnected-(U14-Y7-Pad11)": [
+      ["U14", "11", "Y7_11", "tri_state+no_connect"]
+    ],
+    "unconnected-(U15-Y5-Pad13)": [
+      ["U15", "13", "Y5_13", "tri_state+no_connect"]
+    ],
+    "unconnected-(U15-Y6-Pad12)": [
+      ["U15", "12", "Y6_12", "tri_state+no_connect"]
+    ],
+    "unconnected-(U15-Y7-Pad11)": [
+      ["U15", "11", "Y7_11", "tri_state+no_connect"]
+    ],
+    "unconnected-(U16-Pad8)": [
+      ["U16", "8", "", "no_connect"]
+    ],
+    "unconnected-(U17-Pad8)": [
+      ["U17", "8", "", "no_connect"]
+    ],
+    "unconnected-(U18-Pad8)": [
+      ["U18", "8", "", "no_connect"]
+    ],
+    "unconnected-(U19-Pad8)": [
+      ["U19", "8", "", "no_connect"]
+    ],
+    "unconnected-(U20-Pad8)": [
+      ["U20", "8", "", "no_connect"]
+    ],
+    "unconnected-(U21-Pad8)": [
+      ["U21", "8", "", "no_connect"]
+    ],
+    "unconnected-(U24-Pad8)": [
+      ["U24", "8", "", "no_connect"]
+    ],
+    "unconnected-(U25-Pad8)": [
+      ["U25", "8", "", "no_connect"]
+    ],
+    "unconnected-(U26-Pad8)": [
+      ["U26", "8", "", "no_connect"]
+    ],
+    "unconnected-(U27-Pad8)": [
+      ["U27", "8", "", "no_connect"]
+    ],
+    "unconnected-(U28-Pad8)": [
+      ["U28", "8", "", "no_connect"]
+    ],
+    "unconnected-(U29-Pad8)": [
+      ["U29", "8", "", "no_connect"]
+    ],
+    "unconnected-(U30-Pad8)": [
+      ["U30", "8", "", "no_connect"]
+    ],
+    "unconnected-(U38-NC-Pad2)": [
+      ["U38", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U38-NC-Pad3)": [
+      ["U38", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U38-NC-Pad13)": [
+      ["U38", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U39-Pad8)": [
+      ["U39", "8", "", "no_connect"]
+    ],
+    "unconnected-(U40-NC-Pad2)": [
+      ["U40", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U40-NC-Pad3)": [
+      ["U40", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U40-NC-Pad13)": [
+      ["U40", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U41-Pad8)": [
+      ["U41", "8", "", "no_connect"]
+    ],
+    "unconnected-(U42-NC-Pad2)": [
+      ["U42", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U42-NC-Pad3)": [
+      ["U42", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U42-NC-Pad13)": [
+      ["U42", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U43-Pad8)": [
+      ["U43", "8", "", "no_connect"]
+    ],
+    "unconnected-(U44-NC-Pad2)": [
+      ["U44", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U44-NC-Pad3)": [
+      ["U44", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U44-NC-Pad13)": [
+      ["U44", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U45-Pad8)": [
+      ["U45", "8", "", "no_connect"]
+    ],
+    "unconnected-(U46-NC-Pad2)": [
+      ["U46", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U46-NC-Pad3)": [
+      ["U46", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U46-NC-Pad13)": [
+      ["U46", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U47-Pad8)": [
+      ["U47", "8", "", "no_connect"]
+    ],
+    "unconnected-(U48-NC-Pad2)": [
+      ["U48", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U48-NC-Pad3)": [
+      ["U48", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U48-NC-Pad13)": [
+      ["U48", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U49-Pad8)": [
+      ["U49", "8", "", "no_connect"]
+    ],
+    "unconnected-(U50-NC-Pad2)": [
+      ["U50", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U50-NC-Pad3)": [
+      ["U50", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U50-NC-Pad13)": [
+      ["U50", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U51-Pad8)": [
+      ["U51", "8", "", "no_connect"]
+    ],
+    "unconnected-(U52-NC-Pad2)": [
+      ["U52", "2", "NC_2", "no_connect"]
+    ],
+    "unconnected-(U52-NC-Pad3)": [
+      ["U52", "3", "NC_3", "no_connect"]
+    ],
+    "unconnected-(U52-NC-Pad13)": [
+      ["U52", "13", "NC_13", "no_connect"]
+    ],
+    "unconnected-(U53-Pad8)": [
+      ["U53", "8", "", "no_connect"]
+    ],
+    "unconnected-(U55-RDY{slash}~{BSY}-Pad5)": [
+      ["U55", "5", "RDY/~{BSY}_5", "output+no_connect"]
+    ],
+    "unconnected-(U66-GP0-Pad2)": [
+      ["U66", "2", "GP0_2", "bidirectional+no_connect"]
+    ],
+    "unconnected-(U66-GP1-Pad3)": [
+      ["U66", "3", "GP1_3", "bidirectional+no_connect"]
+    ],
+    "unconnected-(U66-GP2-Pad7)": [
+      ["U66", "7", "GP2_7", "bidirectional+no_connect"]
+    ],
+    "unconnected-(U66-GP3-Pad8)": [
+      ["U66", "8", "GP3_8", "bidirectional+no_connect"]
+    ],
+    "unconnected-(U66-URx-Pad5)": [
+      ["U66", "5", "URx_5", "input+no_connect"]
+    ],
+    "unconnected-(U66-UTx-Pad6)": [
+      ["U66", "6", "UTx_6", "output+no_connect"]
+    ],
+    "unconnected-(U66-~{RST}-Pad4)": [
+      ["U66", "4", "~{RST}_4", "input+no_connect"]
+    ],
+    "unconnected-(U67-INTA-Pad20)": [
+      ["U67", "20", "INTA_20", "tri_state+no_connect"]
+    ],
+    "unconnected-(U67-INTB-Pad19)": [
+      ["U67", "19", "INTB_19", "tri_state+no_connect"]
+    ],
+    "unconnected-(U67-NC-Pad11)": [
+      ["U67", "11", "NC_11", "no_connect"]
+    ],
+    "unconnected-(U67-NC-Pad14)": [
+      ["U67", "14", "NC_14", "no_connect"]
+    ],
+    "unconnected-(U68-INTA-Pad20)": [
+      ["U68", "20", "INTA_20", "tri_state+no_connect"]
+    ],
+    "unconnected-(U68-INTB-Pad19)": [
+      ["U68", "19", "INTB_19", "tri_state+no_connect"]
+    ],
+    "unconnected-(U68-NC-Pad11)": [
+      ["U68", "11", "NC_11", "no_connect"]
+    ],
+    "unconnected-(U68-NC-Pad14)": [
+      ["U68", "14", "NC_14", "no_connect"]
+    ]
+  }
+}

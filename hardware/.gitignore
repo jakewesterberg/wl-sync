@@ -1,0 +1,13 @@
+*-backups/
+*.kicad_prl
+fp-info-cache
+~*.lck
+*.bak
+*.kicad_pcb-bak
+*.kicad_sch-bak
+# Exported netlists are a mechanical, fully-regenerable artifact of the checked-in
+# schematic (one `kicad-cli sch export netlist` command) -- committing one risks it
+# silently going stale if the schematic changes without a re-export, which would make
+# hardware/gen/check_mule_netlist.py and hardware/gen/gen_mule_pcb.py's verification
+# stronger than the committed evidence actually is (see task-2-report.md, task-3-report.md).
+*.net
