@@ -5,13 +5,20 @@ own Task 0 ("Unblock procurement") was always going to produce
 (`docs/superpowers/plans/2026-08-13-breakout-pcb.md`, Track 0) — Task 0 is human-led and was
 not run separately before Task 13 started, so its scope (distributor stock, lead time, and a
 per-part MPN/manufacturer record) is folded in here rather than skipped. Companion files:
-`hardware/breakout/breakout-bom.csv` (the locked BOM export) and
-`hardware/breakout/design-review.md` (the pre-layout sign-off checklist, which references
-this file for every "stock confirmed" line item).
+`hardware/breakout/breakout-bom.csv` (the locked BOM export, unedited `kicad-cli` output),
+`hardware/breakout/breakout-bom-order.csv` (fix round 1 — the same 101 rows plus a corrected,
+orderable part-number column; see `hardware/README.md` for which of the two files to purchase
+from), and `hardware/breakout/design-review.md` (the pre-layout sign-off checklist, which
+references this file for every "stock confirmed" line item).
 
 **Checked:** 2026-08-15, against DigiKey (primary), cross-checked against Mouser, Arrow, RS
 Components, and Distrelec where DigiKey's own listing was incomplete or absent. Stock is a
 snapshot — anything ordered later should be re-checked, especially the items flagged below.
+**Fix round 1 (same date):** three findings below (`ADG1206YRUZ-REEL7`, MDR68, `IH1215D`) were
+re-checked against additional distributors and the primary XP Power datasheet after a reviewer
+found the original framing overstated two risks and flagged one non-issue; each corrected
+entry below states explicitly what changed and why. Full fix-round detail:
+`.superpowers/sdd/2026-08-13-breakout-pcb/task-13-report.md`'s own "Fix round 1" section.
 
 **Board quantity assumed:** spec §10.1's fab run of 5 (2 production + 1 hand-assembled + 2
 spares) — 5 boards' worth of active parts, unless noted.
@@ -159,7 +166,7 @@ DigiKey unless noted. "Active" = manufacturer lifecycle status, not a comment on
 | Part (as ordered) | Qty/bd ×5 | Distributor | Stock | Mfr. lead time | Status | Note |
 |---|---:|---|---:|---:|---|---|
 | `INA105KU/2K5` (not bare `INA105KU` — see §4) | 21 × 5 = 105 | DigiKey | 3,085 | 9 weeks | Active | Bare `INA105KU` obsolete; reel variant covers the whole run with margin |
-| `ADG1206YRUZ-REEL7` | 8 × 5 = 40 | DigiKey | **0** (450 due 2026-11-25, 550 due 2026-12-16) | 11 weeks | Active | **Flag — see §6.** Arrow separately showed 8 units of the bare (non-reel) part in stock, ships next day — enough for roughly one board, not five |
+| `ADG1206YRUZ-REEL7` | 8 × 5 = 40 | DigiKey | **0** at DigiKey (450 due 2026-11-25, 550 due 2026-12-16) | 11 weeks (DigiKey factory) | Active | **Corrected, fix round 1 — see §6.** DigiKey's own zero is real but not representative of the part overall: Arrow lists **713** of the exact `-REEL7` SKU in stock, LCSC lists **86**, and Octopart's own cross-distributor aggregate shows roughly 255,894 units across authorized channels — all three search-result-level, not independently re-fetched from each distributor's own live page. (Supersedes this document's earlier "Arrow separately showed 8 units of the bare non-reel part" — that figure did not reflect the actual `-REEL7` SKU.) Not scarce. Pin-compatible fallback if this ever tightens: ADI's own `ADG5206` (`ADG5206BRUZ`, same 28TSSOP pinout), ~4,000 units at DigiKey itself, also search-level |
 | `LM339AD` | 1 × 5 = 5 | DigiKey | In stock, ships same day | — | Active | Trivial volume, common part, no risk |
 | `MCP4728-E/UN` | 1 × 5 = 5 | DigiKey | In stock, ships same day | — | Active | No risk. Package remains the documented MSOP-10/0.5 mm exception (spec §10.1) — confirmed directly in the BOM's own Footprint column, no other part on the board shares that pitch |
 | `ACSL-6400-00TE` | 7 × 5 = 35 | DigiKey | 8,037 | — (ships today) | Active | No risk |
@@ -169,7 +176,7 @@ DigiKey unless noted. "Active" = manufacturer lifecycle status, not a comment on
 
 | Part | Qty/bd ×5 | Distributor | Stock | Mfr. lead time | Note |
 |---|---:|---|---:|---:|---|
-| MDR68 male right-angle (MH Connectors `3700-0121-01`) | 4 × 5 = 20 | **Not found at DigiKey or Mouser** in this check | RS Components (stock #813-3313) and Distrelec both list it as a current, orderable part | Not obtained — RS/Distrelec fetches were blocked (403/timeout) in this pass | **Flag — see §6.** This is the connector the spec's own §10.2 already named as the widest error bar (4–8 weeks if unstocked); its absence from the two most commonly-used US distributors in this search is consistent with that, not a surprise. A direct account-based stock check at RS or Distrelec (or a search for a pin-compatible alternate MDR68 MPN) should happen before the production order, not at fab time |
+| MDR68 male right-angle (MH Connectors `3700-0121-01`) | 4 × 5 = 20 | **Not found at DigiKey or Mouser** in this check | RS Components (stock #813-3313): search-result snippet shows ~541 units; Distrelec: search-result snippet shows in-stock, next-day delivery. **Corrected, fix round 1** — real regional stock exists; neither figure is from an authenticated distributor login | Not obtained by direct fetch, either session (RS/Distrelec blocked 403/timeout both times) — the stock figures at left are search-result level only | **Watch item, not the widest error bar — see §6 (corrected, fix round 1).** ~541 units at RS alone covers this run's 20-unit need many times over. Still worth a direct account-based stock check before the production order — a search snippet is not a live quote — but this is no longer the standout schedule risk the original framing implied |
 | Isolated BNC, right-angle, PCB-mount (Amphenol RF family, e.g. `031-6575`/`031-6576`) | 29 × 5 = 145 | DigiKey | Multiple compatible MPNs, 1,000+ units each ("Immediate") | — | No risk — several real, current, well-stocked isolated right-angle BNC part numbers exist in this exact family; exact MPN is still a layout-stage decision per this project's own established convention (footprint is generic `BNC_PanelMountable_Vertical`) |
 | `M12A-05PFFP-SF8001` (5-pos inlet) | 1 × 5 = 5 | DigiKey | 811 | 15 weeks | Re-confirmed independently this session — same 811-unit figure hardware/README.md already recorded at Task 7. Current stock covers the run; 15-week figure only matters if DigiKey depletes first |
 | 3.5 mm TRS, PCB mount (remote reward jack) | 1 × 5 = 5 | DigiKey | Several Switchcraft/Same Sky options in stock (e.g. `SJ1-3523NG`) | — | No risk. **But see §6** — the schematic currently represents this position as a generic 2-pin header placeholder, not a real TRS footprint |
@@ -182,7 +189,7 @@ DigiKey unless noted. "Active" = manufacturer lifecycle status, not a comment on
 | `OPA4192IDR` | 7 × 5 = 35 | DigiKey | 884 | 12 weeks | Covers the run |
 | `OPA4197IDR` / `OPA2197IDR` | 1 ea × 5 | DigiKey | Listed, real current parts | — | Low volume, no risk |
 | `TPS7A4901DGNR` / `TPS7A3001DGNR` | 1 ea × 5 | DigiKey | Mixed signal — one listing showed "ships today," another showed "backorder" for `TPS7A4901DGNR` specifically | Not confirmed precisely | Low volume (5 each); worth a direct re-check at order time given the conflicting signal, but not schedule-threatening at this quantity |
-| `IH1215D` (isolated ±15V DC-DC, sole supply for the whole Intan-isolated domain) | 1 × 5 = 5 | XP Power / DigiKey / Mouser | **Could not conclusively confirm the exact order code** | — | **Flag — see §6.** The part exists as a real KiCad stock symbol (confirmed directly in `Converter_DCDC_Isolated.kicad_sym`) with a matching electrical description, and XP Power's IH family does include a 12V-in/dual/±15V/2W member — but a direct fetch of XP Power's own current IH-series product page listed the 12V-input dual-output part as `IH1215S`, not `IH1215D`, while the "D" (dual-output) suffix convention is independently confirmed correct for XP Power's *IA* series (`IA1215D`, a real, listed, DigiKey-stocked part) and for two other IH-series members found directly (`IH0515D`, `IH2415D`). This is a genuine, unresolved conflict between sources, not a confident finding either way |
+| `IH1215D` (isolated ±15V DC-DC, sole supply for the whole Intan-isolated domain) | 1 × 5 = 5 | XP Power / DigiKey | **Resolved, fix round 1 — `IH1215D` is correct, not ambiguous.** DigiKey lists it directly (product 4487834): "Isolated Module DC DC Converter 2 Output 15V -15V 66mA, 66mA, 10.8V-13.2V Input," package DIP. DigiKey's separate `IH1215S` listing carries the *identical* electrical description, package SIP. XP Power's own IH-series page states the suffix directly: `S` = SIP-7 package, `D` = DIP-14 package — packaging, not output count — and the whole family is dual-output regardless. This board's footprint (`Converter_DCDC_XP_POWER-IHxxxxD_THT`) is the through-hole DIP variant, so `D` is right as written | 16 weeks (DigiKey factory quote); DigiKey itself holds 0 direct stock, ~38 units via DigiKey Marketplace/WEC at check time | No longer an order-code risk — see §6 (corrected, fix round 1). Only 5 needed; Marketplace stock covers it, still the domain's sole supply (single point of failure by design) |
 | `TMA-0505S` | DNP (§2) | DigiKey | In stock, ships today | — | Fallback footprint only — not populated on any board built to this lock, no procurement action needed unless bench testing changes that |
 | `LD1117S33TR` / `LD1117S50TR` | 1 ea × 5 | DigiKey (ST) | In stock, ships today | — | No risk |
 | `SN74LVC541APW` / `SN74HCT541PW` / `SN74HCT32D` / `SN74HCT14D` | 4/5/1/1 × 5 | DigiKey (TI) | Listed, real current parts; `SN74HCT14D` bare code obsolete (§4) | — | High-volume commodity logic; only the §4 suffix issue is a real finding |
@@ -204,22 +211,51 @@ stock check performed; flag if a specific value turns out to be non-standard at 
 Per-instruction: anything over 4 weeks changes the schedule (spec §10.3 has no slack for a
 respin) and must be flagged here, not buried in a table.
 
-1. **`ADG1206YRUZ-REEL7` — 0 units in stock at DigiKey, 11-week manufacturer lead time**, next
-   restock not until late November/December 2026. 8 needed per board, 40 for the full 5-board
-   run. This is the one part in this audit with a *current, numeric, zero-stock* finding at a
-   major distributor, not just a long catalog lead time behind healthy stock — order this one
-   first, or confirm Arrow/Mouser/an alternate distributor can actually supply 40 units before
-   the schedule assumes otherwise.
-2. **MDR68 (`3700-0121-01`) — not found at DigiKey or Mouser**, the two most commonly used US
-   distributors; confirmed listed (but stock quantity not obtained) at RS Components and
-   Distrelec. This is exactly the risk spec §10.2 already named ("4–8 weeks if no distributor
-   holds stock") and it is not resolved by this check — it needs a direct account-based stock
-   query, not a search-engine snippet, before the production order.
-3. **`IH1215D` — exact XP Power order code unresolved** (§5.3). Low quantity (5 units total)
-   makes this cheap to resolve and low-risk to the schedule by itself, but it is the sole
-   supply for the entire Intan-isolated domain (a single point of failure), so getting the
-   order code right matters more than the unit count suggests. Resolve directly with XP Power
-   or a distributor part-number lookup, not by inference, before ordering.
+1. **`ADG1206YRUZ-REEL7` — corrected, fix round 1: not a scarce part.** DigiKey itself shows
+   **0** in stock (450 due 2026-11-25, 550 due 2026-12-16, 11-week quoted factory lead) — that
+   figure is real, but it does not mean the part is hard to get: Arrow carries 713 of the exact
+   `-REEL7` SKU, LCSC carries 86, and Octopart's cross-distributor aggregate shows roughly
+   255,894 units across authorized channels (search-result-level for all three, not
+   independently re-confirmed against each distributor's own live page this session — the same
+   confidence caveat as MDR68 below). 40 units are needed for the full 5-board run; Arrow alone
+   covers that more than 17× over. This part was originally described as possibly rivalling the
+   NI acquisition cards' own fixed 12–13 week lead (spec §10.2) as the longest-lead item on the
+   whole procurement list — it does not: DigiKey's own restock lands in 3–4 months regardless of
+   this board's schedule, and Arrow/LCSC stock is available today. A real, pin-for-pin-compatible
+   alternate exists besides: Analog Devices' own `ADG5206` (`ADG5206BRUZ`, 28TSSOP — same
+   package/pinout, ADI's own generation-upgrade documentation names it the latch-up-immune
+   replacement for `ADG1206`), with roughly 4,000 units of the tape-and-reel variant
+   (`ADG5206BRUZ-RL7TR-ND`) at DigiKey itself (also search-result-level). Order the specified
+   `ADG1206YRUZ-REEL7` from Arrow or LCSC; `ADG5206` is recorded here as a fallback if that
+   sourcing ever tightens, not a recommended substitution — swapping the part number is a
+   schematic change and out of scope for this audit.
+2. **MDR68 (`3700-0121-01`) — corrected, fix round 1: less dire than originally reported, still
+   a watch item.** Still not found at DigiKey or Mouser (unchanged). This session's re-check
+   found real stock elsewhere: a search-result-level RS Components (UK) listing shows roughly
+   541 units, and a search-result-level Distrelec listing shows the part in stock with next-day
+   delivery — both are exactly the regional pools the original session's direct fetches were
+   blocked from retrieving (403/timeout, and this session's own direct RS/Distrelec fetch
+   attempts hit the same block, so this remains search-snippet-level, not an authenticated
+   distributor lookup). 20 units are needed for the full 5-board run; RS's own ~541 alone
+   comfortably covers that. Still worth a direct account-based stock query before the production
+   order — a snippet can be stale or region-locked in ways a real account login is not — but
+   this is a **watch item now, not the standout schedule risk** the original framing implied.
+   (Spec §10.2 itself independently named this connector class "the widest schedule error bar"
+   before any of this project's own stock checks ran; that is the spec's own pre-Task-13 risk
+   assessment, left as-is rather than edited here, and is a different claim from this document's
+   own finding above.)
+3. **`IH1215D` — resolved, fix round 1: the code was correct all along, not ambiguous.** XP
+   Power's IH-series suffix denotes package only (`S` = SIP-7, `D` = DIP-14); the entire family
+   is dual-output regardless of suffix — confirmed directly against XP Power's own IH-series
+   product page and cross-checked against DigiKey's own separate listings for `IH1215S` and
+   `IH1215D` (identical electrical description, differing only in the package attribute). This
+   board's footprint is the through-hole DIP variant (`Converter_DCDC_XP_POWER-IHxxxxD_THT`), so
+   `D` is the right suffix for this design exactly as written — no schematic change needed, and
+   this should not be re-opened without new evidence. The one real remaining item on this part:
+   DigiKey itself holds 0 direct stock (16-week factory lead), with roughly 38 units available
+   via DigiKey Marketplace against a 5-unit need — enough, but worth a direct quote before
+   ordering, since it remains the sole supply for the entire Intan-isolated domain (a single
+   point of failure by design, not a sourcing defect).
 4. **`M12A-05PFFP-SF8001` (15 weeks) and `ACSL-6420-00TE` (17 weeks)** — both manufacturer
    lead times exceed 4 weeks, but both are already covered by DigiKey's own current stock
    (811 and 733 units respectively) against a 5-unit order each. Flagged per instruction; not
@@ -264,3 +300,18 @@ Power/TI/Microchip/Analog Devices/Broadcom search results (this session, 2026-08
 other part in §5. hardware/README.md's own "Custom connector footprints" section (M12 stock
 figure corroboration, Task 7's own prior check). `docs/superpowers/plans/2026-08-13-breakout-pcb.md`
 (Task 0's own original scope, folded in here).
+
+**Fix round 1 additions (same date, re-check after reviewer correction):** direct fetches were
+attempted against XP Power's IH-series product page, DigiKey's `ADG5206`/`ADG5206BRUZ` pages,
+Analog Devices' `ADG5206`/`ADG5207` datasheet PDF, and RS Components'/Distrelec's own MDR68
+listings — all blocked or timed out (the same failure class as the original session's
+RS/Distrelec attempts). The three corrected findings above instead rest on search-result-level
+evidence, explicitly flagged as such at each site: Arrow, LCSC, and Octopart listings for
+`ADG1206YRUZ-REEL7`; DigiKey's own `ADG5206BRUZ` tape-and-reel listing; Analog Devices' own
+generation-upgrade cross-reference documentation (`ADG5206` as `ADG1206`'s pin-compatible
+successor), corroborated across three independent search results; RS Components (UK, stock
+#813-3313) and Distrelec listings for MDR68; and DigiKey's own separate `IH1215D`/`IH1215S`
+product listings (product IDs 4487834 and 1470-1454-5-ND respectively) plus XP Power's own
+IH-series product page text for the package-suffix resolution. None of this is an authenticated
+distributor-account lookup — treat every fix-round-1 stock figure above as a starting point for
+a real quote, not a final number.

@@ -154,25 +154,51 @@ document is not confirmation.
   A wrong connector footprint here scraps a machined panel, not a rework — this is the
   single highest-consequence unchecked item in this review.
 
+### Mechanical — deferred to Task 15, not checkable yet
+
+- [ ] **Every panel connector position matches the panel drawing.** This is one of the
+  brief's own checklist items (`docs/superpowers/plans/2026-08-13-breakout-pcb.md`, Task 13
+  Step 3) and it is **deliberately not checked in this review, not silently dropped.** There
+  is no panel drawing for it to check against yet: Task 15 (`hardware/breakout/panel/
+  front.dxf`, `panel/rear.dxf`) is the task that produces the panel DXF, and Task 14
+  (layout — has not run as of this review) is what first places connectors at real board
+  coordinates. Checking connector-position-vs-panel-drawing agreement at Task 13 is not
+  possible in principle, not merely undone — the two artifacts being compared don't exist
+  yet.
+  **Human step, required before panels are machined — not before Task 14 starts:** Task
+  15's own Step 2 ("Verify every cutout against its connector footprint... A mismatch scraps
+  a panel") is where this item actually gets checked, against real data, for the first time.
+  Whoever signs off after Task 15 runs must independently confirm every connector position
+  in the panel DXF matches its footprint's real placed coordinates in `breakout.kicad_pcb`
+  — with the same "independently confirmed, not merely read" discipline every other item in
+  this document requires — before the panel is sent to be machined. A clean Task 15 run is
+  not itself that confirmation.
+
 ### Procurement — see `hardware/procurement-check.md` for full detail
 
-- [ ] **`ADG1206YRUZ-REEL7` shows 0 units in stock at DigiKey** (11-week manufacturer lead
-  time; next restock late Nov/Dec 2026). 40 units needed across the 5-board run.
-  **Human step:** confirm supply (Arrow, Mouser, or DigiKey backorder against the November
-  restock) before the schedule assumes this part is available on demand.
-- [ ] **MDR68 (`3700-0121-01`) was not found at DigiKey or Mouser** in this check — listed at
-  RS Components and Distrelec, exact stock not obtained. This is the connector spec §10.2
-  already named as the widest schedule error bar.
-  **Human step:** a direct account-based stock/lead-time query at RS or Distrelec (or
-  identify a pin-compatible alternate MDR68), before the production order.
-- [ ] **`IH1215D`'s exact XP Power order code could not be conclusively confirmed** — evidence
-  conflicts between a "D" (dual-output) suffix, consistent with this design's own use and
-  with two other confirmed IH-series parts, and one direct fetch of XP Power's current
-  product page naming the 12 V-in/dual/±15V/2W part `IH1215S`. Only 5 units needed
-  total, but this is the sole supply for the entire Intan-isolated domain.
-  **Human step:** confirm the order code directly with XP Power or a distributor part-number
-  lookup before ordering — cheap to resolve, expensive to discover wrong after populating a
-  board.
+- [ ] **`ADG1206YRUZ-REEL7` — corrected, fix round 1: not scarce.** DigiKey itself still
+  shows 0 units (11-week lead, next restock late Nov/Dec 2026), but Arrow (713 units) and
+  LCSC (86 units) both stock the exact `-REEL7` SKU today, and a pin-compatible successor
+  (`ADG5206`) is stocked directly at DigiKey too. See `hardware/procurement-check.md`
+  §5.1/§6 for the full correction.
+  **Human step:** order from Arrow or LCSC (or DigiKey's own November restock) — no longer a
+  schedule-pacing risk, but still confirm supply before the production order.
+- [ ] **MDR68 (`3700-0121-01`) — corrected, fix round 1: a watch item, not the widest error
+  bar.** Still not found at DigiKey or Mouser, but RS Components and Distrelec both show
+  real regional stock (~541 units at RS, search-result level, not an authenticated lookup)
+  that the original check couldn't retrieve. See `hardware/procurement-check.md` §5.2/§6.
+  **Human step:** a direct account-based stock/lead-time query at RS or Distrelec before the
+  production order — a search snippet is not a live quote, even though this is no longer the
+  board's standout schedule risk.
+- [ ] **`IH1215D` — resolved, fix round 1: the code is correct, not ambiguous.** XP Power's
+  IH-series suffix denotes package (`D` = DIP-14, `S` = SIP-7), not output count — the whole
+  family is dual-output regardless. This board's through-hole footprint
+  (`Converter_DCDC_XP_POWER-IHxxxxD_THT`) makes `D` the right suffix exactly as written; this
+  should not be re-opened without new evidence. See `hardware/procurement-check.md` §5.3/§6
+  for the full resolution.
+  **Human step:** none on the code itself. DigiKey holds 0 direct stock (16-week lead; ~38
+  units via Marketplace cover the 5-unit need) — still the domain's sole supply by design, so
+  confirm a quote before ordering.
 - [ ] **`INA105KU` and `SN74HCT14D` are obsolete as literally written in the BOM** — order the
   active tape-and-reel equivalents (`INA105KU/2K5`, `SN74HCT14DR`) instead. Both have ample
   stock; this is a paperwork correction, not a supply risk.

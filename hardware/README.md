@@ -117,6 +117,28 @@ duplicating that content into this already-long introductory paragraph. (See "Sh
 symbols referencing a child file that doesn't exist yet" below for why the root sheet
 never pre-created any of them as empty placeholders in the first place.)
 
+## BOM and procurement
+
+Task 13 produced three files together, and they are not interchangeable:
+
+- **`hardware/breakout/breakout-bom.csv`** — the literal, unedited `kicad-cli sch export bom`
+  output (see `hardware/procurement-check.md` §1 for the exact command). Left byte-identical
+  to what that command produces, including two tooling gotchas explained there (blank `Qty`,
+  blank `MPN`/`Manufacturer`). **Do not purchase directly from this file** — several of its
+  Value strings are obsolete or packaging-ambiguous order codes (`INA105KU`, `SN74HCT14D`,
+  bare `ADG1206YRUZ`), not the currently-orderable SKU.
+- **`hardware/breakout/breakout-bom-order.csv`** — the same 101 rows, with a corrected,
+  actually-orderable part number and a one-line sourcing note added per line (fix round 1).
+  **Purchase from this file.** It intentionally does not carry quantities — cross-reference
+  `hardware/procurement-check.md` §2 for those, so quantities have exactly one source of
+  truth instead of two copies that can drift apart.
+- **`hardware/procurement-check.md`** — the full audit: corrected per-line quantities (§2,
+  since the raw export's own `Qty` column is blank), every Value-overridden symbol checked
+  against the real part it names (§3), the bare-vs-orderable-SKU findings in full (§4),
+  distributor stock and lead time for every active component (§5), and everything over a
+  4-week lead time called out explicitly (§6). Read this before placing an order — the two
+  CSVs above are derived from it, not a replacement for it.
+
 ## Toolchain
 
 - **KiCad 10.0.5 or later.** `kicad-cli version` prints the installed version.
