@@ -89,8 +89,10 @@ Task 9) — the sync-module (Raspberry Pi 5 / Compute Module 5 IO Board, see thi
 opening paragraph) 40-pin GPIO header, wired to spec Sec.4's own GPIO map (transcribed
 verbatim as an on-sheet text block); the GPIO0/GPIO1 boot-contention 330Ω series resistors;
 a `SN74HCT541PW` output buffer for the three module-sourced signals this sheet produces
-(`BARCODE_PI` fanned to 5 loads — 2 Task-11 placeholders + 3 spare; `CAM_TRIG_EYE`/
-`CAM_TRIG_BEH` fanned to 5 real panel BNC positions, 1 eye + 4 behavior); and the internal
+(`BARCODE_PI` fanned to 5 placeholder/spare panel headers, plus `BARCODE_BUF`/
+`BARCODE_INTAN_BUF` on two more channels of the same package, one optocoupler LED each;
+`CAM_TRIG_EYE`/`CAM_TRIG_BEH` fanned to 5 real panel BNC positions, 1 eye + 4 behavior);
+and the internal
 2.54mm 1×4 USB header for Task 12's own USB-I²C bridge. Also, NOT in the brief's own literal
 step list: one more `SN74LVC541APW` channel on +3V3, level-shifting `RWD_DLVR` — produced on
 `taskpc-digital.kicad_sch` by a `74HCT32` OR gate powered from **+5V** — down to a
@@ -212,6 +214,18 @@ one of those footprints' `descr` field and the two `MiniXLR_*` symbols' `Descrip
 property point back to — this is where that content actually lives, not a pointer to
 somewhere else.
 
+> **Only two of the four are on this board: `MDR68_Male_RightAngle` (×8) and `M12A_5_Panel`
+> (×2).** Confirmed against the exported netlist, not against intent — those are the only
+> `wl-sync:` footprints any of the ten sheets places. **Mini-XLR was removed from the design
+> entirely on 2026-08-13** (spec §9.1: the rig sits inside a Faraday cage sound booth, every
+> sensor inside it is battery powered so no mains conductor crosses the cage wall, so nothing
+> needs more than a coax — all rig-facing sensors are BNC). `MiniXLR_TA4M_Panel` and
+> `MiniXLR_TA5M_Panel` are retained in the library, unplaced and unused, together with the
+> TA/TB sourcing record below, because the modelling lesson in "Contact arrangement" is the
+> reason this project checks circular-connector geometry against a dimensioned drawing at all
+> — and because a footprint deleted along with its rationale gets re-created wrong. **Do not
+> buy, caliper, or panel-machine for a mini-XLR.** Nothing on this board mates with one.
+
 **`M12A_5_Panel` replaced a 4-pin then 5-pin mini-DIN inlet (`MiniDIN_4_Panel`,
 `MiniDIN_5_Panel`) at Task 7 fix round 2** (task-7-report.md's "Fix round 2"), both now
 deleted rather than deprecated: a reviewer independently pulled the Same Sky MD-SN
@@ -223,7 +237,12 @@ likely have failed to mate. `build_minidin()` (the generator function) is delete
 left behind — a wrong geometry generator is a trap for a later task. See "The M12 inlet:
 selection and sourcing" below for the replacement connector and why it was chosen.
 
-### TA4M/TA5M are the wrong part number for a panel mount
+### TA4M/TA5M are the wrong part number for a panel mount (historical — no mini-XLR on this board)
+
+Kept as the sourcing record for the two retained-but-unplaced library footprints, and
+because "the obvious part number for a panel position is often the cable-mount member of
+the family" is a mistake worth not repeating on the next board. **Nothing below is a
+procurement instruction for this design** — see the note at the top of this section.
 
 **TA4M is obsolete and cable-mount only.** The mini-XLR male connector that actually
 panel/chassis-mounts is the same Switchcraft Tini-QG family's **TB4M** (4-pin) and **TB5M**
@@ -246,10 +265,15 @@ That split is deliberate, not an inconsistency to fix:
   identical between the TA- and TB-series members of the family, only mounting style differs
   — and mounting style is exactly what the footprint, not the symbol, is responsible for.
 
-Procurement should order **TB4M/TB5M**, not TA4M/TA5M, regardless of which name appears on
-the schematic symbol.
+Were a mini-XLR ever placed on a future board, procurement should order **TB4M/TB5M**, not
+TA4M/TA5M, regardless of which name appears on the schematic symbol. This board places
+neither.
 
 ### Per-dimension sourcing and confidence
+
+The two `MiniXLR_*` rows are retained for the same reason the section above is, and are
+**not** dimensions anyone needs to verify for this board — no mini-XLR is placed on it. The
+rows that matter here are `MDR68_Male_RightAngle` and `M12A_5_Panel`.
 
 | Footprint | Dimension | Value | Source | Confidence |
 |---|---|---|---|---|
@@ -283,6 +307,15 @@ part, not panel-mount).
 
 ### Contact arrangement: a possible topology error, not just a tolerance one
 
+**Closed by deletion, twice over, and kept here as the reason this project models circular
+connectors the way it now does.** The mini-DIN version of this risk was confirmed real and
+fixed by replacing the connector (Task 7 fix round 2); the mini-XLR version was retired
+along with mini-XLR itself when spec §9.1 made every rig-facing sensor a BNC. Neither part
+is on this board, so there is nothing here to verify before machining a panel — the live
+version of this concern is `M12A_5_Panel`'s own contact arrangement, which is sourced from
+a dimensioned drawing of a standardised coding rather than modelled (see "The M12 inlet"
+below), precisely because of what follows.
+
 The mini-XLR footprints (`MiniXLR_TA4M_Panel`, `MiniXLR_TA5M_Panel`) place their contacts at
 **evenly-spaced angular positions around a circle** — a modelling approximation, not a
 measurement off the manufacturer's own drawing.
@@ -308,15 +341,14 @@ inlet: selection and sourcing" below) — this repo's own precedent for what "ve
 physical sample, don't speculatively edit the angles" (below) is supposed to catch before a
 panel gets machined, not after.
 
-This is not something to resolve by further research or by speculatively editing the
-mini-XLR footprint's contact angles. **Verify it against a physical sample connector before
-any panel is machined:** get one physical TB4M and one TB5M, and check the real contact
-arrangement (evenly spaced vs. clustered in an arc) against each part directly. If a real
-part clusters its contacts, the footprint needs its arrangement corrected to match — a
-footprint edit, not a redesign — before Task 14 commits panel positions to metal. The
-procurement plan already includes buying one physical sample of each of these connectors
-ahead of the production order for exactly this reason; this section is the checklist that
-sample should be checked against.
+The rule this leaves behind, and the one `M12A_5_Panel` was built to: a circular
+connector's contact arrangement is never something to settle by further research or by
+speculatively editing angles. Either source it from a dimensioned drawing of a
+**standardised** geometry every compliant manufacturer must share (what A-coding gave the
+M12, and why that footprint's arrangement is High confidence while its panel cutout is not),
+or verify it against a physical sample before any panel is machined. Modelling it as an even
+ring because that is the shape a circular connector "obviously" has is what produced the
+mini-DIN defect.
 
 ### The M12 inlet: selection and sourcing
 
@@ -365,26 +397,33 @@ manufacturer's unpublished layout.
 
 ### Priority order for re-checking against physical samples
 
-The dimensions and arrangements flagged **Low** confidence above, in the order worth checking
-once samples of the MDR68, mini-XLR, and M12 connectors are in hand:
+**Two connectors to sample-buy: the MDR68 and the M12 inlet.** That is the whole list — they
+are the only two custom footprints this board places (see the note at the top of this
+section; the mini-XLR items that used to head this list went out with the connector on
+2026-08-13, and buying one now would caliper a part nothing on this board mates with).
 
-1. **Mini-XLR contact arrangement** (evenly spaced vs. arc-clustered) — the most urgent open
-   item: if this is wrong, it is a topology error that no tolerance margin fixes. See
-   "Contact arrangement" above. (The mini-DIN's own version of this exact risk is no longer
-   open — it was confirmed and fixed by replacing the connector at Task 7 fix round 2.)
-2. **Mini-XLR panel bushing / cutout diameter (~10.9mm)** — the least-certain single dimension
-   among the footprints in this table, and a wrong cutout diameter is the board's most direct
-   scrap-the-panel failure mode.
-3. **`M12A_5_Panel` panel cutout diameter (12.5mm) and external shell reference (14.5mm)** —
-   modelled from general M12 industry convention and a different manufacturer's real M12
-   datasheet respectively, not yet confirmed against Amphenol LTW's own drawing for this
-   specific part (see "The M12 inlet" above for why: a real drawing exists but its download is
-   JS-gated). Lower urgency than item 1 above only because the *shape* is already standards-
-   confirmed, not because the number is unimportant — this is still a panel-machining
-   dimension.
-4. **MDR68 row spacing (2.84mm) and mounting-hole spacing (57.9mm)** — corroborated across
+The dimensions still flagged **Low** confidence above, in the order worth checking once one
+of each is in hand:
+
+1. **`M12A_5_Panel` panel cutout diameter (12.5mm)** — the most urgent open item, because it
+   is the one number here whose being wrong scraps a machined panel rather than causing a
+   rework. Modelled from general M12 industry convention (M12×1 thread plus standard
+   clearance), consistent across every M12 panel-mount datasheet checked, but not confirmed
+   against Amphenol LTW's own drawing for this specific part — a real 2D drawing and 3D
+   STEP/IGS model exist on the manufacturer's product page and DigiKey's EDA/CAD models tab,
+   but the download is JS-gated and blocked every automated fetch attempted (see "The M12
+   inlet" below). A caliper on the sample's threaded barrel closes this in a minute.
+   *Not* on this list: the M12's contact arrangement. Unlike the mini-DIN and mini-XLR
+   before it, that geometry comes from a dimensioned drawing of the IEC 61076-2-101 A-coding
+   every compliant manufacturer must share — the whole reason this connector was chosen.
+2. **`M12A_5_Panel` external shell reference diameter (14.5mm)** — same sourcing caveat, but
+   courtyard/silkscreen only, not a machining dimension. Check it while the part is on the
+   bench.
+3. **MDR68 row spacing (2.84mm) and mounting-hole spacing (57.9mm)** — corroborated across
    general MDR-68 references, not confirmed against a primary drawing for the exact MPN
-   procurement locks in.
+   procurement locks in. Both are board-level, not panel-level: wrong here costs a respin of
+   a footprint, not a machined panel, and the NI cable's own mating half is what actually
+   fixes the pitch.
 
 ## ADG1206 mux address truth table (Task 10c)
 
@@ -474,8 +513,10 @@ software side does not have to re-derive any of this from the datasheet or the s
 - **Channel map**: `VOUTA`→`PD1_COMP`'s own threshold, `VOUTB`→`PD2_COMP`'s, `VOUTC`→
   `ACC_TRIG`'s, `VOUTD`→the unpopulated 4th (`A_MISC1`) channel's — this board's own
   declared, arbitrary-but-fixed assignment (no datasheet fixes it), one DAC channel per
-  comparator (symmetric threshold only; an asymmetric make/break threshold would cost a
-  second DAC channel per comparator and is not implemented).
+  comparator (symmetric threshold only). All four channels are allocated, so an asymmetric
+  make/break threshold would cost a **second MCP4728 package**, not a spare channel — and
+  a second one has to have its EEPROM address reprogrammed off the 0x60 default before it
+  can share this bus. Not implemented; see spec §12 item 9.
 - **`LDAC` is tied to `AGND`** (permanently asserted — immediate per-write update; no
   synchronized multi-channel update is used).
 - **Bus nets**: `I2C_SDA`/`I2C_SCL`, exposed as global labels on this sheet, no bus
@@ -483,10 +524,25 @@ software side does not have to re-derive any of this from the datasheet or the s
   per-bus sizing decision once every I²C device on the board (this DAC, plus whatever
   address-expander parts Task 12 itself adds) is known.
 
+**The LM339 runs from `+12V` and `AGND` — never `-12V`.** Its pin 12 is labelled
+"V−"/negative supply, but it is also the common emitter of all four open-collector output
+transistors, so whatever that pin sits on *is* this sheet's output LOW level. On `-12V` (as
+originally committed) an output LOW is V− + V_CEsat ≈ −11.9 V, and it genuinely settles
+there: a 10 kΩ pull-up to `+3V3` sources ~0.33 mA against a ~16 mA sink. `PD1_COMP`/
+`PD2_COMP`/`ACC_TRIG` carry that level to J7 pins 38/40/22 (GPIO20/21/25, pad absolute
+minimum −0.5 V) and to `U11`'s SN74HCT541 inputs with no series resistance and no clamp
+anywhere on the path. Nothing is lost by `AGND`: every threshold is 0–3.3 V (the DAC is on
+`+3V3`), all three populated channels' sources are AGND-referenced and unipolar-positive,
+and `+12V` still puts the input common-mode ceiling at 10.5 V. **One caveat, on-sheet as
+note 6:** `A_MISC1` is ±5 V and is the DNP fourth channel's `+` source, so populating that
+channel needs an input offset network ahead of pin 9 — not just stuffing `R120`/`R121`.
+
 **The pull-up rail on `PD1_COMP`/`PD2_COMP`/`ACC_TRIG` is `+3V3`, never `+5V`** — a
 destroy-the-sync-module constraint (all three wire directly into its own 3.3 V-only GPIO,
 no buffer in between), asserted directly by `check_breakout_comparators_netlist.py` with a
-negative control that moves one pull-up to `+5V` and confirms the check fires. Relevant to
+negative control that moves one pull-up to `+5V` and confirms the check fires. The same
+checker asserts V+ on `+12V` and V− on `AGND` and on nothing else, with two more negative
+controls (V− moved to `-12V`; V− on `AGND` but also shorted to `-12V`). Relevant to
 Task 12 only in that nothing about the I²C bus itself should ever change that fact — the
 DAC's own threshold output is a separate signal path from the comparators' own
 open-collector outputs, and the two must not be confused when wiring the bus.
@@ -497,8 +553,9 @@ open-collector outputs, and the two must not be confused when wiring the bus.
 own `DGND` domain and the recording NI card's own digital ground (`NI_GND`) — see
 `hardware/gen/gen_breakout_opto_ni.py` and `hardware/gen/check_breakout_opto_ni_netlist.py`
 for the full design and its verification. 24 channels (16 event-data bits plus
-`EVT_STROBE_BUF`, `BARCODE_PI`, `RWD_CMD_BUF`, `RWD_DLVR`, `STIM_TRIG_BUF`, `RHS_STIM_OUT`,
-`PD1_COMP`, `PD2_COMP` — corrected from the plan's own stale 22-channel figure once the two
+`EVT_STROBE_BUF`, `BARCODE_BUF`, `RWD_CMD_BUF`, `RWD_DLVR_BUF`, `STIM_TRIG_BUF`,
+`RHS_STIM_OUT`, `PD1_COMP_BUF`, `PD2_COMP_BUF` — corrected from the plan's own stale
+22-channel figure once the two
 photodiode-comparator channels reaching NI were accounted for), each through a Broadcom
 `ACSL-6400` (quad, all-in-one, 15 MBd logic-output optocoupler — **not** phototransistor,
 matching the mule's own validated part class) — six packages, no stock KiCad symbol existed
@@ -547,8 +604,10 @@ nothing to the netlist's real behaviour unless deliberately populated.
 the Intan domain's own isolated ground (`INTAN_GND`) — see
 `hardware/gen/gen_breakout_opto_intan.py` and
 `hardware/gen/check_breakout_opto_intan_netlist.py` for the full design and its
-verification. 6 channels: 5 outbound (`EVT_STROBE_BUF`/`BARCODE_PI`/`RWD_CMD_BUF`/
-`RWD_DLVR`/`STIM_TRIG_BUF`, `DGND`→`INTAN_GND`) and 1 inbound (`RHS_STIM_OUT`, the one
+verification. 6 channels: 5 outbound (`EVT_STROBE_INTAN_BUF`/`BARCODE_INTAN_BUF`/
+`RWD_CMD_INTAN_BUF`/`RWD_DLVR_INTAN_BUF`/`STIM_TRIG_INTAN_BUF`, `DGND`→`INTAN_GND`) — every
+one its own dedicated buffered leg, never a net shared with `opto-ni`'s LED for the same
+signal, see "One optocoupler LED per driver pin" below — and 1 inbound (`RHS_STIM_OUT`, the one
 signal originating inside the Intan domain, `INTAN_GND`→`DGND`), all out to BNCs (isolated
 shells, this board's established convention).
 
@@ -609,7 +668,87 @@ established a precedent for): `taskpc-digital.kicad_sch`'s own temporary `PWR_FL
 moment this sheet wires a real `open_collector` driver onto it, exactly as that
 generator's own docstring already specified. `check_breakout_pi_interface_netlist.py`'s own
 `BARCODE_PI` fan-out count moved 5→6 at Task 11's `opto-ni.kicad_sch` (its first real load)
-and 6→7 here (opto-intan's own).
+and 6→7 here (opto-intan's own) — **and back to 5 afterwards.** Widening that count to
+absorb the two new loads was the wrong response: both were optocoupler LEDs at ~7.33 mA
+each, so the trigger buffer's own Y0 pin was being asked for 14.7 mA against a 6 mA IOL.
+They now hang on `BARCODE_BUF`/`BARCODE_INTAN_BUF`, dedicated channels off the same
+package, and that checker asserts `BARCODE_PI` carries no LED cathode at all rather than
+just counting loads — see "One optocoupler LED per driver pin" below.
+
+## One optocoupler LED per driver pin
+
+An earlier ruling (F2, `.superpowers/sdd/2026-08-13-breakout-pcb/progress.md`) created the
+`_BUF` bank so the task PC's own DAQ pins would not drive optocoupler LEDs directly. It
+named **19 signals** for what is really a **30-LED** board, and the 11 unnamed LEDs ended up
+doubled onto driver pins that already had one.
+
+Each `ACSL-6400`/`ACSL-6420` LED is fed from `+5V` through 430 Ω and draws ~7.33 mA. That
+value is not free to move: it is pinned between the part's own 7–15 mA recommended forward
+current and its **7.0 mA worst-case switching threshold**, so a driver cannot be helped by
+lowering it (see `gen_breakout_opto_ni.py`'s own derivation). Two LEDs on one pin is
+14.7 mA — against `SN74HCT541`'s 6 mA IOL, and against `SN74HCT32`'s 4 mA.
+
+The 74HCT32 case had a failure mode rather than a margin. `RWD_DLVR` came straight off the
+reward-OR gate and fed both its NI and Intan optocouplers; that gate's LOW level is read by
+the `SN74LVC541APW` level-shifter (V_IL,max 0.8 V) on the way to GPIO23, and an HCT gate's
+V_OL at 3.7× its rated sink plausibly exceeds it — **`RWD_DLVR_PI` stuck HIGH, the sync
+module recording reward-delivered continuously.** That is the same failure signature as the
+debounce-polarity defect Task 8 fix round 1 already caught on this board.
+
+Separately, `PD1_COMP`/`PD2_COMP` carried an LED whose anode sits on `+5V` through 430 Ω,
+and those two nets wire **directly** into GPIO20/GPIO21. With the LED off that node idles
+~3.6–3.8 V — above the 3.3 V rail, held only by the module's ESD clamp; and with this board
+powered while the sync box is off, ~7 mA is injected into an unpowered pad. They were the
+only 2 of the 24 NI optocoupler LEDs not driven from a buffered leg.
+
+**The rule now: one HCT541 output pin drives exactly one LED, and no LED hangs on a net that
+reaches a sync-module GPIO.** No component was added — every new channel is a label on a pin
+that was previously tied off, so reference designators and the BOM are unchanged. `U10` (the
+`_BUF` bank's third package) spent its last 5 spare channels; `U11` (the outbound buffer) and
+`U15` (the trigger buffer) spent 2 each.
+
+| Driver pin | Part | Net | LEDs | Pull-up | Total sink | Budget |
+|---|---|---|---:|---:|---:|---:|
+| `U8.11–18` (8 pins) | SN74HCT541PW | `EVT_D0..7_BUF` | 1 each | — | 7.33 mA | 7.5 mA† |
+| `U9.11–18` (8 pins) | SN74HCT541PW | `EVT_D8..15_BUF` | 1 each | — | 7.33 mA | 7.5 mA† |
+| `U10.18` | SN74HCT541PW | `EVT_STROBE_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.17` | SN74HCT541PW | `RWD_CMD_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.16` | SN74HCT541PW | `STIM_TRIG_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.15` | SN74HCT541PW | `EVT_STROBE_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.14` | SN74HCT541PW | `RWD_CMD_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.13` | SN74HCT541PW | `STIM_TRIG_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.12` | SN74HCT541PW | `RWD_DLVR_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U10.11` | SN74HCT541PW | `RWD_DLVR_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U11.14` | SN74HCT541PW | `PD1_COMP_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U11.13` | SN74HCT541PW | `PD2_COMP_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U15.15` | SN74HCT541PW | `BARCODE_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U15.14` | SN74HCT541PW | `BARCODE_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U12.3` | SN74HCT32D | `RWD_DLVR` | **0** | — | ~0 mA | 4 mA |
+| `U15.18` | SN74HCT541PW | `BARCODE_PI` | **0** | — | ~0 mA | 7.5 mA† |
+| `U54.1/2/13/14` | LM339 (open-collector) | `PD2_COMP`/`PD1_COMP`/`ACC_TRIG`/`A_MISC1_COMP` | **0** | 10 kΩ→+3V3 | 0.33 mA | 6 mA |
+| `U65.3` | ACSL-6420 | `RHS_STIM_OUT` | 1 | 3.9 kΩ→+5V | 8.61 mA | 13 mA |
+| `U56–U61.11–14`, `U64.11–14`, `U65.2/10/11` | ACSL-6400/6420 | the 28 `*_NI`/`*_INTAN` nets | 0 | 3.9 kΩ | 1.28 mA | 13 mA |
+
+Package totals through GND: `U8`, `U9`, `U10` at 58.6 mA each, `U11` and `U15` at 14.7 mA,
+against the HCT541's ±70 mA absolute maximum. `U10` joining `U8`/`U9` at 58.6 mA is the
+direct cost of spending its 5 spares here, and is the same figure `U8`/`U9` have carried
+since Task 8.
+
+**† The one deliberate deviation, recorded rather than left implicit.** `SN74HCT541` is rated
+IOL = 6 mA (V_OL 0.33 V max at V_CC 4.5 V), and every LED-driving pin is asked for 7.33 mA —
+22% over. It cannot be designed away: anything at or under 6 mA risks a marginal optocoupler
+not switching at all. It is far inside the part's 25 mA per-pin absolute maximum, and
+`SN74AHCT541` (8 mA IOL, identical pinout) is the drop-in if strict compliance is ever
+wanted. The budget in `tests/hardware/test_netlist.py`'s `MAX_SINK_MA` is set at 7.5 mA so
+the deviation is bounded and explicit while a second LED on the same pin still fails hard.
+
+**Verification** (each with a negative control that fires): the whole-board contract sums
+LED and pull-up current per driver pin **across sheets** — the defect is structurally
+invisible per-sheet, since `opto-ni` sees one LED on the net and `opto-intan` sees one LED on
+the same net. `check_taskpc_digital_netlist.py` asserts no logic output of its own packages
+sinks more than one LED cathode anywhere in the netlist and that the 74HCT32 drives none;
+both opto checkers assert every LED source net carries exactly one cathode pin board-wide;
+`check_breakout_pi_interface_netlist.py` asserts `BARCODE_PI` carries no cathode at all.
 
 ## Control / USB-I²C bus (Task 12)
 

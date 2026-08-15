@@ -71,15 +71,30 @@ tallied from the CSV's comma/dash-compressed Reference strings.
 
 **DNP is invisible in the locked CSV as well** — `DNP` was not in the requested `--fields`
 list either, and `kicad-cli sch export bom` includes DNP parts by default (no `--exclude-dnp`
-was passed). Five components are genuinely Do-Not-Populate — `opto-ni.kicad_sch`'s documented
-NI-side isolated-5V fallback (populated only if bench measurement shows the 3.9 kΩ pull-up
-budget in spec §8.1 doesn't hold): **U62** (`TMA-0505S`), **C135**, **C136** (the fallback's
-own input/output bulk caps, folded into the "10uF" row's total of 14 — 12 are real),
-**FB3** (folded into the "600R@100MHz" row's total of 3 — 2 are real), and **R170** (the
-single `0` Ω bridge that shorts the fallback's footprint onto `NI_5V` when it is not
-populated — this is the only 0 Ω part on the board, which is how it was identified). None of
-this is visible from `breakout-bom.csv` alone; call it out here so assembly doesn't populate
-5 positions that are deliberately empty on every board built to this lock.
+was passed). **Seven** components are genuinely Do-Not-Populate, across two independent
+groups (count corrected 2026-08-15: this section previously said five, having missed the
+comparator sheet's own two; both counts are now tool-derived from `(dnp yes)` in the
+committed sheet sources rather than tallied by hand).
+
+*Group 1 — `opto-ni.kicad_sch`'s documented NI-side isolated-5V fallback* (populated only if
+bench measurement shows the 3.9 kΩ pull-up budget in spec §8.1 doesn't hold): **U62**
+(`TMA-0505S`), **C135**, **C136** (the fallback's own input/output bulk caps, folded into the
+"10uF" row's total of 14 — 12 are real), **FB3** (folded into the "600R@100MHz" row's total
+of 3 — 2 are real), and **R170** (the single `0` Ω bridge that shorts the fallback's
+footprint onto `NI_5V` when it is not populated — this is the only 0 Ω part on the board,
+which is how it was identified).
+
+*Group 2 — `comparators.kicad_sch`'s fourth, unpopulated comparator channel* (`A_MISC1` →
+`A_MISC1_COMP`, a populate option rather than a respin): **R121** (`10k`, that channel's
+pull-up, folded into the "10k" row) and **R120** (`1M`, its hysteresis feedback, folded into
+the "1M" row). The LM339's own `+`/`-` input pins for this channel are real, permanent wires
+and the package is stuffed regardless — only these two resistors are unstuffed. Note that
+populating them is **not** sufficient to use the channel: `A_MISC1` is ±5 V and the LM339
+now runs from +12 V and AGND, so that channel also needs an input offset network ahead of the
+comparator's `+` pin. See the on-sheet note and `gen_breakout_comparators.py`.
+
+None of this is visible from `breakout-bom.csv` alone; call it out here so assembly doesn't
+populate 7 positions that are deliberately empty on every board built to this lock.
 
 | Value / description | Real per-board qty | DNP within this row | ×5 boards |
 |---|---:|---|---:|
@@ -94,7 +109,7 @@ this is visible from `breakout-bom.csv` alone; call it out here so assembly does
 | MDR68 (4 distinct connector roles) | 4 | — | 20 |
 | BNC (29 real footprint instances; §5 below) | 29 | — | 145 |
 | Conn_02x03 (misc ÷1/÷2 shunt headers) | 3 | — | 15 (+3 shorting blocks/bd, not in this BOM — see §5) |
-| Resistors, all values combined | 189 | 1 DNP (R170) → 188 real | 940 real |
+| Resistors, all values combined | 189 | 3 DNP (R170, R120, R121) → 186 real | 930 real |
 | U1 LD1117S33TR_SOT223 | 1 | — | 5 |
 | U2 IH1215D | 1 | — | 5 |
 | U3 TPS7A4901 / U4 TPS7A3001 | 1 each | — | 5 each |

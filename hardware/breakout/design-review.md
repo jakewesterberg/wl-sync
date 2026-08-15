@@ -211,10 +211,14 @@ document is not confirmation.
   specific MPN yet.
   **Human step:** pick and lock the real MPN/footprint for these three positions before or
   during early layout — not a blocker for starting Task 14, but a blocker for finishing it.
-- [ ] **5 components on this board are Do-Not-Populate by design** (`U62` `TMA-0505S`, `C135`,
-  `C136`, `FB3`, `R170`) and this is invisible in `breakout-bom.csv` itself (no DNP column was
+- [ ] **7 components on this board are Do-Not-Populate by design** — `opto-ni.kicad_sch`'s
+  isolated-5V fallback (`U62` `TMA-0505S`, `C135`, `C136`, `FB3`, `R170`) and
+  `comparators.kicad_sch`'s unpopulated fourth comparator channel (`R121` 10k pull-up, `R120`
+  1M hysteresis feedback). This is invisible in `breakout-bom.csv` itself (no DNP column was
   requested in the BOM export). Confirm whoever hands the BOM to an assembler also hands them
-  `procurement-check.md` §2, or these 5 positions risk being populated when they shouldn't be.
+  `procurement-check.md` §2, or these 7 positions risk being populated when they shouldn't be.
+  *(Count corrected 2026-08-15 — this said five, having missed the comparator sheet's own
+  two; both counts are now derived from `(dnp yes)` in the committed sheet sources.)*
 
 ---
 

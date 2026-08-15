@@ -728,12 +728,12 @@ cross-correlation per session, which is a better reason to keep the channels tha
 
 | # | Item | Blocking |
 |---|---|---|
-| 1 | ~~+5 V current budget on the NI 68-pin connector~~ **Closed 2026-08-13** — **250 mA per connector**. Feasible at ~150 mA with 10 kΩ pull-ups; 1 kΩ would not be. See §8.1 | ~~Schematic~~ |
+| 1 | ~~+5 V current budget on the NI 68-pin connector~~ **Closed 2026-08-13** — **250 mA per connector**. Feasible at ~151–199 mA with **3.9 kΩ** pull-ups (24 optocoupler output stages at 5–7 mA each, plus ~31 mA of pull-up current); 1 kΩ would not be (~240–288 mA, at or over budget). 10 kΩ, the original figure here, also fit the budget but exceeded the ACSL-6400's own R\_L maximum — see §8.1 | ~~Schematic~~ |
 | 2 | **Whether SpikeGLX exposes NRSE** as an NI terminal configuration. Decision 5 depends on it | Schematic |
 | 3 | ~~Connector 0 / Connector 1 pin split~~ **Closed 2026-08-13** — Connector 0 carries AI 0–15 + P0.0–7 + P1; Connector 1 carries AI 16–31 + P0.8–31 + P2. Analog fits entirely on 0, digital entirely on 1. See §9.2 | ~~Layout~~ |
 | 4 | **MDR68 and BNC stock and lead time** — the widest schedule error bar (§10.2) | Immediately |
-| 5 | Accelerometer is a custom device emitting one analog motion-energy channel; its output range sets the front-end scaling | Schematic |
+| 5 | ~~Accelerometer output range sets the front-end scaling~~ **Closed by construction** — `A_ACC` is a plain unity-gain difference receive (one INA105, SENSE tied to OUTPUT) with **no scaling network of any kind**; only MISC 1–3 carry the switchable /1÷/2 attenuation. The board is therefore committed to a **±5 V accelerometer**, the §6.1 board-wide convention. **Confirm that range with whoever is building the device before fabrication** — if it is not ±5 V, this is a respin, not a populate option | ~~Schematic~~ — confirm the range |
 | 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
-| 7 | Whether the misc analog ports need to be outputs as well as inputs | Schematic |
+| 7 | ~~Whether the misc analog ports need to be outputs as well as inputs~~ **Closed by construction — they are inputs only.** Each misc BNC runs one way: clamp → /1÷/2 divider → INA105 `+` input → `A_MISCn` → the NI and task-PC buffers. There is no drive-back path from the board to the connector anywhere on the analog front end, so an output misc port would be a respin | ~~Schematic~~ |
 | 8 | Behavior camera count (≤4 budgeted); all share one trigger rate, since only two hardware PWM pins survive the contiguous capture range | Layout |
-| 9 | Whether asymmetric comparator make/break thresholds are wanted, costing a second DAC channel each | Schematic |
+| 9 | Whether asymmetric comparator make/break thresholds are wanted. **Cost restated (2026-08-15): a second MCP4728 package, not a second channel each.** All four channels of the one DAC are allocated — VOUTA/B/C/D to PD1/PD2/ACC/MISC1 — so there is no spare channel to take the second threshold of any comparator. This is a new I²C device (the part has no address pins; its 3 address bits are EEPROM-programmed, factory default 0x60, so a second one must be reprogrammed before it can share the bus), plus its decoupling and board area | Schematic |
