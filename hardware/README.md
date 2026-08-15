@@ -465,6 +465,54 @@ Task 12 only in that nothing about the I²C bus itself should ever change that f
 DAC's own threshold output is a separate signal path from the comparators' own
 open-collector outputs, and the two must not be confused when wiring the bus.
 
+## Opto-NI: 24 isolated digital channels and the recording NI's Connector 1 (Task 11)
+
+`hardware/breakout/sheets/opto-ni.kicad_sch` is the galvanic barrier between the board's
+own `DGND` domain and the recording NI card's own digital ground (`NI_GND`) — see
+`hardware/gen/gen_breakout_opto_ni.py` and `hardware/gen/check_breakout_opto_ni_netlist.py`
+for the full design and its verification. 24 channels (16 event-data bits plus
+`EVT_STROBE_BUF`, `BARCODE_PI`, `RWD_CMD_BUF`, `RWD_DLVR`, `STIM_TRIG_BUF`, `RHS_STIM_OUT`,
+`PD1_COMP`, `PD2_COMP` — corrected from the plan's own stale 22-channel figure once the two
+photodiode-comparator channels reaching NI were accounted for), each through a Broadcom
+`ACSL-6400` (quad, all-in-one, 15 MBd logic-output optocoupler — **not** phototransistor,
+matching the mule's own validated part class) — six packages, no stock KiCad symbol existed
+for this part so `hardware/lib/wl-sync.kicad_sym` gained a hand-built one this task (search
+that generator's own module comment for "ACSL-6400" for the full Broadcom AV02-0235EN pin
+sourcing, cross-confirmed against two independent figures in the same datasheet). This
+sheet also places the recording NI's own **Connector 1** (digital) — Connector 0 (analog)
+was already placed by Task 10b on `analog-ni.kicad_sch`.
+
+**The drive topology is deliberately non-inverting, unlike the mule's own.** ACSL-6400's
+own truth table is LED-ON → output LOW; wiring the LED the mule's own way (source → series
+R → anode; cathode → local ground) would ship every NI-side event-code bit inverted — a
+real, silent hazard for a 16-bit word, not merely a style choice. This sheet instead ties
+each LED's anode to `+5V` through the series resistor and drives the cathode directly from
+the source net, which cancels the inversion by relying only on the driving 74HCT541/74HCT32
+push-pull output's ordinary ability to sink a few mA — see the generator's own module
+docstring for the full derivation. LED series resistors are 430 Ω (≈7.33 mA, roughly half
+ACSL-6400's own datasheet-recommended top-of-range forward current). NI-side pull-ups are
+**10 kΩ, not the mule's 1 kΩ** — this task's own explicit instruction, driven by NI's
+250 mA/connector budget (24 output stages already draw ~120–170 mA; 1 kΩ pull-ups would add
+another ~120 mA against 10 kΩ's ~12 mA) — which exceeds ACSL-6400's own datasheet pull-up
+maximum (4 kΩ, a 15 MBd/5-TTL-load speed spec this sheet's real load, a single high-Z NI DAQ
+input with a hundreds-of-microseconds timing budget, does not need); logic-level integrity
+at 10 kΩ is reasoned through explicitly in the generator's own module docstring, not merely
+asserted.
+
+**Connector 1's physical pins are sourced from NI's X Series User Manual (370784K-01),
+Figure A-18** ("NI PCIe-6353 and NI PCIe/PXIe-6363 Pinout" — the recording NI's own PXIe-6353
+family; "PXIe-6353" itself appears nowhere in the manual, only "PCIe-6353"/"PCIe/PXIe-6363",
+which share one connector-pinout figure), fetched directly from NI's own documentation host
+and independently re-derived rather than reused unchecked from Task 8's own Connector 1
+table (a *different* physical card, PCIe-6343, Figure A-5) — found, on comparison, to be
+byte-for-byte identical on all 24 P0.x positions, all 12 D GND positions, and both `+5V`
+positions. **Power for the NI-side output stage is `NI_5V`/`NI_GND`, taken directly off
+Connector 1's own `+5V` (pins 8, 14) and D GND (12 pins)** — switcher-free, already
+referenced to NI's own ground, per this task's own brief — with a filtered isolated DC-DC
+fallback footprint (`TMA-0505S`, the same part class the mule's own isolated 5 V rail uses)
+left fully DNP, bridged onto `NI_5V` through a single DNP 0 Ω resistor so it contributes
+nothing to the netlist's real behaviour unless deliberately populated.
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or
@@ -767,7 +815,10 @@ generated — don't rediscover them.
   The moment `comparators.kicad_sch` (Task 10d) wired a genuine `open_collector` output
   pin onto three of those same four nets, the SURVIVING `PWR_FLAG`s tripped a NEW error —
   `pin_to_pin`, "Pins of type Open collector and Power output are connected" — confirmed
-  empirically (4 errors before deleting the three stale flags, 0 after). Fixed by deleting
+  empirically (3 errors, one per stale flag, before deleting the three stale flags, 0
+  after — corrected here from an earlier, uncorroborated "4"; a later reviewer
+  reconstructed this commit and measured 3, with no `I2C_SCL` involvement, matching the
+  arithmetic directly: three surviving flags, three conflicts). Fixed by deleting
   exactly the three `sch.power_flag()` calls whose own net now has a real driver (not the
   fourth, `RHS_STIM_OUT`, which still has none — Task 11's own job) — see
   `gen_breakout_taskpc_digital.py`'s own `_place_outbound()`, which already flagged this

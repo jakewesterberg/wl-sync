@@ -756,19 +756,177 @@ SYM_ADG1206YRUZ = build_ic_symbol(
     ADG1206_PINS["left"], ADG1206_PINS["right"],
 )
 
+# ---------------------------------------------------------------------------
+# 10/11. ACSL-6400 / ACSL-6420 -- Broadcom quad-channel, 15 MBd digital logic gate
+#    optocouplers, 16-pin narrow-body SOIC. Task 11 (`opto-ni.kicad_sch`,
+#    `opto-intan.kicad_sch`): the galvanic barrier between the rig-side (DGND) domain and
+#    the two ephys chassis (NI_GND, INTAN_GND). This is the part class plan.md's own Task
+#    11 text names as "the reference candidate" (spec's own logic-output-not-phototransistor
+#    requirement, matching the mule's own validated HCPL-4661 part class -- Task 2).
+#
+#    NO STOCK KICAD SYMBOL EXISTS for either part (grepped the full installed
+#    Isolator.kicad_sym -- 429 top-level symbols -- for "ACSL", zero matches; every
+#    "quad"/"-4"-suffixed entry that DOES exist there, CNY17-4/SFH617A-4/TLP290-4/
+#    TLP291-4/TLP292-4/TLP293-4/TLP627-4/VO615A-4, is a phototransistor-output family,
+#    which the "not phototransistor" requirement rules out directly -- so this follows the
+#    ADG1206YRUZ/TPS7A4901 precedent above: a hand-built custom symbol with a real,
+#    datasheet-sourced pin table, not a borrowed stand-in.
+#
+#    PIN TABLES, DEFINITIVE -- Broadcom AV02-0235EN ("ACSL-6xx0 Data Sheet: Multi-Channel
+#    and Bi-Directional, 15 MBd Digital Logic Gate Optocoupler", docs.broadcom.com/doc/
+#    AV02-0235EN, dated August 21, 2018), fetched directly and read with `pdftotext
+#    -layout`. Every physical pin below is cross-confirmed against TWO independent figures
+#    within the SAME datasheet for each part -- Figure 4 (pin/functional diagram) AND
+#    Figure 10 (schematic diagram) for ACSL-6400; Figure 6 (pin/functional diagram) AND
+#    Figure 12 (schematic diagram) for ACSL-6420 -- and both figures agree exactly, on
+#    every pin, for both parts. Truth table (both parts, per the datasheet's own "Pin
+#    Description / Truth Table" page): LED ON -> output LOW; LED OFF -> output HIGH
+#    (output detector IC's own two-stage amplifier feeds an open-collector Schottky-
+#    clamped transistor -- VO pins below are typed "open_collector", matching this
+#    project's own LM339 convention). A 0.1uF bypass capacitor is the datasheet's own
+#    explicit instruction "as close as possible between the power supply pins" -- both
+#    VDD/GND pairs on a bidirectional part.
+#
+#    ACSL-6400 ("Quad, All-in-One", device selection guide table) -- ALL FOUR CHANNELS GO
+#    ONE DIRECTION, sharing ONE VDD/GND domain on the OUTPUT (detector) side:
+#
+#      Pin  Name       Pin  Name
+#      1    ANODE1     9    GND
+#      2    CATHODE1   10   VDD
+#      3    ANODE2     11   VO4
+#      4    CATHODE2   12   VO3
+#      5    ANODE3     13   VO2
+#      6    CATHODE3   14   VO1
+#      7    ANODE4     15   VDD
+#      8    CATHODE4   16   GND
+#
+#    Used on opto-ni.kicad_sch (six instances, all-in-one direction: DGND -> NI_GND, 24
+#    channels) and once on opto-intan.kicad_sch (the 4 same-direction outbound channels:
+#    DGND -> INTAN_GND -- strobe/barcode/RWD_CMD/RWD_DLVR).
+#
+#    ACSL-6420 ("Quad, Bi-Dir 2/2") -- TWO channels go ONE direction (VDD1/GND1 on the LED
+#    side, VDD2/GND2 on the output side), the OTHER two go the OPPOSITE direction (VDD2/
+#    GND2 on the LED side, VDD1/GND1 on the output side):
+#
+#      Pin  Name       Pin  Name
+#      1    GND1       9    GND2
+#      2    VO4        10   VO2
+#      3    VO3        11   VO1
+#      4    VDD1       12   VDD2
+#      5    ANODE1     13   CATHODE3
+#      6    CATHODE1   14   ANODE3
+#      7    ANODE2     15   CATHODE4
+#      8    CATHODE2   16   ANODE4
+#
+#    Channels 1/2 (LED on VDD1/GND1, output VO1/VO2 on VDD2/GND2) go "direction 1->2";
+#    channels 3/4 (LED on VDD2/GND2, output VO3/VO4 on VDD1/GND1) go "direction 2->1".
+#
+#    WHY OPTO-INTAN'S SECOND PACKAGE IS ACSL-6420, NOT A SECOND ACSL-6400 -- a correction
+#    found by this pin-level verification, not assumed going in. plan.md's own Task 11 text
+#    (and this task's own dispatch) puts 5 outbound channels (strobe/barcode/RWD_CMD/
+#    RWD_DLVR/STIM_TRIG) and 1 inbound channel (RHS_STIM_OUT, the one signal originating
+#    INSIDE the Intan domain) on opto-intan -- a genuinely mixed-direction 6-channel set.
+#    Four outbound channels fill one ACSL-6400 cleanly (all-in-one, single direction, exact
+#    fit). The remaining 1 outbound (STIM_TRIG) + 1 inbound (RHS_STIM_OUT) channel CANNOT
+#    share a second ACSL-6400: an all-in-one part's four channels all share ONE VDD/GND on
+#    the OUTPUT side, so forcing one channel's isolated-side output and another channel's
+#    non-isolated-side output onto the SAME physical VDD/GND pins would put a channel's
+#    output on the wrong side of the isolation barrier entirely -- not a tolerance problem,
+#    a topology one, the exact "plausible but wrong" failure class this project's own
+#    constraint-1 gotcha warns about, just one level up (part-class choice, not pin
+#    mislabeling). ACSL-6420's OWN 2/2 bidirectional split is built for precisely this:
+#    channel 1 (direction 1->2) carries STIM_TRIG_BUF (LED on VDD1/GND1 = +5V/DGND, VO1 on
+#    VDD2/GND2 = ISO_5V/INTAN_GND); channel 3 (direction 2->1) carries RHS_STIM_OUT (LED on
+#    VDD2/GND2 = ISO_5V/INTAN_GND, VO3 on VDD1/GND1 = +5V/DGND). Channels 2 and 4 are the
+#    genuine spares (one per direction) -- see gen_breakout_opto_intan.py.
+#
+#    Package/footprint: real, current, 16-pin narrow-body SOIC (datasheet's own "Package
+#    Outline Drawings", 16-pin narrow-body, confirmed against the stock KiCad
+#    "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm" footprint -- same body width/length/pitch
+#    class as every other narrow SOIC on this board, 16 pads confirmed directly against
+#    the .kicad_mod). No new fp-lib-table entry needed (Package_SO already registered,
+#    Task 10a).
+# ---------------------------------------------------------------------------
+ACSL_FOOTPRINT = "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"
+ACSL6400_DATASHEET = "https://docs.broadcom.com/doc/AV02-0235EN"
+ACSL6400_PINS = {
+    "left": [
+        ("1", "ANODE1", "passive"), ("2", "CATHODE1", "passive"),
+        ("3", "ANODE2", "passive"), ("4", "CATHODE2", "passive"),
+        ("5", "ANODE3", "passive"), ("6", "CATHODE3", "passive"),
+        ("7", "ANODE4", "passive"), ("8", "CATHODE4", "passive"),
+    ],
+    "right": [
+        ("9", "GND", "power_in"), ("10", "VDD", "power_in"),
+        ("11", "VO4", "open_collector"), ("12", "VO3", "open_collector"),
+        ("13", "VO2", "open_collector"), ("14", "VO1", "open_collector"),
+        ("15", "VDD", "power_in"), ("16", "GND", "power_in"),
+    ],
+}
+SYM_ACSL6400 = build_ic_symbol(
+    "ACSL6400",
+    "ACSL-6400-00TE",
+    "Broadcom quad-channel, all-in-one (single direction), 15 MBd digital logic gate "
+    "optocoupler -- 16-pin narrow-body SOIC. ANODE/CATHODE 1-4 (LED, input side); VO1-4 "
+    "open-collector (output side, needs an external pull-up); VDD/GND appear twice (pins "
+    "9/16, 10/15), both pairs on the SAME (output-side) supply domain -- datasheet's own "
+    "instruction is a 0.1uF bypass as close as possible to each pair. Truth table: LED ON "
+    "-> VOx LOW; LED OFF -> VOx HIGH (via pull-up). Pin table is Broadcom AV02-0235EN's own "
+    "Figure 4/Figure 10 (both agree exactly), transcribed verbatim -- see this generator's "
+    "own module comment (search 'ACSL-6400') for the full sourcing account.",
+    "optocoupler isolator quad logic output ACSL-6400 ACSL-6xx0",
+    ACSL6400_DATASHEET,
+    ACSL_FOOTPRINT,
+    ACSL6400_PINS["left"], ACSL6400_PINS["right"],
+)
+
+ACSL6420_PINS = {
+    "left": [
+        ("1", "GND1", "power_in"), ("2", "VO4", "open_collector"),
+        ("3", "VO3", "open_collector"), ("4", "VDD1", "power_in"),
+        ("5", "ANODE1", "passive"), ("6", "CATHODE1", "passive"),
+        ("7", "ANODE2", "passive"), ("8", "CATHODE2", "passive"),
+    ],
+    "right": [
+        ("9", "GND2", "power_in"), ("10", "VO2", "open_collector"),
+        ("11", "VO1", "open_collector"), ("12", "VDD2", "power_in"),
+        ("13", "CATHODE3", "passive"), ("14", "ANODE3", "passive"),
+        ("15", "CATHODE4", "passive"), ("16", "ANODE4", "passive"),
+    ],
+}
+SYM_ACSL6420 = build_ic_symbol(
+    "ACSL6420",
+    "ACSL-6420-00TE",
+    "Broadcom quad-channel, bi-directional 2/2, 15 MBd digital logic gate optocoupler -- "
+    "16-pin narrow-body SOIC. Channels 1/2: LED (ANODE1/CATHODE1, ANODE2/CATHODE2) on "
+    "VDD1/GND1, open-collector output (VO1/VO2) on VDD2/GND2 -- 'direction 1->2'. Channels "
+    "3/4: LED (ANODE3/CATHODE3, ANODE4/CATHODE4) on VDD2/GND2, open-collector output "
+    "(VO3/VO4) on VDD1/GND1 -- 'direction 2->1'. Same truth table and bypass-cap "
+    "instruction as ACSL6400 (see that symbol's own Description), applied per VDD/GND "
+    "pair. Pin table is Broadcom AV02-0235EN's own Figure 6/Figure 12 (both agree "
+    "exactly), transcribed verbatim -- see this generator's own module comment (search "
+    "'ACSL-6420') for the full sourcing account, including why opto-intan.kicad_sch's own "
+    "mixed-direction second package needs this part and not a second ACSL6400.",
+    "optocoupler isolator quad logic output bidirectional ACSL-6420 ACSL-6xx0",
+    ACSL6400_DATASHEET,
+    ACSL_FOOTPRINT,
+    ACSL6420_PINS["left"], ACSL6420_PINS["right"],
+)
+
 SYMBOLS = [
     SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_M12A_5, SYM_ACCESIO, SYM_PI5_HEADER,
-    SYM_TPS7A4901, SYM_TPS7A3001, SYM_ADG1206YRUZ,
+    SYM_TPS7A4901, SYM_TPS7A3001, SYM_ADG1206YRUZ, SYM_ACSL6400, SYM_ACSL6420,
 ]
 _SYMBOL_NAMES = [
     "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "M12A_5",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
-    "TPS7A4901", "TPS7A3001", "ADG1206YRUZ",
+    "TPS7A4901", "TPS7A3001", "ADG1206YRUZ", "ACSL6400", "ACSL6420",
 ]
 _EXPECTED_PIN_COUNTS = {
     "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "M12A_5": 5,
     "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
     "TPS7A4901": 8, "TPS7A3001": 8, "ADG1206YRUZ": 28,
+    "ACSL6400": 16, "ACSL6420": 16,
 }
 
 

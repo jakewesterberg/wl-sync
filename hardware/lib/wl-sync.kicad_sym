@@ -2857,4 +2857,504 @@
 		)
 		(embedded_fonts no)
 	)
+	(symbol "ACSL6400"
+		(pin_names
+			(offset 1.016)
+		)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(duplicate_pin_numbers_are_jumpers no)
+		(property "Reference" "U"
+			(at -25.4 12.7 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "ACSL-6400-00TE"
+			(at -25.4 -12.7 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://docs.broadcom.com/doc/AV02-0235EN"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Broadcom quad-channel, all-in-one (single direction), 15 MBd digital logic gate optocoupler -- 16-pin narrow-body SOIC. ANODE/CATHODE 1-4 (LED, input side); VO1-4 open-collector (output side, needs an external pull-up); VDD/GND appear twice (pins 9/16, 10/15), both pairs on the SAME (output-side) supply domain -- datasheet's own instruction is a 0.1uF bypass as close as possible to each pair. Truth table: LED ON -> VOx LOW; LED OFF -> VOx HIGH (via pull-up). Pin table is Broadcom AV02-0235EN's own Figure 4/Figure 10 (both agree exactly), transcribed verbatim -- see this generator's own module comment (search 'ACSL-6400') for the full sourcing account."
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_keywords" "optocoupler isolator quad logic output ACSL-6400 ACSL-6xx0"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(symbol "ACSL6400_0_1"
+			(rectangle
+				(start -25.4 10.16)
+				(end 25.4 -10.16)
+				(stroke
+					(width 0.254)
+					(type default)
+				)
+				(fill
+					(type background)
+				)
+			)
+		)
+		(symbol "ACSL6400_1_1"
+			(pin passive line
+				(at -29.209999999999997 8.89 0)
+				(length 3.81)
+				(name "ANODE1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "1"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 6.3500000000000005 0)
+				(length 3.81)
+				(name "CATHODE1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "2"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 3.8100000000000005 0)
+				(length 3.81)
+				(name "ANODE2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "3"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 1.2700000000000005 0)
+				(length 3.81)
+				(name "CATHODE2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "4"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -1.2699999999999996 0)
+				(length 3.81)
+				(name "ANODE3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "5"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -3.8099999999999987 0)
+				(length 3.81)
+				(name "CATHODE3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "6"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -6.35 0)
+				(length 3.81)
+				(name "ANODE4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "7"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -8.89 0)
+				(length 3.81)
+				(name "CATHODE4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "8"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 8.89 180)
+				(length 3.81)
+				(name "GND"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "9"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 6.3500000000000005 180)
+				(length 3.81)
+				(name "VDD"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "10"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 3.8100000000000005 180)
+				(length 3.81)
+				(name "VO4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "11"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 1.2700000000000005 180)
+				(length 3.81)
+				(name "VO3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "12"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 -1.2699999999999996 180)
+				(length 3.81)
+				(name "VO2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "13"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 -3.8099999999999987 180)
+				(length 3.81)
+				(name "VO1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "14"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 -6.35 180)
+				(length 3.81)
+				(name "VDD"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "15"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 -8.89 180)
+				(length 3.81)
+				(name "GND"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "16"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(embedded_fonts no)
+	)
+	(symbol "ACSL6420"
+		(pin_names
+			(offset 1.016)
+		)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(duplicate_pin_numbers_are_jumpers no)
+		(property "Reference" "U"
+			(at -25.4 12.7 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "ACSL-6420-00TE"
+			(at -25.4 -12.7 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://docs.broadcom.com/doc/AV02-0235EN"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Broadcom quad-channel, bi-directional 2/2, 15 MBd digital logic gate optocoupler -- 16-pin narrow-body SOIC. Channels 1/2: LED (ANODE1/CATHODE1, ANODE2/CATHODE2) on VDD1/GND1, open-collector output (VO1/VO2) on VDD2/GND2 -- 'direction 1->2'. Channels 3/4: LED (ANODE3/CATHODE3, ANODE4/CATHODE4) on VDD2/GND2, open-collector output (VO3/VO4) on VDD1/GND1 -- 'direction 2->1'. Same truth table and bypass-cap instruction as ACSL6400 (see that symbol's own Description), applied per VDD/GND pair. Pin table is Broadcom AV02-0235EN's own Figure 6/Figure 12 (both agree exactly), transcribed verbatim -- see this generator's own module comment (search 'ACSL-6420') for the full sourcing account, including why opto-intan.kicad_sch's own mixed-direction second package needs this part and not a second ACSL6400."
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_keywords" "optocoupler isolator quad logic output bidirectional ACSL-6420 ACSL-6xx0"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(symbol "ACSL6420_0_1"
+			(rectangle
+				(start -25.4 10.16)
+				(end 25.4 -10.16)
+				(stroke
+					(width 0.254)
+					(type default)
+				)
+				(fill
+					(type background)
+				)
+			)
+		)
+		(symbol "ACSL6420_1_1"
+			(pin power_in line
+				(at -29.209999999999997 8.89 0)
+				(length 3.81)
+				(name "GND1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "1"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at -29.209999999999997 6.3500000000000005 0)
+				(length 3.81)
+				(name "VO4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "2"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at -29.209999999999997 3.8100000000000005 0)
+				(length 3.81)
+				(name "VO3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "3"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at -29.209999999999997 1.2700000000000005 0)
+				(length 3.81)
+				(name "VDD1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "4"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -1.2699999999999996 0)
+				(length 3.81)
+				(name "ANODE1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "5"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -3.8099999999999987 0)
+				(length 3.81)
+				(name "CATHODE1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "6"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -6.35 0)
+				(length 3.81)
+				(name "ANODE2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "7"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at -29.209999999999997 -8.89 0)
+				(length 3.81)
+				(name "CATHODE2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "8"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 8.89 180)
+				(length 3.81)
+				(name "GND2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "9"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 6.3500000000000005 180)
+				(length 3.81)
+				(name "VO2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "10"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin open_collector line
+				(at 29.209999999999997 3.8100000000000005 180)
+				(length 3.81)
+				(name "VO1"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "11"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin power_in line
+				(at 29.209999999999997 1.2700000000000005 180)
+				(length 3.81)
+				(name "VDD2"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "12"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -1.2699999999999996 180)
+				(length 3.81)
+				(name "CATHODE3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "13"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -3.8099999999999987 180)
+				(length 3.81)
+				(name "ANODE3"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "14"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -6.35 180)
+				(length 3.81)
+				(name "CATHODE4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "15"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 29.209999999999997 -8.89 180)
+				(length 3.81)
+				(name "ANODE4"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "16"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(embedded_fonts no)
+	)
 )
