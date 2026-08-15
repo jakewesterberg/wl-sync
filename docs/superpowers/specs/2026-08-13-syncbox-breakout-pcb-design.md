@@ -629,6 +629,35 @@ floorplan, all of which must be settled **before panels are machined**:
   the rack-facing panel, and its motor is an electrical noise source that should not sit beside
   the microphone preamp or the photodiode front ends.
 
+### 9.5 Fan headers — added 2026-08-15, and they were missing
+
+§9.4 recorded the thermal *requirement* and never specified the connectors to satisfy it. The
+board carries **four 3-pin fan headers** at 2.54 mm on the standard PC fan pinout — pin 1 GND,
+pin 2 **+12 V**, pin 3 tach.
+
+**12 V, not 5 V.** An NF-A8-class 12 V fan draws ~0.06 A against ~0.1 A for the 5 V variant, so
+four is **~240 mA on the ±12 V rail that already exists** for the analog section rather than
+~400 mA on a +5 V rail already carrying 150–199 mA of optocoupler load. The 5 V Noctuas are
+really the USB-powered variants and buy nothing here. **The external supply's +12 V budget grows
+by 240 mA.**
+
+**Fan current must not return through `AGND`.** A brushless DC fan is a *commutating switching
+load*, and routing 240 mA of it through a board carrying 33 analog stages and a microphone
+preamp would contradict every other noise decision in this design — digital isolators were
+rejected for an RF carrier (§2 decision 3), on-board switchers for consistency with that (§8).
+The fan feed therefore gets **its own power and return traces, star-connected at the power inlet
+only**, never sharing the analog ground or its return path.
+
+**A polyfuse on the fan feed**, so a stalled or shorted fan cannot pull down the rails the analog
+section depends on. A fan is the most mechanically abused part in the enclosure and the only one
+with a bearing.
+
+**Tach pins are present but unconnected.** Power-only was chosen deliberately — the sync module's
+GPIO is full at 26 of 28, so tach would have to reach a spare I²C expander input, which is real
+work for a warning nobody asked for. Keeping the third pin on the header means a 3- or 4-pin
+Noctua plug seats directly with no adapter, **and adding tach later is a wire change rather than
+a connector change.**
+
 **The CM5 decision is conditional on this floorplan, and the condition is footprint.** The CM5 IO
 Board is **160 × 90 mm** against a Pi 5's 85 × 56 — roughly **three times the shadow** cast over
 a 430 × 240 mm main board. It must sit over the **rear digital region**, never over the analog
