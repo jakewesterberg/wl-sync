@@ -23,6 +23,38 @@ entry below states explicitly what changed and why. Full fix-round detail:
 **Board quantity assumed:** spec §10.1's fab run of 5 (2 production + 1 hand-assembled + 2
 spares) — 5 boards' worth of active parts, unless noted.
 
+**Addendum, 2026-08-17 — fan headers (spec §9.5), added to `power.kicad_sch` after this
+file's own Task 13 lock.** Six components not present in the locked 101-row
+`breakout-bom.csv`/`breakout-bom-order.csv`: four `Connector_Generic:Conn_01x03` chassis
+fan headers (`J52`–`J55`), one polyfuse (`F1`, Littelfuse `1206L050/15YR`), and one more
+each of the already-tracked "10uF" and "100nF" rows (the fan feed's own local bulk
+capacitance on `FAN_12V`, after the fuse). Both CSVs are now stale by exactly these six
+rows — re-running the Task 13 export recipe (§1 below) to fold them in is out of scope
+for this addition; this addendum is the record until that next happens.
+
+- **`Connector_Generic:Conn_01x03` × 4/board = 20** (`PinHeader_1x03_P2.54mm_Vertical`
+  footprint). Same commodity 2.54mm pin-header family as the `Conn_02x03` MISC shunt
+  headers already covered in §5.2's last row — generic, multiple manufacturers (Sullins,
+  TE, Amphenol, Adam Tech), no individual stock check warranted. Mates with any 3- or
+  4-pin PC/Noctua-class fan plug (standard pinout: pin 1 GND, pin 2 +12V, pin 3 tach —
+  pin 3 deliberately unconnected on this board, spec §9.5).
+- **`F1` polyfuse, Littelfuse `1206L050/15YR` × 1/board = 5.** Real, current, well-stocked
+  PPTC resettable fuse: 500 mA hold / 1 A trip / 15 V max / 100 A max fault-interrupt
+  rating, 1206 (3216 metric) package, `cURus`/`TUV` approved. **34,076 units in stock at
+  DigiKey** (checked 2026-08-17, direct product-page fetch), Active lifecycle. No risk —
+  well below any 4-week threshold and well-stocked at low volume (5 units needed).
+- **10uF bulk / 100nF small × 1 more each = 5 more each.** Same `C_0805_2012Metric`/
+  `C_0603_1608Metric` footprints and jellybean sourcing as every other instance of these
+  two rows (§5.4) — folds into the existing "no individual stock check" treatment, not a
+  new part class.
+
+**The external supply's +12 V requirement grows by ~240 mA** (spec §9.5: four fans at
+~0.06 A each, on the same rail the M12 inlet's own +12 V pin already carries — see
+§5.2's `M12A-05PFFP-SF8001` row). This is a load added to the +12 V rail the external
+brick must source, not a new BOM line of its own; recorded here so whoever specs or
+re-quotes the external supply sees the corrected figure rather than the pre-fan-header
+one.
+
 ---
 
 ## 1. How the BOM was produced, and two tooling findings worth recording

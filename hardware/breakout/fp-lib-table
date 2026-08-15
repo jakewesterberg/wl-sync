@@ -8,6 +8,7 @@
 	(lib (name "Connector_PinHeader_2.54mm") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_PinHeader_2.54mm.pretty") (options "") (descr "Pin headers, 2.54mm pitch"))
 	(lib (name "Converter_DCDC") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Converter_DCDC.pretty") (options "") (descr "DC/DC converter footprints"))
 	(lib (name "Diode_SMD") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Diode_SMD.pretty") (options "") (descr "Diode footprints, surface mount"))
+	(lib (name "Fuse") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Fuse.pretty") (options "") (descr "Fuse and fuse holder footprints"))
 	(lib (name "Inductor_SMD") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Inductor_SMD.pretty") (options "") (descr "Inductor and ferrite bead footprints, surface mount"))
 	(lib (name "NetTie") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/NetTie.pretty") (options "") (descr "Net tie footprints"))
 	(lib (name "Package_DIP") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Package_DIP.pretty") (options "") (descr "Through hole IC packages, DIP"))

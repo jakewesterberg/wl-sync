@@ -48,6 +48,19 @@ report sections for the full defect writeups and the numbers behind each decisio
      found empirically to need one too; see build()'s own comment for why exactly these
      seven and none of the others, mirroring gen_mule.py's power_flag() reasoning.
 
+FAN HEADERS -- added after this file's original commit, bounded addition per spec
+Sec.9.5 ("Fan headers -- added 2026-08-15, and they were missing"): four Conn_01x03
+chassis fan headers on their own dedicated FAN_12V/FAN_RTN nets, a polyfuse (F1) between
++12V and FAN_12V, local bulk capacitance on FAN_12V, and a second star-point NetTie_2
+(NT2) joining FAN_RTN to DGND. See _place_fan_headers()'s own docstring for the full
+electrical design and the out-of-band reference-minting discipline this addition
+required (power.kicad_sch is the first sheet this project ever generated, so every
+other sheet already seeded its own reference numbering past this file's PRE-fan-header
+state -- see that docstring for why an ordinary next_ref() call would have silently
+collided with an already-committed sibling sheet). CONTRACT_NETS is UNCHANGED (still 9)
+-- FAN_12V/FAN_RTN never leave this sheet, so they are not part of the cross-sheet
+contract.
+
 Run directly: `python3 hardware/gen/gen_breakout_power.py` (writes
 hardware/breakout/sheets/power.kicad_sch). hardware/breakout/sym-lib-table and
 fp-lib-table both needed new entries for this task -- see task-7-report.md for exactly
@@ -118,6 +131,30 @@ FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"  # LD1117S33TR -- iden
 # -- see gen_wl_sync_lib.py's TPS7A49_FOOTPRINT comment for why the generic one is used
 # without asserting false certainty about which exact TI suffix applies).
 FOOTPRINT_TPS7A49 = "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"
+# Fan headers -- added after this file's original commit (spec Sec.9.5, "Fan headers --
+# added 2026-08-15, and they were missing"). Both the symbol and footprint LIBRARIES
+# below were already registered project-wide before this addition (Device and
+# Connector_Generic in sym-lib-table; Connector_PinHeader_2.54mm in fp-lib-table --
+# analog-frontend.kicad_sch already used Conn_01x03/PinHeader_1x03_P2.54mm_Vertical for
+# its own, since-replaced MISC atten shunt headers), so only ONE new library entry was
+# needed anywhere: "Fuse" in hardware/breakout/fp-lib-table, for the polyfuse footprint.
+FOOTPRINT_FUSE = "Fuse:Fuse_1206_3216Metric_Pad1.42x1.75mm_HandSolder"  # Littelfuse
+# 1206L050/15YR -- real, current, well-stocked PPTC resettable fuse (34,076 units at
+# DigiKey, checked 2026-08-17): 500mA hold / 1A trip / 15V max / 100A max fault-
+# interrupt rating, 1206 (3216 metric) package. HandSolder pad variant, same hand-
+# assembly-margin discipline as every other footprint in this file (FOOTPRINT_DIODE/
+# FOOTPRINT_FERRITE's own comments). See _place_fan_headers()'s own docstring for the
+# hold-current sizing derivation and hardware/procurement-check.md for the sourcing
+# record.
+FOOTPRINT_HDR1X03 = "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical"
+# Real pad geometry checked directly against the .kicad_mod file, not assumed from the
+# symbol name (constraint 5, "check the footprint's real pad geometry... if anything you
+# add depends on physical adjacency"): pads 1/2/3 sit at (0,0)/(0,2.54)/(0,5.08) -- one
+# straight column in strict numeric order, so pin N *is* physical position N with no
+# adjacency hazard of the kind the Conn_02x03 ganged jumper (Task 10a fix rounds 2-3)
+# hit, where the symbol's logical numbering and the footprint's real pad layout
+# disagreed. Matches the standard PC 3-pin fan pinout at 2.54mm this header exists to
+# mate: pin 1 GND, pin 2 +12V, pin 3 tach.
 
 # ---------------------------------------------------------------------------
 # Layout grid -- every coordinate an exact multiple of 1.27mm (KiCad's schematic
@@ -165,6 +202,20 @@ X_U4, Y_U4 = GRID(340.36), GRID(281.94)          # TPS7A3001: ISO_N15_FILT -> IS
 
 SAT_DX = GRID(38.1)   # divider / pi-filter satellite horizontal offset from its IC/anchor
 SAT_DY = GRID(20.32)  # satellite vertical offset (row spacing for stacked satellites)
+
+# Fan-header stage anchors (spec Sec.9.5). Checked directly against the rendered file
+# before picking these, not assumed clear: every existing (at X Y) in the committed
+# power.kicad_sch spans X -29.21..380.49, Y -8.89..326.39, so this whole block (X>=440)
+# sits well outside that bounding box on the same A2 sheet and cannot coordinate-collide
+# with anything placed above.
+X_FAN_FUSE, Y_FAN_RAIL = GRID(440), GRID(30.48)      # F1: +12V -> FAN_12V
+X_FAN_CAP_BULK = GRID(475.56)                         # FAN_12V/FAN_RTN bulk 10uF
+X_FAN_CAP_SMALL = GRID(490.8)                         # FAN_12V/FAN_RTN small 100nF
+X_FAN_TIE, Y_FAN_TIE = GRID(440), GRID(50.8)          # NT2: FAN_RTN <-> DGND
+X_FAN_HDR, Y_FAN_HDR0 = GRID(520), GRID(30.48)        # first of 4 fan headers
+FAN_HDR_DY = GRID(25.4)                                # row spacing, headers 2-4
+X_NOTE_FAN, Y_NOTE_FAN = GRID(440), GRID(160)
+FAN_NOTE_DY = GRID(5.08)
 
 
 def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
@@ -527,6 +578,173 @@ def _place_isolated_supply(sch, refs):
     refs["u3"], refs["u4"] = u3_ref, u4_ref
 
 
+def _place_fan_headers(sch, refs):
+    """Added after this file's original commit -- spec Sec.9.5, "Fan headers -- added
+    2026-08-15, and they were missing": Sec.9.4 recorded the thermal requirement (a CM5
+    plus NVMe next to 33 temperature-sensitive analog stages, sealed in a 2U chassis)
+    and never specified the connectors to satisfy it. Four 3-pin chassis fan headers,
+    standard PC fan pinout at 2.54mm (pin 1 GND, pin 2 +12V, pin 3 tach), on their own
+    dedicated FAN_12V/FAN_RTN supply -- protected from the rails the analog section
+    depends on by a single shared polyfuse, and joined to the rest of the ground system
+    at exactly one point, the same star-point technique AGND/DGND already use at J1
+    (_place_inlet()).
+
+    WHY THIS IS A POWER-SHEET CHANGE, NOT A NEW SHEET: the fan headers are physically
+    and electrically part of the power-distribution problem this sheet already owns (a
+    load on +12V that must not contaminate AGND), not a new functional block. No other
+    sheet ever consumes FAN_12V or FAN_RTN by name, so neither net is added to
+    CONTRACT_NETS above -- that list is specifically the CROSS-SHEET contract, and these
+    two nets never leave this sheet.
+
+    FAN CURRENT MUST NOT RETURN THROUGH AGND. A brushless DC fan is a commutating
+    switching load, and routing ~240mA of it through a board carrying 33 analog stages
+    and a microphone preamp would contradict this design's own rejection of digital
+    isolators for an RF carrier (spec Sec.2 decision 3) and of on-board switchers for
+    consistency with that (spec Sec.8) -- the same reasoning that already put U2 (the
+    isolated DC-DC, _place_isolated_supply()) and +5V's own entry caps (_place_inlet())
+    on DGND rather than AGND. FAN_RTN follows that SAME precedent here, tied to DGND
+    (not AGND) via NT2, a second NetTie_2 -- so ERC still treats FAN_RTN and DGND as
+    distinct nets everywhere else on the board, and a future plane-split mistake between
+    them is a rule violation for a checker to catch, not noise buried in a recording.
+    FAN_RTN still reaches AGND, but only transitively, through NT2 then NT1 (DGND's own
+    tie to AGND) -- never by a second, competing direct path.
+
+    A POLYFUSE ON FAN_12V, not a second reverse-polarity diode: FAN_12V taps off +12V
+    AFTER D1 (_place_inlet()'s own reverse-polarity Schottky), so polarity is already
+    handled; a stalled or shorted fan is the fault this rail actually needs protection
+    from, since a fan is the most mechanically abused part in the enclosure and the only
+    one with a bearing. F1 (Littelfuse 1206L050/15YR) is sized for four fans at ~0.06A
+    each (~240mA nominal, spec Sec.9.5's own figure) with ~2.1x margin at its 500mA hold
+    rating -- inside the 1.5-2x band PPTC application guidance recommends, needed here
+    for three concrete reasons rather than a round-number guess: (1) PPTC hold current
+    is characterized at 25C and derates measurably at the elevated ambient this sealed
+    chassis reaches (spec Sec.9.4's own 10-15W thermal load is the reason this design
+    cares about airflow at all); (2) a fan's own starting/inrush current, before the
+    rotor is up to speed, briefly exceeds its running current, on all four fans
+    simultaneously at power-up; (3) ordinary part-to-part Ihold tolerance. F1's own 1A
+    trip current (2x hold, its datasheet's own figure) stays comfortably under D1's
+    SS14 (1A-rated) and this whole board's established headroom precedent, while a
+    genuine short still trips in the datasheet's own 100ms figure -- far below anything
+    that would sag the shared +12V rail the analog front end depends on.
+
+    OUT-OF-BAND REFERENCE MINTING (constraint 3: never renumber an existing refdes).
+    power.kicad_sch is the FIRST sheet this whole project ever generated -- every one of
+    the other nine sheets computed its own `ref_start` by reading THIS file's committed
+    reference maxima (kicad_sch.py's find_max_refs()/merge_max_refs(), the mechanism
+    every gen_breakout_*.py's own build() uses) at the time each of them was generated,
+    and none of them is being regenerated by this change. So an ordinary sch.next_ref()
+    call for a prefix this file already used (J, C -- and, in build() below, #PWR) would
+    continue from THIS file's own small local count and collide with a sibling sheet
+    that seeded past that same small count months ago -- the exact hazard
+    gen_breakout_comparators.py's own R190 was minted to avoid (its own module comment:
+    "deliberately NOT sch.next_ref(\"R\")... becomes this sheet's own new local maximum,
+    which every downstream sibling... seeds its OWN numbering past"), applied here the
+    same way. Computed directly against every currently-committed sheet
+    (find_max_refs()/merge_max_refs() over all ten .kicad_sch files, verified
+    empirically before writing these numbers in, not guessed): J tops out at 51
+    (opto-intan.kicad_sch), C at 146 (control-usb-i2c.kicad_sch -- the LAST sheet this
+    project ever generated, so nothing anywhere seeds past it), and #PWR at 8
+    (opto-ni.kicad_sch's own NI_5V flag). NT and F need no such bump: NT1 is the only
+    net tie anywhere on the board (nothing seeds past a prefix it never used), and no
+    sheet has ever placed a Device:Polyfuse at all, so ordinary next_ref() is already
+    safe for both. J and C are bumped here, immediately below; #PWR gets the identical
+    treatment in build() itself, right before the two new power_flag() calls. Every
+    PRE-EXISTING call in this file (_place_inlet/_place_logic_rails/
+    _place_isolated_supply, and the original 7 power_flag() calls) runs completely
+    unmodified above this function, so J1/D1-D3/C1-C21/U1-U4/NT1/#PWR1-7 all come out
+    byte-for-byte identical to before this task.
+    """
+    assert sch.ref_counters.get("J", 0) == 1, (
+        f"expected exactly J1 (the M12 inlet) placed before this out-of-band mint, "
+        f"found {sch.ref_counters.get('J', 0)} -- this file's own placement order "
+        f"changed; re-check the J bump below still lands past every sibling sheet's own "
+        f"real usage (currently J51, opto-intan.kicad_sch)"
+    )
+    sch.ref_counters["J"] = 51  # whole-board max -- see docstring. Next four next_ref("J")
+    # calls mint J52-J55, not J2-J5 (which sibling sheets already claimed).
+    assert sch.ref_counters.get("C", 0) == 21, (
+        f"expected exactly 21 pre-existing C refs before this out-of-band mint, found "
+        f"{sch.ref_counters.get('C', 0)} -- re-check the bump below still lands past "
+        f"every sibling sheet's own real usage (currently C146, control-usb-i2c.kicad_sch)"
+    )
+    sch.ref_counters["C"] = 146  # whole-board max -- see docstring. Next two next_ref("C")
+    # calls mint C147/C148, not a number some sibling already claimed.
+
+    # F1: polyfuse between the ALREADY reverse-polarity-protected +12V (not P12_RAW --
+    # D1 already guards against a miswired supply; the polyfuse's own job is fault
+    # current, not polarity) and the new FAN_12V rail. Value is the real, orderable,
+    # currently-stocked MPN (this file's own SS14/IH1215D/LD1117S33TR discipline, not a
+    # generic rating string) -- see hardware/procurement-check.md for the sourcing
+    # record and this function's own docstring for the hold-current derivation.
+    refs["fan_fuse"] = two_pin(
+        sch, "Device", "Polyfuse", "F", "1206L050/15YR",
+        X_FAN_FUSE, Y_FAN_RAIL, "+12V", "FAN_12V", footprint=FOOTPRINT_FUSE,
+    )
+
+    # Local bulk capacitance on FAN_12V after the fuse -- the same 10uF+100nF pairing
+    # this file already uses at every other rail entry point (_place_inlet()'s own
+    # per-rail rows), referenced to FAN_RTN (this rail's OWN return), not AGND/DGND --
+    # consistent with the whole point of giving the fans a dedicated return at all.
+    c_bulk = two_pin(sch, "Device", "C", "C", "10uF", X_FAN_CAP_BULK, Y_FAN_RAIL, "FAN_12V", "FAN_RTN", footprint=FOOTPRINT_C_BULK)
+    c_small = two_pin(sch, "Device", "C", "C", "100nF", X_FAN_CAP_SMALL, Y_FAN_RAIL, "FAN_12V", "FAN_RTN", footprint=FOOTPRINT_C_SMALL)
+    refs["fan_cap"] = [c_bulk, c_small]
+
+    # NT2: the SECOND net tie on this board (NT1 is AGND<->DGND at J1's own star point,
+    # _place_inlet()). FAN_RTN joins DGND, not AGND -- see this function's own docstring
+    # for why (the same precedent U2's primary side and +5V's own entry caps already
+    # set). Electrically this is still "the power-inlet star" the spec asks for: DGND is
+    # itself joined to AGND at exactly one point (NT1), so FAN_RTN reaches AGND too,
+    # transitively, through NT2 then NT1 -- never by a direct shared pin, never through a
+    # second, competing path.
+    nt2 = sch.next_ref("NT")
+    nt2_pins = sch.place("Device", "NetTie_2", nt2, "NetTie_2", X_FAN_TIE, Y_FAN_TIE, footprint=FOOTPRINT_NETTIE)
+    x1, y1 = pin_pos(X_FAN_TIE, Y_FAN_TIE, nt2_pins["1"])
+    sch.label("FAN_RTN", x1, y1)
+    x2, y2 = pin_pos(X_FAN_TIE, Y_FAN_TIE, nt2_pins["2"])
+    sch.label("DGND", x2, y2)
+    refs["fan_net_tie"] = nt2
+
+    # Four Conn_01x03 headers, standard PC fan pinout at 2.54mm: pin 1 GND (-> FAN_RTN),
+    # pin 2 +12V (-> FAN_12V), pin 3 tach -- present on the footprint, deliberately left
+    # a no_connect (see the on-sheet note below for why; FOOTPRINT_HDR1X03's own comment
+    # confirms the footprint's real pads are a single straight column in strict numeric
+    # order, so "pin 3" unambiguously means the third, physically isolated pad).
+    refs["fan_headers"] = []
+    for i in range(4):
+        jref = sch.next_ref("J")
+        y = Y_FAN_HDR0 + i * FAN_HDR_DY
+        pins = sch.place(
+            "Connector_Generic", "Conn_01x03", jref, f"Chassis fan {i + 1}",
+            X_FAN_HDR, y, footprint=FOOTPRINT_HDR1X03,
+        )
+        x1, y1 = pin_pos(X_FAN_HDR, y, pins["1"])
+        sch.label("FAN_RTN", x1, y1)
+        x2, y2 = pin_pos(X_FAN_HDR, y, pins["2"])
+        sch.label("FAN_12V", x2, y2)
+        x3, y3 = pin_pos(X_FAN_HDR, y, pins["3"])
+        sch.no_connect(x3, y3)
+        refs["fan_headers"].append(jref)
+
+    for line_idx, line in enumerate([
+        "Four chassis fan headers (spec Sec.9.5, added 2026-08-15): standard PC 3-pin",
+        "fan pinout, 2.54mm -- pin 1 GND, pin 2 +12V, pin 3 tach.",
+        "PIN 3 (TACH) IS A DELIBERATE NO-CONNECT -- DO NOT DELETE THE PIN. Power-only",
+        "was chosen because the sync module's GPIO is full at 26 of 28; keeping the",
+        "third pin lets a 3- or 4-pin Noctua-class plug seat with no adapter, and makes",
+        "adding tach later a wire change, not a connector change.",
+        "FAN_12V/FAN_RTN are dedicated nets, never AGND/DGND directly: a fan is a",
+        "commutating switching load, and its ~240mA through the analog ground would",
+        "contradict rejecting digital isolators for an RF carrier (spec Sec.2 decision",
+        "3) and on-board switchers for consistency (spec Sec.8). FAN_12V derives from",
+        "+12V through F1 (polyfuse, 1206L050/15YR: 500mA hold / 1A trip) so a stalled",
+        "or shorted fan cannot pull down the rails the analog section depends on.",
+        "FAN_RTN joins DGND at exactly one point (NT2), mirroring how AGND/DGND join",
+        "at J1 -- so FAN_RTN reaches AGND too, but only transitively, through NT2 then",
+        "NT1, never by a direct shared pin.",
+    ]):
+        sch.text(line, X_NOTE_FAN, Y_NOTE_FAN + line_idx * FAN_NOTE_DY)
+
+
 def build() -> tuple[Sch, dict]:
     """Returns (sch, refs) -- `refs` maps a role name to the reference designator(s)
     that play it, same convention gen_mule.py's own build() established, kept here for
@@ -558,6 +776,7 @@ def build() -> tuple[Sch, dict]:
     _place_inlet(sch, refs)
     _place_logic_rails(sch, refs)
     _place_isolated_supply(sch, refs)
+    _place_fan_headers(sch, refs)  # spec Sec.9.5, added after this file's original commit
 
     # PWR_FLAGs: +12V, -12V, +5V (new at fix round 1 -- see below), AGND, DGND -- the
     # nets with no genuine power_out pin of their own anywhere on this sheet (every
@@ -599,6 +818,30 @@ def build() -> tuple[Sch, dict]:
     # something is actually undriven.
     sch.power_flag("ISO_P15_FILT", GRID(X_PWRFLAG0 + 5 * PWRFLAG_DX), GRID(Y_PWRFLAG))
     sch.power_flag("ISO_N15_FILT", GRID(X_PWRFLAG0 + 6 * PWRFLAG_DX), GRID(Y_PWRFLAG))
+
+    # Two more, added with the fan headers (spec Sec.9.5): FAN_12V and FAN_RTN need
+    # their own flags for the identical reason AGND/DGND already have independent ones
+    # above -- nothing power_out-typed drives either net on this sheet (F1, the bulk
+    # caps, NT2, and every header pin are all passive-typed), and a net tie is
+    # deliberately NOT a merge for ERC's own per-net bookkeeping, so bridging FAN_RTN to
+    # DGND via NT2 does not also satisfy FAN_RTN's OWN driven-ness check.
+    #
+    # #PWR MUST be minted out-of-band here too, for the identical reason J/C were inside
+    # _place_fan_headers(): #PWR8 is opto-ni.kicad_sch's own real, already-committed
+    # NI_5V flag (confirmed directly against every currently-committed sheet's own
+    # find_max_refs(), not guessed), so an ordinary next_ref("#PWR") call here -- which
+    # would otherwise continue this file's own local count from 7 -- would collide with
+    # it.
+    assert sch.ref_counters.get("#PWR", 0) == 7, (
+        f"expected exactly 7 pre-existing #PWR flags before this out-of-band mint, "
+        f"found {sch.ref_counters.get('#PWR', 0)} -- re-check the bump below still "
+        f"lands past every sibling sheet's own real usage (currently #PWR8, "
+        f"opto-ni.kicad_sch's own NI_5V flag)"
+    )
+    sch.ref_counters["#PWR"] = 8  # whole-board max -- see above. Next two power_flag()
+    # calls mint #PWR9/#PWR10, not #PWR8 (opto-ni.kicad_sch's own NI_5V flag) again.
+    sch.power_flag("FAN_12V", GRID(X_PWRFLAG0 + 7 * PWRFLAG_DX), GRID(Y_PWRFLAG))
+    sch.power_flag("FAN_RTN", GRID(X_PWRFLAG0 + 8 * PWRFLAG_DX), GRID(Y_PWRFLAG))
 
     return sch, refs
 

@@ -46,6 +46,22 @@ the original nine, one per finding:
     uses to compute the correct prefix in the first place) -- the only place this defect is
     actually visible on disk.
 
+FAN HEADERS (spec Sec.9.5, added after Task 7's original commit) added a third check
+family, same "topology, not just ERC" motivation as the first two: verify() now also
+asserts the four Conn_01x03 fan headers exist with the right pin map, that no fan pin
+touches AGND/DGND directly, that FAN_RTN reaches the rest of the ground system ONLY
+through its own net tie (NT2 -- mirroring the AGND/DGND star-point check, not a copy of
+it: FAN_RTN is checked disjoint from BOTH AGND and DGND, since it must never gain a
+second, direct path to either), and that FAN_12V reaches +12V ONLY through the polyfuse
+(F1) -- each with its own genuinely-firing negative control in self_test(). FAN_12V and
+FAN_RTN are deliberately NOT added to CONTRACT_NETS above: nothing outside this sheet
+ever consumes them by name (the fan headers are physically and electrically local to
+this sheet), so they are not part of the cross-sheet contract that list exists to guard.
+This addition also back-ports check_row_pitch_guard.py's shared row-pitch-vs-2-pin-span
+collision guard to this checker (constraint 4) -- one of five checkers that had never
+had it wired in; main() now runs it against power.kicad_sch's own raw source directly,
+same pattern as the checkers it was already back-ported to at Task 11 fix round 2.
+
 Regenerate the netlist this reads via:
     kicad-cli sch export netlist --format kicadsexpr -o /tmp/breakout.net \\
         hardware/breakout/breakout.kicad_sch
@@ -69,6 +85,10 @@ from check_mule_netlist import (  # noqa: E402
     check,
     parse_component_values,
     parse_netlist,
+)
+from check_row_pitch_guard import (  # noqa: E402
+    check_row_pitch_exceeds_2pin_span,
+    self_test_row_pitch,
 )
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
@@ -116,6 +136,10 @@ ISO_NETS = [
 NON_ISO_NETS = [
     "+12V", "-12V", "+5V", "+3V3", "AGND", "DGND",
     "P12_RAW", "N12_RAW", "P5_RAW",
+    "FAN_12V", "FAN_RTN",  # added with the fan headers -- unambiguously non-isolated
+    # (DGND-referenced, never touching INTAN_GND/ISO_P12/ISO_N12), so adding them here
+    # strengthens the isolation-barrier check to also catch a future edit that
+    # accidentally bridges either fan net into the isolated domain.
 ]
 
 # Rail-pair bypass/bulk capacitor counts. `_rail_bypass_cap_count()` below counts every
@@ -250,6 +274,10 @@ RAIL_BYPASS_EXPECTED = {
     ("ISO_P15_FILT", "INTAN_GND"): 1,  # C11 -- positive pi filter's second 10uF / U3 CIN
     ("ISO_N15_RAW", "INTAN_GND"): 1,   # C16 -- negative pi filter's first 10uF
     ("ISO_N15_FILT", "INTAN_GND"): 1,  # C17 -- negative pi filter's second 10uF / U4 CIN
+    ("FAN_12V", "FAN_RTN"): 2,  # C147 (10uF bulk), C148 (100nF small) -- local bulk
+    # capacitance on FAN_12V after F1 (the polyfuse), spec Sec.9.5's own requirement,
+    # referenced to FAN_RTN (this rail's own dedicated return) rather than AGND/DGND --
+    # see gen_breakout_power.py's own _place_fan_headers() docstring.
 }
 
 
@@ -300,13 +328,17 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"point's NetTie_2), found {len(bridging_refs)}: {bridging_refs}",
     )
     bridge_ref = next(iter(bridging_refs))
-    nettie_refs = {n.ref for name in nets for n in nets[name] if n.ref.startswith("NT")}
     check(
-        nettie_refs == {bridge_ref},
-        f"the AGND/DGND bridging component {bridge_ref!r} is not the design's only "
-        f"NetTie_2 reference ({nettie_refs}) -- either the star point isn't a net tie, or "
-        f"there's more than one net tie somewhere on the sheet",
+        bridge_ref.startswith("NT"),
+        f"the AGND/DGND bridging component {bridge_ref!r} is not a NetTie_2 reference "
+        f"-- either the star point isn't a net tie, or the bridge is some other part",
     )
+    # NOTE: this used to also assert bridge_ref was the design's ONLY "NT"-prefixed
+    # reference anywhere on the board. That was true before the fan headers (spec
+    # Sec.9.5) added a SECOND, legitimate net tie (NT2, FAN_RTN<->DGND) -- the
+    # equivalent "no THIRD, stray, unaccounted-for net tie exists anywhere" property is
+    # now checked once, holistically, after FAN_RTN's own bridge is identified below
+    # (see "Exactly two net ties on the whole board, nothing else").
     bridge_agnd_pins = [n.pin for n in nets["AGND"] if n.ref == bridge_ref]
     bridge_dgnd_pins = [n.pin for n in nets["DGND"] if n.ref == bridge_ref]
     check(
@@ -410,6 +442,159 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         "this sheet (fix round 1 -- see task-7-report.md)."
     )
 
+    # --- Fan headers (spec Sec.9.5, added after Task 7's original commit). Four
+    # Conn_01x03 headers, each pin 1 -> FAN_RTN, pin 2 -> FAN_12V, pin 3 (tach) a
+    # deliberate no-connect. Identified as "refs present on BOTH FAN_12V and FAN_RTN"
+    # rather than hard-coded J-numbers, so this check does not need editing if a future
+    # regeneration ever shifts the out-of-band J52-J55 minting to different numbers. ---
+    fan12v_refs = _refs_on(nets, "FAN_12V")
+    fanrtn_refs = _refs_on(nets, "FAN_RTN")
+    # J-prefixed AND present on both nets -- NOT just "present on both nets": C147/C148
+    # (the local bulk capacitance, RAIL_BYPASS_EXPECTED's own new entry below) are ALSO
+    # wired straight across FAN_12V<->FAN_RTN, same "filter by reference prefix among a
+    # shared rail pair" discipline _rail_bypass_cap_count() already uses (its own
+    # `n.ref.startswith("C")`) to tell a bypass cap apart from anything else that
+    # legitimately touches the same two nets.
+    fan_header_refs = sorted(
+        {r for r in (fan12v_refs & fanrtn_refs) if r.startswith("J")},
+        key=lambda r: int(r[1:]),
+    )
+    check(
+        len(fan_header_refs) == 4,
+        f"expected exactly 4 fan headers (a J-prefixed reference present on BOTH "
+        f"FAN_12V and FAN_RTN), found {len(fan_header_refs)}: {fan_header_refs}",
+    )
+    for ref in fan_header_refs:
+        pin2_on_12v = [n for n in nets["FAN_12V"] if n.ref == ref and n.pin == "2"]
+        pin1_on_rtn = [n for n in nets["FAN_RTN"] if n.ref == ref and n.pin == "1"]
+        check(len(pin2_on_12v) == 1, f"{ref}: pin 2 expected on FAN_12V, not found there: {nets['FAN_12V']}")
+        check(len(pin1_on_rtn) == 1, f"{ref}: pin 1 expected on FAN_RTN, not found there: {nets['FAN_RTN']}")
+        tach_on_12v = [n for n in nets["FAN_12V"] if n.ref == ref and n.pin == "3"]
+        tach_on_rtn = [n for n in nets["FAN_RTN"] if n.ref == ref and n.pin == "3"]
+        check(
+            not tach_on_12v and not tach_on_rtn,
+            f"{ref}: pin 3 (tach) is wired to FAN_12V or FAN_RTN -- it must stay a bare "
+            f"no-connect (present on the footprint, deliberately unwired; spec Sec.9.5: "
+            f"GPIO is full at 26 of 28, so power-only was chosen deliberately)",
+        )
+    summary.append(
+        f"4 fan headers confirmed ({fan_header_refs}), each pin 2->FAN_12V / pin "
+        f"1->FAN_RTN, pin 3 (tach) genuinely unwired to either."
+    )
+
+    # --- No fan-header pin (any of the 3, on any of the 4 headers) is wired directly to
+    # AGND or DGND -- the literal failure mode of a stray or "helpfully corrected" net
+    # name, checked independently of the star-point check below (which only proves
+    # FAN_RTN's own AGGREGATE connectivity is right, not that no INDIVIDUAL header pin
+    # was mislabelled onto AGND/DGND directly). ---
+    fan_pins_on_agnd = [n for n in nets["AGND"] if n.ref in fan_header_refs]
+    fan_pins_on_dgnd = [n for n in nets["DGND"] if n.ref in fan_header_refs]
+    check(
+        not fan_pins_on_agnd and not fan_pins_on_dgnd,
+        f"fan header pin(s) wired DIRECTLY to AGND/DGND instead of FAN_RTN -- AGND: "
+        f"{fan_pins_on_agnd}, DGND: {fan_pins_on_dgnd}",
+    )
+    summary.append("No fan header pin touches AGND or DGND directly.")
+
+    # --- FAN_RTN reaches the rest of the ground system ONLY through NT2, exactly one
+    # net tie -- same disjoint-pins + exactly-one-bridging-reference construction as the
+    # AGND/DGND star-point check above, applied to the new pair. FAN_RTN is tied to
+    # DGND specifically, not AGND directly (gen_breakout_power.py's own
+    # _place_fan_headers() docstring has the reasoning: it mirrors where U2's primary
+    # side and +5V's own entry caps already put their own switching/entry-point noise),
+    # so this checks FAN_RTN against DGND the way AGND was checked against DGND above,
+    # PLUS an explicit disjointness check against AGND too -- FAN_RTN must never gain a
+    # second, redundant, DIRECT path to AGND; it may only reach AGND transitively,
+    # through NT2 then NT1. ---
+    check(
+        _pins_on(nets, "FAN_RTN").isdisjoint(_pins_on(nets, "DGND")),
+        "FAN_RTN and DGND share a PIN directly -- they are not distinct nets",
+    )
+    check(
+        _pins_on(nets, "FAN_RTN").isdisjoint(_pins_on(nets, "AGND")),
+        "FAN_RTN and AGND share a PIN directly -- FAN_RTN must reach AGND only "
+        "transitively, through NT2 then NT1, never by a direct pin",
+    )
+    fan_rtn_refs = _refs_on(nets, "FAN_RTN")
+    fan_bridging_refs = fan_rtn_refs & dgnd_refs
+    check(
+        len(fan_bridging_refs) == 1,
+        f"FAN_RTN and DGND should be joined by reference at EXACTLY one component "
+        f"(NT2, the fan return's own net tie), found {len(fan_bridging_refs)}: "
+        f"{fan_bridging_refs}",
+    )
+    fan_bridge_ref = next(iter(fan_bridging_refs))
+    check(
+        fan_bridge_ref.startswith("NT") and fan_bridge_ref != bridge_ref,
+        f"the FAN_RTN/DGND bridging component {fan_bridge_ref!r} is not a SECOND, "
+        f"distinct net tie from the AGND/DGND star point's own {bridge_ref!r}",
+    )
+    fan_bridge_rtn_pins = [n.pin for n in nets["FAN_RTN"] if n.ref == fan_bridge_ref]
+    fan_bridge_dgnd_pins = [n.pin for n in nets["DGND"] if n.ref == fan_bridge_ref]
+    check(
+        len(fan_bridge_rtn_pins) == 1 and len(fan_bridge_dgnd_pins) == 1,
+        f"fan-return net tie {fan_bridge_ref} should contribute exactly 1 pin to each "
+        f"of FAN_RTN/DGND, found {len(fan_bridge_rtn_pins)}/{len(fan_bridge_dgnd_pins)}",
+    )
+    summary.append(
+        f"FAN_RTN is distinct from both AGND and DGND (zero shared pins with either), "
+        f"joined to DGND at exactly one net tie ({fan_bridge_ref}), reaching AGND only "
+        f"transitively through that tie and NT1 -- never a direct pin."
+    )
+
+    # --- Exactly two net ties on the whole board, nothing else: the generalised form of
+    # the single-net-tie uniqueness check the AGND/DGND star point used to make alone
+    # (see the NOTE left at that check, above). Now that FAN_RTN's own bridge
+    # (fan_bridge_ref) is known too, this confirms NEITHER of the two known ties has a
+    # stray THIRD sibling anywhere on the board -- a future edit that adds an
+    # unaccounted-for net tie (accidentally or otherwise) is caught here even though
+    # each individual "exactly one bridging reference" check above only looks at its own
+    # net pair in isolation. ---
+    nettie_refs = {n.ref for name in nets for n in nets[name] if n.ref.startswith("NT")}
+    check(
+        nettie_refs == {bridge_ref, fan_bridge_ref},
+        f"unexpected NetTie_2 reference(s) somewhere on the board -- expected exactly "
+        f"the two known net ties {{{bridge_ref!r}, {fan_bridge_ref!r}}} (AGND/DGND star "
+        f"point and FAN_RTN/DGND), found {nettie_refs} -- either a stray/unaccounted "
+        f"net tie exists, or one of the two known ones is missing",
+    )
+    summary.append(f"Exactly two net ties on the whole board, nothing else: {nettie_refs}.")
+
+    # --- FAN_12V reaches +12V ONLY through F1 (the polyfuse) -- same construction again,
+    # applied to the fan supply side. A silently-omitted or silently-bridged fuse would
+    # still produce a net literally named "FAN_12V" (ERC-clean, netlist-plausible) while
+    # providing NO overcurrent protection at all, or none at all separating it from
+    # +12V -- the same "plausible but wrong" failure class the reverse-polarity-diode
+    # checks above exist to catch, just for the fan feed's own protective element. ---
+    check(
+        _pins_on(nets, "FAN_12V").isdisjoint(_pins_on(nets, "+12V")),
+        "FAN_12V and +12V share a PIN directly -- they are not distinct nets",
+    )
+    fan12v_bridging_refs = fan12v_refs & _refs_on(nets, "+12V")
+    check(
+        len(fan12v_bridging_refs) == 1,
+        f"FAN_12V and +12V should be joined by reference at EXACTLY one component "
+        f"(F1, the polyfuse), found {len(fan12v_bridging_refs)}: {fan12v_bridging_refs}",
+    )
+    fuse_ref = next(iter(fan12v_bridging_refs))
+    check(fuse_ref.startswith("F"), f"the FAN_12V/+12V bridging component {fuse_ref!r} is not an F-prefixed fuse reference")
+    check(
+        values.get(fuse_ref) == "1206L050/15YR",
+        f"{fuse_ref}: expected Value '1206L050/15YR' (the fan-feed polyfuse), found "
+        f"{values.get(fuse_ref)!r}",
+    )
+    fuse_fan12v_pins = [n.pin for n in nets["FAN_12V"] if n.ref == fuse_ref]
+    fuse_12v_pins = [n.pin for n in nets["+12V"] if n.ref == fuse_ref]
+    check(
+        len(fuse_fan12v_pins) == 1 and len(fuse_12v_pins) == 1,
+        f"polyfuse {fuse_ref} should contribute exactly 1 pin to each of FAN_12V/+12V, "
+        f"found {len(fuse_fan12v_pins)}/{len(fuse_12v_pins)}",
+    )
+    summary.append(
+        f"FAN_12V is distinct from +12V, joined at exactly one component ({fuse_ref}, "
+        f"the polyfuse -- value confirmed 1206L050/15YR)."
+    )
+
     # --- FB-divider topology + values for the two adjustable isolated-supply
     # post-regulators (U3, U4 -- fix round 1 renumbered these from U4/U5; the +5V
     # regulator's own divider, formerly U1's, no longer exists at all, see ISO_NETS's
@@ -472,6 +657,9 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         "U1": "LD1117S33TR_SOT223", "U2": "IH1215D",
         "U3": "TPS7A4901", "U4": "TPS7A3001",
         "D1": "SS14", "D2": "SS14", "D3": "SS14",
+        "F1": "1206L050/15YR",  # the fan-feed polyfuse (spec Sec.9.5) -- Littelfuse
+        # 1206L050/15YR, 500mA hold / 1A trip / 15V max; see gen_breakout_power.py's
+        # own _place_fan_headers() docstring for the hold-current sizing derivation.
     }
     for ref, expected in expected_values.items():
         check(
@@ -496,7 +684,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 
     # --- No two named nets collapsed onto the same physical net (constraint 1's own
     # signature failure: two labels, one real net). ---
-    all_named = CONTRACT_NETS + ["P12_RAW", "N12_RAW", "P5_RAW"]
+    all_named = CONTRACT_NETS + ["P12_RAW", "N12_RAW", "P5_RAW", "FAN_12V", "FAN_RTN"]
     seen: dict[frozenset, str] = {}
     for name in all_named:
         key = frozenset((n.ref, n.pin) for n in nets[name])
@@ -555,14 +743,18 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
 
     # A second bridging component: AGND and DGND still disjoint at pin level, but now
     # joined by reference at TWO components instead of exactly one (simulating an extra,
-    # unintended net tie or jumper added somewhere else on the sheet).
+    # unintended net tie or jumper added somewhere else on the sheet). Phantom ref is
+    # "DBG96" (this file's own DBG9x synthetic-self-test-node convention, see DBG97/98/99
+    # below), NOT "NT2" -- the fan headers (spec Sec.9.5) added a REAL NT2 to this design,
+    # so a same-named phantom here would silently collide with it instead of testing a
+    # clean, unambiguous double-bridge scenario.
     double_bridged = copy.deepcopy(good_nets)
-    extra = Node(ref="NT2", pin="1", pinfunction="", pintype="passive")
-    extra2 = Node(ref="NT2", pin="2", pinfunction="", pintype="passive")
+    extra = Node(ref="DBG96", pin="1", pinfunction="", pintype="passive")
+    extra2 = Node(ref="DBG96", pin="2", pinfunction="", pintype="passive")
     double_bridged["AGND"] = double_bridged["AGND"] + [extra]
     double_bridged["DGND"] = double_bridged["DGND"] + [extra2]
     msg = _assert_fails(double_bridged, good_values, "EXACTLY one component", "second AGND/DGND bridge")
-    results.append(f"Second AGND/DGND bridge (extra NT2, not the real star point): caught -- {msg}")
+    results.append(f"Second AGND/DGND bridge (extra DBG96, not the real star point): caught -- {msg}")
 
     # Isolation barrier: short ISO_P12 to +12V via one shared pin (simulating a routing
     # mistake that ties the isolated and non-isolated domains together).
@@ -644,6 +836,88 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     dropped["AGND"] = [n for n in dropped["AGND"] if n.ref != victim]
     msg = _assert_fails(dropped, good_values, "bypass/bulk capacitor", f"{victim} dropped from +12V/AGND")
     results.append(f"Bypass cap removal ({victim} dropped from +12V/AGND): caught -- {msg}")
+
+    # --- Fan-header negative controls (spec Sec.9.5) -- one per new check() family
+    # added above, same mutate-the-real-parsed-netlist discipline as every test above. ---
+    fan_header_refs_good = sorted(
+        {r for r in ({n.ref for n in good_nets["FAN_12V"]} & {n.ref for n in good_nets["FAN_RTN"]}) if r.startswith("J")},
+        key=lambda r: int(r[1:]),
+    )
+    check(len(fan_header_refs_good) == 4, "self-test setup failed: expected 4 real fan headers in good_nets")
+    victim_hdr = fan_header_refs_good[0]
+
+    # Fan pin wired directly to AGND -- the literal "someone relabels a stray pin"
+    # defect the dedicated no-direct-AGND/DGND check exists to catch.
+    fan_to_agnd = copy.deepcopy(good_nets)
+    phantom_fan_pin = Node(ref=victim_hdr, pin="1", pinfunction="", pintype="passive")
+    fan_to_agnd["AGND"] = fan_to_agnd["AGND"] + [phantom_fan_pin]
+    msg = _assert_fails(fan_to_agnd, good_values, "wired DIRECTLY to AGND/DGND", f"{victim_hdr} pin 1 wired to AGND")
+    results.append(f"Fan header pin wired directly to AGND ({victim_hdr} pin 1): caught -- {msg}")
+
+    # FAN_RTN/DGND direct short (phantom shared pin) -- same construction as the AGND/
+    # DGND direct-short test above, mirrored onto the new pair.
+    fan_rtn_shorted = copy.deepcopy(good_nets)
+    phantom_fan1 = Node(ref="DBG95", pin="1", pinfunction="", pintype="passive")
+    fan_rtn_shorted["FAN_RTN"] = fan_rtn_shorted["FAN_RTN"] + [phantom_fan1]
+    fan_rtn_shorted["DGND"] = fan_rtn_shorted["DGND"] + [phantom_fan1]
+    msg = _assert_fails(fan_rtn_shorted, good_values, "FAN_RTN and DGND share a PIN directly", "FAN_RTN/DGND direct short")
+    results.append(f"FAN_RTN/DGND direct short (phantom shared pin): caught -- {msg}")
+
+    # Second FAN_RTN/DGND bridge (extra net tie or jumper) -- same construction as the
+    # AGND/DGND double-bridge test above, mirrored.
+    fan_rtn_double = copy.deepcopy(good_nets)
+    extra3 = Node(ref="DBG94", pin="1", pinfunction="", pintype="passive")
+    extra4 = Node(ref="DBG94", pin="2", pinfunction="", pintype="passive")
+    fan_rtn_double["FAN_RTN"] = fan_rtn_double["FAN_RTN"] + [extra3]
+    fan_rtn_double["DGND"] = fan_rtn_double["DGND"] + [extra4]
+    msg = _assert_fails(fan_rtn_double, good_values, "EXACTLY one component", "second FAN_RTN/DGND bridge")
+    results.append(f"Second FAN_RTN/DGND bridge (extra DBG94, not the real NT2): caught -- {msg}")
+
+    # FAN_12V/+12V direct short (phantom shared pin -- bypassing F1 entirely).
+    fan12v_shorted = copy.deepcopy(good_nets)
+    phantom_fan2 = Node(ref="DBG93", pin="1", pinfunction="", pintype="passive")
+    fan12v_shorted["FAN_12V"] = fan12v_shorted["FAN_12V"] + [phantom_fan2]
+    fan12v_shorted["+12V"] = fan12v_shorted["+12V"] + [phantom_fan2]
+    msg = _assert_fails(fan12v_shorted, good_values, "FAN_12V and +12V share a PIN directly", "FAN_12V/+12V direct short")
+    results.append(f"FAN_12V/+12V direct short (phantom shared pin): caught -- {msg}")
+
+    # Second FAN_12V/+12V bridge (e.g. a stray wire added around F1).
+    fan12v_double = copy.deepcopy(good_nets)
+    extra5 = Node(ref="DBG92", pin="1", pinfunction="", pintype="passive")
+    extra6 = Node(ref="DBG92", pin="2", pinfunction="", pintype="passive")
+    fan12v_double["FAN_12V"] = fan12v_double["FAN_12V"] + [extra5]
+    fan12v_double["+12V"] = fan12v_double["+12V"] + [extra6]
+    msg = _assert_fails(fan12v_double, good_values, "EXACTLY one component", "second FAN_12V/+12V bridge")
+    results.append(f"Second FAN_12V/+12V bridge (extra DBG92, bypassing F1): caught -- {msg}")
+
+    # Polyfuse value drift: F1's own Value edited/lost, topology unchanged -- exactly the
+    # failure class the "right part in the right role" style check exists for.
+    fuse_drifted = dict(good_values)
+    fuse_drifted["F1"] = "Polyfuse"
+    msg = _assert_fails(good_nets, fuse_drifted, "expected Value '1206L050/15YR'", "F1 value drift")
+    results.append(f"F1 value drift (1206L050/15YR -> generic 'Polyfuse'): caught -- {msg}")
+
+    # Wrong fan header count: strip one real header from BOTH FAN_12V and FAN_RTN
+    # (simulating only 3 of 4 headers actually got placed/wired in a future edit).
+    missing_hdr = copy.deepcopy(good_nets)
+    missing_hdr["FAN_12V"] = [n for n in missing_hdr["FAN_12V"] if n.ref != victim_hdr]
+    missing_hdr["FAN_RTN"] = [n for n in missing_hdr["FAN_RTN"] if n.ref != victim_hdr]
+    msg = _assert_fails(missing_hdr, good_values, "expected exactly 4 fan headers", f"{victim_hdr} dropped entirely")
+    results.append(f"Fan header count regression ({victim_hdr} dropped from both FAN_12V/FAN_RTN): caught -- {msg}")
+
+    # Stray third net tie: an NT-prefixed reference appears somewhere neither of the two
+    # per-pair "exactly one bridging component" checks above would catch on its own (it
+    # doesn't bridge AGND/DGND OR FAN_RTN/DGND -- it just exists, e.g. left over from a
+    # copy-pasted block), exercising the holistic "exactly two net ties on the whole
+    # board" check instead. Landed on +3V3 specifically: not a member of either
+    # bridging-reference computation above, and not power_out-typed, so this corruption
+    # is isolated to the ONE check it exists to exercise rather than tripping an earlier,
+    # unrelated one first.
+    stray_tie = copy.deepcopy(good_nets)
+    phantom_nt = Node(ref="NT99", pin="1", pinfunction="", pintype="passive")
+    stray_tie["+3V3"] = stray_tie["+3V3"] + [phantom_nt]
+    msg = _assert_fails(stray_tie, good_values, "unexpected NetTie_2 reference", "stray third net tie (NT99)")
+    results.append(f"Stray third net tie (NT99, bridging nothing in particular): caught -- {msg}")
 
     return results
 
@@ -807,6 +1081,26 @@ def main() -> int:
         return 1
     breakout_sch_text = DEFAULT_BREAKOUT_SCH.read_text()
     power_sch_text = DEFAULT_POWER_SCH.read_text()
+
+    # Shared row-pitch-vs-2-pin-part-span collision guard (constraint 4) -- back-ported
+    # here the same way it was back-ported to three other checkers at Task 11 fix round
+    # 2 (check_row_pitch_guard.py's own module docstring). power.kicad_sch was one of
+    # five checkers that had never had this wired in; it operates on the sheet's raw
+    # rendered text, independent of the exported-netlist checks above.
+    try:
+        row_pitch_summary = check_row_pitch_exceeds_2pin_span(power_sch_text, "power.kicad_sch")
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(power_sch_text, "power.kicad_sch", min_instances=30)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
+
     try:
         path_summary = verify_instance_paths(power_sch_text, breakout_sch_text)
     except CheckFailure as e:

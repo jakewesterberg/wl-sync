@@ -148,6 +148,8 @@
     "C144": "220nF",
     "C145": "100nF",
     "C146": "100nF",
+    "C147": "10uF",
+    "C148": "100nF",
     "D1": "SS14",
     "D2": "SS14",
     "D3": "SS14",
@@ -187,6 +189,7 @@
     "D37": "BAT54S",
     "D38": "BAT54S",
     "D39": "BAT54S",
+    "F1": "1206L050/15YR",
     "FB1": "600R@100MHz",
     "FB2": "600R@100MHz",
     "FB3": "600R@100MHz",
@@ -238,7 +241,12 @@
     "J49": "Intan opto out: RWD_DLVR_INTAN (BNC)",
     "J50": "Intan opto out: STIM_TRIG_INTAN (BNC)",
     "J51": "Intan RHS stim status in (BNC)",
+    "J52": "Chassis fan 1",
+    "J53": "Chassis fan 2",
+    "J54": "Chassis fan 3",
+    "J55": "Chassis fan 4",
     "NT1": "NetTie_2",
+    "NT2": "NetTie_2",
     "R1": "90.9k",
     "R2": "10.0k",
     "R3": "93.1k",
@@ -659,6 +667,7 @@
       ["D36", "2", "K_2", "passive"],
       ["D37", "2", "K_2", "passive"],
       ["D38", "2", "K_2", "passive"],
+      ["F1", "1", "", "passive"],
       ["U2", "3", "+Vin_3", "power_in"],
       ["U16", "7", "V+_7", "power_in"],
       ["U17", "7", "V+_7", "power_in"],
@@ -1873,6 +1882,7 @@
       ["J17", "2", "Ext_2", "passive"],
       ["J18", "4", "Pin_4_4", "passive"],
       ["NT1", "2", "2_2", "passive"],
+      ["NT2", "2", "2_2", "passive"],
       ["U1", "1", "GND_1", "power_in"],
       ["U2", "1", "-Vin_1", "power_in"],
       ["U5", "1", "G1_1", "input"],
@@ -2415,6 +2425,24 @@
     "EVT_STROBE_TPC": [
       ["J3", "37", "37_37", "passive"],
       ["R21", "1", "", "passive"]
+    ],
+    "FAN_12V": [
+      ["C147", "1", "", "passive"],
+      ["C148", "1", "", "passive"],
+      ["F1", "2", "", "passive"],
+      ["J52", "2", "Pin_2_2", "passive"],
+      ["J53", "2", "Pin_2_2", "passive"],
+      ["J54", "2", "Pin_2_2", "passive"],
+      ["J55", "2", "Pin_2_2", "passive"]
+    ],
+    "FAN_RTN": [
+      ["C147", "2", "", "passive"],
+      ["C148", "2", "", "passive"],
+      ["J52", "1", "Pin_1_1", "passive"],
+      ["J53", "1", "Pin_1_1", "passive"],
+      ["J54", "1", "Pin_1_1", "passive"],
+      ["J55", "1", "Pin_1_1", "passive"],
+      ["NT2", "1", "1_1", "passive"]
     ],
     "GPIO0_HDR": [
       ["J7", "27", "GPIO0_27", "passive"],
@@ -3809,6 +3837,18 @@
     ],
     "unconnected-(J45-Pad68)": [
       ["J45", "68", "68_68", "passive+no_connect"]
+    ],
+    "unconnected-(J52-Pin_3-Pad3)": [
+      ["J52", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J53-Pin_3-Pad3)": [
+      ["J53", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J54-Pin_3-Pad3)": [
+      ["J54", "3", "Pin_3_3", "passive+no_connect"]
+    ],
+    "unconnected-(J55-Pin_3-Pad3)": [
+      ["J55", "3", "Pin_3_3", "passive+no_connect"]
     ],
     "unconnected-(U2-NC-Pad2)": [
       ["U2", "2", "NC_2", "no_connect"]
