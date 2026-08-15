@@ -65,36 +65,53 @@ comfortably clear of ITH's own worst-case 7.0mA threshold BEFORE even accounting
 sheet's own light NI-side load (see next paragraph), and with large margin against CTR
 degradation over a decade of service (this task's own stated rationale).
 
-NI-SIDE PULL-UP: 10k, per this task's own explicit instruction -- "NOT the 1k the mule board
-uses" (mule: 1k, sized to sharpen edges for the mule's own bring-up MEASUREMENT). NI's
-connector supplies 250mA; 24 optocoupler output stages at ~5-7mA each (ACSL-6400's own
+NI-SIDE PULL-UP: 3.9k -- FIX ROUND 1 (see .superpowers/sdd/2026-08-13-breakout-pcb/
+task-11-report.md's own "Fix round 1" section), corrected from this task's original 10k.
+The original 10k figure was derived only by comparing against the mule's own 1k -- it never
+checked ACSL-6400's own datasheet pull-up maximum (RL-max = 4k, "Recommended Operating
+Conditions", the datasheet's OWN guaranteed 15 MBd/~350R-RL switching-speed
+characterization) -- and 10k EXCEEDS it. 3.9k (E24) is the largest E24 standard value that
+still sits AT OR UNDER that 4k limit (the next step up, 4.3k, would not), so this design no
+longer needs any departure from the part's own recommended operating conditions at all.
+
+NI's connector supplies 250mA; 24 optocoupler output stages at ~5-7mA each (ACSL-6400's own
 IDDL spec, Low Level Supply Current, typ 5.8mA/max 10.5mA at 5V per Broadcom AV02-0235EN) is
-already 120-170mA, and 1k pull-ups would add another ~120mA (24 x 5V/1k) versus 10k's ~12mA
-(24 x 5V/10k) -- at 1k the domain sits at its budget limit; at 10k it does not. Cost: edge
-rate. ACSL-6400's own "Recommended Operating Conditions" caps its pull-up (RL) at 4k for the
-datasheet's OWN guaranteed 15 MBd/~350R-RL switching-speed characterization -- 10k exceeds
-that cap, a deliberate, documented departure (this task's own explicit 10k instruction is
-the controlling requirement, not the datasheet's speed-oriented RL-max), reasoned through
-rather than silently accepted:
-  - LOW-level integrity: the datasheet's own VOL guarantee (max 0.6V at 5V supply) is
-    characterized at IOL=13mA; at 10k's much lighter ~0.5mA sink, the output transistor
-    sits in DEEPER saturation, so VOL is if anything lower/better, not worse.
-  - HIGH-level integrity: worst-case leakage IOH is 100uA max (VO=5.5V test condition);
-    through a 10k pull-up that is at most a 1.0V drop, i.e. VOH >= NI_5V - 1.0V (>=4.0V
-    against a nominal 5V rail) even at the datasheet's own worst-case leakage figure --
-    comfortably above any standard TTL/CMOS-class VIH (this sheet could not locate NI's own
-    per-pin DIO input-threshold table in the X Series User Manual text extraction used for
-    the MDR68 pinout below -- that number lives in a separate NI device-specification
-    document this task did not fetch -- so this specific margin claim is REASONED from
+already 120-168mA (24 x 5mA .. 24 x 7mA). Pull-up current adds on top:
+  - 1k (the mule's own value): 24 x 5V/1k = 120mA -> domain total 240-288mA, AT OR OVER the
+    250mA budget.
+  - 3.9k (this sheet's own value): 24 x 5V/3.9k = ~31mA -> domain total 151-199mA,
+    comfortably inside the 250mA budget, with 51-99mA of headroom.
+  - 10k (the original, over-conservative, out-of-spec choice): 24 x 5V/10k = 12mA -> domain
+    total 132-180mA. Also fits the 250mA budget, but ONLY by exceeding the part's own
+    RL-max -- 19mA of extra headroom bought by violating a stated datasheet limit, a bad
+    trade this fix reverses.
+
+Logic-level integrity at 3.9k, reasoned through rather than merely asserted:
+  - LOW-level: the datasheet's own VOL guarantee (max 0.6V at 5V supply) is characterized at
+    IOL=13mA; at 3.9k's ~1.28mA sink (5V/3.9k), the output transistor sits in DEEPER
+    saturation than the 13mA test condition, so VOL is if anything lower/better, not worse
+    -- the same conclusion the original 10k analysis reached, still true at the lighter-but-
+    still-far-below-13mA 3.9k sink.
+  - HIGH-level: worst-case leakage IOH is 100uA max (VO=5.5V test condition); through a
+    3.9k pull-up that is at most a 0.39V drop (100uA x 3.9k), i.e. VOH >= NI_5V - 0.39V
+    (>=4.61V against a nominal 5V rail) even at the datasheet's own worst-case leakage
+    figure -- comfortably above any standard TTL/CMOS-class VIH, and a TIGHTER margin than
+    the original 10k choice's own -1.0V-drop figure (this sheet still could not locate NI's
+    own per-pin DIO input-threshold table in the X Series User Manual text extraction used
+    for the MDR68 pinout below -- that number lives in a separate NI device-specification
+    document this task did not fetch -- so this specific margin claim remains REASONED from
     the ACSL-6400 datasheet plus standard TTL/CMOS practice, not independently confirmed
-    against NI's own DIO input spec; flagged here rather than overclaimed).
+    against NI's own DIO input spec; flagged here rather than overclaimed, same as the
+    original analysis).
   - Speed: RC into ~50pF (this sheet's own trace+input-capacitance estimate, matching this
-    task's own brief) at 10k gives tau=500ns, ~1.1us 10-90% rise -- against a "hundreds of
-    microseconds" strobe period (this task's own brief), utterly negligible. The datasheet's
-    own 4k-max RL spec exists to guarantee its OWN 15 MBd/350R-RL speed grade and a 5-TTL-
-    load fan-out that does not describe this sheet's actual load (a single, high-impedance,
-    CMOS-class NI DAQ digital input, not "5 TTL loads"), so exceeding it trades away headroom
-    this design never needed while keeping the logic-level guarantees that matter.
+    task's own brief) at 3.9k gives tau=195ns (~0.2us), ~0.43us 10-90% rise -- against a
+    "hundreds of microseconds" (500us) strobe period (this task's own brief), utterly
+    negligible, just as it was at 10k's own larger tau (500ns, ~1.1us 10-90% rise). This
+    margin was never close enough for speed to be the deciding factor in either direction.
+    The datasheet's own 4k-max RL spec exists to guarantee its OWN 15 MBd/350R-RL speed
+    grade and a 5-TTL-load fan-out that does not describe this sheet's actual load (a
+    single, high-impedance, CMOS-class NI DAQ digital input, not "5 TTL loads") -- but 3.9k
+    satisfies that spec anyway, so this sheet no longer needs to argue past it at all.
 
 POWER: NI-side output stage runs from NI_5V/NI_GND, taken DIRECTLY off Connector 1's own
 +5V (pins 8, 14) and D GND (12 pins, see MDR1_DGND_PINS below) -- switcher-free, already
@@ -273,7 +290,8 @@ ACSL6400_PIN_GND = ["9", "16"]
 ACSL6400_PIN_VDD = ["10", "15"]
 
 LED_R_OHMS = "430"    # targets ~7.33mA -- see module docstring for the full derivation
-PULLUP_OHMS = "10k"   # this task's own explicit instruction -- see module docstring
+PULLUP_OHMS = "3.9k"  # fix round 1 -- corrected from this task's original 10k, which
+# exceeded ACSL-6400's own datasheet RL-max (4k); see module docstring, NI-SIDE PULL-UP.
 
 # ---------------------------------------------------------------------------
 # 24-channel contract: (source_net (DGND domain, already established elsewhere in this
@@ -541,15 +559,16 @@ def build() -> tuple[Sch, dict]:
         "conservative drive is irrelevant; the CTR-degradation margin over a decade of",
         "service is large.",
         "",
-        "NI-SIDE PULL-UP: 10k, per this task's own explicit instruction -- NOT the mule's",
-        "1k. 24 output stages at ~5-7mA (ACSL-6400's own IDDL) is already 120-170mA",
-        "against NI's 250mA/connector budget; 1k pull-ups add ~120mA more (near the",
-        "limit), 10k adds ~12mA. This EXCEEDS ACSL-6400's own datasheet RL-max (4k, a",
-        "15 MBd/5-TTL-load speed spec this sheet's real load -- a single high-Z NI DAQ",
-        "input, hundreds-of-microseconds timing -- does not need); logic-level integrity",
-        "is unaffected (worst-case VOH >= NI_5V-1.0V at the datasheet's own worst-case",
-        "100uA leakage; VOL improves, not worsens, at 10k's lighter sink current) -- see",
-        "this generator's own module docstring for the full numeric derivation.",
+        "NI-SIDE PULL-UP: 3.9k -- fix round 1, corrected from this task's original 10k,",
+        "which compared only against the mule's own 1k and never checked ACSL-6400's",
+        "own datasheet RL-max (4k); 10k exceeded it. 3.9k (E24) is the largest E24 value",
+        "at or under that limit. 24 stages at ~5-7mA (IDDL) draw 120-168mA against NI's",
+        "250mA budget; 3.9k pull-ups add ~31mA (domain total 151-199mA, 51-99mA",
+        "headroom) -- 10k added only ~12mA, but only by violating the part's own spec.",
+        "Logic-level integrity holds (worst-case VOH >= NI_5V-0.39V at the datasheet's",
+        "own worst-case leakage; VOL only improves at the lighter sink current); edge",
+        "rate (tau~0.2us into ~50pF) was never close enough to the 500us strobe to",
+        "decide this either way -- see the module docstring for the full derivation.",
     ]):
         sch.text(line, X_NOTE2, Y_NOTE2 + line_idx * NOTE_DY)
 

@@ -491,13 +491,15 @@ the source net, which cancels the inversion by relying only on the driving 74HCT
 push-pull output's ordinary ability to sink a few mA — see the generator's own module
 docstring for the full derivation. LED series resistors are 430 Ω (≈7.33 mA, roughly half
 ACSL-6400's own datasheet-recommended top-of-range forward current). NI-side pull-ups are
-**10 kΩ, not the mule's 1 kΩ** — this task's own explicit instruction, driven by NI's
-250 mA/connector budget (24 output stages already draw ~120–170 mA; 1 kΩ pull-ups would add
-another ~120 mA against 10 kΩ's ~12 mA) — which exceeds ACSL-6400's own datasheet pull-up
-maximum (4 kΩ, a 15 MBd/5-TTL-load speed spec this sheet's real load, a single high-Z NI DAQ
-input with a hundreds-of-microseconds timing budget, does not need); logic-level integrity
-at 10 kΩ is reasoned through explicitly in the generator's own module docstring, not merely
-asserted.
+**3.9 kΩ, not the mule's 1 kΩ** — driven by NI's 250 mA/connector budget (24 output stages
+already draw ~120–168 mA; 1 kΩ pull-ups would add another ~120 mA, at or over the budget) —
+**fixed round 1 from an original 10 kΩ choice that fit the budget too but exceeded
+ACSL-6400's own datasheet pull-up maximum (4 kΩ)**, derived only against the mule's own 1 kΩ
+without checking the part's own spec. 3.9 kΩ is the largest E24 value at or under that 4 kΩ
+limit, adds only ~31 mA (domain total 151–199 mA, 51–99 mA of headroom), and keeps every
+logic-level margin the original analysis relied on (reasoned through explicitly in the
+generator's own module docstring, not merely asserted) — see
+`.superpowers/sdd/2026-08-13-breakout-pcb/task-11-report.md`'s own "Fix round 1" section.
 
 **Connector 1's physical pins are sourced from NI's X Series User Manual (370784K-01),
 Figure A-18** ("NI PCIe-6353 and NI PCIe/PXIe-6363 Pinout" — the recording NI's own PXIe-6353
