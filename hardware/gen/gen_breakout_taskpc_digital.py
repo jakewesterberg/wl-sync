@@ -112,11 +112,47 @@ parent -- see kicad_sch.py's own extract_symbol()/_flatten_extends()), zero refd
 AHCT's faster edge rates are a placement-stage consideration (series termination on the
 MDR68 cable runs), not a schematic-capture one -- see hardware/breakout/design-review.md.
 
+PANEL-INSTRUMENTATION TASK (2026-08-15) -- Changes A and B, both landing entirely on this
+sheet's own reward circuit (`_place_reward_or()`/`place_reward_oneshot()`):
+
+  CHANGE A -- manual reward becomes a one-shot. One Nexperia 74HCT123D dual retriggerable
+  monostable (place_reward_oneshot(), minted out of band as U69/R191/C149/C150) now sits
+  between the debounce inverter's own output (RWD_BTN_DEB) and the OR gate's second input
+  (now RWD_BTN_PULSE, the one-shot's own Q) -- every hand-delivered reward gets a fixed
+  ~199ms pulse regardless of hold duration. Debounce capacitor changes from 100nF to 1uF
+  (10k x 1uF = 10ms, spec Sec.3.1), covering both switch bounce and the longer remote-BNC
+  cable run's own connector-mating transient. See place_reward_oneshot()'s own docstring
+  for the full part selection, pin-map verification, and pulse-width derivation.
+
+  CHANGE B -- the three reward positions become real connectors: the manual button (J4)
+  is now Switch:SW_Push on a real panel/chassis-mount pushbutton footprint (recessed, spec
+  Sec.3.1); the remote reward jack (J5) and reward-driver output (J6) are now real BNCs
+  (Connector:Conn_Coaxial / BNC_PanelMountable_Vertical, the same footprint pi-
+  interface.kicad_sch's own camera-trigger BNCs use) wired exactly as their Conn_01x02
+  placeholders were. This removes the 3.5mm TRS this position's own procurement
+  documentation used to describe from the design entirely -- confirmed by grep, no
+  generator or committed sheet, past or present, ever placed a TRS symbol/footprint (see
+  _place_reward_or()'s own docstring for the full account and why a BNC, not a swap for
+  swap's sake, is the point: no mating transient, and a real mechanical lock).
+
+  Reference designators: J4/J5/J6 keep their EXISTING numbers (in-place symbol/footprint/
+  value edits at the same call sites, same position in this file's own next_ref() call
+  order) -- constraint 3 (never renumber an existing refdes) is satisfied by construction
+  here, not by out-of-band minting, since nothing about WHICH pin gets called moved. U69/
+  R191/C149/C150 (the one-shot) ARE minted out of band, against the whole-board baseline
+  (#PWR10/C148/D39/F1/FB3/J55/NT2/R190/U68) computed from every sibling sheet's own
+  committed text before this task's edits -- see place_reward_oneshot()'s own docstring.
+
 Run directly: `python3 hardware/gen/gen_breakout_taskpc_digital.py` (writes
 hardware/breakout/sheets/taskpc-digital.kicad_sch). hardware/breakout/sym-lib-table
-gained one new entry for this task -- Connector_Generic (Conn_01x02, used for the three
-placeholder 2-pin connectors: manual reward button, remote reward jack, reward-driver
-BNC) -- see hardware/README.md.
+gained one new entry at this task's original commit -- Connector_Generic (Conn_01x02,
+used for the three placeholder 2-pin connectors this task's own panel-instrumentation
+follow-up later replaces with real parts -- see above) -- and two more at the panel-
+instrumentation task: `Switch` (sym-lib-table, for Switch:SW_Push) and
+`Button_Switch_THT` (fp-lib-table, for the panel pushbutton footprint) -- see
+hardware/README.md. `Connector_Coaxial` (fp-lib-table) and `Connector` (sym-lib-table,
+for Conn_Coaxial) were both already registered (Task 9), so the two new BNCs here needed
+no further library entries.
 
 Requires hardware/breakout/breakout.kicad_sch to already exist on disk (gen_breakout.py's
 own output) -- build() reads it to compute this file's real root+sheet-symbol ancestor
@@ -251,6 +287,28 @@ FOOTPRINT_R = "Resistor_SMD:R_0603_1608Metric"
 FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"  # 100nF decoupling/debounce
 FOOTPRINT_MDR68 = "wl-sync:MDR68_Male_RightAngle"
 FOOTPRINT_HDR1X02 = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+# Panel-instrumentation task (2026-08-15) -- the three reward positions upgrade from
+# Conn_01x02 placeholders to real parts (see _place_reward_or()'s own docstring for the
+# full account); the one-shot adds a real 16-pin logic IC. Every footprint below is a real
+# stock KiCad entry, same "check the real part's own package" discipline as every other
+# footprint in this file.
+FOOTPRINT_SOIC16 = "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"  # Nexperia 74HCT123D -- JEDEC
+# MS-012 narrow-body SOIC-16, 1.27mm pitch, identical package class (just two more pins)
+# to every other SOIC part already on this board (FOOTPRINT_SOIC14).
+FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"  # same real stock
+# footprint pi-interface.kicad_sch's own 5 camera-trigger BNCs already use (that
+# generator's own FOOTPRINT_BNC comment: "Isolated BNCs throughout... each shell lands on
+# its own pad" -- spec Sec.9.1). Registered in fp-lib-table already (Task 9); no new
+# library entry needed here.
+FOOTPRINT_PANEL_PUSHBUTTON = "Button_Switch_THT:SW_PUSH-12mm"  # generic 12mm panel/
+# chassis-mount momentary pushbutton -- a real stock KiCad footprint (2 electrical
+# terminals, each broken out to a redundant pair of pads for mechanical strength -- read
+# directly from the .kicad_mod, not assumed: pad numbers "1"/"1"/"2"/"2", so the footprint
+# itself already ties same-numbered pads to one net; nothing here depends on a THIRD,
+# ambiguous adjacency the way the Task 10a MISC shunt jumper did). Like every BNC on this
+# board, the exact recessed-bezel manufacturer part is a layout-stage/procurement
+# decision this schematic-capture task does not make (same status as FOOTPRINT_BNC's own
+# MPN) -- see hardware/README.md.
 
 # ---------------------------------------------------------------------------
 # Layout grid -- every coordinate an exact multiple of 1.27mm (KiCad's schematic
@@ -297,6 +355,33 @@ X_U9, Y_U9 = GRID(90), GRID(295)   # 74HCT14 (debounce inverter pair + 4 unused 
 GATE_DY = GRID(12.7)
 X_U8, Y_U8 = GRID(180), GRID(295)  # 74HCT32 (reward OR + 3 unused gates + power)
 X_RWD_BNC, Y_RWD_BNC = GRID(230), GRID(295)
+
+# One-shot block (panel-instrumentation task, 2026-08-15) -- its own column, well clear
+# of every existing anchor above (X_RWD_BTN..X_RWD_BNC top out at 230; X_U9 top out at
+# 90+7*GATE_DY=~168.9 vertically) and of X_NOTE4=400/Y_NOTE4=15 (a different sheet
+# region entirely).
+#
+# ONESHOT_ROW_DY=50.8mm -- NOT 25.4mm (comparators.kicad_sch's own ROW_DY, tried first
+# and WRONG for this part): the 74HCT123's own MAXIMUM local pin reach is +-12.7mm
+# (pins 3/8/11/16 -- Clr on units 1/2, GND/VCC on the power unit 3 -- all four sit
+# exactly there, confirmed via unit_pins(), not merely the largest of a few candidates
+# eyeballed), so two ADJACENT unit rows spaced by exactly 2x12.7=25.4mm put unit N's own
+# Clr pin (reaching -12.7 from ITS row) exactly on top of unit (N+1)'s own GND/VCC pin
+# (reaching +12.7 from ITS row) -- confirmed the hard way: the FIRST version of this
+# sheet used 25.4mm and it silently merged +5V and DGND project-wide (unit 2's Clr,
+# wired to DGND, landed on the exact same coordinate as unit 3's VCC, wired to +5V) --
+# caught by `kicad-cli sch erc` (`pin_to_pin`, power.kicad_sch's own #PWR3/#PWR5) and by
+# the multiple_net_names warning on THIS sheet, not by anything this generator itself
+# checks. 50.8mm (4x the 12.7mm max reach, comfortably more than LM339's own ~3.3x
+# margin for a smaller reach) leaves a 25.4mm clear gap between any two adjacent units'
+# own reach envelopes -- verified empirically after the fix (0 ERC errors, and
+# check_row_pitch_exceeds_2pin_span() -- which does not even cover multi-pin ICs, only
+# 2-terminal parts -- still passes clean on every 2-pin part on this sheet).
+X_ONESHOT, Y_ONESHOT = GRID(290), GRID(480)
+ONESHOT_ROW_DY = GRID(50.8)
+X_ONESHOT_R, X_ONESHOT_C = GRID(260), GRID(320)  # Rext / Cext columns, either side of U69
+X_NOTE6, Y_NOTE6 = GRID(290), GRID(620)  # one-shot note block, below the three unit rows
+# (Y_ONESHOT + 2*ONESHOT_ROW_DY = 582.6, comfortably clear at 620)
 
 DECOUPLE_DX = GRID(15.24)
 
@@ -511,6 +596,194 @@ def place_debounce_inverter(sch, x, y, dy, in_net, out_net, rail, gnd, refs):
     refs["debounce_u"] = ref
     refs["debounce_decouple_c"] = cap_ref
     return ref
+
+
+def place_reward_oneshot(sch, x, y, dy, in_net, out_net, rail, gnd, r_x, c_x, ic_ref, r_ref, c_ref, cdec_ref, refs):
+    """Panel-instrumentation task (2026-08-15), Change A: one Nexperia 74HCT123D dual
+    retriggerable monostable multivibrator ("one-shot"), so every hand-delivered reward
+    gets a FIXED duration regardless of how long RWD_BTN is physically held -- the spec's
+    own manual-reward paragraph (Sec.3.1): "A monostable gives every hand-delivered reward
+    an identical duration regardless of how long the button is held, so manual rewards are
+    countable rather than a per-press variable nothing measures."
+
+    WIRING: `in_net` (RWD_BTN_DEB, the debounce inverter's own output -- idle-LOW,
+    active-HIGH, unchanged by this task) feeds the B trigger input of unit 1. A is tied
+    permanently LOW and RD-bar (reset) permanently HIGH, which the datasheet's own function
+    table (Table 4, row "nRD=H, nA=L, nB=up-arrow") confirms is exactly the condition that
+    fires one pulse on B's own rising edge -- RWD_BTN_DEB's ONLY transition per physical
+    press, so retriggering (this part IS retriggerable -- see below) never extends a single
+    continuous hold. `out_net` (a new LOCAL name, RWD_BTN_PULSE) is unit 1's own Q output
+    (active-HIGH, matching RWD_BTN_DEB's own polarity) -- this is what the OR gate's own
+    input B now reads, in place of RWD_BTN_DEB directly.
+
+    PIN MAP -- VERIFIED PIN-BY-PIN AGAINST THE REAL DATASHEET, not assumed from the stock
+    KiCad symbol alone (constraint 5): Philips/Nexperia "74HC123; 74HCT123 -- Dual
+    retriggerable monostable multivibrator with reset", Rev. 03, 11 May 2004, Section 6.1
+    "Pinning" (Fig. 5) and Section 6.2 "Pin description" (Table 3), 16-pin SO16/DIP16/
+    SSOP16/TSSOP16: pin1=1A-bar, pin2=1B, pin3=1RD-bar, pin4=1Q-bar, pin5=2Q, pin6=2CEXT,
+    pin7=2REXT/CEXT, pin8=GND, pin9=2A-bar, pin10=2B, pin11=2RD-bar, pin12=2Q-bar, pin13=1Q,
+    pin14=1CEXT, pin15=1REXT/CEXT, pin16=VCC -- cross-checked directly against KiCad's own
+    "74xx:74HCT123" library entry (kicad_sch.py's own extract_symbol()/unit_pins(), the
+    same machinery sch.place() uses) and found to match EXACTLY: unit 1 -- {1:A(input),
+    2:B(input), 3:Clr(input), 4:~Q(output), 13:Q(output), 14:Cext(input), 15:RCext(input)};
+    unit 2 -- the mirror set on {9,10,11,12,5,6,7}; unit 3 (KiCad's own "power" pseudo-unit,
+    same convention comparators.kicad_sch's own LM339 unit 5 already established) --
+    {8:GND(power_in), 16:VCC(power_in)}. This is a genuine, current, real stock KiCad
+    symbol -- no extends-flattening, no stand-in Value substitution needed the way this
+    sheet's own 74LS32/74HC14 placements need for the OR gate/debounce inverter (module
+    docstring, "no stock '74HCT32'/'74HCT14' symbol exists" -- both untrue here: KiCad's
+    own library ships "74HCT123" by name).
+
+    REAL ORDERED PART: Nexperia 74HCT123D (SO16), NOT a TI part -- checked and rejected:
+    TI's own catalog entry for this function (CD74HCT123M/MT) is OBSOLETE, no longer
+    manufactured (confirmed via live search, not assumed from the symbol's own generic
+    "74HCT123" library name). Nexperia's 74HCT123D is current production and in stock at
+    multiple major distributors (DigiKey, Mouser, TME, thousands of units each, checked
+    2026-08-15) -- the function itself is a JEDEC-standard part (the datasheet's own
+    Section 1: "specified in compliance with JEDEC standard no. 7A"), so any compliant
+    vendor's part shares this identical pinout, the same cross-manufacturer-interoperable
+    reasoning hardware/README.md's own M12A_5 sourcing record already establishes for a
+    different part class.
+
+    PULSE WIDTH -- 442k Rext (E96, 1%) + 1uF Cext (a common, small, hand-solderable 0603/
+    0805 ceramic value), giving tW = K x Rext[kOhm] x Cext[pF] = 0.45 x 442 x 1,000,000 =
+    198,900,000 ns = ~199 ms (K=0.45 at VCC=5.0V -- the SAME datasheet's own Table 10
+    footnote [1], stated for the HCT variant specifically, not interpolated from the HC
+    one). Cross-validated against a SECOND, independent data point in the SAME table
+    (Table 10's own measured "output pulse width" row: CEXT=100nF, REXT=10kOhm, VCC=5.0V
+    -> Typ=450us; the formula predicts 0.45x10x100,000=450,000ns=450us EXACTLY) -- this
+    project's own established discipline of confirming a formula against a real measured
+    data point before trusting it (see comparators.kicad_sch's own hysteresis derivation
+    for the same pattern), not the formula alone. 442k sits inside the datasheet's own
+    stated REXT range (2kOhm-1MOhm, VCC=5.0V) with wide margin either side; 1uF is far
+    above the "CEXT > 10nF" threshold the linear formula requires to be valid (Cext<10nF
+    needs Fig. 10's own graph instead -- not this design's case).
+
+    WHY ~200 ms: no reward driver is chosen yet (spec Sec.2, open item 13 -- "the driver is
+    unchosen"), so an exact fluid volume cannot be computed here. ~200 ms sits in the
+    commonly-used range for a single commanded "drop" pulse in this class of behavioural
+    rig (tens to a few hundred ms), giving a manual press roughly the same order of
+    magnitude as one automated reward rather than an arbitrary duration -- and it is
+    comfortably longer than this task's own 10 ms debounce time constant and NI/Intan/
+    module-side logic propagation delays (all sub-microsecond to low-microsecond scale),
+    so the one-shot's own duration is unambiguously what sets RWD_DLVR's pulse width, not
+    an accidental near-collision with a faster timing constant elsewhere on this path.
+
+    RETRIGGERABLE, DELIBERATELY NOT WORKED AROUND: the 74HC123/74HCT123 family retriggers
+    (a NEW rising edge on B while Q is already HIGH restarts the timer, extending the
+    pulse -- datasheet Section 1, item 2; TI's own SLVA720A app report, Section 3.2,
+    Figure 3-3, confirms the general behaviour for the whole 123-style family). This does
+    NOT undermine "fixed duration regardless of how long the button is held": a single
+    continuous press produces exactly ONE rising edge on the ALREADY-debounced RWD_BTN_DEB
+    (bounce is filtered upstream, before this part ever sees the signal), so holding the
+    button for one second or ten produces the identical ~199 ms pulse either way --
+    retriggering only matters for a SECOND physical press arriving inside the first
+    pulse's own window, a genuinely different scenario (rapid repeated presses) than the
+    one this task names, and even then the behaviour (the driver stays asserted across
+    both presses rather than chopping into two truncated pulses) is not obviously wrong.
+    Recorded here rather than hidden, matching this project's own standing practice for a
+    real, named trade-off (e.g. RWD_CMD's own assumed polarity).
+
+    UNUSED SECOND SECTION (unit 2): held in PERMANENT RESET (RD-bar tied to `gnd`, not
+    merely left untriggered) -- the function table's own row 1 ("nRD=L, nA=X, nB=X: nQ=L")
+    confirms this is what actually guarantees the section can never assert, not just tying
+    A/B to safe levels (also done here, belt-and-suspenders, matching this project's own
+    "never leave a CMOS input floating" rule for every other unused gate/inverter on this
+    sheet). Its own CEXT/RCEXT pins are grounded too -- for a genuinely unused section this
+    mirrors the datasheet's own Fig. 12 note 1 ("for minimum noise generation it is
+    recommended to ground pins 6 (2CEXT) and 14 (1CEXT)" when a section's external timing
+    network is not used) rather than contradicting it; unit 1's own pin 14 is NOT grounded
+    (it is the real Cext node -- see "RC TOPOLOGY" below), so this note only applies to the
+    section this task genuinely does not use.
+
+    RC TOPOLOGY, confirmed from a primary TI source (SLVA720A "Designing With the
+    SN74LVC1G123 Monostable Multivibrator", Figure 3-1, the same 123-family internal
+    topology every device in this family shares): Rext bridges VCC to the REXT/CEXT pin;
+    Cext bridges FROM THAT SAME NODE to the CEXT pin (the internal discharge-sense node) --
+    R and C are in series, sharing one node, NOT each independently returned to a rail.
+    Wired here exactly that way: `rail` -> R(ref `r_ref`) -> "{ic_ref}_RCEXT" (pin 15) ->
+    C(ref `c_ref`) -> "{ic_ref}_CEXT" (pin 14).
+
+    REFDES -- ALL FOUR new components (`ic_ref`/`r_ref`/`c_ref`/`cdec_ref`) are minted
+    OUT OF BAND (explicit ref strings, never `sch.next_ref()`), for the identical reason
+    R190/F1/J52-55/C147-148/#PWR9-10 already are on this board (constraint 3: never
+    renumber an existing refdes): this file's own PRE-EXISTING next_ref() calls (every
+    connector/resistor/capacitor/IC placed before this function runs) must come out
+    byte-for-byte identical to before this task, and every downstream sibling sheet seeded
+    its OWN reference counters by reading THIS file's committed maxima at ITS OWN
+    generation time -- an ordinary next_ref() call here would either renumber something
+    already placed later in this same file, or mint a number a sibling sheet already
+    claimed for an unrelated part. See build()'s own comment for the whole-board baseline
+    this was computed against, and this task's own report for the empirical refdes diff
+    that confirms nothing else moved.
+    """
+    cpins = {}
+    for unit, uy in ((1, y), (2, y + dy), (3, y + 2 * dy)):
+        cpins[unit] = sch.place(
+            "74xx", "74HCT123", ic_ref, "74HCT123D", x, uy, unit=unit,
+            footprint=FOOTPRINT_SOIC16,
+            extra_props={"Description": "Dual retriggerable monostable multivibrator with reset"} if unit == 1 else None,
+        )
+
+    # --- Unit 1: the real, used monostable ---
+    lbl1 = cpins[1]
+    for pin_num, net in (("1", gnd), ("2", in_net), ("3", rail)):
+        px, py = pin_pos(x, y, lbl1[pin_num])
+        sch.label(net, px, py)
+    for pin_num in ("4",):  # ~Q -- unused complementary output, genuinely no-connect
+        px, py = pin_pos(x, y, lbl1[pin_num])
+        sch.no_connect(px, py)
+    px, py = pin_pos(x, y, lbl1["13"])  # Q -- the real, used, active-HIGH pulse output
+    sch.label(out_net, px, py)
+    rcext_net = f"{ic_ref}_RCEXT"
+    cext_net = f"{ic_ref}_CEXT"
+    px, py = pin_pos(x, y, lbl1["15"])
+    sch.label(rcext_net, px, py)
+    px, py = pin_pos(x, y, lbl1["14"])
+    sch.label(cext_net, px, py)
+
+    # --- Unit 2: genuinely unused -- held in permanent reset, every pin tied off ---
+    y2 = y + dy
+    lbl2 = cpins[2]
+    for pin_num in ("9", "10", "11", "6", "7"):  # A, B, Clr(reset), Cext, Rext/Cext
+        px, py = pin_pos(x, y2, lbl2[pin_num])
+        sch.label(gnd, px, py)
+    for pin_num in ("5", "12"):  # Q, ~Q -- outputs, safe to no-connect
+        px, py = pin_pos(x, y2, lbl2[pin_num])
+        sch.no_connect(px, py)
+
+    # --- Unit 3: power ---
+    y3 = y + 2 * dy
+    lbl3 = cpins[3]
+    px, py = pin_pos(x, y3, lbl3["8"])
+    sch.label(gnd, px, py)
+    px, py = pin_pos(x, y3, lbl3["16"])
+    sch.label(rail, px, py)
+
+    # --- Rext (VCC -> REXT/CEXT node) and Cext (REXT/CEXT node -> CEXT node), in series
+    # -- see "RC TOPOLOGY" above. ---
+    r_pins = sch.place("Device", "R", r_ref, "442k", r_x, y, footprint=FOOTPRINT_R)
+    px, py = pin_pos(r_x, y, r_pins["1"])
+    sch.label(rail, px, py)
+    px, py = pin_pos(r_x, y, r_pins["2"])
+    sch.label(rcext_net, px, py)
+
+    c_pins = sch.place("Device", "C", c_ref, "1uF", c_x, y, footprint=FOOTPRINT_C_SMALL)
+    px, py = pin_pos(c_x, y, c_pins["1"])
+    sch.label(rcext_net, px, py)
+    px, py = pin_pos(c_x, y, c_pins["2"])
+    sch.label(cext_net, px, py)
+
+    cdec_pins = sch.place("Device", "C", cdec_ref, "100nF", x - DECOUPLE_DX, y3, footprint=FOOTPRINT_C_SMALL)
+    px, py = pin_pos(x - DECOUPLE_DX, y3, cdec_pins["1"])
+    sch.label(rail, px, py)
+    px, py = pin_pos(x - DECOUPLE_DX, y3, cdec_pins["2"])
+    sch.label(gnd, px, py)
+
+    refs["oneshot_u"] = ic_ref
+    refs["oneshot_rext"] = r_ref
+    refs["oneshot_cext"] = c_ref
+    refs["oneshot_decouple_c"] = cdec_ref
 
 
 # ---------------------------------------------------------------------------
@@ -953,48 +1226,85 @@ def _place_outbound(sch, refs):
 
 
 def _place_reward_or(sch, refs):
-    """Step 4: RWD_CMD (already produced in stage 2) and the debounced manual reward
-    button combine in a 74HCT32 OR gate to produce RWD_DLVR.
+    """Step 4: RWD_CMD (already produced in stage 2) and the debounced-then-one-shot
+    manual reward button combine in a 74HCT32 OR gate to produce RWD_DLVR.
 
-    RWD_BTN: a 2-pin panel momentary-button connector and a 2-pin remote-jack connector,
-    wired in PARALLEL onto the same node (spec Sec.9.1's own "panel momentary button +
-    remote jack, 1+1" -- either shorts the node to DGND when actuated), 10k pull-up to
-    +5V, 100nF debounce cap to DGND -- exactly task-8-brief.md's own literal component
-    list. Both connectors are Connector_Generic:Conn_01x02 placeholders (this project has
-    no dedicated panel pushbutton/jack footprint yet, same status as the reward-driver
-    BNC below -- flagged in this task's own report, not a scope this task's brief asks
-    it to resolve, unlike the MDR68/M12A_5 connectors that DID get dedicated custom
-    footprints because their panel-cutout tolerance is the tightest on the board).
+    PANEL-INSTRUMENTATION TASK (2026-08-15), CHANGES A+B -- this function's own
+    reward-position connectors and reward-button signal path both change here; see the
+    module docstring's own "PANEL-INSTRUMENTATION TASK" section for the full account.
+    Summary:
 
-    POLARITY -- FIX ROUND 1 (task-8-report.md, finding 1, CRITICAL), stated explicitly
-    on-sheet per the finding's own instruction rather than left implicit: the debounce
-    stage now places a SINGLE Schmitt inversion (place_debounce_inverter(), was a PAIR
-    pre-fix-round-1). Traced: RWD_BTN idles HIGH (10k pull-up to +5V) and reads LOW while
-    pressed; ONE inversion makes RWD_BTN_DEB idle-LOW and read HIGH while pressed --
-    active-HIGH. RWD_CMD is ASSUMED ACTIVE-HIGH (idle-LOW, pulses HIGH on delivery) --
-    this design's other event lines' own convention (EVT_STROBE, event data bits), and
-    RWD_CMD is an unmodified copy of the task PC's own raw line since SN74LVC541APW is a
-    NON-inverting buffer. Stating the assumption here, explicitly, is the point: a plain
-    OR gate only produces a sensible "either-input-asserts" result if BOTH inputs share
-    ONE active-level convention, and this sheet cannot verify the task PC/MonkeyLogic
-    side of that assumption independently. If RWD_CMD is active-HIGH as assumed, this OR
-    gate is correct. If RWD_CMD instead turns out active-LOW, this circuit needs a
-    redesign regardless of the button side's own inverter count -- an OR gate cannot
-    correctly combine one active-HIGH and one active-LOW input, so flagged on-sheet (see
-    the text block below), in this task's own report, and enforced by
-    check_taskpc_digital_netlist.py's own same-polarity structural check: CONFIRM
-    RWD_CMD's actual polarity against MonkeyLogic before commissioning.
+    CHANGE A (one-shot): RWD_BTN_DEB (the debounce inverter's own output, unchanged) no
+    longer feeds the OR gate directly -- it now feeds place_reward_oneshot()'s own trigger
+    input, and the OR gate's own second input becomes RWD_BTN_PULSE, that one-shot's
+    fixed-width (~199 ms) output. See place_reward_oneshot()'s own docstring for the full
+    derivation (part, pin map, RC topology, pulse-width arithmetic).
 
-    RWD_DLVR also drives a reward-driver BNC -- placeholder Conn_01x02 for the same
-    reason as the button/jack above -- and is available by name (no further buffering
-    needed: the OR gate already runs on +5V, the same native logic level Task 11's
-    NI/Intan optocouplers consume elsewhere on this design, e.g. via the *_BUF bank
+    CHANGE A (debounce RC): the debounce capacitor is now 1uF, not 100nF -- 10k x 1uF =
+    10 ms (spec Sec.3.1's own literal figure), covering both switch bounce and any
+    connector transient (the remote BNC's own cable run is longer than the panel button's
+    own short internal wiring, and a longer run picks up more of a connector-mating
+    transient than 10k x 100nF's own ~1 ms time constant comfortably covered).
+
+    CHANGE B (real connectors, replacing three Conn_01x02 placeholders):
+      - RWD_BTN (J4): Switch:SW_Push, a real 2-terminal panel/chassis-mount momentary
+        pushbutton footprint (SW_PUSH-12mm) -- RECESSED per spec Sec.3.1 ("Panel button is
+        recessed so a sleeve or cable cannot dispense fluid"), a bezel/mounting detail this
+        schematic-capture step records as a requirement (on-sheet, below) rather than a
+        fact the SYMBOL/FOOTPRINT choice can encode; the exact recessed-bezel manufacturer
+        part remains a layout-stage/procurement decision, same status as every BNC's own
+        MPN on this board.
+      - Remote reward jack (J5): now a real BNC (Connector:Conn_Coaxial /
+        BNC_PanelMountable_Vertical -- the SAME footprint pi-interface.kicad_sch's own 5
+        camera-trigger BNCs use), wired in PARALLEL with J4 onto the identical RWD_BTN
+        node -- unchanged electrically from the prior placeholder's own wiring, only the
+        connector class changes. BNC IS THE POINT, not an arbitrary swap: unlike the 3.5mm
+        TRS this position used to represent (spec Sec.9.6: "the reward remote became a
+        BNC, which was its last use" -- see module docstring), a BNC's own center pin does
+        not transiently short to the shield during mating the way a TRS tip/ring/sleeve
+        does while sliding past the jack's own switching contacts -- so plugging in the
+        handheld remote cannot itself fire a reward, and the coupling is a lock (a real
+        TRS jack has none), not friction. THIS REMOVES THE 3.5MM TRS FROM THE DESIGN
+        ENTIRELY -- confirmed by grep across every hardware/gen/*.py and every
+        hardware/breakout/sheets/*.kicad_sch, past and present: no generator ever placed a
+        TRS footprint or symbol (the position was always a generic Conn_01x02 placeholder
+        that PROCUREMENT DOCUMENTATION described as "eventually a 3.5mm TRS" -- see
+        hardware/procurement-check.md and hardware/breakout/design-review.md, both updated
+        alongside this change), so there is no schematic-side component to delete, only
+        the placeholder's own real-world referent to correct.
+      - Reward driver out (J6): now a real BNC, same footprint/symbol as J5, wiring
+        unchanged (RWD_DLVR / DGND).
+
+    RWD_BTN wiring (unchanged in substance from before this task): J4 and J5 both land on
+    the same RWD_BTN node (spec Sec.9.1's own "panel momentary button + remote jack, 1+1"
+    -- either shorts the node to DGND when actuated), 10k pull-up to +5V, 1uF debounce cap
+    to DGND (was 100nF -- see CHANGE A above).
+
+    POLARITY -- FIX ROUND 1 (task-8-report.md, finding 1, CRITICAL), unaffected by this
+    task and restated here unchanged: the debounce stage places a SINGLE Schmitt inversion
+    (place_debounce_inverter()). Traced: RWD_BTN idles HIGH (10k pull-up to +5V) and reads
+    LOW while pressed; ONE inversion makes RWD_BTN_DEB idle-LOW and read HIGH while pressed
+    -- active-HIGH, which is what the new one-shot's own B trigger input wants (see
+    place_reward_oneshot()'s own docstring). RWD_BTN_PULSE (the one-shot's own Q output)
+    inherits that SAME active-HIGH polarity unchanged (Q is HIGH during the pulse, LOW at
+    rest) -- so the OR gate's own polarity requirement (both inputs active-HIGH, unchanged
+    from before this task) is still satisfied, just through one more stage. RWD_CMD is
+    still ASSUMED ACTIVE-HIGH (idle-LOW, pulses HIGH on delivery) -- this design's other
+    event lines' own convention, and SN74LVC541APW does not invert; still unverified
+    against MonkeyLogic independently, still enforced by check_taskpc_digital_netlist.py's
+    own same-polarity structural check, now extended to also confirm the one-shot's own
+    Q output (not RWD_BTN_DEB) is what actually reaches the OR gate.
+
+    RWD_DLVR also drives the reward-driver BNC (J6) and is available by name (no further
+    buffering needed: the OR gate already runs on +5V, the same native logic level Task
+    11's NI/Intan optocouplers consume elsewhere on this design, e.g. via the *_BUF bank
     above) for Task 11's opto-ni/opto-intan sheets to pick up directly.
     """
     btn_ref = sch.next_ref("J")
     btn_pins = sch.place(
-        "Connector_Generic", "Conn_01x02", btn_ref,
-        "Manual reward button (panel)", X_RWD_BTN, Y_RWD_BTN, footprint=FOOTPRINT_HDR1X02,
+        "Switch", "SW_Push", btn_ref,
+        "Manual reward button (panel, recessed)", X_RWD_BTN, Y_RWD_BTN,
+        footprint=FOOTPRINT_PANEL_PUSHBUTTON,
     )
     x, y = pin_pos(X_RWD_BTN, Y_RWD_BTN, btn_pins["1"])
     sch.label("RWD_BTN", x, y)
@@ -1003,9 +1313,9 @@ def _place_reward_or(sch, refs):
 
     jack_ref = sch.next_ref("J")
     jack_pins = sch.place(
-        "Connector_Generic", "Conn_01x02", jack_ref,
-        "Remote reward jack (parallel to panel button)", X_RWD_JACK, Y_RWD_JACK,
-        footprint=FOOTPRINT_HDR1X02,
+        "Connector", "Conn_Coaxial", jack_ref,
+        "Remote reward BNC (parallel to panel button; locking -- no TRS mating transient)",
+        X_RWD_JACK, Y_RWD_JACK, footprint=FOOTPRINT_BNC,
     )
     x, y = pin_pos(X_RWD_JACK, Y_RWD_JACK, jack_pins["1"])
     sch.label("RWD_BTN", x, y)
@@ -1017,7 +1327,7 @@ def _place_reward_or(sch, refs):
         footprint=FOOTPRINT_R,
     )
     debounce_c_ref = two_pin(
-        sch, "Device", "C", "C", "100nF", X_RWD_CAP, Y_RWD_CAP, "RWD_BTN", "DGND",
+        sch, "Device", "C", "C", "1uF", X_RWD_CAP, Y_RWD_CAP, "RWD_BTN", "DGND",
         footprint=FOOTPRINT_C_SMALL,
     )
 
@@ -1030,18 +1340,26 @@ def _place_reward_or(sch, refs):
     # and produced exactly this mismatch (debounce inverters silently became U8, the OR
     # gate U9), harmless electrically (a component's real identity is its Value/pins,
     # never its bare reference number) but confusing for anyone reading this file
-    # against the real output, so fixed here rather than left as a footgun.
+    # against the real output, so fixed here rather than left as a footgun. UNCHANGED by
+    # this task -- the one-shot is minted entirely out of band (see its own docstring),
+    # never through next_ref(), specifically so it cannot disturb this ordering or any
+    # already-committed reference anywhere on the board.
     place_reward_or_gate(
-        sch, X_U8, Y_U8, GATE_DY, "RWD_CMD", "RWD_BTN_DEB", "RWD_DLVR", "+5V", "DGND", refs,
+        sch, X_U8, Y_U8, GATE_DY, "RWD_CMD", "RWD_BTN_PULSE", "RWD_DLVR", "+5V", "DGND", refs,
     )
     place_debounce_inverter(
         sch, X_U9, Y_U9, GATE_DY, "RWD_BTN", "RWD_BTN_DEB", "+5V", "DGND", refs,
     )
+    place_reward_oneshot(
+        sch, X_ONESHOT, Y_ONESHOT, ONESHOT_ROW_DY, "RWD_BTN_DEB", "RWD_BTN_PULSE",
+        "+5V", "DGND", X_ONESHOT_R, X_ONESHOT_C,
+        ic_ref="U69", r_ref="R191", c_ref="C149", cdec_ref="C150", refs=refs,
+    )
 
     bnc_ref = sch.next_ref("J")
     bnc_pins = sch.place(
-        "Connector_Generic", "Conn_01x02", bnc_ref,
-        "Reward driver out (BNC, placeholder)", X_RWD_BNC, Y_RWD_BNC, footprint=FOOTPRINT_HDR1X02,
+        "Connector", "Conn_Coaxial", bnc_ref,
+        "Reward driver out (BNC)", X_RWD_BNC, Y_RWD_BNC, footprint=FOOTPRINT_BNC,
     )
     x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_pins["1"])
     sch.label("RWD_DLVR", x, y)
@@ -1055,21 +1373,58 @@ def _place_reward_or(sch, refs):
     refs["reward_debounce_c"] = debounce_c_ref
 
     for line_idx, line in enumerate([
-        "Reward OR polarity (fix round 1, finding 1 -- CRITICAL, corrected here):",
-        "RWD_BTN idles HIGH (10k pull-up to +5V), reads LOW while pressed. A SINGLE",
-        "74HCT14 Schmitt inverter (NOT a pair -- a pair was this task's own pre-fix-",
-        "round-1 defect: 2 series stages cancel, leaving RWD_BTN_DEB idle-HIGH, which",
-        "ORed with an active-HIGH RWD_CMD asserts RWD_DLVR permanently) inverts ONCE,",
-        "so RWD_BTN_DEB idles LOW and reads HIGH while pressed -- active-HIGH.",
-        "RWD_CMD polarity is ASSUMED ACTIVE-HIGH (idle-LOW, pulses HIGH on delivery --",
-        "this design's other event lines' own convention, and SN74LVC541APW does not",
-        "invert): stated explicitly because this sheet cannot verify the task PC/",
-        "MonkeyLogic side independently. VERIFY RWD_CMD's actual polarity against",
-        "MonkeyLogic before commissioning: if active-HIGH as assumed, this OR gate is",
-        "correct; an OR gate cannot correctly combine one active-HIGH and one active-",
-        "LOW input regardless of the button side's own inverter count.",
+        "Reward OR polarity (fix round 1, finding 1 -- CRITICAL): RWD_BTN idles HIGH",
+        "(10k pull-up to +5V), reads LOW while pressed. A SINGLE 74HCT14 Schmitt",
+        "inverter (NOT a pair) inverts ONCE, so RWD_BTN_DEB idles LOW and reads HIGH",
+        "while pressed -- active-HIGH. RWD_BTN_DEB now feeds a one-shot (74HCT123D,",
+        "~199ms fixed pulse -- panel-instrumentation task, 2026-08-15) whose own Q",
+        "output, RWD_BTN_PULSE, is what actually reaches the OR gate -- same active-",
+        "HIGH polarity, unchanged requirement. RWD_CMD polarity is ASSUMED ACTIVE-HIGH",
+        "(idle-LOW, pulses HIGH on delivery -- this design's other event lines' own",
+        "convention, and SN74LVC541APW does not invert): stated explicitly because this",
+        "sheet cannot verify the task PC/MonkeyLogic side independently. VERIFY RWD_CMD's",
+        "actual polarity against MonkeyLogic before commissioning (MonkeyLogic's own",
+        "RewardPolarity setting must be HIGH to match this board -- hardware/README.md):",
+        "an OR gate cannot correctly combine one active-HIGH and one active-LOW input.",
     ]):
         sch.text(line, X_NOTE3, Y_NOTE3 + line_idx * NOTE_DY)
+
+    for line_idx, line in enumerate([
+        "MANUAL REWARD ONE-SHOT (panel-instrumentation task, 2026-08-15, spec Sec.3.1):",
+        "U69 (Nexperia 74HCT123D) gives every hand-delivered reward a FIXED ~199ms",
+        "pulse regardless of how long RWD_BTN is held -- so a manual reward is",
+        "countable, not a per-press variable, which is the point of recording",
+        "commanded (RWD_CMD) and delivered (RWD_DLVR) separately at all: a manual",
+        "reward is DELIVERED WITHOUT COMMANDED, derivable with no extra logic.",
+        "",
+        "Rext=442k (E96), Cext=1uF: tW = K x Rext[kOhm] x Cext[pF], K=0.45 at VCC=5.0V",
+        "(datasheet Table 10, HCT-specific) = 0.45 x 442 x 1e6 = 198.9e6 ns = ~199ms.",
+        "Cross-checked against the SAME table's own measured example (Cext=100nF,",
+        "Rext=10k -> Typ=450us; formula predicts 450us exactly).",
+        "",
+        "A=DGND, B=RWD_BTN_DEB (trigger, rising edge), RD-bar=+5V (never reset) --",
+        "datasheet Table 4's own function table, row 'nRD=H,nA=L,nB=up-arrow', fires",
+        "one pulse on B's own rising edge. Q=RWD_BTN_PULSE (active-HIGH). RC network:",
+        "+5V -> R191(442k) -> pin15(REXT/CEXT) -> C149(1uF) -> pin14(CEXT) -- R and C",
+        "in series sharing one node, per TI SLVA720A Fig.3-1's own topology, NOT each",
+        "independently returned to a rail.",
+        "",
+        "Retriggerable by design (datasheet Section 1) -- deliberately not worked",
+        "around: a single continuous hold produces exactly one rising edge on the",
+        "ALREADY-DEBOUNCED RWD_BTN_DEB (bounce filtered upstream), so hold duration",
+        "cannot extend the pulse; retriggering only matters for a second physical",
+        "press inside the first pulse's own ~199ms window, a different scenario than",
+        "'how long the button is held'.",
+        "",
+        "Second section (unit 2) held in PERMANENT RESET (RD-bar->DGND, datasheet",
+        "Table 4 row 1) -- genuinely inert, not merely untriggered. Pin map verified",
+        "pin-by-pin against Philips/Nexperia Rev.03 (11 May 2004) Table 3/Fig.5, cross-",
+        "checked against KiCad's own 74xx:74HCT123 library entry -- see",
+        "place_reward_oneshot()'s own docstring for the full account. Real part:",
+        "Nexperia 74HCT123D (TI's own CD74HCT123M/MT is obsolete, checked before",
+        "choosing this vendor, not assumed from the symbol's own generic library name).",
+    ]):
+        sch.text(line, X_NOTE6, Y_NOTE6 + line_idx * NOTE_DY)
 
 
 def build() -> tuple[Sch, dict]:
@@ -1079,17 +1434,36 @@ def build() -> tuple[Sch, dict]:
     `ref_start` (kicad_sch.py's Sch, added at this task): this is this project's SECOND
     real child sheet, after power.kicad_sch -- the first time two sheets' own
     independently-started reference counters can actually collide (both start "J"/"R"/
-    "C"/"D"/"U" at 1). Seeded here by reading power.kicad_sch's own already-committed
-    text (find_max_refs()) -- not hard-coded, not trusted from any in-process value --
-    same "read the real committed artifact" discipline instance_path (below) already
-    follows for uuids. If Task 9-12's own generators need the same treatment, they
-    should seed from EVERY already-committed sibling sheet's own maxima (this one
-    included), not only power.kicad_sch.
+    "C"/"D"/"U" at 1). Originally seeded here by reading power.kicad_sch's own
+    already-committed text (find_max_refs()) at Task 8's own generation time.
+
+    PINNED, NOT RE-READ LIVE, as of the panel-instrumentation task (2026-08-15) -- see
+    constraint 3 (never renumber an existing refdes). power.kicad_sch's own committed
+    text has SINCE DIVERGED from what it was at Task 8: the fan-header addition (spec
+    Sec.9.5, landing well after this file's own original commit) minted J52-55/C147-148
+    out of band on power.kicad_sch, which moves ITS OWN find_max_refs() result for J from
+    1 to 55 and for C from 21 to 148 (R/D/U are genuinely unaffected -- the fan headers
+    only ever touch J/C/NT/#PWR/F, confirmed empirically: regenerating power.kicad_sch
+    fresh reproduces R4/D3/U4 unchanged). Reading POWER_SCH.read_text() live at THIS
+    point would recompute ref_start={'J':55,'C':148,...} and renumber every one of this
+    sheet's OWN existing J- and C-prefixed components (5 connectors, 10 capacitors) the
+    next time this file is regenerated for ANY reason, including a change that touches
+    neither prefix -- confirmed empirically before this fix (an unmodified copy of this
+    generator, run against the current power.kicad_sch, reproduces R24/D22/U13 exactly
+    but J60/C158 instead of the historically-correct J6/C31). {'J':1,'C':21,'R':4,'D':3,
+    'U':4} below is power.kicad_sch's own PRE-fan-header per-prefix maximum (J=1 is just
+    J1, the M12 inlet; C=21 is Task 7's own original capacitor count, before the fan
+    header's own out-of-band C147/C148) -- verified to reproduce this file's own
+    committed reference counters {'J':6,'R':24,'D':22,'U':13,'C':31} exactly. Pinned here
+    for the identical reason R190/F1/J52-55/C147-148/#PWR9-10 are all minted out of band
+    elsewhere on this board: this is the same hazard, just arriving through a stale
+    ref_start rather than through next_ref() directly, and pinning it is this task's own
+    "pin generator seeds" instruction, applied at the point the hazard actually lives.
     """
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, TASKPC_DIGITAL_SHEETFILE)
-    ref_start = find_max_refs(POWER_SCH.read_text())
+    ref_start = {"J": 1, "C": 21, "R": 4, "D": 3, "U": 4}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

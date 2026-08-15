@@ -1,6 +1,7 @@
 (fp_lib_table
 	(version 7)
 	(lib (name "Capacitor_SMD") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Capacitor_SMD.pretty") (options "") (descr "Capacitor, surface mount"))
+	(lib (name "Button_Switch_THT") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Button_Switch_THT.pretty") (options "") (descr "Through hole switch and button footprints"))
 	(lib (name "Connector_BarrelJack") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_BarrelJack.pretty") (options "") (descr "(DC) barrel jack connector footprints"))
 	(lib (name "Connector_Coaxial") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_Coaxial.pretty") (options "") (descr "Coaxial connector footprints (incl. BNC)"))
 	(lib (name "Connector_Dsub") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Connector_Dsub.pretty") (options "") (descr "D-Sub connector footprints"))

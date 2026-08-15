@@ -224,15 +224,23 @@ document is not confirmation.
 - [ ] **`INA105KU` and `SN74HCT14D` are obsolete as literally written in the BOM** — order the
   active tape-and-reel equivalents (`INA105KU/2K5`, `SN74HCT14DR`) instead. Both have ample
   stock; this is a paperwork correction, not a supply risk.
-- [ ] **Three panel connector positions (`J4` manual reward button, `J5` remote reward 3.5 mm
-  TRS jack, `J6` reward-driver-out BNC) are still generic 2-pin-header placeholders in the
-  schematic**, not their real footprints — consistent with this project's own stated
-  convention of deferring exact connector MPNs to layout, but flagged here because Task 14
-  will need real footprints for these three positions before it can place them, and the BNC
-  and TRS candidates identified in `procurement-check.md` §5.2 haven't been locked to a
-  specific MPN yet.
-  **Human step:** pick and lock the real MPN/footprint for these three positions before or
-  during early layout — not a blocker for starting Task 14, but a blocker for finishing it.
+- [x] **RESOLVED 2026-08-15 (panel-instrumentation task) — the three reward panel positions
+  are now real footprints, not generic 2-pin-header placeholders.** `J4` (manual reward
+  button) is `Button_Switch_THT:SW_PUSH-12mm`, a real recessed panel/chassis-mount
+  momentary pushbutton (spec §3.1: recessed "so a sleeve or cable cannot dispense fluid").
+  `J5` (remote reward jack) and `J6` (reward-driver-out) are both
+  `Connector_Coaxial:BNC_PanelMountable_Vertical` — the SAME footprint every other BNC on
+  this board uses. **This also removes the 3.5 mm TRS from the design entirely**: `J5` was
+  its last use (spec §9.6), and no TRS footprint or symbol exists anywhere on the board any
+  more (confirmed by grep across every generator and committed sheet, and asserted directly
+  by `check_taskpc_digital_netlist.py`'s own whole-board footprint scan, with a negative
+  control). Exact MPN for all three positions remains a layout-stage/procurement decision —
+  the SAME, already-accepted convention this project uses for every other BNC on the board
+  (footprint locked, MPN deferred), not a new open item. See
+  `hardware/procurement-check.md`'s own panel-instrumentation addendum (2026-08-15) for the
+  updated sourcing notes.
+  **Human step:** pick and lock the real MPN for the recessed pushbutton (`J4`) before or
+  during early layout, same as every BNC's own MPN — not a blocker for starting Task 14.
 - [ ] **7 components on this board are Do-Not-Populate by design** — `opto-ni.kicad_sch`'s
   isolated-5V fallback (`U62` `TMA-0505S`, `C135`, `C136`, `FB3`, `R170`) and
   `comparators.kicad_sch`'s unpopulated fourth comparator channel (`R121` 10k pull-up, `R120`

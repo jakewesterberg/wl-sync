@@ -84,6 +84,65 @@ wired on this sheet (the same physical-pin source above), since only the file th
 a symbol can label its pins and Task 10 does not exist yet. See `task-8-report.md`'s own
 "Fix round 1" section for the full retrieval/verification method and the reasoning behind
 each fix.
+
+**Panel-instrumentation task (2026-08-15), Changes A+B — manual reward becomes a one-shot,
+and the three reward positions become real connectors.** Both changes land entirely on
+`taskpc-digital.kicad_sch`'s own reward circuit:
+
+- **One-shot (Change A):** a Nexperia `74HCT123D` dual retriggerable monostable (`U69`)
+  now sits between the debounce inverter's own output (`RWD_BTN_DEB`) and the reward-OR
+  gate's second input (`RWD_BTN_PULSE`, the one-shot's own `Q`) — every hand-delivered
+  reward gets a fixed **~199 ms** pulse regardless of how long the button is held (spec
+  §3.1). `Rext=442k` (E96) + `Cext=1µF` (`R191`/`C149`, both minted out of band), K=0.45 at
+  VCC=5.0V (the part's own datasheet, Table 10) → tW = 0.45×442×1,000,000 ns ≈ 198.9 ms,
+  cross-checked against that same table's own measured example (100 nF/10 kΩ → 450 µs;
+  the formula predicts exactly that). Real part, not TI: TI's own `CD74HCT123M`/`MT` is
+  obsolete; Nexperia's `74HCT123D` is current production, thousands of units in stock at
+  DigiKey/Mouser/TME (checked 2026-08-15). Pin map verified pin-by-pin against
+  Philips/Nexperia's own Rev. 03 (11 May 2004) datasheet, Table 3/Fig. 5, cross-checked
+  against KiCad's own stock `74xx:74HCT123` library entry — see
+  `gen_breakout_taskpc_digital.py`'s own `place_reward_oneshot()` docstring for the full
+  account, including why the part's own retriggerable behaviour does not undermine "fixed
+  duration regardless of hold time" (a continuous hold produces exactly one trigger edge).
+  The debounce capacitor changes from 100 nF to **1 µF** (10 kΩ × 1 µF = 10 ms, spec
+  §3.1), covering both switch bounce and the longer remote-BNC cable run's own
+  connector-mating transient.
+- **Real connectors (Change B):** the manual reward button (`J4`) is now
+  `Switch:SW_Push` on a real panel/chassis-mount momentary-pushbutton footprint
+  (`Button_Switch_THT:SW_PUSH-12mm`), **recessed** per spec §3.1 ("so a sleeve or cable
+  cannot dispense fluid"). The remote reward jack (`J5`) and reward-driver output (`J6`)
+  are both real BNCs (`Connector:Conn_Coaxial` / `Connector_Coaxial:BNC_PanelMountable_
+  Vertical` — the same footprint the camera-trigger BNCs already use), replacing generic
+  `Connector_Generic:Conn_01x02` placeholders. **This removes the 3.5 mm TRS from the
+  design entirely** — `J5` was its last use (spec §9.6): a BNC's own center pin cannot
+  transiently short to the shield while mating the way a TRS tip/ring/sleeve does sliding
+  past a jack's own switching contacts, so plugging in the handheld remote cannot itself
+  fire a reward, and the coupling locks. No TRS footprint or symbol exists anywhere on the
+  board any more (confirmed by grep across every generator and committed sheet, and
+  asserted directly by `check_taskpc_digital_netlist.py`'s own whole-board footprint scan,
+  with a negative control). `J4`/`J5`/`J6` keep their existing reference numbers — the
+  symbol/footprint/value changed at their own existing call sites, nothing moved.
+
+**A real ref_start hazard, found and fixed while making these changes, not before:**
+`taskpc-digital.kicad_sch`'s own `build()` used to re-derive its reference-counter seed by
+reading `power.kicad_sch`'s *current* committed text on every regeneration
+(`find_max_refs(POWER_SCH.read_text())`). That was safe until power.kicad_sch's own
+fan-header addendum (spec §9.5) minted `J52`–`J55`/`C147`/`C148` out of band, *after*
+taskpc-digital.kicad_sch was last generated — from that point on, simply regenerating
+taskpc-digital.kicad_sch again (even with no source changes at all) would have silently
+**renumbered every one of its own existing J- and C-prefixed components**, since the
+recomputed seed jumps from the sheet's own small pre-fan-header baseline straight to
+power.kicad_sch's own new, much larger maxima. Confirmed empirically before fixing it: an
+unmodified copy of the generator, run against the *current* power.kicad_sch, reproduced
+`R24`/`D22`/`U13` exactly (genuinely unaffected) but `J60`/`C158` instead of the
+historically-correct `J6`/`C31`. Fixed by **pinning** `ref_start` to the exact historical
+values instead of re-deriving them live — see `gen_breakout_taskpc_digital.py`'s and
+`gen_breakout_pi_interface.py`'s own `build()` docstrings (the latter has the identical
+fix, for the identical reason: it also seeds from power.kicad_sch, plus this same
+taskpc-digital.kicad_sch). **The lesson for every future out-of-band addition to an
+already-depended-upon sheet:** it silently sets a trap for every downstream sibling's own
+next regeneration, not just an inconvenience for the sheet being edited — check every
+sibling that reads the changed file's maxima, not only the file itself.
 And `sheets/pi-interface.kicad_sch` (produced by `hardware/gen/gen_breakout_pi_interface.py`,
 Task 9) — the sync-module (Raspberry Pi 5 / Compute Module 5 IO Board, see this file's own
 opening paragraph) 40-pin GPIO header, wired to spec Sec.4's own GPIO map (transcribed

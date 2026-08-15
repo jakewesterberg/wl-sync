@@ -58,8 +58,13 @@ from check_mule_netlist import (  # noqa: E402
     CheckFailure,
     Node,
     check,
+    parse_component_footprints,
     parse_component_values,
     parse_netlist,
+)
+from check_row_pitch_guard import (  # noqa: E402
+    check_row_pitch_exceeds_2pin_span,
+    self_test_row_pitch,
 )
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
@@ -517,10 +522,17 @@ def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str,
     )
 
 
-def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
+def verify(nets: dict[str, list[Node]], values: dict[str, str], footprints: dict[str, str] | None = None) -> list[str]:
     """Run the full contract check. Returns human-readable summary lines on success;
     raises CheckFailure with a specific, localized message on the first violation.
+
+    `footprints` ({ref: Footprint lib id}, check_mule_netlist.py's own
+    parse_component_footprints()) is optional and defaults to `{}` -- added for the
+    panel-instrumentation task's own reward-connector/one-shot checks (2026-08-15), kept
+    optional rather than required so any caller still passing the pre-existing two-arg
+    signature keeps working rather than breaking loudly at every call site at once.
     """
+    footprints = footprints or {}
     summary = []
 
     # --- Every contract net exists. Populated (>=2 nodes) everywhere EXCEPT the 41 nets
@@ -638,18 +650,78 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary.append(_check_one_led_per_driver_pin(nets, values))
 
     # --- Reward OR: RWD_CMD (already the LVC541 bank's own output, walked above) and the
-    # debounced RWD_BTN combine in the 74HCT32 OR gate to produce RWD_DLVR. ---
+    # ONE-SHOT's own output (RWD_BTN_PULSE -- panel-instrumentation task, 2026-08-15,
+    # NOT RWD_BTN_DEB directly any more, see the one-shot check below) combine in the
+    # 74HCT32 OR gate to produce RWD_DLVR. ---
     rwd_or_refs = {n.ref for n in nets.get("RWD_DLVR", []) if values.get(n.ref) == "SN74HCT32D"}
     check(len(rwd_or_refs) == 1, f"RWD_DLVR: expected exactly 1 SN74HCT32D driving it, found {rwd_or_refs}")
     or_ref = next(iter(rwd_or_refs))
     or_out = [n for n in nets["RWD_DLVR"] if n.ref == or_ref]
     check(len(or_out) == 1 and or_out[0].pin == "3", f"RWD_DLVR: expected {or_ref} pin 3 (Y), found {or_out}")
     or_in_a = [n for n in nets.get("RWD_CMD", []) if n.ref == or_ref]
-    or_in_b = [n for n in nets.get("RWD_BTN_DEB", []) if n.ref == or_ref]
+    or_in_b = [n for n in nets.get("RWD_BTN_PULSE", []) if n.ref == or_ref]
     check(len(or_in_a) == 1 and or_in_a[0].pin == "1", f"RWD_CMD: expected {or_ref} pin 1 (A), found {or_in_a}")
     check(
         len(or_in_b) == 1 and or_in_b[0].pin == "2",
-        f"RWD_BTN_DEB: expected {or_ref} pin 2 (B), found {or_in_b}",
+        f"RWD_BTN_PULSE: expected {or_ref} pin 2 (B), found {or_in_b}",
+    )
+    check(
+        not any(n.ref == or_ref for n in nets.get("RWD_BTN_DEB", [])),
+        f"{or_ref} (the reward OR gate) still has a pin on RWD_BTN_DEB directly -- the "
+        f"one-shot (U69) must sit BETWEEN the debounce inverter and the OR gate, not be "
+        f"bypassed",
+    )
+
+    # --- ONE-SHOT (panel-instrumentation task, 2026-08-15, spec Sec.3.1): U69
+    # (74HCT123D) sits BETWEEN the debounce inverter's own output (RWD_BTN_DEB) and the
+    # OR gate's own second input (RWD_BTN_PULSE, just confirmed above) -- "the one-shot
+    # exists between button and OR", made executable. Real pin map (verified against the
+    # real datasheet -- see gen_breakout_taskpc_digital.py's own place_reward_oneshot()
+    # docstring): pin1(A)->DGND, pin2(B)->RWD_BTN_DEB (trigger), pin3(Clr)->+5V (never
+    # reset), pin13(Q)->RWD_BTN_PULSE (active-HIGH, same polarity RWD_BTN_DEB already
+    # has -- see the same-polarity check below). ---
+    oneshot_refs = {n.ref for n in nets.get("RWD_BTN_PULSE", []) if values.get(n.ref) == "74HCT123D"}
+    check(len(oneshot_refs) == 1, f"RWD_BTN_PULSE: expected exactly 1 74HCT123D driving it, found {oneshot_refs}")
+    oneshot_ref = next(iter(oneshot_refs))
+    oneshot_q = [n for n in nets["RWD_BTN_PULSE"] if n.ref == oneshot_ref]
+    check(len(oneshot_q) == 1 and oneshot_q[0].pin == "13", f"RWD_BTN_PULSE: expected {oneshot_ref} pin 13 (Q), found {oneshot_q}")
+    oneshot_b = [n for n in nets.get("RWD_BTN_DEB", []) if n.ref == oneshot_ref]
+    check(len(oneshot_b) == 1 and oneshot_b[0].pin == "2", f"RWD_BTN_DEB: expected {oneshot_ref} pin 2 (B, trigger), found {oneshot_b}")
+    oneshot_a = [n for n in nets.get("DGND", []) if n.ref == oneshot_ref and n.pin == "1"]
+    check(len(oneshot_a) == 1, f"{oneshot_ref} pin 1 (A) expected on DGND (tied permanently low), not found")
+    oneshot_clr = [n for n in nets.get("+5V", []) if n.ref == oneshot_ref and n.pin == "3"]
+    check(len(oneshot_clr) == 1, f"{oneshot_ref} pin 3 (RD-bar/Clr) expected on +5V (never reset), not found")
+    # Rext/Cext: pin15 (REXT/CEXT, shared node with Rext's own far end on +5V) and pin14
+    # (CEXT, shared node with Cext's own far end) -- confirms the RC network is genuinely
+    # present, in series (TI SLVA720A Fig.3-1's own topology), not merely that SOME net
+    # is attached to those pins.
+    rcext_matches = [(name, n) for name, ns in nets.items() for n in ns if n.ref == oneshot_ref and n.pin == "15"]
+    check(len(rcext_matches) == 1, f"{oneshot_ref} pin 15 (REXT/CEXT) not found on exactly one net: {rcext_matches}")
+    rcext_net = rcext_matches[0][0]
+    r191_on_5v = any(n.ref == "R191" for n in nets.get("+5V", []))
+    r191_on_rcext = any(n.ref == "R191" for n in nets.get(rcext_net, []))
+    check(
+        r191_on_5v and r191_on_rcext,
+        f"R191 (Rext, 442k) expected bridging +5V<->{rcext_net} ({oneshot_ref} pin 15) "
+        f"-- found on +5V: {r191_on_5v}, on {rcext_net}: {r191_on_rcext}",
+    )
+    check(values.get("R191") == "442k", f"R191: expected Value '442k' (one-shot Rext), found {values.get('R191')!r}")
+    cext_matches = [(name, n) for name, ns in nets.items() for n in ns if n.ref == oneshot_ref and n.pin == "14"]
+    check(len(cext_matches) == 1, f"{oneshot_ref} pin 14 (CEXT) not found on exactly one net: {cext_matches}")
+    cext_net = cext_matches[0][0]
+    c149_on_rcext = any(n.ref == "C149" for n in nets.get(rcext_net, []))
+    c149_on_cext = any(n.ref == "C149" for n in nets.get(cext_net, []))
+    check(
+        c149_on_rcext and c149_on_cext,
+        f"C149 (Cext, 1uF) expected bridging {rcext_net}<->{cext_net} -- found on "
+        f"{rcext_net}: {c149_on_rcext}, on {cext_net}: {c149_on_cext}",
+    )
+    check(values.get("C149") == "1uF", f"C149: expected Value '1uF' (one-shot Cext), found {values.get('C149')!r}")
+    summary.append(
+        f"One-shot confirmed between button and OR: RWD_BTN_DEB -> {oneshot_ref} "
+        f"(74HCT123D) pin 2 (B) -> pin 13 (Q) -> RWD_BTN_PULSE -> {or_ref} pin 2 (B). "
+        f"A=DGND, RD-bar=+5V (never reset). RC network confirmed: +5V -> R191(442k) -> "
+        f"pin 15 -> C149(1uF) -> pin 14, in series (tW~199ms)."
     )
 
     debounce_refs = {n.ref for n in nets.get("RWD_BTN", []) if values.get(n.ref) == "SN74HCT14D"}
@@ -702,6 +774,51 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"pin on DGND (the switch's other terminal)",
     )
     check(len(btn_hdr_refs) == 2, f"RWD_BTN: expected 2 connectors (panel button + remote jack), found {btn_hdr_refs}")
+
+    # --- CHANGE B (panel-instrumentation task, 2026-08-15): the three reward positions
+    # are now REAL connectors, not Connector_Generic:Conn_01x02 placeholders -- "the
+    # reward positions are BNC" (the remote jack J5, the reward-driver-out J6) plus the
+    # recessed panel pushbutton (J4), checked by FOOTPRINT (the manufacturing-relevant
+    # fact), not by the free-text Value description.
+    #
+    # Gated on `footprints` being non-empty rather than unconditional: `footprints`
+    # defaults to `{}` (this function's own docstring) for callers that only have
+    # nets/values -- every PRE-EXISTING self-test in this file's own self_test() is one
+    # of those (they mutate nets/values to exercise a DIFFERENT, earlier check, and were
+    # never written expecting a THIRD parameter to matter), and failing them all on a
+    # footprint check they never intended to touch would be exactly the kind of
+    # collateral breakage this file's own "each corruption is a minimal, targeted
+    # mutation" discipline (self_test()'s own docstring) argues against. main() always
+    # passes the real, parsed footprints for the actual PASS run, so this block still
+    # runs unconditionally there; self_test() below adds its OWN, dedicated negative
+    # controls that DO pass real footprints (deliberately mutated) to exercise this
+    # block specifically. ---
+    if footprints:
+        check("J4" in footprints, "J4 (manual reward button) not found in the netlist's own component list")
+        check(
+            footprints.get("J4") == "Button_Switch_THT:SW_PUSH-12mm",
+            f"J4: expected footprint 'Button_Switch_THT:SW_PUSH-12mm' (a real panel/"
+            f"chassis-mount momentary pushbutton), found {footprints.get('J4')!r}",
+        )
+        for ref in ("J5", "J6"):
+            check(ref in footprints, f"{ref} not found in the netlist's own component list")
+            check(
+                footprints.get(ref) == "Connector_Coaxial:BNC_PanelMountable_Vertical",
+                f"{ref}: expected footprint 'Connector_Coaxial:BNC_PanelMountable_Vertical' "
+                f"(a real BNC -- 'the reward positions are BNC'), found {footprints.get(ref)!r}",
+            )
+        # No 3.5mm TRS footprint anywhere on the whole board -- spec Sec.9.6: "the 3.5mm
+        # TRS leaves the design with it [the reward remote's own move to BNC]". Checked
+        # against EVERY footprint in the whole exported netlist (not just this sheet's
+        # own J4-J6), since a TRS could in principle have been placed anywhere.
+        trs_footprints = {ref: fp for ref, fp in footprints.items() if "TRS" in fp.upper() or "3.5" in fp}
+        check(not trs_footprints, f"a 3.5mm TRS footprint still exists on the board: {trs_footprints}")
+        summary.append(
+            f"Reward positions confirmed real connectors: J4 (Button_Switch_THT:SW_PUSH-"
+            f"12mm, recessed panel pushbutton), J5/J6 (Connector_Coaxial:"
+            f"BNC_PanelMountable_Vertical). No 3.5mm TRS footprint anywhere on the board "
+            f"({len(footprints)} footprints checked)."
+        )
 
     summary.append(
         f"Reward OR confirmed: RWD_CMD (A) + RWD_BTN_DEB (B) -> {or_ref} (SN74HCT32D) "
@@ -825,9 +942,9 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
+def _assert_fails(nets, values, expect_substring: str, label: str, footprints=None) -> str:
     try:
-        verify(nets, values)
+        verify(nets, values, footprints)
     except CheckFailure as e:
         check(
             expect_substring in str(e),
@@ -841,10 +958,19 @@ def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
     )
 
 
-def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> list[str]:
+def self_test(
+    good_nets: dict[str, list[Node]], good_values: dict[str, str], good_footprints: dict[str, str] | None = None,
+) -> list[str]:
     """Negative controls. `good_nets`/`good_values` must already pass verify() cleanly --
     each corruption below is a minimal, targeted mutation of that known-good structure.
+
+    `good_footprints` (optional, defaults to `{}`): the panel-instrumentation task's own
+    footprint-dependent negative controls (one-shot bypass, wrong reward-connector
+    footprint, TRS reintroduced) pass the real, parsed footprints explicitly, mutated the
+    same minimal way as every other control here -- see verify()'s own docstring for why
+    the footprint checks are gated on this being non-empty in the first place.
     """
+    good_footprints = good_footprints or {}
     results = []
 
     # --- ONE OPTOCOUPLER LED PER DRIVER PIN: three controls, one per assertion. ---
@@ -1044,6 +1170,66 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     )
     results.append(f"AISENSE-to-AGND tie dropped ({conn0_ref_for_test} pin 62 removed from AGND): caught -- {msg}")
 
+    # --- Panel-instrumentation negative controls (2026-08-15) -- one per new check()
+    # family added above, same mutate-the-real-parsed-structure discipline as every test
+    # above. ---
+
+    # One-shot bypassed: RWD_BTN_DEB wired DIRECTLY to the OR gate's own pin 2 again (the
+    # PRE-this-task topology), simulating U69 being skipped/removed in a future edit.
+    oneshot_bypassed = copy.deepcopy(good_nets)
+    or_ref_for_test = next(n.ref for n in good_nets["RWD_DLVR"] if good_values.get(n.ref) == "SN74HCT32D")
+    oneshot_bypassed["RWD_BTN_DEB"] = list(oneshot_bypassed["RWD_BTN_DEB"]) + [
+        Node(ref=or_ref_for_test, pin="2", pinfunction="B_2", pintype="input")
+    ]
+    msg = _assert_fails(
+        oneshot_bypassed, good_values, "still has a pin on RWD_BTN_DEB directly", "one-shot bypassed (OR gate wired straight to RWD_BTN_DEB)",
+    )
+    results.append(f"One-shot bypassed ({or_ref_for_test} pin 2 wired directly to RWD_BTN_DEB): caught -- {msg}")
+
+    # One-shot part mix-up: U69's own Value edited away from '74HCT123D' -- topology
+    # (which net drives RWD_BTN_PULSE) still correct, only the part identity is wrong.
+    oneshot_ref_for_test = next(n.ref for n in good_nets["RWD_BTN_PULSE"] if good_values.get(n.ref) == "74HCT123D")
+    oneshot_wrong_part = dict(good_values)
+    oneshot_wrong_part[oneshot_ref_for_test] = "74HC123"
+    msg = _assert_fails(
+        good_nets, oneshot_wrong_part, "expected exactly 1 74HCT123D driving it", "one-shot part mix-up (74HCT123D -> 74HC123)",
+    )
+    results.append(f"One-shot part mix-up ({oneshot_ref_for_test}: 74HCT123D -> 74HC123, the CMOS- not TTL-threshold variant): caught -- {msg}")
+
+    # One-shot pulse-width component drift: R191 (Rext, should be 442k) edited.
+    rext_drifted = dict(good_values)
+    rext_drifted["R191"] = "100k"
+    msg = _assert_fails(good_nets, rext_drifted, "R191: expected Value '442k'", "R191 (one-shot Rext) value drift")
+    results.append(f"One-shot Rext value drift (442k -> 100k): caught -- {msg}")
+
+    # Reward connector footprint regression: J4 (should be the real panel pushbutton)
+    # reverted to the old Connector_Generic:Conn_01x02 placeholder.
+    j4_reverted = dict(good_footprints)
+    j4_reverted["J4"] = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    msg = _assert_fails(
+        good_nets, good_values, "J4: expected footprint", "J4 reverted to a generic Conn_01x02 placeholder", j4_reverted,
+    )
+    results.append(f"Reward button J4 reverted to a generic 2-pin header placeholder: caught -- {msg}")
+
+    # Reward connector footprint regression: J6 (should be a real BNC) reverted to the
+    # old placeholder -- same construction as J4's own test, mirrored onto a BNC position.
+    j6_reverted = dict(good_footprints)
+    j6_reverted["J6"] = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    msg = _assert_fails(
+        good_nets, good_values, "J6: expected footprint", "J6 (reward-driver BNC) reverted to a generic placeholder", j6_reverted,
+    )
+    results.append(f"Reward-driver-out J6 reverted to a generic 2-pin header placeholder: caught -- {msg}")
+
+    # TRS regression: a hypothetical future edit reintroduces a 3.5mm TRS jack footprint
+    # somewhere on the board (not necessarily J5 -- this check scans every footprint, so
+    # the corruption is deliberately placed on an unrelated, synthetic reference).
+    trs_reintroduced = dict(good_footprints)
+    trs_reintroduced["DBG89"] = "Connector_Audio:Jack_3.5mm_CUI_SJ1-3523NG_Horizontal"
+    msg = _assert_fails(
+        good_nets, good_values, "3.5mm TRS footprint still exists", "3.5mm TRS footprint reintroduced (synthetic DBG89)", trs_reintroduced,
+    )
+    results.append(f"3.5mm TRS footprint reintroduced (synthetic ref, any position): caught -- {msg}")
+
     return results
 
 
@@ -1145,9 +1331,10 @@ def main() -> int:
     text = net_path.read_text()
     nets = parse_netlist(text)
     values = parse_component_values(text)
+    footprints = parse_component_footprints(text)
     print(f"parsed {len(nets)} nets, {len(values)} component values from {net_path}")
     try:
-        summary = verify(nets, values)
+        summary = verify(nets, values, footprints)
     except CheckFailure as e:
         print(f"FAIL: {e}")
         return 1
@@ -1156,7 +1343,7 @@ def main() -> int:
         print(f"  - {line}")
 
     try:
-        self_test_results = self_test(nets, values)
+        self_test_results = self_test(nets, values, footprints)
     except CheckFailure as e:
         print(f"SELF-TEST FAIL: {e}")
         return 1
@@ -1172,6 +1359,27 @@ def main() -> int:
         return 1
     breakout_sch_text = DEFAULT_BREAKOUT_SCH.read_text()
     taskpc_sch_text = DEFAULT_TASKPC_SCH.read_text()
+
+    # Shared row-pitch-vs-2-pin-part-span collision guard (constraint 4) -- not
+    # previously wired into this checker; added at the panel-instrumentation task
+    # (2026-08-15) after the guard's OWN general form caught a real defect during this
+    # task's own development (the one-shot's row pitch, gen_breakout_taskpc_digital.py's
+    # own place_reward_oneshot() docstring). Same pattern as check_breakout_power_
+    # netlist.py's own main().
+    try:
+        row_pitch_summary = check_row_pitch_exceeds_2pin_span(taskpc_sch_text, "taskpc-digital.kicad_sch")
+    except CheckFailure as e:
+        print(f"FAIL: {e}")
+        return 1
+    print(f"PASS: {row_pitch_summary}")
+
+    try:
+        row_pitch_self_test_msg = self_test_row_pitch(taskpc_sch_text, "taskpc-digital.kicad_sch", min_instances=30)
+    except CheckFailure as e:
+        print(f"SELF-TEST FAIL: {e}")
+        return 1
+    print(f"SELF-TEST PASS: row-pitch collision reintroduced: caught -- {row_pitch_self_test_msg}")
+
     try:
         path_summary = verify_instance_paths(taskpc_sch_text, breakout_sch_text)
     except CheckFailure as e:

@@ -212,6 +212,38 @@ def parse_component_values(text: str) -> dict[str, str]:
     return out
 
 
+_COMP_REF_VALUE_FOOTPRINT_RE = re.compile(
+    r'\(ref\s+"([^"]+)"\)\s*\(value\s+"([^"]*)"\)\s*\(footprint\s+"([^"]*)"\)'
+)
+
+
+def parse_component_footprints(text: str) -> dict[str, str]:
+    """Return {reference: Footprint lib id} from each component's own top-level
+    `(comp (ref "X") (value "Y") (footprint "Z") ...)` in the exported netlist -- added
+    for the panel-instrumentation task (2026-08-15), check_taskpc_digital_netlist.py's
+    own "the reward positions are real BNC/pushbutton footprints, not a generic
+    Conn_01x02 placeholder, and no 3.5mm TRS footprint exists anywhere on the board"
+    checks: `parse_component_values()`'s own Value string is a free-text description this
+    project already uses for connectors (e.g. "Eye camera trigger out (BNC)") -- easy to
+    get right by hand but not the manufacturing-relevant fact; the FOOTPRINT lib id is.
+
+    Same anchoring discipline as `parse_component_values()` (see its own docstring): the
+    three fields are adjacent ONLY on a component's own top-level `(comp ...)` block in
+    the real, exported netlist text (confirmed directly against it, not assumed) --
+    `(nets ...)` section nodes never carry a `(value ...)` or `(footprint ...)` at all, so
+    anchoring on all three adjacent, in this exact order, needs no second pass to filter
+    out an unrelated `(footprint ...)` occurrence elsewhere in the same component's own
+    block (e.g. a `(field (name "Footprint") "...")` entry, which is NOT immediately
+    preceded by `(value ...)`).
+    """
+    out: dict[str, str] = {}
+    for m in _COMP_REF_VALUE_FOOTPRINT_RE.finditer(text):
+        ref, _value, footprint = m.groups()
+        assert ref not in out, f"duplicate component reference in netlist: {ref!r}"
+        out[ref] = footprint
+    return out
+
+
 class CheckFailure(AssertionError):
     pass
 
