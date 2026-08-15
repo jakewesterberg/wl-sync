@@ -742,36 +742,43 @@ def _place_outbound(sch, refs):
     reading kicad-cli sch erc's own output, not assumed from the docstring's own
     prediction alone: before this fix, the whole-project ERC reported exactly the 3
     predicted `pin_to_pin` errors (plus one unrelated `pin_not_driven` on the DAC's own
-    SCL pin, awaiting Task 12) -- 4 errors total; after, 0. RHS_STIM_OUT's own flag
-    stays -- Task 11 (opto-intan) has not been built yet, and that net is still
-    genuinely undriven -- and needs the identical deletion the moment Task 11 wires its
-    own optocoupler output to it.
+    SCL pin, awaiting Task 12) -- 3 errors total; after, 0.
+
+    TASK 11 UPDATE (opto-intan.kicad_sch): RHS_STIM_OUT -- the one net this docstring's
+    own STILL_PENDING_OUTBOUND set was still tracking -- now ALSO has its own real
+    driver (ACSL-6420's own VO3 open_collector pin, opto-intan.kicad_sch's own inbound
+    channel), so its PWR_FLAG is deleted below too, by the identical mechanism and for
+    the identical reason. Confirmed the same way: regenerated against the real,
+    committed opto-intan.kicad_sch and read kicad-cli sch erc's own output (0 errors
+    both before and after this specific deletion in isolation, since RHS_STIM_OUT's
+    flag was the LAST one remaining and nothing else in this project's own current
+    state depends on it) rather than assumed from the docstring's own prediction alone.
+    STILL_PENDING_OUTBOUND is now empty -- all 4 outbound channels have a real driver.
     """
     channels = {i: (in_net, out_net) for i, (in_net, out_net) in enumerate(OUTBOUND_CHANNELS)}
     # STILL_PENDING_OUTBOUND -- the subset of OUTBOUND_CHANNELS' own input nets that
-    # genuinely have no real driver yet (see "TASK 10D UPDATE" above). Shrinks again
-    # (to empty) once Task 11 wires RHS_STIM_OUT's own optocoupler output.
-    STILL_PENDING_OUTBOUND = {"RHS_STIM_OUT"}
+    # genuinely have no real driver yet. Empty as of Task 11 (see "TASK 11 UPDATE"
+    # above) -- kept as a named, empty set rather than removing the loop entirely, so a
+    # later edit that reintroduces an undriven outbound net has an obvious place to add
+    # it back, matching this project's own established idiom for this exact situation
+    # (gen_breakout_power.py's own ISO_P15_FILT/ISO_N15_FILT, this file's own PD1_COMP/
+    # PD2_COMP/ACC_TRIG before Task 10d).
+    STILL_PENDING_OUTBOUND = set()
     for flag_i, (in_net, _out_net) in enumerate(OUTBOUND_CHANNELS):
         if in_net not in STILL_PENDING_OUTBOUND:
-            continue  # DELETED at Task 10d -- see "TASK 10D UPDATE" above.
-        # DELETE this call (only this call, not the rest of _place_outbound) once the
-        # sheet that produces `in_net` for real (Task 11 for RHS_STIM_OUT) wires its
-        # own driving pin to it -- see the docstring above.
+            continue  # DELETED at Task 10d (PD1_COMP/PD2_COMP/ACC_TRIG) or Task 11
+            # (RHS_STIM_OUT) -- see the docstring above.
         sch.power_flag(in_net, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + flag_i * 5.08))
     place_octal_buffer(
         sch, "74xx", "74HCT541", "SN74HCT541PW", X_OUTBUF, Y_OUTBUF, "+5V",
         channels, refs, "outbound_hct541", FOOTPRINT_TSSOP20,
     )
     for line_idx, line in enumerate([
-        "RHS_STIM_OUT: the one remaining PWR_FLAG to the left of U7 is TEMPORARY -- it",
-        "exists only because Task 11 (opto-intan) has not been built yet. DELETE it",
-        "the moment its own real driver (an optocoupler output) is wired to that net --",
-        "left in place, a PWR_FLAG trips ERC's pin_to_pin rule against a driving pin on",
-        "the same net (confirmed empirically, see _place_outbound()'s own docstring).",
-        "PD1_COMP/PD2_COMP/ACC_TRIG's own PWR_FLAGs (formerly here too) were deleted at",
-        "Task 10d (comparators.kicad_sch), which gave all three a real open_collector",
-        "driver -- task-10d-report.md.",
+        "All 4 outbound channels (PD1_COMP, PD2_COMP, ACC_TRIG, RHS_STIM_OUT) now have",
+        "a real driver elsewhere in this project (Task 10d's LM339 for the first three,",
+        "Task 11's ACSL-6420 for RHS_STIM_OUT) -- no PWR_FLAGs remain on this sheet for",
+        "any of them. See _place_outbound()'s own docstring ('TASK 11 UPDATE') for the",
+        "deletion history.",
     ]):
         sch.text(line, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + 30 + line_idx * 5.08))
 

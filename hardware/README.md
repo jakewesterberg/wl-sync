@@ -513,6 +513,60 @@ fallback footprint (`TMA-0505S`, the same part class the mule's own isolated 5 V
 left fully DNP, bridged onto `NI_5V` through a single DNP 0 Ω resistor so it contributes
 nothing to the netlist's real behaviour unless deliberately populated.
 
+## Opto-Intan: 6 isolated digital channels, one bidirectional package (Task 11)
+
+`hardware/breakout/sheets/opto-intan.kicad_sch` is the galvanic barrier between `DGND` and
+the Intan domain's own isolated ground (`INTAN_GND`) — see
+`hardware/gen/gen_breakout_opto_intan.py` and
+`hardware/gen/check_breakout_opto_intan_netlist.py` for the full design and its
+verification. 6 channels: 5 outbound (`EVT_STROBE_BUF`/`BARCODE_PI`/`RWD_CMD_BUF`/
+`RWD_DLVR`/`STIM_TRIG_BUF`, `DGND`→`INTAN_GND`) and 1 inbound (`RHS_STIM_OUT`, the one
+signal originating inside the Intan domain, `INTAN_GND`→`DGND`), all out to BNCs (isolated
+shells, this board's established convention).
+
+**The second package is a Broadcom `ACSL-6420` ("quad, bi-directional 2/2"), not a second
+`ACSL-6400`** — a correction this task's own pin-by-pin datasheet verification found, not
+assumed going in. An all-in-one part's four channels share ONE VDD/GND domain on the output
+side; opto-intan's own second package needs one outbound channel (`STIM_TRIG_BUF`) and one
+inbound channel (`RHS_STIM_OUT`) simultaneously — opposite directions, which an all-in-one
+part cannot provide without putting one channel's output on the wrong side of the barrier
+entirely. `ACSL-6420`'s own 2/2 split (2 channels LED-on-VDD1/output-on-VDD2, 2 the reverse)
+is built for exactly this; the remaining channel of each direction is a genuine spare. See
+`hardware/gen/gen_wl_sync_lib.py`'s own module comment (search "ACSL-6420") for the full pin
+table, sourced the same way as `ACSL-6400` (Broadcom AV02-0235EN, cross-confirmed against
+two independent figures). Total across both opto sheets: 7×`ACSL-6400` + 1×`ACSL-6420` =
+**eight quad packages, 30 channels** — the corrected count; the plan's own text still reads
+28/6-packages, stale since before the two photodiode-comparator NI channels propagated.
+
+**The Intan-side output stage runs from a new `ISO_5V` rail**, an `LD1117S50TR_SOT223`
+LDO regulating `ISO_P12` down to 5 V, referenced to `INTAN_GND` — `ISO_P12`/`ISO_N12`
+themselves are ±12 V, too high for the ACSL-6400/6420 family's own 5.5 V absolute maximum
+VDD. `RHS_STIM_OUT`'s own inbound path gets the same series-resistor-plus-clamp input
+protection every other panel input on this board carries, since it is a signal entering
+from off-board Intan equipment via its own BNC — its assumed logic sense (active-HIGH,
+TTL/CMOS-compatible) is flagged on-sheet as an assumption needing bench confirmation
+against the real RHS hardware, the same class of residual `RWD_CMD`'s own polarity already
+carries elsewhere in this project.
+
+**Domain-disjointness verification is scoped to each sheet's own components, not a
+project-wide rail scan** — found necessary, not stylistic: `check_breakout_opto_intan_
+netlist.py`'s own first draft scanned every node on `ISO_5V`/`INTAN_GND`/`AGND`/etc.
+project-wide and immediately flagged `mux-intan.kicad_sch`'s own 8 `INA105KU` difference
+amplifiers (Task 10c) and `power.kicad_sch`'s own isolated DC-DC (Task 7) as "unexpected
+straddling" — both real, already-reviewed, deliberate designs (the analog fan-out's own
+partial-isolation strategy and the isolated supply itself), not defects. Fixed by scoping
+both `check_breakout_opto_ni_netlist.py`'s and this sheet's own checker to the specific
+component references each sheet's own checks independently discover, not a blind scan by
+shared rail/net name.
+
+**Cross-sheet consequence, not a scope overrun** (same class Task 8/9/10d already
+established a precedent for): `taskpc-digital.kicad_sch`'s own temporary `PWR_FLAG` on
+`RHS_STIM_OUT` — placed at Task 8 because nothing drove that net yet — is deleted here, the
+moment this sheet wires a real `open_collector` driver onto it, exactly as that
+generator's own docstring already specified. `check_breakout_pi_interface_netlist.py`'s own
+`BARCODE_PI` fan-out count moved 5→6 at Task 11's `opto-ni.kicad_sch` (its first real load)
+and 6→7 here (opto-intan's own).
+
 ## KiCad gotchas found the hard way
 
 These cost real debugging time to find. Recorded here so later tasks — hand-authored or

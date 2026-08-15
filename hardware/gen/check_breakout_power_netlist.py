@@ -203,10 +203,15 @@ RAIL_BYPASS_EXPECTED = {
     ("-12V", "AGND"): 33,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
                                    # 10b) +8 (Task 10c) +1 (Task 10d), same reasoning as
                                    # +12V/AGND above
-    ("+5V", "DGND"): 9,           # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 10,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
-                                   # (Task 9)
+                                   # (Task 9); + 1 from opto-intan.kicad_sch's own
+                                   # ACSL-6420 VDD1/GND1 decoupling cap (Task 11 -- the
+                                   # ONLY one of its own 6 channels whose own package
+                                   # power pins sit on +5V/DGND rather than ISO_5V/
+                                   # INTAN_GND; opto-ni.kicad_sch adds none here, its own
+                                   # decoupling is entirely on NI_5V/NI_GND)
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 6,          # C7, C8 -- U1/LD1117S33TR output decouple+bulk

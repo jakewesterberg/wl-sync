@@ -347,31 +347,31 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"via the 74x541 family's fixed Ai<->Yi=20."
     )
 
-    # --- Barcode fan-out reaches exactly 6 loads (this task's own brief: "5 loads -- NI
+    # --- Barcode fan-out reaches exactly 7 loads (this task's own brief: "5 loads -- NI
     # opto, Intan opto, and three spare positions" -- this sheet's own 5 placeholder
-    # headers, Task 9's own commit; PLUS, as of Task 11, opto-ni.kicad_sch's own REAL
-    # ACSL-6400 LED cathode pin, the first of those 5 placeholder POSITIONS to gain a
-    # real driven load rather than a bare probe point. Not a scope overrun on Task 11's
-    # own part -- the identical "a later real sheet adds a real load onto an
-    # already-fanned-out net" situation Task 8's own RAIL_BYPASS_EXPECTED and Task 10d's
-    # own PWR_FLAG cleanup both already established a precedent for in this project. Will
-    # become 7 once opto-intan.kicad_sch (also Task 11, its own separate commit) taps
-    # BARCODE_PI for its own outbound channel -- flagged here for that update, not
-    # silently left stale), each a DISTINCT reference. ---
+    # headers, Task 9's own commit; PLUS, as of Task 11, BOTH opto-ni.kicad_sch's own
+    # REAL ACSL-6400 LED cathode pin (5->6) AND opto-intan.kicad_sch's own REAL
+    # ACSL-6400 LED cathode pin (6->7) -- the two placeholder POSITIONS Task 9's own
+    # on-sheet text already named "NI opto"/"Intan opto" now both carry a real driven
+    # load rather than a bare probe point. Not a scope overrun on Task 11's own part --
+    # the identical "a later real sheet adds a real load onto an already-fanned-out net"
+    # situation Task 8's own RAIL_BYPASS_EXPECTED and Task 10d's own PWR_FLAG cleanup
+    # both already established a precedent for in this project), each a DISTINCT
+    # reference. ---
     barcode_loads = [n for n in nets["BARCODE_PI"] if n.ref != trig_buf]
     check(
-        len(barcode_loads) == 6,
-        f"BARCODE_PI: expected exactly 6 loads besides the driving buffer {trig_buf}, "
+        len(barcode_loads) == 7,
+        f"BARCODE_PI: expected exactly 7 loads besides the driving buffer {trig_buf}, "
         f"found {len(barcode_loads)}: {barcode_loads}",
     )
     barcode_load_refs = {n.ref for n in barcode_loads}
     check(
-        len(barcode_load_refs) == 6,
-        f"BARCODE_PI: expected 6 DISTINCT load references, found {len(barcode_load_refs)}: "
+        len(barcode_load_refs) == 7,
+        f"BARCODE_PI: expected 7 DISTINCT load references, found {len(barcode_load_refs)}: "
         f"{barcode_load_refs} (a repeated reference would mean one 2-pin placeholder's "
         f"OWN two pins both landed on BARCODE_PI, not two independent loads)",
     )
-    summary.append(f"BARCODE_PI fans out to exactly 6 distinct loads: {sorted(barcode_load_refs)}.")
+    summary.append(f"BARCODE_PI fans out to exactly 7 distinct loads: {sorted(barcode_load_refs)}.")
 
     # --- Camera triggers fan out to 5 real BNC positions -- 1 eye, 4 behavior. ---
     eye_loads = {n.ref for n in nets["CAM_TRIG_EYE"] if n.ref != trig_buf}
@@ -546,13 +546,13 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(swapped, good_values, "pairing", "CAM_TRIG_EYE/CAM_TRIG_BEH buffer-output swap")
     results.append(f"Trigger-buffer channel permutation (CAM_TRIG_EYE/CAM_TRIG_BEH outputs swapped): caught -- {msg}")
 
-    # Barcode fan-out regression: drop one of the 6 loads (simulating an accidental
+    # Barcode fan-out regression: drop one of the 7 loads (simulating an accidental
     # deletion of a placeholder position in a future edit).
     dropped = copy.deepcopy(good_nets)
     victim_ref = sorted({n.ref for n in dropped["BARCODE_PI"] if n.ref.startswith("J")})[0]
     dropped["BARCODE_PI"] = [n for n in dropped["BARCODE_PI"] if n.ref != victim_ref]
-    msg = _assert_fails(dropped, good_values, "expected exactly 6 loads", f"BARCODE_PI load {victim_ref} dropped")
-    results.append(f"Barcode fan-out regression ({victim_ref} dropped, 6 loads -> 5): caught -- {msg}")
+    msg = _assert_fails(dropped, good_values, "expected exactly 7 loads", f"BARCODE_PI load {victim_ref} dropped")
+    results.append(f"Barcode fan-out regression ({victim_ref} dropped, 7 loads -> 6): caught -- {msg}")
 
     # USB header pin-order regression: D+/D- swapped (a real, easy-to-make placement
     # mistake -- USB D+/D- polarity matters).

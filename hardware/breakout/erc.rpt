@@ -1,4 +1,4 @@
-ERC report (2026-08-15T04:33:59, Encoding UTF8)
+ERC report (2026-08-15T04:51:18, Encoding UTF8)
 Report includes: Errors, Warnings
 
 ***** Sheet /
@@ -110,6 +110,12 @@ Report includes: Errors, Warnings
 [isolated_pin_label]: Label connected to only one pin
     ; warning
     @(10.16 mm, 322.58 mm): Global Label 'USB_DP_PI'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(60.96 mm, 80.01 mm): Global Label 'OPTO_INTAN_SPARE1_IN'
+[isolated_pin_label]: Label connected to only one pin
+    ; warning
+    @(119.38 mm, 77.47 mm): Global Label 'OPTO_INTAN_SPARE2_ISO'
 
 ***** Sheet /power/
 
@@ -131,7 +137,7 @@ Report includes: Errors, Warnings
 
 ***** Sheet /control-usb-i2c/
 
- ** ERC messages: 36  Errors 0  Warnings 36
+ ** ERC messages: 38  Errors 0  Warnings 38
 
  ** Ignored checks:
     - Global label only appears once in the schematic

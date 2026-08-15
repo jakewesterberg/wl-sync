@@ -158,12 +158,6 @@ def _node_net(nets: dict[str, list[Node]], ref: str, pin: str) -> str:
     return hits[0]
 
 
-def _acsl6400_refs(values: dict[str, str]) -> list[str]:
-    refs = sorted([r for r, v in values.items() if v == ACSL6400_VALUE], key=lambda r: int(r[1:]))
-    check(len(refs) == 6, f"expected exactly 6 {ACSL6400_VALUE!r} instances, found {len(refs)}: {refs}")
-    return refs
-
-
 def _mdr68_ref(values: dict[str, str]) -> str:
     refs = [r for r, v in values.items() if v == MDR68_VALUE]
     check(len(refs) == 1, f"expected exactly 1 {MDR68_VALUE!r} instance, found {len(refs)}: {refs}")
@@ -175,24 +169,40 @@ def _mdr68_ref(values: dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
     """Walk all 24 channels: source_net (cathode) -> LED (430R to +5V) -> ACSL-6400 ->
     pull-up (10k to NI_5V) -> final_net -> Connector 1's own real, sourced physical pin.
     Confirms every hop belongs to the SAME physical parts, not just that each net
-    individually looks plausible (module docstring, risk 1)."""
+    individually looks plausible (module docstring, risk 1).
+
+    Deliberately does NOT pre-fetch "every ref with Value=='ACSL-6400-00TE' anywhere in
+    the project" -- opto-intan.kicad_sch's own package A shares that identical MPN
+    (module docstring: opto-ni and opto-intan's first package are the SAME part), so a
+    project-wide value scan would silently pull in a reference this sheet never placed.
+    Instead, each channel's own package ref is discovered from ITS OWN final_net (this
+    sheet's own contract net) via the open_collector pintype alone -- narrow enough on a
+    single net (the pull-up resistor and Connector 1's own pin are both "passive") that
+    no ref filter is needed -- and VERIFIED (not merely assumed) to carry the expected
+    Value afterward. Returns the set of package refs THIS SHEET's own 24 channels
+    actually use, for the caller to reuse as the correctly-scoped "opto-ni's own
+    packages" set (see verify()).
+    """
     mdr_ref = _mdr68_ref(values)
-    acsl_refs = set(_acsl6400_refs(values))
     seen_pkg_channel: set[tuple[str, str]] = set()
 
     for source_net, final_net, p0 in NI_CHANNELS:
         check(final_net in nets, f"missing contract net: {final_net!r}")
-        oc_nodes = [n for n in nets[final_net] if n.ref in acsl_refs and n.pintype == "open_collector"]
+        oc_nodes = [n for n in nets[final_net] if n.pintype == "open_collector"]
         check(
             len(oc_nodes) == 1,
-            f"{final_net}: expected exactly 1 open_collector VOx pin belonging to an "
-            f"ACSL-6400 instance, found {oc_nodes} (all nodes: {nets[final_net]})",
+            f"{final_net}: expected exactly 1 open_collector VOx pin, found {oc_nodes} "
+            f"(all nodes: {nets[final_net]})",
         )
         pkg_ref, vo_pin = oc_nodes[0].ref, oc_nodes[0].pin
+        check(
+            values.get(pkg_ref) == ACSL6400_VALUE,
+            f"{final_net}: open_collector driver {pkg_ref} has Value {values.get(pkg_ref)!r}, expected {ACSL6400_VALUE!r}",
+        )
         check(vo_pin in ACSL6400_VO_TO_LOCAL, f"{final_net}: {pkg_ref}.{vo_pin} is not a real VOx pin")
         check(
             (pkg_ref, vo_pin) not in seen_pkg_channel,
@@ -247,12 +257,18 @@ def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, st
 
     check(len(seen_pkg_channel) == 24, f"expected 24 distinct (package, VOx) pairs used, found {len(seen_pkg_channel)}")
     used_packages = {ref for ref, _ in seen_pkg_channel}
-    check(used_packages == acsl_refs, f"not every ACSL-6400 instance is used: {acsl_refs - used_packages} idle")
-    return (
+    check(
+        len(used_packages) == 6,
+        f"expected exactly 6 ACSL-6400 packages used across the 24 channels (4 each), "
+        f"found {len(used_packages)}: {sorted(used_packages)} -- either a package is "
+        f"idle or two channels share one VOx pin (already caught above if so)",
+    )
+    summary = (
         f"All 24 channels walked end to end (source_net -[LED 430R]-> ACSL-6400 -[10k "
         f"pull-up]-> final_net -> Connector 1's own sourced physical pin), each on its "
-        f"own distinct (package, VOx) pair across all 6 {ACSL6400_VALUE!r} instances."
+        f"own distinct (package, VOx) pair across exactly 6 {ACSL6400_VALUE!r} instances."
     )
+    return summary, used_packages
 
 
 def _all_pin_domain_nodes(nets: dict[str, list[Node]], net_names: set[str]) -> set[tuple[str, str]]:
@@ -263,11 +279,14 @@ def _all_pin_domain_nodes(nets: dict[str, list[Node]], net_names: set[str]) -> s
     return out
 
 
-def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, str], acsl_refs: set[str]) -> str:
     """The NI-isolated domain (NI_5V, NI_GND, every *_NI net) must be PIN-DISJOINT from
     every non-isolated rail and from every *_BUF/source net -- except the ACSL-6400
     packages themselves and the fallback DC-DC, both straddling BY DESIGN (module
-    docstring, risk 2)."""
+    docstring, risk 2). `acsl_refs` is opto-ni's own 6 packages, as discovered by
+    _check_channels_end_to_end()'s own channel walk -- NOT a project-wide Value scan
+    (opto-intan.kicad_sch's own package A shares the identical "ACSL-6400-00TE" MPN, so
+    such a scan would silently pull in a reference this sheet never placed)."""
     isolated_nodes = _all_pin_domain_nodes(nets, ISOLATED_RAILS | FINAL_NETS)
     non_isolated_nodes = _all_pin_domain_nodes(nets, NON_ISOLATED_RAILS | SOURCE_NETS)
 
@@ -275,7 +294,6 @@ def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, st
     non_isolated_refs = {ref for ref, _pin in non_isolated_nodes}
     straddling = isolated_refs & non_isolated_refs
 
-    acsl_refs = set(_acsl6400_refs(values))
     dcdc_refs = {r for r, v in values.items() if v == TMA0505S_VALUE}
     expected_straddlers = acsl_refs | dcdc_refs
 
@@ -340,8 +358,9 @@ def _check_no_coordinate_collisions(sch_text: str) -> str:
 
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary = []
-    summary.append(_check_channels_end_to_end(nets, values))
-    summary.append(_check_domain_pin_disjoint(nets, values))
+    channel_summary, acsl_refs = _check_channels_end_to_end(nets, values)
+    summary.append(channel_summary)
+    summary.append(_check_domain_pin_disjoint(nets, values, acsl_refs))
     summary.append(_check_connector1_completeness(nets, values))
 
     for rail in ("+5V", "NI_5V", "NI_GND"):
@@ -367,6 +386,7 @@ def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
 
 def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> list[str]:
     results = []
+    _summary, acsl_refs = _check_channels_end_to_end(good_nets, good_values)
 
     # (1) THE central instruction this task gives explicitly: a pull-up drifted to the
     # mule's own 1k value.
@@ -391,7 +411,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
 
     # (3) LED resistor value drift.
     drifted2 = dict(good_values)
-    anode_net = _node_net(good_nets, _acsl6400_refs(good_values)[0], "1")
+    anode_net = _node_net(good_nets, sorted(acsl_refs, key=lambda r: int(r[1:]))[0], "1")
     r_led = _find_bridging_resistor(good_nets, "+5V", anode_net)
     drifted2[r_led] = "330"
     msg = _assert_fails(good_nets, drifted2, "expected '430'", f"{r_led} (EVT_D0_NI's own LED resistor) drifted 430->330 (the mule's own value)")
@@ -408,7 +428,6 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
 
     # (5) A channel's own VOx driver dropped (simulating a broken/misrouted connection).
     no_driver = copy.deepcopy(good_nets)
-    acsl_refs = set(_acsl6400_refs(good_values))
     victim = next(n for n in good_nets["PD1_COMP_NI"] if n.ref in acsl_refs and n.pintype == "open_collector")
     no_driver["PD1_COMP_NI"] = [n for n in no_driver["PD1_COMP_NI"] if n != victim]
     msg = _assert_fails(no_driver, good_values, "expected exactly 1 open_collector", "PD1_COMP_NI's own VOx driver pin removed")
