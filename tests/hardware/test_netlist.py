@@ -727,10 +727,21 @@ def test_gpio_nets_reach_no_unsafe_rail_fires_on_negative_driver_rail(nodes):
 def test_gpio_nets_reach_no_unsafe_rail_fires_on_led_two_hops_from_5v(nodes):
     """The other half: an optocoupler LED cathode put back onto PD1_COMP. +5V is TWO hops
     away (rail -> 430R -> LED anode net, then through the LED to the cathode), so neither
-    check 6 (literal +5V node on a GPIO pin) nor check 7 (resistor bridge) sees it."""
+    check 6 (literal +5V node on a GPIO pin) nor check 7 (resistor bridge) sees it.
+
+    Matches on '+5V' specifically, not just 'U61 pin 6' -- U61 (the whole ACSL-6400
+    package) already has OTHER pins on NI_5V (its own VDD, unrelated to this test's
+    fabricated cathode), and NI_5V is unsafe too, so `own` alone (the zero-hop "does this
+    REF touch a rail anywhere" half of _reachable_rails, not the two-hop bridge-through-a-
+    passive half this test exists to exercise) already makes ANY U61 pin report a hazard.
+    A match on 'U61 pin 6' alone is satisfied by that alone and stays green even with the
+    whole two-hop clause deleted from _reachable_rails (confirmed by deleting it: all 34
+    tests in this file, including this one, still pass). '+5V' is reachable only via the
+    LED-anode-resistor bridge (U61's own package never has a pin directly on '+5V'), so
+    requiring it actually depends on the two-hop logic."""
     corrupted = dict(nodes)
     corrupted["PD1_COMP"] = list(nodes["PD1_COMP"]) + [("U61", "6", "CATHODE3_6", "passive")]
-    with pytest.raises(AssertionError, match=r"U61 pin 6"):
+    with pytest.raises(AssertionError, match=r"U61 pin 6.*\+5V"):
         _check_gpio_nets_reach_no_unsafe_rail(corrupted)
 
 
