@@ -363,11 +363,9 @@ shield current terminates on chassis earth and never enters signal ground, while
 halving the supply return resistance. The spec's five-conductor intent is satisfied; the fifth
 conductor is simply the shell rather than a pin.
 
-> **One verification this ruling now depends on.** The bond only exists if the connector's
-> M12 thread is metal. The Phoenix datasheet states contact material CuZn and contact carrier
-> PA 66 but does not name the body material in what has been retrieved. **Confirm the thread
-> is metallic before treating the shield as terminated** — if the body is plastic, this ruling
-> reverts to routing pin 5 to the chassis earth stud.
+> **Verified 2026-08-16 — the condition holds.** The Phoenix datasheet's Material table gives
+> *"Material, knurls: Zinc die-cast, nickel-plated"*. The thread is metal, so the shell bonds
+> to the panel and the ruling stands with no further check.
 
 **Gender, resolved:** the board is the device and should carry pins so the live cable end has
 no exposed metal. Phoenix `1551833` is a **Pin (male)** type, which is correct. The originally

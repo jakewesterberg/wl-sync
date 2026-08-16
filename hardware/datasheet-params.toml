@@ -430,21 +430,39 @@ solder_pin_dia_mm = 1.00
 solder_pin_pattern = "cross: centre plus four at 2.500 mm radius on the X and Y axes"
 solder_pin_radius_mm = 2.500
 termination = "wire, AWG 22-20 -- NOT a PCB-mount part"
-panel_thread = "M12 x 1"
-panel_hole_dia_mm = 12.2
-panel_hole_tol_mm = 0.1
-panel_antitwist_flat_mm = 11.0
+panel_thread = "M12 x 1, rear mounting with flat nut"
+panel_hole_dia_mm = 13.5          # part-specific drilling diagram
+panel_antirotation_pin_dia_mm = 1.2   # at 45 degrees
+panel_front_flange_dia_mm = 16.5
 panel_thickness_max_mm = 3.5
-tightening_torque_nm = [1.5, 2.0]
+tightening_torque_nm = [3.0, 4.0]     # installation side, per the datasheet
+body_material = "zinc die-cast, nickel-plated (knurls)"
+sealing_material = "NBR"
+contact_carrier_material = "PA 66"
+pin_arrangement = "1-4 around the outside, 5 in the centre; A-coded, male side"
+insulation_resistance_mohm = 100.0
+surge_voltage_kv = 1.5
+overvoltage_category = "II"
+pollution_degree = 3
 rated_current_a = 4.0
 rated_voltage_v = 60.0
 contact_plating = "Au over CuZn"
 standard = "IEC 61076-2-101"
 feeds = ["R1"]
-note = """Pins emerge axially and are rated by wire gauge; tightening torque is 1.5-2 Nm.
+note = """Pins emerge axially and are rated by wire gauge; installation torque is 3-4 Nm.
 This is a panel-mount connector with flying leads, not a board-mount part. The board needs
 a 5-way header, not an M12 footprint -- so the custom M12A_5_Panel footprint can be
-deleted."""
+deleted.
+
+CORRECTED 2026-08-16: an earlier note claimed the panel cutout was 12.2 mm, citing the
+generic SACC-DSI installation-recommendation sheet (doc 00662206), which offers three
+alternatives for the family. The PART-SPECIFIC drilling diagram in this datasheet gives
+13.5 mm with a 1.2 mm anti-rotation pin hole -- the distributor listing was right and the
+correction was wrong. Use 13.5 mm.
+
+The knurled body is zinc die-cast, nickel-plated -- METAL. This confirms ruling R1: the
+shell bonds to the panel, so the cable shield terminates on chassis earth and pin 5 can
+stay a second ground."""
 
 [bnc_dual_isolated]
 part = "Amphenol RF 031-6575"
