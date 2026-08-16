@@ -1,5 +1,34 @@
 # Handoff — the connector and panel work (audit step 5)
 
+> ## DONE, 2026-08-16. This file is now the record of what was known going in.
+>
+> All of step 5 shipped: the MDR68 rebuilt from MH drawing rev 3.0, `M12A_5_Panel` deleted for
+> a 5-way header, the dual-BNC footprint built, 31 BNC ports moved onto 17 right-angle dual
+> bodies, the panel elevations redrawn, and D3 closed. **13/13 checkers, 121 tests, ERC 0
+> errors / 3 pre-existing warnings**, `netlist-contract.json` byte-identical across two full
+> regenerations.
+>
+> **Where the detail now lives:** `parametric-audit.md`'s own F6 and D3 entries (what shipped
+> and how it differed), `panel-elevations.md` (the redrawn panel), `d3-panel-thickness.md`
+> (the decision that closed D3), and `hardware/gen/bnc_dual.py` (the pairing scheme).
+>
+> **This file was right about the shape of the work and wrong in four places**, all recorded
+> in place below where they occur, because the corrections are the useful part:
+>
+> 1. **§3's "use `BNC_Win_364A2x95_Horizontal`'s geometry" is wrong** — that footprint commons
+>    both shells, and ten channels here route a shield per connector. It also draws a
+>    different manufacturer's body. The Amphenol footprint had both right.
+> 2. **§3's "self-contradictory... one bayonet circle" is a misreading** — the ports are
+>    stacked vertically, so a top-down view correctly shows one circle.
+> 3. **§3's "no mounting holes at all" on the MDR68 is wrong** — it had two, at Ø2.79 on
+>    57.9 mm centres, against the drawing's Ø2.77 on 57.93. Very nearly right. The drill and
+>    the row count were the defects.
+> 4. **§3's panel elevations assume two rows of duals**, which a flat board cannot carry once
+>    the connectors are PCB-mounted. It does not matter — a dual body *is* two rows.
+>
+> The instruction in §4 to check the audit against the primary document before implementing
+> is what found all four. It earned its keep again.
+
 Written 2026-08-16 at the end of the session that implemented every **electrical** finding
 in `parametric-audit.md`. For whoever does the mechanical ones.
 

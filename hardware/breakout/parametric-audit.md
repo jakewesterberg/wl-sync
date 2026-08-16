@@ -30,15 +30,26 @@ survived: half the constraint was tested and half was not.
 
 Section 5 proposes the checkers that close the rest of the gap.
 
-> **Status, 2026-08-16: every ELECTRICAL finding below is implemented.** F1, F2, F3, F4,
-> F5, F7, M1, M2, M3, M4, M7 and D1 each carry an IMPLEMENTED block recording what shipped
-> and, where it differed, why — the implementation corrected this document five times, and
-> those corrections are marked in place rather than silently applied. What remains is the
-> mechanical work: **F6, D3 and the footprint/panel rebuild**, handed off in
-> `connector-handoff.md`.
+> **Status, 2026-08-16: EVERY finding below is now closed.** F1, F2, F3, F4, F5, F6, F7, M1,
+> M2, M3, M4, M7, D1 and D3 each carry an IMPLEMENTED (or CLOSED) block recording what shipped
+> and, where it differed, why — the implementation corrected this document **seven** times,
+> and those corrections are marked in place rather than silently applied. Five corrections
+> came from the electrical half; F6 and D3 added two more.
 >
-> Verification baseline: 12/12 sheet checkers, 120 tests, ERC 0 errors / 3 pre-existing
-> warnings, BOM cross-checked against the netlist by `tests/hardware/test_bom_matches_netlist.py`.
+> The mechanical half (F6, D3, the MDR68 rebuild, retiring `M12A_5_Panel`, the dual-BNC
+> footprint and the panel elevations) landed 2026-08-16. Its own account is in
+> `connector-handoff.md`, with the redrawn panel in `panel-elevations.md` and the panel-
+> thickness decision in `d3-panel-thickness.md`.
+>
+> Verification baseline: **13/13 sheet checkers, 121 tests, ERC 0 errors / 3 pre-existing
+> warnings**, BOM cross-checked against the netlist by `tests/hardware/test_bom_matches_netlist.py`,
+> and `netlist-contract.json` byte-identical across two full regenerations.
+>
+> The 13th checker is new: `check_footprint_geometry.py`, which reads the real `.kicad_mod`
+> files off disk and asserts their geometry against `datasheet-params.toml`. It exists because
+> **nothing in this toolchain read footprint geometry at all** — a footprint with the wrong
+> drill, pitch or axis produced a clean netlist, passed ERC and passed every test. The MDR68's
+> 0.5 mm drill against a required 0.85 mm survived seventy-odd commits that way.
 
 Severity keys: **F** = would prevent correct operation. **M** = marginal or robustness.
 **D** = documentation error. **R** = needs a human ruling.
@@ -357,7 +368,78 @@ digital branch; afterwards they do not.
 At ~20% load an unregulated module's output rises — ±15 V may reach ~±16.5 V. The
 `TPS7A4901`/`TPS7A3001` accept 35 V and regulate to ±12 V, so they absorb it.
 
-### F6 — 31 BNCs are on a footprint pointing at the enclosure lid
+### F6 — 31 BNCs are on a footprint pointing at the enclosure lid — **IMPLEMENTED 2026-08-16**
+
+> **Implemented. The diagnosis was exactly right and verified number for number; the
+> prescription was wrong in two ways, both found by reading the two candidate footprints
+> before copying either.**
+>
+> **The diagnosis checks out.** `BNC_PanelMountable_Vertical`'s pad 2 really is a 15.24 mm
+> annular ring on a 9.65 mm drill, with the barrel passing *through* the board. The copper
+> arithmetic reproduces: 31 × π(15.24/2)² = **5,654 mm²** of pad against the finding's
+> "~5,650", and 31 × π(9.65/2)² = **2,267 mm²** removed against "~2,270".
+>
+> **Prescription error 1 — the footprint to copy.** The handoff said to use
+> `BNC_Win_364A2x95_Horizontal`'s geometry and reject KiCad's own
+> `BNC_Amphenol_031-6575_Horizontal` as "self-contradictory... a single body with one bayonet
+> circle". The hole *pattern* is identical in both (4 × Ø0.89 + 2 × Ø2.01 at the drawing's own
+> 10.16/6.35/5.08/2.54 spacings), but two things differ and the Amphenol footprint has both
+> right:
+>
+> - Its F.Fab body is **14.40 × 36.20 mm**, exactly `bnc_dual_isolated.body_width_mm` /
+>   `.body_depth_mm`. The Winchester one draws **15.00 × 39.10 mm** — a different
+>   manufacturer's part, and 2.9 mm deeper on a 17-position panel.
+> - The Winchester numbers **four pads "3"**, commoning both shells with the ground
+>   terminals, because it models a *front*-isolated connector. The 031-6575 is
+>   *independently* isolated, and **ten channels on this board route a shield per connector**
+>   (`A_PD1_SHLD`, `A_MIC_SHLD`, `A_MISC1_SHLD` …). Copying that numbering would have shorted
+>   those shields together in pairs and exported a perfectly clean netlist while doing it.
+>
+> The "one bayonet circle" reading is a misreading rather than a defect: the ports are stacked
+> *vertically* at 16.00 mm, so in a top-down footprint the two barrels project onto the same
+> point. It cross-checks — `body_height_mm` 29.25 with `port_pitch_mm` 16.00 leaves 6.625 mm
+> from each port centre to the body edge against a 12.83 mm panel hole needing 6.415 mm.
+>
+> So the footprint was **built from the drawing** (`wl-sync:BNC_Dual_RA_Isolated`): Amphenol
+> body and pad topology, with the stock part's one real error fixed — its two ground terminals
+> sit at y = −8.89 and −8.79, a 0.1 mm asymmetry.
+>
+> **Prescription error 2 — the panel could not take two rows.** `audit-handoff.md` §4 has the
+> ports stacked into two panel rows. That was true of a panel-mounted part and is not true of
+> a PCB-mounted one: two rows of board-mounted right-angle bodies would need two board planes.
+> It turns out not to matter, because the dual body *is* two rows — 16.00 mm apart — so one
+> row of bodies gives the two port rows the panel arithmetic wanted. Redrawn in
+> `panel-elevations.md`, which also records the new coupling this creates: port height above
+> the panel centreline is now set by the board's standoff.
+>
+> **What shipped:** 31 ports on **17** dual bodies (not 16 — see below), 3 spare ports, all
+> shells still individually routed. Refdes did not move: the allocator consumes a
+> `next_ref("J")` per original port and uses only the first of each pair, so J6/J14/J16/… are
+> holes rather than renumberings.
+>
+> **The 17th body exists because spec §9.6 splits the reward group across both faces** — the
+> driver output goes back toward the booth, the human controls face the operator. A dual body
+> is one piece of plastic through one panel, so those two ports cannot share one. A pure
+> per-sheet pairing would have given 16 bodies and silently overridden that decision.
+>
+> **Two bugs this change introduced and the toolchain caught, both worth recording** because
+> both were invisible to ERC and to all 13 checkers:
+>
+> - Two units of one component were given **different `Value` strings**, which is an
+>   annotation error; the exported value then becomes whichever unit was written last, so the
+>   BOM would have described one port and ordered one connector.
+> - The spare-port placement **consumed a refdes**, pushing pi-interface's internal USB header
+>   from J18 onto J19 — which analog-frontend's DB37 already owned. A duplicate reference
+>   across two sheets.
+>
+> Both surfaced only as `kicad-cli sch export netlist`'s "schematic has annotation errors"
+> line on stdout. The netlist still exported, ERC still reported 0 errors, every checker still
+> passed. **That warning line is worth treating as a failure.**
+>
+> New verification: `hardware/gen/check_footprint_geometry.py` reads the real `.kicad_mod`
+> files off disk and asserts the F6 axis property over every connector on the board — no
+> numbered contact may be drilled over 3.0 mm, which is the executable form of "no connector's
+> axis points at the lid" and would have caught this on the day it was introduced.
 
 `BNC_PanelMountable_Vertical` is described in KiCad's library as *"Panel-mountable BNC
 connector mounted through PCB, vertical"*, with a **9.65 mm drill and 15.24 mm annular pad**
@@ -615,7 +697,37 @@ entire signal.
 
 86 dB is the **BM** grade. The board uses **KU**: 72 dB min / 90 dB typ (SBOS145B).
 
-### D3 — Panel thickness limits are unconfirmed for the parts actually chosen
+### D3 — Panel thickness limits are unconfirmed for the parts actually chosen — **CLOSED 2026-08-16, by decision**
+
+> **Closed without asking anyone, and noticing why is the whole content of the fix.**
+>
+> This finding, and the vendor questions drafted from it, asked *what panel thickness will
+> these connectors accept?* That is backwards. **We are having the panels machined**, so we
+> choose the thickness and the connectors only have to accept it. The real question is
+> whether a chosen thickness clears every stated limit on the board — and that is answerable
+> from `datasheet-params.toml`, which already holds the only such limit: the M12 inlet's
+> 3.5 mm (`m12_inlet.panel_thickness_max_mm`).
+>
+> **Decision: 3.0 mm aluminium**, both faces. See `d3-panel-thickness.md` for the full
+> reasoning and the escape hatch.
+>
+> Finding F6 is what makes the BNCs a non-issue rather than the hard case. Moving them from
+> panel-mount to **PCB-mounted right-angle** moves the load path: the connector is anchored by
+> its own tails and retention terminals, and the panel becomes clearance and location. The
+> 1/2-28 UNEF nut stops carrying anything. If Amphenol's usable thread turns out shorter than
+> 3.0 mm, spot-facing those holes locally to 2.0 mm costs nothing and changes no part.
+>
+> Two of the drafted questions were **already answered** and are recorded here because
+> re-asking them was the actual error: the MDR68's 0.5 A contact rating comes from MH drawing
+> rev 3.0 itself (the drawing *is* the primary document; the distributors listing 3 A are the
+> thing being overruled), and `row_offsets_from_edge_mm` has exactly one physically possible
+> reading, since four absolute offsets would put two rows 0.615 mm apart with 0.85 mm holes.
+>
+> **One genuine unknown survives, and it is not a panel-thickness question**: which contact
+> numbers land in which MDR68 tail row. Handled as a documented assumption rather than a
+> blocker — `MDR68_TAIL_ORDER` in `gen_wl_sync_footprints.py` names all four candidates, the
+> footprint's own `descr` carries a `PIN MAP UNVERIFIED` note, and
+> `check_footprint_geometry.py` asserts that note is still there.
 
 **Corrected 2026-08-16.** This finding originally cited **2.00 mm max** from 3M's MDR
 drawings (TS-0620-B, TS-0621-C). **The board does not use a 3M connector** — it uses MH
@@ -747,17 +859,17 @@ Recorded because a clean result is evidence too.
 Every finding above was invisible to twelve structural checkers because they ask topological
 questions. These are the parametric assertions that would have caught them.
 
-| Assertion | Catches |
-|---|---|
-| Every LED branch current computed from rail, V_F max, driver V_OL **and the series drops in front of the rail**, compared against the part's I_FH min | F1, F2 |
-| Package pin current summed across all channels against the driver's GND absolute maximum | F1 |
-| Every amplifier's output demand at full-scale input against its supply rails and the system convention | F3 |
-| Count of panel connectors per driver output, and presence of series termination | F4, M3 |
-| Every isolated supply's total load against its per-rail rating, with load balance | F5 |
-| Footprint axis orientation against the face each connector is assigned to | F6 |
-| Series fuse coordination: upstream hold current above downstream trip current | F7 |
-| DAC output range against its own supply rail, not just its reference setting | D1 |
-| Pull-up RC against the timing requirement of the signal it carries | M4 |
+| Assertion | Catches | Status |
+|---|---|---|
+| Every LED branch current computed from rail, V_F max, driver V_OL **and the series drops in front of the rail**, compared against the part's I_FH min | F1, F2 | **Implemented** — `test_led_current_clears_switching_floor` / `..._under_absolute_maximum`, both bounds, rail-aware |
+| Package pin current summed across all channels against the driver's GND absolute maximum | F1 | **Implemented** — `test_package_ground_current`, with `test_led_drivers_are_paralleled` and `test_paralleled_outputs_have_tied_inputs` |
+| Every amplifier's output demand at full-scale input against its supply rails and the system convention | F3 | Not yet |
+| Count of panel connectors per driver output, and presence of series termination | F4, M3 | **Implemented** — `test_panel_outputs_have_one_driver_and_series_r`; counts PORTS not bodies as of F6 |
+| Every isolated supply's total load against its per-rail rating, with load balance | F5 | **Implemented** — `test_isolated_supply_loading` |
+| Footprint axis orientation against the face each connector is assigned to | F6 | **Implemented** — `check_footprint_geometry.py`, as a drill limit: no numbered contact on any connector may exceed 3.0 mm, which is the signature of a barrel passing *through* the board |
+| Series fuse coordination: upstream hold current above downstream trip current | F7 | **Implemented** — `test_series_fuse_coordination`, derived from topology via a cut test |
+| DAC output range against its own supply rail, not just its reference setting | D1 | Not applicable — D1 has no schematic component; it is I²C state, recorded as spec decision 10 |
+| Pull-up RC against the timing requirement of the signal it carries | M4 | **Implemented** — `test_comparator_pullup_rise_time` |
 
 The pattern is that each reads a **value** and compares it to a **datasheet limit**, rather
 than reading a net and comparing it to an expected name.
@@ -780,5 +892,6 @@ All primary, all retrieved during the audit.
 | `IH1215D` | XP Power IH series |
 | FDS100 | Thorlabs 0637-S01 Rev E |
 | Intan RHS | Intan Stimulation/Recording Controller User Guide |
-| MDR68 | 3M TS-0620-B (plug), TS-0621-C (receptacle) |
-| BNC | Bomar/Winchester BNC Products Spec |
+| MDR68 | **MH Connectors 3700-0121-01 rev 3.0** (2015-03-27) — the part actually used. The 3M TS-0620-B / TS-0621-C drawings this table used to cite belong to a part that was evaluated and NOT selected; that confusion is what produced finding D3's original 2.00 mm panel-thickness figure |
+| BNC | **Amphenol RF customer outline drawing 31-6575 rev A** (2013-04-18) — the dual right-angle isolated part finding F6 selected. The Bomar/Winchester spec this table used to cite describes the family convention, not this part |
+| M12 inlet | Phoenix Contact 1551833 datasheet + installation drawing 00662206 Index 2 |
