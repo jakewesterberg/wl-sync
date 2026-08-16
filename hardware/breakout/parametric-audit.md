@@ -182,7 +182,22 @@ never specifies.
 **Record regardless:** this rig requires **CONFIG4 UP**. It belongs beside `RewardPolarity`
 HIGH as a configuration the design depends on and no checker can see.
 
-### F3 — The photodiode transimpedance stage saturates
+### F3 — The photodiode transimpedance stage saturates — **IMPLEMENTED 2026-08-16**
+
+> `R38`/`R40` 1 MΩ → **180 kΩ**, both channels. Peak white now lands near 2.0 V instead of
+> demanding 11.3 V — which also puts it inside the DAC's own 0–2.048 V span after D1, so the
+> threshold spans the whole signal.
+>
+> The **DNP parallel trim position** is fitted as specified: `R196`/`R197`, unpopulated, in
+> parallel with each feedback resistor. A pad rather than a jumper, for the reason this
+> finding gives — a mechanical contact at a 180 kΩ summing junction is a leakage and noise
+> liability.
+>
+> **Checker:** full-scale photocurrent (derived from the FDS100's pinned area and
+> responsivity against this design's stated display-irradiance assumption) times the feedback
+> resistor, against the ±5 V analog convention. The TIA stages are found *structurally* — an
+> R and a C sharing both nodes across an amplifier output is what a feedback network is — so
+> a future channel is covered without being listed.
 
 `R38` = 1 MΩ, `C48` = 3.3 pF, `R34` = 1 kΩ in series from the BNC to the summing junction,
 `R35` = 10 Ω on the shield leg feeding IN+. Amplifier is `OPA2197` (dual; the second half is
@@ -344,7 +359,17 @@ and `F1` protects the fans independently. One net change, better than upsizing `
 
 ## 2. Marginal, robustness and documentation
 
-### M1 — TIA under-compensated at long cable
+### M1 — TIA under-compensated at long cable — **IMPLEMENTED 2026-08-16**
+
+> `C48`/`C50` 3.3 pF → **22 pF**, both channels. Deliberate over-compensation, as specified:
+> −3 dB at 40 kHz (four times the ~10 kHz these channels need) and unconditionally stable to
+> 5.5 nF of input capacitance, about 50 m of coax.
+>
+> **Checker asserts both bounds**, the F1 lesson applied here: `C_f ≥ sqrt(C_in/(2π·R_f·GBW))`
+> at the worst-case 900 pF *and* the resulting −3 dB above the signal bandwidth. Under- and
+> over-compensation each have a firing control. Note the BOM now calls for **C0G/NP0** on
+> these two, not X7R — a compensation capacitor whose value moves with bias or temperature is
+> not doing the job this finding assigned it.
 
 Thorlabs publishes FDS100 capacitance only at 20 V bias (24 pF); at the **zero bias** this
 design is forced into it is far higher — an estimated 130–380 pF. With 3–5 m of coax, total
@@ -358,7 +383,19 @@ onset.
 stable up to **5.5 nF** of input capacitance, about 50 m of coax. The stage stops depending
 on cable length and diode spread.
 
-### M2 — Photodiode mux tap unbalances the difference amplifier
+### M2 — Photodiode mux tap unbalances the difference amplifier — **IMPLEMENTED 2026-08-16**
+
+> The eight muxes' `S7`/`S8` inputs moved from `A_PD1`/`A_PD2` to `A_PD1_NI_BUF`/
+> `A_PD2_NI_BUF`. Free, as predicted: a net reassignment, no new parts, 16 pins.
+>
+> **Checker is stated over every mux input**, not over the two channels known to be wrong —
+> the defect is a *tap point*, and a future channel added the same way would be equally wrong.
+> It flags any mux input sitting on a passive node behind series resistance rather than on an
+> amplifier output.
+>
+> Worth recording: this change made one of the mux checker's own negative controls pass
+> vacuously. It deleted a node from `A_PD1`, which the mux no longer taps, so it stopped
+> corrupting anything. It now corrupts `MUX_TAP_NETS[0]` — the net actually wired.
 
 The Intan-side `INA105` has the mux output on IN+ and **AGND on IN−**, so anything in series
 with the mux leg unbalances it. `ADG1206` R_on at ±12 V is ~180 Ω (the 120 Ω headline is the
@@ -386,7 +423,19 @@ solenoid driver — an inductive kick or a mis-plug feeds directly into the gate
 
 **Fix:** series resistance on all six, per F4 for the triggers.
 
-### M4 — Comparator outputs rise in 2.2 µs
+### M4 — Comparator outputs rise in 2.2 µs — **IMPLEMENTED 2026-08-16**
+
+> Pull-ups `R113`/`R116`/`R119`/`R121` 10 kΩ → **2.2 kΩ**. ~0.5 µs rise for 1.5 mA.
+>
+> **The 10 kΩ series resistors that set hysteresis were deliberately NOT changed** — they
+> happen to share a value with the pull-ups and do a completely different job (10 k/1010 k ×
+> V_OH = the documented 32.7 mV). The checker names them as separate constants precisely so a
+> future "these are all 10 k" tidy-up cannot move both. Hysteresis is unaffected: the pull-up
+> value does not enter that ratio.
+>
+> **Checker asserts both bounds again:** rise time under 1 µs into the estimated 100 pF, *and*
+> the resulting sink current inside the LM339's own 20 mA output absolute maximum. A pull-up
+> small enough to be fast and too small for the comparator to sink fails.
 
 The `LM339` outputs sit behind 10 kΩ pull-ups driving five loads each — GPIO, two AHCT541
 inputs, the 1 MΩ feedback, and trace. Into ~100 pF that is a **2.2 µs rise**, from a
@@ -459,7 +508,16 @@ With every fix applied:
 The +5 V figure also sets the external supply: **0.5 A minimum, 0.8 A if the NI fallback is
 ever populated.**
 
-### D1 — The threshold DAC cannot reach 4.096 V
+### D1 — The threshold DAC cannot reach 4.096 V — **RECORDED 2026-08-16 (configuration, not schematic)**
+
+> **No hardware change exists to make.** The `MCP4728`'s reference and gain are set over I²C;
+> no pin selects them. So this finding is discharged by recording it where the configuration
+> is decided: spec decision 10 now states **internal reference, gain 1**, strikes the "4.096 V
+> → 81 % of full-scale motion" figure, and moves its own status from "before fab" to
+> "**before first use**" — because nothing about the board can enforce it.
+>
+> It pairs with F3 as that finding predicted: at 180 kΩ the photodiode's peak white lands near
+> 2.0 V, so a 0–2.048 V DAC span covers the whole signal.
 
 `MCP4728` VDD is **+3V3** and its outputs are rail-limited, so the documented **4.096 V
 ceiling is unreachable** — the real ceiling is ~3.29 V. Configured for internal reference ×

@@ -188,9 +188,14 @@ Dependencies are real here — doing these out of order means redoing arithmetic
    fix shipped on a **`TMR 1-0511`** (regulated, 1500 VDC, no minimum load) instead — one new
    part number. See `parametric-audit.md`'s F5 entry. This step is the clearest vindication of
    the "pin it before you trust it" rule in this file.
-4. **Analog corrections** — TIA `R38` 1 MΩ → 180 kΩ and `C48` 3.3 pF → 22 pF (F3, M1), mux
+4. ~~**Analog corrections** — TIA `R38` 1 MΩ → 180 kΩ and `C48` 3.3 pF → 22 pF (F3, M1), mux
    retap to `A_PD1_NI_BUF`/`A_PD2_NI_BUF` (M2, free), DAC to internal reference gain 1 (D1),
-   comparator pull-ups 10 kΩ → 2.2 kΩ (M4).
+   comparator pull-ups 10 kΩ → 2.2 kΩ (M4).~~ **DONE 2026-08-16.** All five, both photodiode
+   channels each. D1 turned out to have no schematic component at all — the `MCP4728`'s
+   reference and gain are I²C state — so it is recorded in spec decision 10 as a
+   before-first-use configuration instead. This step depended on the `ref_start` pinning
+   above: it touches `analog-frontend`, `mux-intan` and `comparators`, three of the five
+   generators that were still armed.
 5. **Connectors** — rebuild the MDR68 footprint from the MH drawing (current one has a 0.5 mm
    drill against a required 0.85 mm), delete `M12A_5_Panel` and replace with a 5-way header,
    build the BNC footprint, redraw the panel elevations.

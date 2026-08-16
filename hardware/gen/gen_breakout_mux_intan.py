@@ -215,6 +215,30 @@ ALL_16_NETS = [
 assert len(ALL_16_NETS) == 16
 assert len(set(ALL_16_NETS)) == 16
 
+# FINDING M2, 2026-08-16 -- WHICH NODE THE MUX ACTUALLY TAPS, for the two photodiode
+# channels only. The mux rides `A_PD1_NI_BUF`/`A_PD2_NI_BUF` rather than `A_PD1`/`A_PD2`.
+#
+# The Intan-side INA105 receives the mux output on IN+ with AGND on IN-, so ANY series
+# resistance in the mux leg unbalances that bridge: CMRR falls to 1/(R_series/50k). The
+# mux's own R_on (~180 ohm at +-12 V) is unavoidable and costs ~49 dB, which is fine --
+# tens of millivolts of inter-rack ground offset become sub-LSB against Intan's 0.31 mV.
+#
+# But `A_PD1`/`A_PD2` are the nodes BEHIND the 1.6k anti-alias resistor, so tapping them
+# put 1.6k + R_on in the leg and took those two channels to ~30 dB -- an order of
+# magnitude worse than the other fourteen, on the two channels carrying stimulus-onset
+# timing. `U32C`/`U32D` already sit on those nodes as unity-gain followers producing
+# `A_PD1_NI_BUF`/`A_PD2_NI_BUF` for the NI fan-out, so the fix is a net reassignment with
+# NO new parts: an op-amp output has ~0.01 ohm of source impedance and unbalances nothing.
+#
+# Kept as an explicit override rather than edited into ALL_16_NETS above, because
+# ALL_16_NETS is this project's canonical source-name list -- shared, by independent
+# restatement, with the analog-frontend and analog-ni checkers. The SIGNAL is still
+# A_PD1; only the node this sheet taps it at has moved.
+MUX_TAP_OVERRIDES = {"A_PD1": "A_PD1_NI_BUF", "A_PD2": "A_PD2_NI_BUF"}
+MUX_TAP_NETS = [MUX_TAP_OVERRIDES.get(n, n) for n in ALL_16_NETS]
+assert len(set(MUX_TAP_NETS)) == 16
+
+
 # ADG1206YRUZ's own S1-S16 physical pins, in S1..S16 order -- Table 4 of the real
 # datasheet (gen_wl_sync_lib.py's own ADG1206_PINS["left"]), a sourced fact as of fix
 # round 1 (task-10c-report.md). ALL_16_NETS[i] rides S_PIN_NUMBERS[i] on every one of the
@@ -306,7 +330,7 @@ def mux_and_diffamp(sch, y, n):
     mpins = sch.place(
         "wl-sync", "ADG1206YRUZ", mux_ref, "ADG1206YRUZ", X_MUX, y, footprint=FOOTPRINT_TSSOP28,
     )
-    for source_net, pin_num in zip(ALL_16_NETS, S_PIN_NUMBERS):
+    for source_net, pin_num in zip(MUX_TAP_NETS, S_PIN_NUMBERS):
         lbl(sch, X_MUX, y, mpins, pin_num, source_net)
     lbl(sch, X_MUX, y, mpins, MUX_PIN_D, mux_out_net)
     lbl(sch, X_MUX, y, mpins, MUX_PIN_VDD, "+12V")

@@ -173,7 +173,17 @@ assert len({c[2] for c in CHANNELS}) == 4
 CONTRACT_OUTPUT_NETS = ["PD1_COMP", "PD2_COMP", "ACC_TRIG"]  # this task's own literal
 # "Produces" list -- A_MISC1_COMP is NOT in this list (see module docstring, risk 5).
 
-PULLUP_VALUE = "10k"
+# FINDING M4, 2026-08-16 -- the OUTPUT pull-up fell 10k -> 2.2k. These outputs drive
+# five loads each (~100 pF), and 10k into 100 pF is a 2.2 us rise (10-90% = 2.2*R*C) from
+# a comparator whose entire purpose is precise stimulus-onset timing. 2.2k gives ~0.5 us
+# for 1.5 mA, well inside the LM339's own 20 mA output absolute maximum.
+#
+# SERIES_VALUE IS DELIBERATELY STILL 10k AND MUST NOT FOLLOW IT. That resistor sets
+# hysteresis against the 1M feedback (10k/1010k x V_OH = 32.7 mV, the documented figure);
+# it is a different resistor doing a different job that happened to share a value. The two
+# are named separately here precisely so a future "these are all 10k" tidy-up cannot move
+# both.
+PULLUP_VALUE = "2.2k"
 FEEDBACK_VALUE = "1M"
 SERIES_VALUE = "10k"
 

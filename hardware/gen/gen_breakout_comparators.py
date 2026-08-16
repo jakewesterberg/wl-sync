@@ -473,8 +473,20 @@ def comparator_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, signal_net, 
     r_fb = two_pin(
         sch, "Device", "R", "R", "1M", X_RFB, y, out_net, fb_net, footprint=FOOTPRINT_R, dnp=not populated,
     )
+    # FINDING M4, 2026-08-16 -- was 10k. These outputs drive five loads each (a
+    # sync-module GPIO, two AHCT541 inputs, the 1M hysteresis leg, and trace), roughly
+    # 100 pF, and 10k into 100 pF is a 2.2 us rise (10-90% is 2.2*R*C). That is a long
+    # edge from a comparator whose entire purpose is precise stimulus-onset timing --
+    # these channels exist so NI gets a clean digital edge instead of having to scan
+    # the analog waveform fast enough to find one, and a slow edge gives back exactly
+    # what they were added to buy. 2.2k sharpens it to ~0.5 us.
+    #
+    # The other bound is checked too, not assumed: 2.2k draws 1.5 mA from +3V3, well
+    # inside the LM339's own 20 mA output absolute maximum (TI SLCS006Z). Hysteresis is
+    # unaffected -- it is set by the 10k series and 1M feedback against V_OH, and the
+    # pull-up value does not enter that ratio, so the documented 32.7 mV stands.
     r_pu = two_pin(
-        sch, "Device", "R", "R", "10k", X_PULLUP, y, "+3V3", out_net, footprint=FOOTPRINT_R, dnp=not populated,
+        sch, "Device", "R", "R", "2.2k", X_PULLUP, y, "+3V3", out_net, footprint=FOOTPRINT_R, dnp=not populated,
     )
     return r_pu, r_fb, r_ser
 

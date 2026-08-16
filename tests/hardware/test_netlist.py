@@ -2037,3 +2037,313 @@ def test_isolated_supply_loading_fires_when_iso_5v_is_drawn_through_the_module(n
     corrupted["ISO_P12"] = list(nodes.get("ISO_P12", [])) + [(ldo, "3", "VI_3", "power_in")]
     with pytest.raises(AssertionError, match=r"LINEAR regulator"):
         _check_isolated_supply_loading(corrupted, corrupted_values, params)
+
+
+# ===========================================================================
+# 22-25: THE ANALOG FRONT END (findings F3, M1, M2, M4).
+#
+# Four more rows of the audit's own proposed-checker table, and they share a shape with
+# F1: each asks whether a VALUE that was chosen once, correctly, against one set of
+# assumptions still holds against the real ones.
+#
+#   22. F3 -- the photodiode transimpedance stage's output at full-scale light, against
+#       the system's own +/-5 V convention. A 1 Mohm feedback resistor demanded 11 V out
+#       of an amplifier that cannot produce it and a system that could not accept it.
+#   23. M1 -- that stage's compensation, against the input capacitance it actually sees.
+#       The photodiode is run at ZERO bias, where its capacitance is at maximum and
+#       Thorlabs publish nothing; the fitted 3.3 pF was optimal for a number the design
+#       never operates at.
+#   24. M2 -- where the mux taps the photodiode channels. Tapping behind the anti-alias
+#       resistor unbalances the difference amplifier that receives it.
+#   25. M4 -- pull-up RC against the timing requirement of the signal it carries. A
+#       comparator whose entire purpose is precise stimulus-onset timing had a 2.2 us
+#       rise on its output.
+# ===========================================================================
+
+# Irradiance at the photodiode from a display flip patch, W/cm^2. NOT a datasheet number
+# -- it is this design's own stated operating assumption (parametric-audit.md, F3), and it
+# is declared here so the assertion below is honest about what it rests on. A brighter
+# panel scales the answer linearly; the 180k value has ~2.5x headroom to the +/-5 V
+# convention, which is the real margin against this estimate being wrong.
+DISPLAY_IRRADIANCE_W_PER_CM2 = 0.29e-3
+
+# The system-wide analog convention (spec Sec.5): every analog signal on this board is
+# carried as +/-5 V, which is what both NI and Intan are configured to accept.
+ANALOG_CONVENTION_V = 5.0
+
+# Worst-case total input capacitance at the TIA summing junction, F. Photodiode junction
+# capacitance at ZERO bias (unpublished, estimated 130-380 pF -- see fds100's own note)
+# plus 3-5 m of coax at ~100 pF/m. The compensation has to be robust across this range
+# rather than tuned to a point in it.
+TIA_C_IN_WORST_F = 900e-12
+
+# The photodiode channels carry a display flip edge; ~10 kHz is what the timing analysis
+# needs from them (parametric-audit.md, M1).
+TIA_SIGNAL_BW_HZ = 10e3
+
+
+def _tia_stages(nodes, values):
+    """[(feedback resistor ref, feedback capacitor ref, output net)] for every
+    transimpedance stage -- found structurally, as an R and a C sharing BOTH nodes (the
+    summing junction and the amplifier output). That parallel RC across an op-amp is what
+    a TIA feedback network IS, so this needs no list of which channels are photodiodes."""
+    two_pin = _two_terminal_passive_refs(nodes)
+    out = []
+    for r_ref, r_nets in two_pin.items():
+        if not r_ref.startswith("R") or not _parse_ohms(values.get(r_ref, "")):
+            continue
+        for c_ref, c_nets in two_pin.items():
+            if not c_ref.startswith("C") or c_nets != r_nets:
+                continue
+            # The output side is whichever of the two nets an op-amp output pin sits on.
+            for net in sorted(r_nets):
+                if any("output" in pt for ref, _p, _pf, pt in nodes[net] if ref.startswith("U")):
+                    out.append((r_ref, c_ref, net))
+                    break
+    return sorted(set(out))
+
+
+def _parse_farads(value: str) -> float | None:
+    v = value.strip().replace("F", "")
+    mult = {"p": 1e-12, "n": 1e-9, "u": 1e-6}.get(v[-1:] if v[-1:].isalpha() else "", None)
+    if mult is None:
+        return None
+    try:
+        return float(v[:-1]) * mult
+    except ValueError:
+        return None
+
+
+def _check_tia_output_within_convention(nodes, values, params) -> None:
+    """Finding F3. Full-scale photocurrent through the feedback resistor must not demand
+    an output voltage the system cannot carry."""
+    fds = params["fds100"]
+    i_photo = (DISPLAY_IRRADIANCE_W_PER_CM2 * fds["active_area_mm2"] / 100.0
+               * fds["responsivity_at_550nm_a_per_w"])
+    stages = _tia_stages(nodes, values)
+    assert stages, "no transimpedance stage found at all -- this check would pass vacuously"
+    saturated = []
+    for r_ref, _c_ref, out_net in stages:
+        r_f = _parse_ohms(values[r_ref])
+        v_out = i_photo * r_f
+        if v_out > ANALOG_CONVENTION_V:
+            saturated.append((out_net, r_ref, r_f, v_out))
+    assert not saturated, (
+        f"{len(saturated)} transimpedance stage(s) demand more output swing than this "
+        f"board's +/-{ANALOG_CONVENTION_V} V analog convention allows at full-scale light "
+        f"({i_photo * 1e6:.1f} uA from a {fds['active_area_mm2']} mm2 FDS100 at "
+        f"{fds['responsivity_at_550nm_a_per_w']} A/W):\n  "
+        + "\n  ".join(
+            f"{net}: {r}={ohms / 1e3:.0f}k demands {v:.1f} V"
+            for net, r, ohms, v in saturated
+        )
+        + "\nFinding F3. The stage clips long before full scale, so the brightest part of "
+        "every flip is flat -- and the edge it exists to time is the part that survives, "
+        "which is why this is not merely a scaling error."
+    )
+
+
+def test_tia_output_within_convention(nodes, values, params):
+    _check_tia_output_within_convention(nodes, values, params)
+
+
+def test_tia_output_within_convention_fires_on_oversized_feedback(nodes, values, params):
+    """The defect verbatim: a 1 Mohm feedback resistor, demanding ~11 V."""
+    stages = _tia_stages(nodes, values)
+    corrupted = dict(values) | {stages[0][0]: "1M"}
+    with pytest.raises(AssertionError, match=r"demands 1[01]\.\d V"):
+        _check_tia_output_within_convention(nodes, corrupted, params)
+
+
+def _check_tia_compensation(nodes, values, params) -> None:
+    """Finding M1. The feedback capacitor must be large enough to keep the loop stable at
+    the input capacitance this stage actually sees.
+
+    The stability criterion for a transimpedance amplifier is
+    C_f >= sqrt(C_in / (2*pi*R_f*GBW)); below it the loop peaks and rings, which lands
+    directly on the edge these channels exist to time. Evaluated at the WORST-CASE C_in
+    rather than a typical one, because the photodiode runs at zero bias where its own
+    capacitance is unpublished and at maximum.
+    """
+    gbw = params["opax197"]["gbw_mhz"] * 1e6
+    stages = _tia_stages(nodes, values)
+    assert stages, "no transimpedance stage found at all -- this check would pass vacuously"
+    bad = []
+    for r_ref, c_ref, out_net in stages:
+        r_f, c_f = _parse_ohms(values[r_ref]), _parse_farads(values[c_ref])
+        assert c_f, f"{c_ref}: unparseable capacitance {values[c_ref]!r}"
+        c_min = (TIA_C_IN_WORST_F / (2 * 3.141592653589793 * r_f * gbw)) ** 0.5
+        f_3db = 1.0 / (2 * 3.141592653589793 * r_f * c_f)
+        if c_f < c_min:
+            bad.append(("under-compensated", out_net, c_ref, c_f, c_min, f_3db))
+        elif f_3db < TIA_SIGNAL_BW_HZ:
+            bad.append(("over-compensated", out_net, c_ref, c_f, c_min, f_3db))
+    assert not bad, (
+        "transimpedance compensation is outside the usable window:\n  "
+        + "\n  ".join(
+            f"{net}: {c}={cf * 1e12:.1f}pF {kind} -- needs >= {cmin * 1e12:.1f}pF for "
+            f"stability at {TIA_C_IN_WORST_F * 1e12:.0f}pF of input capacitance, and must "
+            f"keep -3 dB above {TIA_SIGNAL_BW_HZ / 1e3:.0f}kHz (this gives {f3 / 1e3:.1f}kHz)"
+            for kind, net, c, cf, cmin, f3 in bad
+        )
+        + "\nFinding M1. The photodiode is run at ZERO bias -- the no-power-in-the-booth "
+        "constraint -- where its junction capacitance is at maximum and Thorlabs publish "
+        "nothing at all. Compensation has to be robust across the estimated range, not "
+        "fitted to a point in it."
+    )
+
+
+def test_tia_compensation(nodes, values, params):
+    _check_tia_compensation(nodes, values, params)
+
+
+def test_tia_compensation_fires_on_under_compensation(nodes, values, params):
+    """The defect verbatim: 3.3 pF, optimal for a 1 Mohm stage at a typical input
+    capacitance and too small for the real one."""
+    stages = _tia_stages(nodes, values)
+    corrupted = dict(values) | {stages[0][1]: "3.3pF"}
+    with pytest.raises(AssertionError, match=r"under-compensated"):
+        _check_tia_compensation(nodes, corrupted, params)
+
+
+def test_tia_compensation_fires_on_over_compensation(nodes, values, params):
+    """The other bound: enough capacitance to kill the bandwidth the channel needs."""
+    stages = _tia_stages(nodes, values)
+    corrupted = dict(values) | {stages[0][1]: "10nF"}
+    with pytest.raises(AssertionError, match=r"over-compensated"):
+        _check_tia_compensation(nodes, corrupted, params)
+
+
+# --- 24: the mux must tap a BUFFERED node (M2). ----------------------------------------
+
+
+def _check_mux_taps_are_buffered(nodes, values) -> None:
+    """Finding M2. Every analog mux input must sit on a node driven by an amplifier
+    output, never on a passive node behind a series resistor.
+
+    Why it matters is one hop further on than the mux. The Intan-side `INA105` receives
+    the mux output on IN+ with AGND on IN-, so ANY series resistance in the mux leg
+    unbalances that bridge and drops its CMRR by 1/(R_series/50k). The mux's own ~180 ohm
+    R_on is unavoidable and costs ~49 dB, which is adequate. Tapping BEHIND a 1.6k
+    anti-alias resistor adds that to the leg as well and takes it to ~30 dB -- so the two
+    photodiode channels alone were an order of magnitude worse at rejecting the
+    inter-rack ground offset every other channel handles fine.
+
+    Stated over every mux input, not over the two channels known to be wrong: the defect
+    is a tap point, and a future channel added the same way would be equally wrong.
+    """
+    part_nets = _part_nets(nodes)
+    two_pin = _two_terminal_passive_refs(nodes)
+    mux_refs = {r for r, v in values.items() if v.startswith("ADG1206")}
+    assert mux_refs, "no ADG1206 mux found at all -- this check would pass vacuously"
+
+    unbuffered = []
+    for name, nl in nodes.items():
+        muxes_here = {ref for ref, _p, _pf, _t in nl if ref in mux_refs}
+        if not muxes_here:
+            continue
+        if name in RAIL_VOLTS or name.startswith("MUX_"):
+            continue  # supply and address lines, not signal inputs
+        driven = any(
+            "output" in pt for ref, _p, _pf, pt in nl
+            if ref.startswith("U") and ref not in mux_refs
+        )
+        if driven:
+            continue
+        # Not amplifier-driven: is it passive behind a series resistor?
+        series = sorted(
+            r for r in {rr for rr, _p, _pf, _t in nl} & set(two_pin)
+            if r.startswith("R") and not ({n for n in two_pin[r]} & set(RAIL_VOLTS))
+        )
+        if series:
+            unbuffered.append((name, sorted(muxes_here), series))
+    assert not unbuffered, (
+        f"{len(unbuffered)} mux input net(s) tap a passive node behind series resistance "
+        f"rather than an amplifier output:\n  "
+        + "\n  ".join(
+            f"{net}: {len(m)} mux input(s) behind series resistor(s) {s}"
+            for net, m, s in unbuffered
+        )
+        + "\nFinding M2. Series resistance in the mux leg unbalances the INA105 that "
+        "receives it -- CMRR falls to 1/(R_series/50k). Retap to the unity-gain buffer "
+        "that already exists on these nodes; it is a net reassignment, not a new part."
+    )
+
+
+def test_mux_taps_are_buffered(nodes, values):
+    _check_mux_taps_are_buffered(nodes, values)
+
+
+# --- 25: pull-up RC against the timing the signal actually needs (M4). -----------------
+
+# Capacitance a comparator output drives: a sync-module GPIO pad, two AHCT541 inputs, the
+# 1 Mohm hysteresis leg and trace. ~100 pF (parametric-audit.md, M4) -- an estimate, and
+# declared as one.
+COMPARATOR_LOAD_PF = 100.0
+
+# DESIGN RULE, not a datasheet limit: a comparator edge used to timestamp stimulus onset
+# must rise in under 1 us. These channels exist precisely so NI gets a clean digital edge
+# instead of having to scan the analog waveform fast enough to find one (spec Sec.3.1), so
+# an edge slower than the analog path's own ~10 kHz (100 us) resolution by less than two
+# decades is not buying what it was added to buy.
+COMPARATOR_RISE_MAX_US = 1.0
+
+
+def _check_comparator_pullup_rise_time(nodes, values, params) -> None:
+    lm = params["lm339"]
+    outputs = [n for n in COMPARATOR_OUTPUTS]
+    slow, sinks = [], []
+    for out_net in outputs:
+        for r_ref in _bridging_resistor_refs(nodes, "+3V3", out_net):
+            ohms = _parse_ohms(values.get(r_ref, ""))
+            if not ohms:
+                continue
+            # 10-90% rise through an RC is 2.2*R*C.
+            rise_us = 2.2 * ohms * COMPARATOR_LOAD_PF * 1e-12 * 1e6
+            if rise_us > COMPARATOR_RISE_MAX_US:
+                slow.append((out_net, r_ref, ohms, rise_us))
+            sink_ma = RAIL_VOLTS["+3V3"] / ohms * 1000
+            if sink_ma > lm["i_o_abs_max_ma"]:
+                sinks.append((out_net, r_ref, ohms, sink_ma))
+    assert not slow, (
+        f"{len(slow)} comparator output(s) rise too slowly for the timing they carry "
+        f"(limit {COMPARATOR_RISE_MAX_US} us into an estimated {COMPARATOR_LOAD_PF:.0f} pF):\n  "
+        + "\n  ".join(
+            f"{net}: {r}={ohms / 1e3:.1f}k gives {us:.2f} us" for net, r, ohms, us in slow
+        )
+        + "\nFinding M4. These outputs exist to give a clean, precisely-timed digital edge "
+        "for stimulus onset; a pull-up chosen for low current instead of for edge rate "
+        "gives away the thing they were added for."
+    )
+    assert not sinks, (
+        f"lowering the pull-up must not exceed the LM339's own "
+        f"{lm['i_o_abs_max_ma']} mA output absolute maximum: "
+        + "; ".join(f"{net}: {r}={ohms:.0f} draws {ma:.1f} mA" for net, r, ohms, ma in sinks)
+    )
+
+
+def test_comparator_pullup_rise_time(nodes, values, params):
+    _check_comparator_pullup_rise_time(nodes, values, params)
+
+
+def test_comparator_pullup_rise_time_fires_on_slow_pullup(nodes, values, params):
+    """The defect verbatim: 10k pull-ups, 2.2 us into ~100 pF."""
+    corrupted = dict(values)
+    for out_net in COMPARATOR_OUTPUTS:
+        for r_ref in _bridging_resistor_refs(nodes, "+3V3", out_net):
+            corrupted[r_ref] = "10k"
+    with pytest.raises(AssertionError, match=r"2\.20 us"):
+        _check_comparator_pullup_rise_time(nodes, corrupted, params)
+
+
+def test_comparator_pullup_rise_time_fires_on_overloading_the_comparator(nodes, values, params):
+    """The other bound: a pull-up small enough to be fast and too small for the LM339 to
+    sink. Both ends matter -- the same two-sided-constraint lesson as finding F1."""
+    corrupted = dict(values)
+    for out_net in COMPARATOR_OUTPUTS:
+        for r_ref in _bridging_resistor_refs(nodes, "+3V3", out_net):
+            corrupted[r_ref] = "100"
+    # Matches on "output absolute maximum", the durable part of the complaint -- the
+    # numeric limit is read from datasheet-params.toml and moves with a datasheet revision.
+    with pytest.raises(AssertionError, match=r"output absolute maximum"):
+        _check_comparator_pullup_rise_time(nodes, corrupted, params)

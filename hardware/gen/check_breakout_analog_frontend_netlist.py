@@ -82,6 +82,10 @@ from check_mule_netlist import (  # noqa: E402
     parse_component_values,
     parse_netlist,
 )
+# DNP state is needed as of finding F3: the TIA feedback network now has a populated
+# resistor AND a DNP gain-trim position in parallel, and only the populate decision
+# tells them apart.
+from check_breakout_comparators_netlist import parse_dnp_refs  # noqa: E402
 from kicad_pcb import footprint_pads  # noqa: E402
 from kicad_sch import (  # noqa: E402
     find_all_instance_paths,
@@ -138,6 +142,12 @@ OPA2197_UNIT = {
     "A_PD1": {"minus": "2", "plus": "3", "out": "1"},
     "A_PD2": {"minus": "6", "plus": "5", "out": "7"},
 }
+
+
+# FINDINGS F3 and M1, 2026-08-16 -- restated here independently of the generator, this
+# project's standard checker/generator discipline. Was 1M / 3.3pF.
+TIA_RF = "180k"
+TIA_CF = "22pF"
 
 
 def _refs_on(nets: dict[str, list[Node]], net: str) -> set[str]:
@@ -461,24 +471,57 @@ def _check_no_direct_agnd_reference(nets: dict[str, list[Node]], values: dict[st
     )
 
 
-def _check_photodiode_tia_topology(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+def _check_photodiode_tia_topology(nets: dict[str, list[Node]], values: dict[str, str],
+                                   dnp_refs: set[str] | None = None) -> str:
     """Confirms the photodiode stages are genuine TRANSIMPEDANCE amplifiers, not just
     op-amps with no feedback: a real Rf/Cf pair bridging the summing junction (CLAMP) to
     the raw output (RAWOUT), plus a single-pole anti-alias RC low-pass (RAWOUT -> R -> the
     final A_PDn net -> C -> AGND) downstream of it.
     """
+    dnp_refs = dnp_refs or set()
     for name in PHOTODIODE_CHANNELS:
         clamp_net = f"{name}_CLAMP"
         raw_net = f"{name}_RAWOUT"
-        rf_ref = _find_bridging_resistor(nets, clamp_net, raw_net)
+        # TWO resistors bridge CLAMP<->RAWOUT as of finding F3: the real feedback resistor
+        # and a DNP gain-trim position in parallel with it. `_find_bridging_resistor()`
+        # insists on exactly one, so the pair is resolved here by DNP state -- which is the
+        # honest discriminator, since the two are electrically indistinguishable and only
+        # the populate decision separates them.
+        rf_candidates = sorted(
+            {n.ref for n in nets[clamp_net] if n.ref.startswith("R")}
+            & {n.ref for n in nets[raw_net] if n.ref.startswith("R")}
+        )
         check(
-            values.get(rf_ref) == "1M",
-            f"{name}: TIA feedback resistor {rf_ref} should be '1M' (spec Sec.6.3.1's own "
-            f"worked example), found {values.get(rf_ref)!r}",
+            len(rf_candidates) == 2,
+            f"{name}: expected exactly 2 resistors bridging {clamp_net!r}<->{raw_net!r} "
+            f"(the TIA feedback resistor and finding F3's DNP gain-trim position in "
+            f"parallel with it), found {rf_candidates}",
+        )
+        populated = [r for r in rf_candidates if r not in dnp_refs]
+        trim = [r for r in rf_candidates if r in dnp_refs]
+        check(
+            len(populated) == 1 and len(trim) == 1,
+            f"{name}: of the two CLAMP<->RAWOUT resistors {rf_candidates}, exactly one must "
+            f"be populated (the feedback resistor) and one DNP (the trim position); found "
+            f"populated={populated}, DNP={trim}",
+        )
+        rf_ref = populated[0]
+        check(
+            values.get(rf_ref) == TIA_RF,
+            f"{name}: TIA feedback resistor {rf_ref} should be {TIA_RF!r} (finding F3 -- "
+            f"1M demanded 11 V out at full-scale light, twice this board's +/-5 V analog "
+            f"convention), found {values.get(rf_ref)!r}",
         )
         cf_refs = ({n.ref for n in nets[clamp_net] if n.ref.startswith("C")}
                    & {n.ref for n in nets[raw_net] if n.ref.startswith("C")})
         check(len(cf_refs) == 1, f"{name}: expected exactly 1 feedback capacitor bridging {clamp_net!r}<->{raw_net!r}, found {cf_refs}")
+        cf_ref = next(iter(cf_refs))
+        check(
+            values.get(cf_ref) == TIA_CF,
+            f"{name}: TIA feedback capacitor {cf_ref} should be {TIA_CF!r} (finding M1 -- "
+            f"3.3pF was fitted for a 1M stage against an assumed input capacitance; at zero "
+            f"photodiode bias the real one reaches 900pF), found {values.get(cf_ref)!r}",
+        )
 
         check(name in nets, f"missing net: {name!r}")
         aa_r = ({n.ref for n in nets[raw_net] if n.ref.startswith("R")}
@@ -554,13 +597,14 @@ def _check_mic_4th_order(nets: dict[str, list[Node]], values: dict[str, str]) ->
     )
 
 
-def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
+def verify(nets: dict[str, list[Node]], values: dict[str, str],
+           dnp_refs: set[str] | None = None) -> list[str]:
     summary = []
     summary.append(_check_16_contract_nets(nets))
     summary.append(_check_bnc_shell_bonds(nets, values))
     summary.append(_check_misc_leg_symmetry(nets, values))
     summary.append(_check_no_direct_agnd_reference(nets, values))
-    summary.append(_check_photodiode_tia_topology(nets, values))
+    summary.append(_check_photodiode_tia_topology(nets, values, dnp_refs))
     summary.append(_check_mic_4th_order(nets, values))
 
     # +12V/-12V/AGND consumed, not produced fresh on this sheet (spec's own "Consumes"
@@ -580,9 +624,9 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
+def _assert_fails(nets, values, expect_substring: str, label: str, dnp_refs=None) -> str:
     try:
-        verify(nets, values)
+        verify(nets, values, dnp_refs)
     except CheckFailure as e:
         check(
             expect_substring in str(e),
@@ -596,7 +640,8 @@ def _assert_fails(nets, values, expect_substring: str, label: str) -> str:
     )
 
 
-def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> list[str]:
+def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str],
+              good_dnp: set[str] | None = None) -> list[str]:
     """Negative controls. `good_nets`/`good_values` must already pass verify() cleanly --
     each corruption below is a minimal, targeted mutation of that known-good structure.
     """
@@ -617,7 +662,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     )
     victim = moved["A_AMB_SHLD"].pop(idx)
     moved["AGND"] = moved["AGND"] + [victim]
-    msg = _assert_fails(moved, good_values, "wired directly to AGND", "A_AMB's INA105 '-' pin moved from its shield node onto bare AGND")
+    msg = _assert_fails(moved, good_values, "wired directly to AGND", "A_AMB's INA105 '-' pin moved from its shield node onto bare AGND", dnp_refs=good_dnp)
     results.append(f"Plain-channel diff-amp '-' pin silently AGND-referenced instead of shield-referenced: caught -- {msg}")
 
     # (2) The photodiode-specific flavour of the same defect class: the TIA's own '+'
@@ -627,7 +672,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     idx2 = next(i for i, n in enumerate(moved2["A_PD1_SHLD"]) if n.pin == unit["plus"])
     victim2 = moved2["A_PD1_SHLD"].pop(idx2)
     moved2["AGND"] = moved2["AGND"] + [victim2]
-    msg = _assert_fails(moved2, good_values, "wired directly to AGND", "A_PD1's TIA '+' pin moved from shield onto bare AGND")
+    msg = _assert_fails(moved2, good_values, "wired directly to AGND", "A_PD1's TIA '+' pin moved from shield onto bare AGND", dnp_refs=good_dnp)
     results.append(f"Photodiode TIA '+' pin silently AGND-referenced instead of shield-referenced: caught -- {msg}")
 
     # (3) A BNC shield bonded DIRECTLY to AGND (no resistor at all) -- simulated by
@@ -639,7 +684,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     shield_nodes = collapsed.pop("A_JOY_X_SHLD")
     bond_ref = next(n.ref for n in shield_nodes if n.ref.startswith("R"))
     collapsed["AGND"] = [n for n in collapsed["AGND"] if not (n.ref == bond_ref)] + shield_nodes
-    msg = _assert_fails(collapsed, good_values, "does not exist as its own distinct net", "A_JOY_X shield bonded directly to AGND (no resistor)")
+    msg = _assert_fails(collapsed, good_values, "does not exist as its own distinct net", "A_JOY_X shield bonded directly to AGND (no resistor)", dnp_refs=good_dnp)
     results.append(f"BNC shell bonded directly to AGND, bypassing the 10R return resistor entirely: caught -- {msg}")
 
     # (4) Shell-bond resistor value drift (10R -> 100R) -- spec Sec.5.6's own "~10 Ohm" is
@@ -653,7 +698,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # to AGND (the shell bond) -- the same technique _check_bnc_shell_bonds() itself uses.
     r_ref = _find_bridging_resistor(good_nets, "A_MISC1_SHLD", "AGND")
     drifted[r_ref] = "100"
-    msg = _assert_fails(good_nets, drifted, "should be '10'", f"{r_ref} (A_MISC1 shell-bond resistor) value drift 10R->100R")
+    msg = _assert_fails(good_nets, drifted, "should be '10'", f"{r_ref} (A_MISC1 shell-bond resistor) value drift 10R->100R", dnp_refs=good_dnp)
     results.append(f"Shell-bond resistor value drift (10R -> 100R): caught -- {msg}")
 
     # (4b) THE finding this checker exists to catch after fix round 1, reintroduced
@@ -674,7 +719,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(
         leg_asym, good_values, "SHIELD leg's own divider common",
         "A_MISC1's INA105 '-' pin moved from the shield leg's own divider common back onto "
-        "the raw, undivided shield net (the original leg-asymmetry defect, fix round 1)",
+        "the raw, undivided shield net (the original leg-asymmetry defect, fix round 1)", dnp_refs=good_dnp,
     )
     results.append(f"MISC leg-gain asymmetry (shield leg's own attenuator bypassed, signal leg still divided): caught -- {msg}")
 
@@ -690,7 +735,7 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(
         good_nets, leg_drift, f"should be {DIVIDER_R_VALUE!r}",
         f"{r_shld_hi} (A_MISC2 shield-leg divider-hi resistor) value drift "
-        f"{DIVIDER_R_VALUE}->20.0k 0.1% (breaks leg-to-leg matching without breaking topology)",
+        f"{DIVIDER_R_VALUE}->20.0k 0.1% (breaks leg-to-leg matching without breaking topology)", dnp_refs=good_dnp,
     )
     results.append(f"MISC shield-leg divider resistor value drift (matched topology, mismatched ratio): caught -- {msg}")
 
@@ -712,17 +757,20 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(
         degang, good_values, "NOT the same component",
         "A_MISC3's shield-leg header pins relabelled onto a fake second ref (simulating a "
-        "reverted-to-two-independent-headers defect, fix round 1's own original risk)",
+        "reverted-to-two-independent-headers defect, fix round 1's own original risk)", dnp_refs=good_dnp,
     )
     results.append(f"Shield-leg jumper header split back onto a second (fake) physical part, un-ganging the two legs: caught -- {msg}")
 
     # (5) Photodiode TIA feedback resistor removed entirely (simulating an edit that
     # deletes the feedback path -- an open-loop comparator-like mess, not a TIA).
     no_fb = copy.deepcopy(good_nets)
-    rf_ref = next(n.ref for n in no_fb["A_PD2_CLAMP"] if values_ref_is_1M(good_values, n.ref))
+    rf_ref = next(n.ref for n in no_fb["A_PD2_CLAMP"] if values_ref_is_tia_rf(good_values, n.ref))
     no_fb["A_PD2_CLAMP"] = [n for n in no_fb["A_PD2_CLAMP"] if n.ref != rf_ref]
     no_fb["A_PD2_RAWOUT"] = [n for n in no_fb["A_PD2_RAWOUT"] if n.ref != rf_ref]
-    msg = _assert_fails(no_fb, good_values, "expected exactly 1 resistor bridging", "A_PD2 TIA feedback resistor deleted entirely")
+    # Expects the TWO-resistor complaint as of finding F3: deleting the populated
+    # feedback resistor leaves only the DNP trim position bridging CLAMP<->RAWOUT, which
+    # is a stage with no real feedback path at all -- exactly what this control is for.
+    msg = _assert_fails(no_fb, good_values, "expected exactly 2 resistors bridging", "A_PD2 TIA feedback resistor deleted entirely", dnp_refs=good_dnp)
     results.append(f"Photodiode TIA feedback resistor deleted (no longer a real transimpedance stage): caught -- {msg}")
 
     # (6) Mic filter quietly de-featured to 2nd order: section 2 short-circuited so its own
@@ -731,14 +779,17 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # name alone.
     flattened = copy.deepcopy(good_nets)
     flattened["A_MIC"] = list(flattened["A_MIC_S1"])
-    msg = _assert_fails(flattened, good_values, "DISTINCT op-amp units", "mic filter's 2nd Sallen-Key section collapsed onto the 1st (2nd order, not 4th)")
+    msg = _assert_fails(flattened, good_values, "DISTINCT op-amp units", "mic filter's 2nd Sallen-Key section collapsed onto the 1st (2nd order, not 4th)", dnp_refs=good_dnp)
     results.append(f"Mic filter silently de-featured from 4th order to 2nd order: caught -- {msg}")
 
     return results
 
 
-def values_ref_is_1M(values: dict[str, str], ref: str) -> bool:
-    return ref.startswith("R") and values.get(ref) == "1M"
+def values_ref_is_tia_rf(values: dict[str, str], ref: str) -> bool:
+    """The TIA feedback resistor by VALUE. Was `values_ref_is_1M`; renamed and pointed at
+    TIA_RF at finding F3, so the self-test below tracks the value instead of pinning a
+    number the finding was about to change."""
+    return ref.startswith("R") and values.get(ref) == TIA_RF
 
 
 # ---------------------------------------------------------------------------
@@ -1019,9 +1070,11 @@ def main() -> int:
     text = net_path.read_text()
     nets = parse_netlist(text)
     values = parse_component_values(text)
-    print(f"parsed {len(nets)} nets, {len(values)} component values from {net_path}")
+    dnp_refs = parse_dnp_refs(text)
+    print(f"parsed {len(nets)} nets, {len(values)} component values, "
+          f"{len(dnp_refs)} DNP refs from {net_path}")
     try:
-        summary = verify(nets, values)
+        summary = verify(nets, values, dnp_refs)
     except CheckFailure as e:
         print(f"FAIL: {e}")
         return 1
@@ -1030,7 +1083,7 @@ def main() -> int:
         print(f"  - {line}")
 
     try:
-        self_test_results = self_test(nets, values)
+        self_test_results = self_test(nets, values, dnp_refs)
     except CheckFailure as e:
         print(f"SELF-TEST FAIL: {e}")
         return 1

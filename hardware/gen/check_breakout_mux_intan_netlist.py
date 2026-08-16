@@ -126,6 +126,30 @@ ALL_16_NETS = [
 assert len(ALL_16_NETS) == 16
 assert len(set(ALL_16_NETS)) == 16
 
+# FINDING M2, 2026-08-16 -- WHICH NODE THE MUX ACTUALLY TAPS, for the two photodiode
+# channels only. The mux rides `A_PD1_NI_BUF`/`A_PD2_NI_BUF` rather than `A_PD1`/`A_PD2`.
+#
+# The Intan-side INA105 receives the mux output on IN+ with AGND on IN-, so ANY series
+# resistance in the mux leg unbalances that bridge: CMRR falls to 1/(R_series/50k). The
+# mux's own R_on (~180 ohm at +-12 V) is unavoidable and costs ~49 dB, which is fine --
+# tens of millivolts of inter-rack ground offset become sub-LSB against Intan's 0.31 mV.
+#
+# But `A_PD1`/`A_PD2` are the nodes BEHIND the 1.6k anti-alias resistor, so tapping them
+# put 1.6k + R_on in the leg and took those two channels to ~30 dB -- an order of
+# magnitude worse than the other fourteen, on the two channels carrying stimulus-onset
+# timing. `U32C`/`U32D` already sit on those nodes as unity-gain followers producing
+# `A_PD1_NI_BUF`/`A_PD2_NI_BUF` for the NI fan-out, so the fix is a net reassignment with
+# NO new parts: an op-amp output has ~0.01 ohm of source impedance and unbalances nothing.
+#
+# Kept as an explicit override rather than edited into ALL_16_NETS above, because
+# ALL_16_NETS is this project's canonical source-name list -- shared, by independent
+# restatement, with the analog-frontend and analog-ni checkers. The SIGNAL is still
+# A_PD1; only the node this sheet taps it at has moved.
+MUX_TAP_OVERRIDES = {"A_PD1": "A_PD1_NI_BUF", "A_PD2": "A_PD2_NI_BUF"}
+MUX_TAP_NETS = [MUX_TAP_OVERRIDES.get(n, n) for n in ALL_16_NETS]
+assert len(set(MUX_TAP_NETS)) == 16
+
+
 N_MUX = 8
 MUX_VALUE = "ADG1206YRUZ"
 DIFFAMP_VALUE = "INA105KU"
@@ -227,7 +251,7 @@ def _check_all_sources_reach_all_muxes(nets: dict[str, list[Node]], mux_refs: li
     the expected physical S-pin (S_PIN_NUMBERS, this checker's own independently-redefined
     table) -- not just present somewhere on that instance."""
     for ref in mux_refs:
-        for source_net, pin_num in zip(ALL_16_NETS, S_PIN_NUMBERS):
+        for source_net, pin_num in zip(MUX_TAP_NETS, S_PIN_NUMBERS):
             check(source_net in nets, f"missing source net: {source_net!r}")
             nodes = [n for n in nets[source_net] if n.ref == ref]
             check(
@@ -623,13 +647,18 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     each corruption below is a minimal, targeted mutation of that known-good structure."""
     results = []
 
-    # (1) A source silently missing from one mux: A_PD1's own node on the 3rd mux deleted.
+    # (1) A source silently missing from one mux: the 3rd mux's own node on the first
+    # source net deleted. Corrupts MUX_TAP_NETS[0], the net the mux ACTUALLY taps, rather
+    # than a hardcoded "A_PD1" -- finding M2 moved the two photodiode channels onto their
+    # buffered nodes, so deleting from `A_PD1` stopped corrupting anything the mux is
+    # wired to and this control silently passed vacuously until it was repointed.
     mux_refs = _mux_refs(good_values)
     missing_source = copy.deepcopy(good_nets)
     victim_ref = mux_refs[2]
-    missing_source["A_PD1"] = [n for n in missing_source["A_PD1"] if n.ref != victim_ref]
-    msg = _assert_fails(missing_source, good_values, "expected exactly 1 pin on source net", f"A_PD1 missing from {victim_ref} (3rd mux)")
-    results.append(f"Source silently missing from one mux ({victim_ref}): caught -- {msg}")
+    victim_net = MUX_TAP_NETS[0]
+    missing_source[victim_net] = [n for n in missing_source[victim_net] if n.ref != victim_ref]
+    msg = _assert_fails(missing_source, good_values, "expected exactly 1 pin on source net", f"{victim_net} missing from {victim_ref} (3rd mux)")
+    results.append(f"Source silently missing from one mux ({victim_ref} on {victim_net}): caught -- {msg}")
 
     # (2) THE central negative control this task's own brief explicitly asks for: an
     # amplifier's own REF pin re-referenced to AGND. Simulated by ADDING an AGND node

@@ -366,6 +366,35 @@ X_DIV_SHLD = GRID(99)     # MISC only: mirrored /1//2 divider resistors (SHIELD 
 # own divider RESISTORS, which fix round 2 does not touch.)
 X_DIFFAMP_MISC = GRID(118)
 
+# ---------------------------------------------------------------------------
+# TIA feedback -- FINDINGS F3 and M1, 2026-08-16. Was Rf=1M / Cf=3.3pF.
+#
+# F3, THE GAIN. 1M demanded 11 V out. An FDS100 is 13 mm2 at 0.30 A/W, so a display flip
+# patch at ~0.29 mW/cm2 delivers ~11.3 uA -- and 11.3 uA x 1M is 11.3 V, twice this
+# board's +-5 V analog convention and past both NI's and Intan's input range. The stage
+# clipped long before full scale. That matters more than a scaling error sounds: the
+# flat part is the bright part, and the EDGE these channels exist to time is what
+# survives, so the defect would have looked like "it works" on a scope. 180k puts peak
+# white near 2.0 V, which also lands inside the DAC's own 0-2.048 V span after finding D1.
+#
+# M1, THE COMPENSATION. 3.3pF was fitted for 1M against an assumed 300-500 pF of input
+# capacitance. Two things were wrong with that. Thorlabs publish the FDS100's capacitance
+# only at 20 V bias (24 pF); this design is forced into ZERO bias by the
+# no-power-in-the-booth constraint, where it is at maximum and unpublished -- estimated
+# 130-380 pF. With 3-5 m of coax on top, total input capacitance reaches 440-900 pF.
+#
+# 22pF at 180k is DELIBERATE OVER-COMPENSATION, not a fit. Stability needs
+# Cf >= sqrt(Cin / (2*pi*Rf*GBW)) = 8.9pF at 900pF; 22pF is stable to 5.5nF of input
+# capacitance, about 50 m of coax. It costs bandwidth -- -3 dB at 40 kHz -- which is still
+# four times the ~10 kHz these channels need. The stage stops depending on cable length
+# and on a diode capacitance nobody can look up.
+TIA_RF = "180k"   # E24, 1%
+TIA_CF = "22pF"
+# Out-of-band refdes for the two DNP gain-trim positions (finding F3) -- this sheet's own
+# R counter is pinned and its range fully spent, so an ordinary next_ref("R") would
+# collide with a sibling sheet that seeded past it.
+TIA_TRIM_REFS = {"A_PD1": "R196", "A_PD2": "R197"}
+
 X_TIA = GRID(90)          # photodiode TIA op-amp unit
 X_RF = GRID(90)           # Rf/Cf feedback, offset above/below the TIA
 RF_DY = GRID(8.89)
@@ -449,11 +478,16 @@ def lbl(sch, x, y, pins, pin_num, net):
     sch.label(net, px, py)
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", dnp=False, ref=None):
     """Place a 2-pin part between two labeled nets -- same pattern as every other
-    generator in this project's own two_pin()."""
-    ref = sch.next_ref(ref_prefix)
-    pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint)
+    generator in this project's own two_pin().
+
+    `ref`, when given, is an EXPLICIT out-of-band refdes used instead of next_ref() --
+    this sheet's counters are pinned and its range fully spent, so an ordinary mint
+    would collide with a sibling. Same mechanism as U69/U70-U73 elsewhere on this board.
+    """
+    ref = ref or sch.next_ref(ref_prefix)
+    pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint, dnp=dnp)
     lbl(sch, x, y, pins, "1", net1)
     lbl(sch, x, y, pins, "2", net2)
     return ref
@@ -741,8 +775,16 @@ def _tia_channel(sch, y, x_tia, unit_pins, minus_pin, plus_pin, out_pin, name, c
     lbl(sch, x_tia, y, unit_pins, plus_pin, shield_net)
     raw_net = f"{name}_RAWOUT"
     lbl(sch, x_tia, y, unit_pins, out_pin, raw_net)
-    two_pin(sch, "Device", "R", "R", "1M", X_RF, y - RF_DY, raw_net, clamp_net, footprint=FOOTPRINT_R)
-    two_pin(sch, "Device", "C", "C", "3.3pF", X_RF, y + RF_DY, raw_net, clamp_net, footprint=FOOTPRINT_C_SMALL)
+    two_pin(sch, "Device", "R", "R", TIA_RF, X_RF, y - RF_DY, raw_net, clamp_net, footprint=FOOTPRINT_R)
+    two_pin(sch, "Device", "C", "C", TIA_CF, X_RF, y + RF_DY, raw_net, clamp_net, footprint=FOOTPRINT_C_SMALL)
+    # DNP TRIM POSITION in parallel with Rf -- finding F3. Gain is set by an estimate of
+    # display irradiance, not by a measurement, so bring-up needs a way to move it; a
+    # second resistor in parallel with Rf does that with ONE component and no rework.
+    # Deliberately a pad rather than a jumper: this is a summing junction at 180k, where a
+    # mechanical contact would be a leakage and noise liability. Unpopulated by default,
+    # so it contributes nothing until someone chooses a value.
+    two_pin(sch, "Device", "R", "R", "DNP", X_RF, y - 2 * RF_DY, raw_net, clamp_net,
+            footprint=FOOTPRINT_R, dnp=True, ref=TIA_TRIM_REFS[name])
     two_pin(sch, "Device", "R", "R", "1.6k", X_AAR, y, raw_net, name, footprint=FOOTPRINT_R)
     two_pin(sch, "Device", "C", "C", "6.8nF", X_AAC, y, name, "AGND", footprint=FOOTPRINT_C_SMALL)
 
