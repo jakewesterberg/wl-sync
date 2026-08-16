@@ -192,11 +192,35 @@ of shoot-through -- 3.4 mA across eight muxes."""
 
 [lm339]
 part = "LM339AD"
-document = "TI LM339 datasheet"
-retrieved = "2026-08-15"
-status = "TODO -- not yet pinned to a primary document"
+document = "TI SLCS006Z"
+revised = "2025-05"
+retrieved = "2026-08-16"
+url = "https://www.ti.com/lit/ds/symlink/lm339.pdf"
+
+vcc_max_v = 36.0                 # non-B versions
+vcc_recommended_max_v = 30.0
+vcc_min_v = 2.0
+i_o_abs_max_ma = 20.0            # output current
+v_id_max_v = 36.0                # differential input
+v_i_range_v = [-0.3, 36.0]
+i_k_input_current_ma = -50.0
+v_ivr_low = "(V-) - 0.1"         # input voltage range, B-version spec
+v_ivr_high = "(V+) - 2.0"
+output_type = "open collector, emitters common to V-"
+output_short_to_gnd = "unlimited duration"
+output_short_to_vcc = "can cause destruction"
+t_j_range_lm339x_c = [0.0, 70.0]
+theta_ja_soic_c_per_w = 111.2
 feeds = ["M4"]
-note = "Need: input common-mode range at V+ = 12 V, output sink current, V_OL."
+note = """Output emitters are internally common to V-, which is why V- must be AGND and not
+-12 V. With V+ = 12 V the input range is about -0.1 to 10.0 V; all signals here (0-5 V) and
+all DAC thresholds (0-2.048 V) sit well inside it.
+
+M4's proposed 2.2 kohm pull-up draws 1.5 mA against a 20 mA absolute maximum -- comfortable.
+
+Junction temperature range for the LM339x grade is 0 to 70 C, narrower than most parts on
+this board. At ~30 mW dissipation and 111 C/W the junction sits ~3 C above ambient, so a
+35 C chassis gives T_J ~38 C. Fine, but it is the tightest temperature margin on the board."""
 
 # ---------------------------------------------------------------------------
 # Data conversion and control
@@ -479,11 +503,19 @@ before that recommendation is final."""
 
 [bat54s]
 part = "BAT54S"
-document = "TODO"
-retrieved = "2026-08-15"
-status = "TODO -- not yet pinned to a primary document"
+document = "Diodes Inc. BAT54/A/C/S"
+retrieved = "2026-08-16"
+url = "https://www.diodes.com/assets/Datasheets/BAT54_A_C_S.pdf"
+
 configuration = "dual series Schottky, common cathode/anode"
+i_o_average_ma = 200.0           # average rectified output current
+i_frm_repetitive_peak_ma = 300.0
+i_fsm_surge_ma = 600.0           # t < 1.0 s
 feeds = ["M5"]
-note = """Feeds the clamp fault analysis: digital inputs behind 100 ohm survive a +/-24 V
-mis-plug, analog behind 1 kohm survive +/-48 V. Both figures assume a continuous forward
-current rating that has not yet been read from a datasheet."""
+note = """Confirms M5's clamp analysis. Digital inputs behind 100 ohm draw 186 mA on a
++/-24 V mis-plug -- inside the 200 mA average rating. Analog inputs behind 1 kohm draw
+35.6 mA on +/-48 V. Both survive.
+
+What the rating does NOT cover is the unpowered case: with the board off, a 12 V fault
+charges the dead +5 V rail through the clamp toward 11.6 V, past the AHCT541's 7 V VCC
+absolute maximum. The diode survives; the logic does not."""
