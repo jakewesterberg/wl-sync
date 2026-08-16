@@ -247,7 +247,7 @@ RAIL_BYPASS_EXPECTED = {
                                    # moved from this pair to +12V/AGND (33/33 -> 34/32).
                                    # See gen_breakout_comparators.py's own "THE SECOND
                                    # DESTROY-HARDWARE CONSTRAINT".
-    ("+5V", "DGND"): 11,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 15,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
                                    # (Task 9); + 1 from opto-intan.kicad_sch's own
@@ -259,7 +259,12 @@ RAIL_BYPASS_EXPECTED = {
                                    # from the panel-instrumentation task's own reward
                                    # one-shot (U69, taskpc-digital.kicad_sch) -- its own
                                    # +5V/DGND decoupling cap, same one-decoupler-per-IC
-                                   # discipline as every other package on this board.
+                                   # discipline as every other package on this board;
+                                   # + 4 (C151-C154) from finding F1's own four new
+                                   # SN74AHCT541PW packages (U70-U73, taskpc-digital.
+                                   # kicad_sch -- the second buffer output of every
+                                   # optocoupler LED pair), by that same one-decoupler-
+                                   # per-IC discipline. 11 -> 15.
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk

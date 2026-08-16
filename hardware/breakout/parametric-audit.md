@@ -37,7 +37,42 @@ Severity keys: **F** = would prevent correct operation. **M** = marginal or robu
 
 ## 1. Functional failures
 
-### F1 — Optocoupler LEDs are under-driven on 30 channels
+### F1 — Optocoupler LEDs are under-driven on 30 channels — **IMPLEMENTED 2026-08-16**
+
+> **Both halves landed together**, as this finding requires. What shipped:
+>
+> - **Resistors, rail-aware:** 430 Ω → **249 Ω** on the 30 LEDs fed from `+5V`, and → **301 Ω**
+>   on the 2 fed from `ISO_5V` (`R183`, `R185`). One value would have been wrong on one rail
+>   or the other.
+> - **Paralleling:** every buffer-driven LED now has **two `SN74AHCT541` outputs from tied
+>   inputs**. Four new packages, `U70`–`U73`, plus `C151`–`C154` — 5 packages to 9, with 6
+>   spare channels. Refdes minted out of band, above the board maximum; **nothing already
+>   placed was renumbered** (verified by diffing the netlist contract: 8 refs added, 0 removed,
+>   0 moved).
+> - **One extra channel this exposed:** `RHS_STIM_OUT`'s LED was the single channel driven by
+>   an ACSL-6420 output rather than a buffer — a deliberate exception that was correct at
+>   430 Ω (8.61 mA of a 13 mA budget) and became *incorrect* at 249 Ω (13.85 mA with its
+>   pull-up). It moved to a new buffered leg, `RHS_STIM_OUT_BUF`, off `U11`'s last two spare
+>   channels. **The exception did not change; the number it had been checked against did.**
+> - **Checkers, both bounds** (§5's first two rows, and then some): worst-case current clears
+>   the 8 mA guardbanded floor; best-case stays under the 15 mA absolute maximum; per-pin sink
+>   divides across paralleled drivers; per-**package** ground current against ±75 mA; and
+>   paralleled outputs must have tied inputs. Each with a negative control that fires.
+>
+> Verification: 12/12 sheet checkers, 93 tests, ERC unchanged (0 errors, the same 3
+> pre-existing spare-label warnings). BOM cross-checked against the netlist — 535 parts, no
+> discrepancies.
+>
+> **Prerequisite that had to be fixed first:** `gen_breakout_opto_ni.py` and
+> `gen_breakout_opto_intan.py` seeded `ref_start` by reading sibling sheets live, so merely
+> regenerating them — which F1 requires — renumbered their entire refdes space (`U56`–`U62` →
+> `U70`–`U76` and so on), because `taskpc-digital` had since gained `U69`. Both are now pinned.
+> **Five other generators remain armed with the same latent bug** — see the note at the end of
+> this finding.
+>
+> **Still open, and deliberately not done here:** the ±2 % supply tolerance below is now
+> load-bearing and belongs in the spec beside the current rating — that is a spec edit, not a
+> schematic one. The `D3` → P-channel MOSFET option was not taken.
 
 `ACSL-6xx0` (AV02-0235EN) Recommended Operating Conditions give **I_FH minimum 7 mA**, with
 footnote b adding: *"It is recommended that minimum 8 mA be used for best performance and to
@@ -95,7 +130,29 @@ rail must sit at or below the driver's high level.
 
 **Optional margin:** replacing `D3` with a P-channel MOSFET (≈20 mV instead of 350 mV) plus
 the larger `F4` recovers ~0.45 V, letting 300 Ω give 7.9–12.8 mA. One new part type for real
-headroom on both bounds.
+headroom on both bounds. *Not taken at implementation — 249 Ω clears both bounds without it.*
+
+> **A latent generator bug this finding's implementation surfaced, still live on five
+> generators.** `ref_start` is seeded by reading sibling sheets at generation time, so any
+> sibling gaining an out-of-band refdes silently renumbers everything downstream at the next
+> regeneration. `taskpc-digital` gained `U69`/`R191`/`C149`–`C150` during the panel-
+> instrumentation task, and the consequence is already armed: running any of the five
+> generators below **unmodified, today** rewrites its whole refdes space.
+>
+> | Generator | What a plain re-run does today |
+> |---|---|
+> | `gen_breakout_analog_frontend.py` | `U16`–`U30` → `U70`–`U84`; ~130 R/C/D/J refs move |
+> | `gen_breakout_analog_ni.py` | `U31`–`U37` → `U70`–`U76`; ~40 more |
+> | `gen_breakout_mux_intan.py` | `U38`–`U53` → `U70`–`U85`; ~50 more |
+> | `gen_breakout_comparators.py` | `U54`–`U55` → `U70`–`U71`; ~25 more |
+> | `gen_breakout_control_usb_i2c.py` | `U66`–`U68` → `U70`–`U72`; 4 more |
+>
+> `taskpc-digital`, `pi-interface` (pinned at the panel-instrumentation task) and now both
+> opto generators (pinned here) are safe. The fix is mechanical and identical each time — pin
+> `ref_start` to the sheet's own committed minima and drop the live `find_max_refs` reads —
+> and each one should be verified the way the two here were: regenerate, re-export, and
+> confirm the netlist contract is **unchanged**. Byte-comparing the `.kicad_sch` will not
+> work; several sheets were last written by KiCad itself rather than by their generator.
 
 ### F2 — The inbound stim channel is under-driven, and depends on an undocumented switch
 

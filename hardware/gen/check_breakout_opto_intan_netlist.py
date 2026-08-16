@@ -25,7 +25,10 @@ THE CENTRAL RISKS this file exists to catch, named explicitly by this task's own
      that limit, on whichever rail (ISO_5V or +5V) each channel's own output side
      actually sits -- never 10k (this sheet's own former, now-stale value) and never
      the mule's own 1k.
-  4. LED current-setting resistors are 430R, matching opto-ni.kicad_sch's own value (the
+  4. LED current-setting resistors are RAIL-AWARE (finding F1): 249R on +5V, 301R on
+     ISO_5V. This is the only sheet with LEDs on both rails, so it is the only one
+     where a single value is actually wrong -- see LED_R_OHMS_MAIN/LED_R_OHMS_ISO. The
+     +5V figure matches opto-ni.kicad_sch's own value (the
      ACSL-6400/6420 family shares one set of electrical specs).
   5. ACSL-6420's own bi-directional (2/2) pin map is correct, per channel -- the SPECIFIC
      risk this task's own pin-level verification found: an all-in-one part cannot serve
@@ -112,7 +115,13 @@ ACSL6420_PIN_VDD1 = "4"
 ACSL6420_PIN_GND2 = "9"
 ACSL6420_PIN_VDD2 = "12"
 
-LED_R_OHMS = "430"
+# FINDING F1, 2026-08-16 -- TWO values, one per anode rail. +5V reaches its LEDs
+# through F4 and D3 (0.38-0.45V of series drop), ISO_5V is regulated locally with
+# nothing in series, so the same resistor on both would over-drive the ISO_5V channels
+# past the part's 15mA ABSOLUTE maximum. See gen_breakout_opto_intan.py's own
+# LED_R_OHMS_MAIN/LED_R_OHMS_ISO comment for the derivation.
+LED_R_OHMS_MAIN = "249"  # E96 -- LEDs fed from +5V
+LED_R_OHMS_ISO = "301"   # E96 -- LEDs fed from ISO_5V
 PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6400/
 # ACSL-6420's own shared datasheet RL-max (4k). See module docstring, risk 3.
 
@@ -197,7 +206,11 @@ def _walk_outbound(nets, values, pkg_ref, ch_pins, led_hi, source_net, pu_hi, fi
     anode_net = _node_net(nets, pkg_ref, anode_pin)
     check(anode_net != source_net, f"{pkg_ref} pin {anode_pin} (ANODE) is on the same net as CATHODE/source -- LED shorted")
     r_led = _find_bridging_resistor(nets, led_hi, anode_net)
-    check(values.get(r_led) == LED_R_OHMS, f"{r_led} ({final_net}'s own LED resistor): expected {LED_R_OHMS!r}, found {values.get(r_led)!r}")
+    # Rail-aware, per F1 -- expected from the rail this LED's anode is ACTUALLY on
+    # (`led_hi`, read from the same walk that verified the wiring), so the checker
+    # cannot agree with a generator that picked the right value for the wrong rail.
+    expect_r = LED_R_OHMS_ISO if led_hi == "ISO_5V" else LED_R_OHMS_MAIN
+    check(values.get(r_led) == expect_r, f"{r_led} ({final_net}'s own LED resistor, anode on {led_hi}): expected {expect_r!r}, found {values.get(r_led)!r}")
     return r_led, r_pu
 
 
@@ -418,9 +431,10 @@ def _check_one_led_per_source_net(nets, sheet_label: str, source_nets) -> str:
     """Every LED cathode net named by this sheet's own channel table carries EXACTLY ONE
     optocoupler LED cathode pin, BOARD-WIDE.
 
-    Not a stylistic check. Each ACSL LED here is fed from +5V (or ISO_5V) through 430R and
-    draws ~7.33mA -- a value chosen to sit inside the part's own 7-15mA recommended band
-    and clear of its 7.0mA worst-case switching threshold, so it cannot simply be lowered.
+    Not a stylistic check. Each ACSL LED here is fed from +5V through 249R (or ISO_5V
+    through 301R) and draws ~10-13mA -- a value chosen to sit inside the part's own
+    7-15mA recommended band and clear of its 7.0mA worst-case switching threshold, so it
+    cannot simply be lowered.
     Two LEDs on one net means two LEDs on one driver pin: 14.7mA against SN74HCT541's 6mA
     IOL, or against SN74HCT32's 4mA. This board shipped that defect on five nets at once
     (EVT_STROBE_BUF, RWD_CMD_BUF, STIM_TRIG_BUF, BARCODE_PI, RWD_DLVR -- each feeding an
@@ -536,8 +550,10 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     anode_net = _node_net(good_nets, pkg_a_ref, "1")
     r_led = _find_bridging_resistor(good_nets, "+5V", anode_net)
     drifted4[r_led] = "330"
-    msg = _assert_fails(good_nets, drifted4, "expected '430'", f"{r_led} (EVT_STROBE_INTAN's own LED resistor) drifted 430->330")
-    results.append(f"LED resistor value drift (430 -> 330, EVT_STROBE_INTAN, {r_led}): caught -- {msg}")
+    # Asserts on the complaint text built from LED_R_OHMS_MAIN, which changed at F1 -- a
+    # control still asserting on "expected '430'" would fail as "wrong complaint".
+    msg = _assert_fails(good_nets, drifted4, f"expected {LED_R_OHMS_MAIN!r}", f"{r_led} (EVT_STROBE_INTAN's own LED resistor) drifted {LED_R_OHMS_MAIN}->330")
+    results.append(f"LED resistor value drift ({LED_R_OHMS_MAIN} -> 330, EVT_STROBE_INTAN, {r_led}): caught -- {msg}")
 
     # (5) ACSL-6420 channel-direction permutation: swap STIM_TRIG_INTAN's own VOx node
     # with RHS_STIM_OUT's own VOx node (simulating a generator edit that assigns the

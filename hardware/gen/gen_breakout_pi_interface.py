@@ -223,7 +223,8 @@ assert len(CONTRACT_NETS_CONSUMED) == 23
 #
 # BARCODE_PI drove SEVEN loads: 5 placeholder panel headers (Step 3's own fan-out) AND,
 # once Task 11 existed, an NI ACSL-6400 LED (opto-ni U60 channel 2) plus an Intan one
-# (opto-intan U64 channel 2). Each LED is ~7.33mA from +5V through 430R, so this sheet's
+# (opto-intan U64 channel 2). Each LED is ~12.7mA from +5V through 249R as of finding F1
+# (2026-08-16), split across a paralleled pair of outputs, so this sheet's
 # own trigger buffer was sinking 14.7mA on one pin against SN74HCT541's 6mA IOL -- the
 # same "the _BUF bank named 19 signals for a 30-LED problem" defect
 # gen_breakout_taskpc_digital.py's own SECOND_LEG_CHANNELS documents in full, reaching
@@ -238,6 +239,19 @@ assert len(CONTRACT_NETS_CONSUMED) == 23
 BARCODE_OPTO_LEGS = [
     (3, "BARCODE_RAW", "BARCODE_BUF"),          # -> opto-ni U60 channel 2
     (4, "BARCODE_RAW", "BARCODE_INTAN_BUF"),    # -> opto-intan U64 channel 2
+    # FINDING F1(b), 2026-08-16 -- the SECOND output of each of those two LED pairs, on
+    # this buffer's own last 2 spare channels. Same input net, same output net: two
+    # outputs in parallel, so each sinks about half the LED's ~12.7mA at the new 249R
+    # value instead of all of it against a 7.5mA per-pin budget. See
+    # gen_breakout_taskpc_digital.py's own PARALLEL_LEG_REFS for the full derivation.
+    #
+    # This sheet needs NO new package for it: U15 had exactly 2 channels left, which is
+    # exactly what its 2 LEDs need. All four packages F1 adds land on taskpc-digital,
+    # which owns the other 26 legs. Both legs of a pair sitting on ONE package is fine --
+    # the package then carries that LED's whole ~12.7mA rather than half, which is still
+    # far inside the 75mA ground-pin limit (U15 totals ~25mA across both pairs).
+    (6, "BARCODE_RAW", "BARCODE_BUF"),          # parallel leg of channel 3
+    (7, "BARCODE_RAW", "BARCODE_INTAN_BUF"),    # parallel leg of channel 4
 ]
 
 # Panel-instrumentation task (2026-08-15), spec Sec.9.8 item 3: a barcode heartbeat LED,

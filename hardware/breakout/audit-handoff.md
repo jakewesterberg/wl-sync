@@ -35,7 +35,28 @@ Note the checkers *default* to `/tmp/breakout.net` while the contract generator 
 explicitly. This is worth fixing properly — a single source of truth with a freshness guard
 would remove a whole class of wasted debugging.
 
-## 2. F1 must land as one change — this was tried and reverted
+## 2. F1 must land as one change — this was tried and reverted — **DONE 2026-08-16**
+
+> **Implemented, both halves together.** See `parametric-audit.md`'s own F1 entry for what
+> shipped and how it was verified. Three things this section predicted turned out slightly
+> differently, recorded because the differences are the useful part:
+>
+> - **The `"expected '430'"` self-test trap is real and it fired**, exactly as warned — on
+>   `check_taskpc_digital_netlist.py` rather than only on the opto checkers. Its node-count
+>   control asserted on `"expected exactly 4 nodes"`, and F1 moves that count to 5. It is now
+>   pinned to the invariant part of the message (`"nodes (series R, clamp diode"`) rather than
+>   to the number, so the next count change does not re-break it.
+> - **9 packages was right, for different arithmetic.** "30 LEDs plus ~12 other outputs"
+>   over-counts: 2 of the 30 are not buffer-driven (an ACSL-6420 drives one; one is an
+>   unpopulated spare) and there are 8, not ~12, other outputs. But F1 also *adds* a 29th
+>   buffer-driven LED, because `RHS_STIM_OUT`'s LED has to move onto a buffered leg once the
+>   resistor changes. 29 × 2 + 8 = 66 channels = 9 packages, 6 spare.
+> - **The refdes hazard was worse than "check `build()`'s baseline comment".** It was not
+>   latent: regenerating either opto sheet — which F1 *requires* — renumbered its entire
+>   refdes space before any F1 edit was made. Both are now pinned. Five other generators are
+>   still armed; see the table at the end of `parametric-audit.md`'s F1 entry.
+>
+> The rest of this section is left as written, as the record of what was known going in.
 
 The resistor half alone was implemented, verified (12/12 checkers passed, correct values in
 both sheets) and then **reverted**, because `test_driver_pin_sink_load` correctly rejected it:
@@ -124,8 +145,10 @@ Dependencies are real here — doing these out of order means redoing arithmetic
 1. **Power chain** — fuse architecture and the fan tap. Everything downstream depends on the
    rail drop. *(Though note: the LED resistor was checked against both fuse options and moves
    only 0.2 mA, so F1 is not actually blocked on this.)*
-2. **F1 as one change** — two resistor values plus output paralleling across 9 packages.
-   Largest single change in the audit.
+2. ~~**F1 as one change** — two resistor values plus output paralleling across 9 packages.
+   Largest single change in the audit.~~ **DONE 2026-08-16** — see §2 above. Note it landed
+   *before* step 1 rather than after, which the parenthetical below already allowed for; the
+   fuse choice moves LED current by ~0.2 mA and 249 Ω clears both bounds either way.
 3. **Isolated domain** — `LD1117S50` → second `TMA-0505S` (F5). Pin `tma_0505s` in
    `datasheet-params.toml` first; it is the one entry still outstanding.
 4. **Analog corrections** — TIA `R38` 1 MΩ → 180 kΩ and `C48` 3.3 pF → 22 pF (F3, M1), mux
@@ -144,3 +167,17 @@ a two-sided constraint was tested, and the untested half was wrong on 30 channel
 seventy-three commits.
 
 When writing the checkers in step 6, write both bounds.
+
+> **Done for F1's own family of checks (2026-08-16), in `tests/hardware/test_netlist.py`.**
+> Five new assertions, each with a negative control: worst-case LED current clears the 8 mA
+> guardbanded floor; best-case stays under the 15 mA absolute maximum; per-pin sink divides
+> across paralleled drivers; per-**package** ground current against ±75 mA; paralleled outputs
+> have tied inputs. They read limits from `hardware/datasheet-params.toml` rather than
+> re-typing them, so a datasheet revision propagates.
+>
+> Two things worth carrying into the remaining checkers. **The lower-bound check needs the
+> series drops in front of the rail**, or it is just as wrong as the sizing that caused F1 —
+> `+5V` at 249 Ω passes a naive 5.00 V model by a wide margin and only becomes tight once
+> `F4` and `D3` are in it. And **a control that asserts on a complaint's message text will
+> rot**; assert on the invariant part of the message, not on a number the finding is about to
+> change.

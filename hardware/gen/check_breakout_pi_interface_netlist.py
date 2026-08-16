@@ -211,6 +211,7 @@ def _walk_gpio_pin(
 
 def _walk_buffered_channel(
     nets: dict[str, list[Node]], values: dict[str, str], raw_net: str, out_net: str, buf_value: str,
+    expect_drivers: int = 1,
 ) -> str:
     """Walk one 74x541-family buffered channel end to end: `raw_net` (this sheet's own
     local pre-buffer node) -> the SAME reference's own input pin -> that reference's own
@@ -228,6 +229,19 @@ def _walk_buffered_channel(
     8). An OUTPUT net, by contrast, must have exactly one driver -- so anchoring the walk
     there keeps the check exact and one-to-one without caring how many channels share the
     input. Every guarantee is unchanged: same physical package at both ends, Ai+Yi=20.
+
+    `expect_drivers` > 1 IS FINDING F1's PARALLELING, and it does not weaken this walk --
+    it applies the walk once per driver. Every one of the N outputs on `out_net` must
+    independently have its OWN partner input pin on `raw_net`, which is precisely the
+    property that makes paralleling safe: two tri-state outputs tied together are safe
+    only while both are guaranteed to drive the same direction, and "both take their
+    input from the same net" is that guarantee. A pair whose inputs differed would fail
+    here rather than silently short one output stage into the other.
+
+    On THIS sheet both legs of a pair live on one package (U15 had exactly 2 spare
+    channels for its 2 LEDs), which the same-package check below asserts rather than
+    assumes -- unlike taskpc-digital, where the parallel legs deliberately land on new
+    packages.
     """
     check(raw_net in nets, f"missing net: {raw_net!r}")
     check(out_net in nets, f"missing net: {out_net!r}")
@@ -236,24 +250,32 @@ def _walk_buffered_channel(
         if values.get(n.ref) == buf_value and "tri_state" in n.pintype
     ]
     check(
-        len(out_nodes) == 1,
-        f"{out_net}: expected exactly 1 {buf_value} tri_state output pin driving this "
-        f"net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
+        len(out_nodes) == expect_drivers,
+        f"{out_net}: expected exactly {expect_drivers} {buf_value} tri_state output pin(s) "
+        f"driving this net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
     )
-    ref, y_pin = out_nodes[0].ref, int(out_nodes[0].pin)
-    a_pin = 20 - y_pin
-
-    on_raw = [n for n in nets[raw_net] if n.ref == ref and n.pin == str(a_pin)]
+    refs = set()
+    for node in out_nodes:
+        ref, y_pin = node.ref, int(node.pin)
+        a_pin = 20 - y_pin
+        on_raw = [n for n in nets[raw_net] if n.ref == ref and n.pin == str(a_pin)]
+        check(
+            len(on_raw) == 1,
+            f"{raw_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
+            f"74x541 family's fixed Ai<->Yi pairing (input+output must equal 20) its partner "
+            f"input pin {a_pin} must sit on {raw_net} -- it does not. "
+            f"This channel has been permuted within the buffer, or is fed from a "
+            f"different signal than it should be. Nodes on {raw_net}: "
+            f"{[(n.ref, n.pin) for n in nets[raw_net]]}",
+        )
+        refs.add(ref)
     check(
-        len(on_raw) == 1,
-        f"{raw_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
-        f"74x541 family's fixed Ai<->Yi pairing (input+output must equal 20) its partner "
-        f"input pin {a_pin} must sit on {raw_net} -- it does not. "
-        f"This channel has been permuted within the buffer, or is fed from a "
-        f"different signal than it should be. Nodes on {raw_net}: "
-        f"{[(n.ref, n.pin) for n in nets[raw_net]]}",
+        len(refs) == 1,
+        f"{out_net}: its {expect_drivers} paralleled driver(s) are spread across packages "
+        f"{sorted(refs)} -- on this sheet both legs of a pair are expected on the ONE "
+        f"trigger buffer, which had exactly 2 spare channels for its 2 LEDs",
     )
-    return ref
+    return refs.pop()
 
 
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
@@ -356,8 +378,13 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # copies (gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS). Walked exactly like
     # the three above, from the SAME input net and the SAME package, because that is the
     # whole point: a parallel buffered copy of one signal, not a re-derived one.
-    barcode_ni_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_BUF", "SN74AHCT541PW")
-    barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74AHCT541PW")
+    # TWO drivers each as of finding F1 (2026-08-16): the LED series resistor fell from
+    # 430R (which under-drove the optocoupler) to 249R, and 249R draws ~12.7mA -- more
+    # than one AHCT541 output's 7.5mA budget. Each of these two LEDs is now driven by a
+    # paralleled pair off this same package's last 2 spare channels, from the same
+    # BARCODE_RAW input. The walk above verifies each leg independently.
+    barcode_ni_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_BUF", "SN74AHCT541PW", expect_drivers=2)
+    barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74AHCT541PW", expect_drivers=2)
     check(
         barcode_buf == eye_buf == beh_buf == barcode_ni_buf == barcode_intan_buf,
         f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF should share "
@@ -365,19 +392,22 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"{barcode_ni_buf}/{barcode_intan_buf}",
     )
     trig_buf = barcode_buf
-    # Five DISTINCT channels of that one package -- not, say, two names accidentally
-    # labelled onto one output pin (which would put both LEDs back on one driver pin,
-    # the exact defect BARCODE_OPTO_LEGS exists to fix).
+    # SEVEN DISTINCT channels of that one package across five contract nets -- one each
+    # for the three single-driver nets, two each for the two LED nets F1 parallels. The
+    # point is unchanged and is why the count is on PINS rather than on nets: two contract
+    # nets sharing one output pin would put both optocoupler LEDs back on a single driver
+    # pin, the exact defect BARCODE_OPTO_LEGS exists to fix. Counting distinct pins keeps
+    # that detectable now that the expected pins-per-net is no longer uniformly 1.
     barcode_out_pins = {
-        out_net: next(int(n.pin) for n in nets[out_net] if n.ref == trig_buf and "tri_state" in n.pintype)
+        out_net: sorted(int(n.pin) for n in nets[out_net] if n.ref == trig_buf and "tri_state" in n.pintype)
         for out_net in ("BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH", "BARCODE_BUF", "BARCODE_INTAN_BUF")
     }
+    all_pins = [p for pins in barcode_out_pins.values() for p in pins]
     check(
-        len(set(barcode_out_pins.values())) == 5,
-        f"{trig_buf}: expected 5 DISTINCT output pins across "
-        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF, found "
-        f"{barcode_out_pins} -- two contract nets sharing one output pin would put both "
-        f"optocoupler LEDs back on a single driver pin",
+        len(all_pins) == 7 and len(set(all_pins)) == 7,
+        f"{trig_buf}: expected 7 DISTINCT output pins across "
+        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH (1 each) and BARCODE_BUF/"
+        f"BARCODE_INTAN_BUF (2 each, F1's paralleled pairs), found {barcode_out_pins}",
     )
     on_5v = [n for n in nets.get("+5V", []) if n.ref == trig_buf]
     check(len(on_5v) == 1, f"{trig_buf} (trigger buffer): expected a pin on +5V, found {on_5v}")
@@ -402,7 +432,12 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     )
     hb_out_pin = next(int(n.pin) for n in nets["BARCODE_HB"] if n.ref == trig_buf and "tri_state" in n.pintype)
     check(
-        hb_out_pin not in barcode_out_pins.values(),
+        # Against the FLATTENED pin list, not barcode_out_pins.values(): those values
+        # became LISTS at F1 (two pins for each paralleled LED net), and an `int not in
+        # dict_of_lists.values()` comparison is vacuously true forever. Caught by this
+        # check's own negative control reporting "passing vacuously" -- which is exactly
+        # what that control is for.
+        hb_out_pin not in all_pins,
         f"{trig_buf}: BARCODE_HB's own output pin ({hb_out_pin}) collides with one of "
         f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF's own pins "
         f"({barcode_out_pins}) -- this would load the barcode net's own driver pin, "

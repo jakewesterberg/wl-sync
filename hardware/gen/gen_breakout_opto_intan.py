@@ -33,11 +33,15 @@ LED, or ISO_5V for the inbound channel's own LED, which lives on the Intan side)
 CATHODE is driven directly from the signal net. Every one of this sheet's 6 real channels
 (plus 2 spares) uses this uniformly.
 
-LED DRIVE CURRENT: 430R (E24), same value and same derivation as opto-ni.kicad_sch's own
-(~7.33mA, roughly half ACSL-6400/6420's own shared datasheet-recommended top-of-range
-forward current -- both parts are the SAME Broadcom family with identical LED/detector
-electrical specs, confirmed directly against AV02-0235EN, which covers the whole ACSL-6xx0
-family in one set of Electrical/Switching Specification tables).
+LED DRIVE CURRENT: TWO values as of finding F1 (2026-08-16) -- 249R (E96) on the LEDs fed
+from +5V and 301R (E96) on the two fed from ISO_5V. Was a single 430R, matching
+opto-ni.kicad_sch's own then-value; see that generator's own LED DRIVE CURRENT paragraph
+for why 430R under-drove every LED on this board, and LED_R_OHMS_MAIN/LED_R_OHMS_ISO below
+for why THIS sheet -- the only one with LEDs on both rails -- needs two values rather than
+one. Both parts are the SAME Broadcom family with identical LED/detector electrical specs,
+confirmed directly against AV02-0235EN, which covers the whole ACSL-6xx0 family in one set
+of Electrical/Switching Specification tables, so the rail -- not the part -- is what
+differs between the two values.
 
 PULL-UPS: 3.9k -- FIX ROUND 2 (see .superpowers/sdd/2026-08-13-breakout-pcb/
 task-11-report.md's own "Fix round 2" section), corrected from this sheet's original 10k.
@@ -78,18 +82,21 @@ Against ISO_5V's OTHER real loads -- 6 channels' worth of the detector IC's own 
 current (IDDL/IDDH, Broadcom AV02-0235EN's Electrical Specifications table, 4.5-5.5V range:
 5.8 typ/10.5 max mA per channel when LOW, 3.8 typ/7.5 max mA when HIGH) drawn through Package
 A's shared VDD/GND and Package B's own VDD2/GND2, plus channels 3/4's own LED forward current
-(~7.33mA each, drawn from ISO_5V through their own R_LED -- see LED DRIVE CURRENT above) when
-asserted -- worst case (all 6 detector channels LOW and both LEDs on simultaneously) is
-~85mA at 3.9k versus ~81mA at 10k; typical (datasheet typ figures) ~57mA versus ~53mA. That
-current reaches ISO_P12 through the LD1117S50TR_SOT223 LDO as approximately the same input
-current (a linear regulator, no switching-conversion ratio), where it joins mux-intan.
-kicad_sch's own 8 INA105KU difference amplifiers (~2mA each per task-7-report.md's own
-brief-derived estimate, ~16mA total) on the SAME TPS7A4901-regulated ISO_P12 rail (150mA
-rating, gen_breakout_power.py's own _place_isolated_supply()) -- worst case ~101-116mA total
-against that 150mA cap, ~34-49mA of real headroom either way. The fix's own marginal cost is
-the ~4.7mA delta, not the whole ~85mA figure -- "trivial current either way" (task-11-
-report.md's own "Fix round 1" phrase for this exact comparison), confirmed here with real
-datasheet numbers rather than assumed to carry over.
+(~10.5mA each at F1's 301R, drawn from ISO_5V through their own R_LED -- see LED DRIVE
+CURRENT above; it was ~7.33mA each at the pre-F1 430R, and this paragraph's totals are
+RE-DERIVED for the new value rather than left stale) when asserted -- worst case (all 6
+detector channels LOW and both LEDs on simultaneously) is ~91mA at 3.9k versus ~87mA at 10k;
+typical (datasheet typ figures) ~63mA versus ~59mA. That current reaches ISO_P12 through the
+LD1117S50TR_SOT223 LDO as approximately the same input current (a linear regulator, no
+switching-conversion ratio), where it joins mux-intan.kicad_sch's own 8 INA105KU difference
+amplifiers (~2mA each per task-7-report.md's own brief-derived estimate, ~16mA total) on the
+SAME TPS7A4901-regulated ISO_P12 rail (150mA rating, gen_breakout_power.py's own
+_place_isolated_supply()) -- worst case ~107-122mA total against that 150mA cap, ~28-43mA of
+real headroom either way. F1's own marginal cost here is the ~6.3mA the two ISO_5V LEDs gain
+(2 x 10.5 vs 2 x 7.33), and the pull-up fix's was the ~4.7mA delta -- neither is the whole
+~91mA figure. Note finding F5 proposes replacing this LDO with a second TMA-0505S, which
+retires this budget entirely; these numbers describe the board as it stands, not as F5 would
+leave it.
 
 Every pull-up on THIS sheet -- 6 ISO_5V-referenced ones (Package A's 4 outbound channels
 plus Package B's own channel 1/STIM_TRIG_BUF and channel 2/spare) and 2 +5V-referenced ones
@@ -151,24 +158,18 @@ from pathlib import Path
 
 from kicad_sch import (
     Sch,
-    find_max_refs,
     find_root_uuid,
     find_sheet_instance_path,
-    merge_max_refs,
     pin_pos,
     write_project_stub,
 )
+# The already-committed sibling sheet paths are no longer read: build()'s own
+# ref_start is PINNED (F1 task, 2026-08-16 -- see build()), not re-derived live
+# from them at generation time. Same treatment, and same reason, as
+# gen_breakout_pi_interface.py's own.
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
-POWER_SCH = OUT / "power.kicad_sch"
-TASKPC_SCH = OUT / "taskpc-digital.kicad_sch"
-PI_INTERFACE_SCH = OUT / "pi-interface.kicad_sch"
-ANALOG_FRONTEND_SCH = OUT / "analog-frontend.kicad_sch"
-ANALOG_NI_SCH = OUT / "analog-ni.kicad_sch"
-MUX_INTAN_SCH = OUT / "mux-intan.kicad_sch"
-COMPARATORS_SCH = OUT / "comparators.kicad_sch"
-OPTO_NI_SCH = OUT / "opto-ni.kicad_sch"
 OPTO_INTAN_SHEETFILE = "sheets/opto-intan.kicad_sch"
 
 # ---------------------------------------------------------------------------
@@ -255,7 +256,23 @@ ACSL6420_PIN_VDD1 = "4"
 ACSL6420_PIN_GND2 = "9"
 ACSL6420_PIN_VDD2 = "12"
 
-LED_R_OHMS = "430"
+# FINDING F1 (parametric-audit.md), 2026-08-16 -- TWO values, selected by which rail the
+# LED's anode hangs from. See gen_breakout_opto_ni.py's own LED_R_OHMS comment for the
+# derivation of the 249R figure; what is specific to THIS sheet is that it is the only one
+# with LEDs on BOTH rails, so it is the sheet where a single value is actually wrong:
+#
+#   +5V     reaches its LEDs through F4 (polyfuse) and D3 (SS14) -- 0.38-0.45V of series
+#           drop, so the anode sits at 4.55-4.62V and needs 249R to clear the 8mA floor.
+#   ISO_5V  is regulated locally, on the isolated side, with NOTHING in series. The same
+#           249R there would deliver 15.1mA best case -- past the 15mA ABSOLUTE maximum
+#           (AV02-0235EN Absolute Maximum Ratings, average forward input current per
+#           channel). 301R gives 8.8-12.5mA: both bounds clear.
+#
+# This is exactly the trap the original single 430R hid. One value looked consistent
+# across the sheet and was wrong in opposite directions on the two rails -- starving the
+# +5V channels while, at any value chosen to fix them, over-driving the ISO_5V ones.
+LED_R_OHMS_MAIN = "249"  # E96 -- LEDs fed from +5V (through F4/D3)
+LED_R_OHMS_ISO = "301"   # E96 -- LEDs fed from ISO_5V (locally regulated, no series drop)
 PULLUP_OHMS = "3.9k"  # fix round 2 -- corrected from 10k, which exceeded ACSL-6400/
 # ACSL-6420's own shared datasheet RL-max (4k). See module docstring, PULL-UPS.
 
@@ -336,7 +353,11 @@ def opto_channel(sch, x_pkg, y_pkg, pkg_pins, ch_pins, row_y, led_hi, led_lo_sou
     since the LED and VOx pins sit on opposite sides of the barrier there."""
     anode_pin, cathode_pin, vo_pin = ch_pins
     anode_net = f"{final_net}_LEDA"
-    r_led = two_pin(sch, "Device", "R", "R", LED_R_OHMS, X_LEDR, row_y, led_hi, anode_net, footprint=FOOTPRINT_R)
+    # Rail-aware, per finding F1 -- see LED_R_OHMS_MAIN/LED_R_OHMS_ISO. `led_hi` is
+    # already the rail this LED's anode hangs from, so the selection needs no new
+    # parameter and cannot disagree with the wiring it is chosen for.
+    r_ohms = LED_R_OHMS_ISO if led_hi == "ISO_5V" else LED_R_OHMS_MAIN
+    r_led = two_pin(sch, "Device", "R", "R", r_ohms, X_LEDR, row_y, led_hi, anode_net, footprint=FOOTPRINT_R)
     lbl(sch, x_pkg, y_pkg, pkg_pins, anode_pin, anode_net)
     lbl(sch, x_pkg, y_pkg, pkg_pins, cathode_pin, led_lo_source)
 
@@ -474,23 +495,18 @@ def build() -> tuple[Sch, dict]:
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, OPTO_INTAN_SHEETFILE)
-    ref_start = merge_max_refs(
-        find_max_refs(POWER_SCH.read_text()),
-        find_max_refs(TASKPC_SCH.read_text()),
-        find_max_refs(PI_INTERFACE_SCH.read_text()),
-        find_max_refs(ANALOG_FRONTEND_SCH.read_text()),
-        find_max_refs(ANALOG_NI_SCH.read_text()),
-        find_max_refs(MUX_INTAN_SCH.read_text()),
-        find_max_refs(COMPARATORS_SCH.read_text()),
-        find_max_refs(OPTO_NI_SCH.read_text()),
-    )
-    # PINNED -- see gen_breakout_opto_ni.py's own identical comment for the full reasoning.
-    # comparators.kicad_sch's own R190 (channel 4's series resistor, explicit refdes above
-    # the whole board's prior "R" range) must not shift this sheet's own resistor
-    # numbering. 170 is opto-ni.kicad_sch's own true resistor count (24 LED-series + 24
-    # pull-up + 1 fallback bridge = 49, seeded at 121) -- the correct seed for THIS sheet
-    # regardless of what comparators.kicad_sch's own text now also contains.
-    ref_start["R"] = 170
+    # PINNED IN FULL -- see gen_breakout_opto_ni.py's own identical comment for the full
+    # reasoning; this sheet sits one link further down the same chain and had the same
+    # hazard, confirmed the same way (an F1-free run against the CURRENT siblings moved
+    # U63-U65 -> U70-U72, C137-C142 -> C151-C156, D39 -> D44, J46-J51 -> J57-J62).
+    #
+    # "R" = 170 specifically (the original pin, reasoning preserved): comparators.
+    # kicad_sch's own R190 (channel 4's series resistor, explicit refdes above the whole
+    # board's prior "R" range) must not shift this sheet's own resistor numbering. 170 is
+    # opto-ni.kicad_sch's own true resistor count (24 LED-series + 24 pull-up + 1 fallback
+    # bridge = 49, seeded at 121) -- the correct seed for THIS sheet regardless of what
+    # comparators.kicad_sch's own text now also contains.
+    ref_start = {"C": 136, "D": 38, "J": 45, "R": 170, "U": 62}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}
@@ -523,9 +539,14 @@ def build() -> tuple[Sch, dict]:
         "channel's LED, ISO_5V for the inbound channel's own LED, which lives on the",
         "Intan side), cathode driven directly by the signal net.",
         "",
-        "LED DRIVE: 430R (same value/derivation as opto-ni.kicad_sch -- ~7.33mA, roughly",
-        "half the ACSL-6xx0 family's shared datasheet-recommended top-of-range forward",
-        "current). PULL-UPS: 3.9k throughout -- FIX ROUND 2: ACSL-6400/ACSL-6420 share ONE",
+        "LED DRIVE: 249R on +5V, 301R on ISO_5V (E96, 1%) -- FINDING F1, 2026-08-16. Was a",
+        "single 430R, which under-drove every LED (~5mA worst case against a 7.0mA I_FH",
+        "minimum). This is the only sheet with LEDs on BOTH rails, so it is the only one",
+        "where one value is actually wrong: +5V arrives through F4 and D3 (0.38-0.45V of",
+        "drop) while ISO_5V is regulated locally with nothing in series, so 249R there",
+        "would give 15.1mA -- past the 15mA ABSOLUTE maximum. Each +5V LED is driven by",
+        "TWO paralleled buffer outputs (F1b); the two ISO_5V LEDs have no board driver.",
+        "PULL-UPS: 3.9k throughout -- FIX ROUND 2: ACSL-6400/ACSL-6420 share ONE",
         "datasheet RL-max (4k, Broadcom AV02-0235EN's family-wide table), which the",
         "original 10k exceeded (same violation fix round 1 corrected on opto-ni.kicad_sch).",
         "NI's 250mA budget does NOT apply here (this sheet runs off the board's own",

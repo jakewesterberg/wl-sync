@@ -104,9 +104,14 @@ CONTRACT_NETS = (
     # SECOND_LEG_CHANNELS/COMPARATOR_OPTO_LEGS below).
     + ["EVT_STROBE_INTAN_BUF", "RWD_CMD_INTAN_BUF", "STIM_TRIG_INTAN_BUF"]
     + ["RWD_DLVR_BUF", "RWD_DLVR_INTAN_BUF", "PD1_COMP_BUF", "PD2_COMP_BUF"]
+    # Finding F1 (2026-08-16): RHS_STIM_OUT's own optocoupler LED moves onto a buffered
+    # leg -- see gen_breakout_taskpc_digital.py's own RHS_STIM_OUT_BUF_LEGS. It was the
+    # one opto-ni channel whose LED hung directly on an ACSL-6420 output, which was fine
+    # at 430R and over that part's 13mA budget at 249R.
+    + ["RHS_STIM_OUT_BUF"]
     + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 77
+assert len(CONTRACT_NETS) == 78
 
 # Real physical MDR68 pin assignment -- redefined here from gen_breakout_taskpc_digital.py
 # (same discipline as CONTRACT_NETS above), sourced from NI's own "X Series User Manual:
@@ -275,17 +280,25 @@ def _walk_inbound_channel(
     # ONE protected node rather than two separate (and possibly cross-wired) ones.
     check(clamp_net in nets, f"missing net: {clamp_net!r}")
     clamp_nodes = nets[clamp_net]
-    # 4 normally; 5 on the three clamp nodes that also feed an *_INTAN_BUF leg -- a THIRD
-    # parallel buffered copy off the same protected node, which is exactly what this
-    # fan-out point is for (the LVC541 and HCT541 banks have shared it since Task 8; see
-    # CLAMP_NETS_WITH_SECOND_LEG). Still an EXACT count, not a floor: a stray extra load
-    # on a protected node is precisely the class of thing this hop exists to catch.
-    expected_nodes = 5 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 4
-    extra = " + one *_INTAN_BUF second leg" if expected_nodes == 5 else ""
+    # Base 4 (series R, clamp diode, LVC541 input, HCT541_BUF input), + 1 for finding
+    # F1's parallel leg -- the SECOND buffer output driving this channel's optocoupler
+    # LED, whose input taps this same protected node (gen_breakout_taskpc_digital.py's
+    # own PARALLEL_LEG_REFS) -- and, on the three clamp nodes that also feed an
+    # *_INTAN_BUF leg, + 2 more for that leg and ITS parallel copy. So 5 normally, 7 on
+    # those three. Every one of these is another parallel buffered copy off the same
+    # protected node, which is exactly what this fan-out point is for (the LVC541 and
+    # HCT541 banks have shared it since Task 8; see CLAMP_NETS_WITH_SECOND_LEG).
+    #
+    # Still an EXACT count, not a floor: a stray extra load on a protected node is
+    # precisely the class of thing this hop exists to catch, and F1 doubling the legs is
+    # a reason to re-derive the number, never to relax it into ">=".
+    expected_nodes = 7 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 5
+    extra = " + one *_INTAN_BUF second leg + its own parallel leg" if expected_nodes == 7 else ""
     check(
         len(clamp_nodes) == expected_nodes,
         f"{clamp_net}: expected exactly {expected_nodes} nodes (series R, clamp diode, "
-        f"LVC541 input, HCT541_BUF input{extra}), found {len(clamp_nodes)}: {clamp_nodes}",
+        f"LVC541 input, HCT541_BUF input, F1 parallel-leg input{extra}), found "
+        f"{len(clamp_nodes)}: {clamp_nodes}",
     )
     r_here = [n for n in clamp_nodes if n.ref == r_ref]
     check(
@@ -317,7 +330,7 @@ def _walk_inbound_channel(
     # not assume an ordering for), PLUS a second HCT541 input on the three clamp nodes
     # that also feed an *_INTAN_BUF leg.
     u_nodes = [n for n in clamp_nodes if n.ref.startswith("U")]
-    expected_u = 3 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 2
+    expected_u = 5 if clamp_net in CLAMP_NETS_WITH_SECOND_LEG else 3
     check(
         len(u_nodes) == expected_u,
         f"{clamp_net}: expected exactly {expected_u} buffer-input nodes, found {clamp_nodes}",
@@ -331,31 +344,59 @@ def _walk_inbound_channel(
         f"on {u_nodes}",
     )
     lvc_ref, lvc_a_pin = lvc_nodes[0].ref, int(lvc_nodes[0].pin)
-    # WHICH of the (possibly two) HCT541 inputs belongs to THIS channel is decided from
-    # the OUTPUT side, not by picking the only candidate: find the single driver of
-    # `buf_net` and derive its partner input pin from the 74x541 family's fixed Ai+Yi=20.
-    # That keeps the walk exactly one-to-one whether or not this clamp node also feeds a
-    # second leg, and it is a strictly stronger statement than "the one HCT541 here" was
-    # -- an output net must have exactly one driver, always.
+    # WHICH of the several HCT541 inputs belong to THIS channel is decided from the OUTPUT
+    # side, not by picking candidates: find the drivers of `buf_net` and derive each one's
+    # partner input pin from the 74x541 family's fixed Ai+Yi=20. That keeps the walk exact
+    # whether or not this clamp node also feeds a second leg.
+    #
+    # TWO drivers as of finding F1 (2026-08-16), not one. The LED series resistor fell
+    # from 430R -- which under-drove every optocoupler on this board -- to 249R, and 249R
+    # draws ~12.7mA, over one AHCT541 output's 7.5mA budget. Every LED is now driven by a
+    # paralleled pair. This is NOT a relaxation of the old "an output net has exactly one
+    # driver" rule into "one or more": the count is still exact, both legs are walked
+    # independently, both must land on the same local channel index, and they must sit on
+    # DIFFERENT packages -- which is what makes the parallel pair a real halving of the
+    # per-pin load rather than two channels of one package sharing one ground pin.
     check(buf_net in nets, f"missing net: {buf_net!r}")
     buf_drivers = [
         n for n in nets[buf_net]
         if values.get(n.ref) == "SN74AHCT541PW" and "tri_state" in n.pintype
     ]
     check(
-        len(buf_drivers) == 1,
-        f"{buf_net}: expected exactly 1 SN74AHCT541PW tri_state output pin driving this "
-        f"net, found {[(n.ref, n.pin) for n in nets[buf_net]]}",
+        len(buf_drivers) == 2,
+        f"{buf_net}: expected exactly 2 SN74AHCT541PW tri_state output pins driving this "
+        f"net (finding F1's paralleled pair -- at 249R one output cannot sink this LED), "
+        f"found {[(n.ref, n.pin) for n in nets[buf_net]]}",
     )
-    buf_ref, buf_a_pin = buf_drivers[0].ref, 20 - int(buf_drivers[0].pin)
     check(
-        any(n.ref == buf_ref and n.pin == str(buf_a_pin) for n in buf_nodes),
-        f"{clamp_net}: {buf_ref} drives {buf_net} from output pin {buf_drivers[0].pin}, so "
-        f"its partner input pin {buf_a_pin} must sit on this clamp node -- it does not "
-        f"(HCT541 inputs here: {[(n.ref, n.pin) for n in buf_nodes]}). This channel's "
-        f"_BUF data has been permuted within the buffer, or is fed from a different "
-        f"channel's protected node.",
+        len({n.ref for n in buf_drivers}) == 2,
+        f"{buf_net}: its 2 paralleled drivers are both on package "
+        f"{buf_drivers[0].ref} -- the pair must span two packages so the LED's current is "
+        f"split across two GROUND pins as well as two output pins. The AHCT541's GND-pin "
+        f"absolute maximum (75mA) is what forces this: U8/U9 drive eight LEDs each, and "
+        f"the event bus idles at 0x0000 with the drive active-low, so those LEDs are lit "
+        f"continuously.",
     )
+    buf_a_pins = set()
+    for drv in buf_drivers:
+        a_pin = 20 - int(drv.pin)
+        check(
+            any(n.ref == drv.ref and n.pin == str(a_pin) for n in buf_nodes),
+            f"{clamp_net}: {drv.ref} drives {buf_net} from output pin {drv.pin}, so "
+            f"its partner input pin {a_pin} must sit on this clamp node -- it does not "
+            f"(HCT541 inputs here: {[(n.ref, n.pin) for n in buf_nodes]}). This channel's "
+            f"_BUF data has been permuted within the buffer, or is fed from a different "
+            f"channel's protected node.",
+        )
+        buf_a_pins.add(a_pin)
+    check(
+        len(buf_a_pins) == 1,
+        f"{buf_net}: its 2 paralleled drivers sit on DIFFERENT local channel indices "
+        f"{sorted(buf_a_pins)} -- the parallel leg is generated by mirroring the first "
+        f"leg's channel map, so a mismatch means the two have drifted apart",
+    )
+    buf_a_pin = buf_a_pins.pop()
+    buf_ref = sorted(n.ref for n in buf_drivers)[0]
     check(
         lvc_a_pin == buf_a_pin,
         f"{clamp_net}: LVC541 ({lvc_ref}) input lands on pin {lvc_a_pin} but HCT541_BUF "
@@ -382,32 +423,32 @@ def _walk_inbound_channel(
         f"permuted within the buffer",
     )
 
-    # Hop 4b: same, on the HCT541_BUF fork.
-    check(buf_net in nets, f"missing net: {buf_net!r}")
-    buf_out = [n for n in nets[buf_net] if n.ref == buf_ref and "tri_state" in n.pintype]
-    check(
-        len(buf_out) == 1,
-        f"{buf_net}: expected exactly 1 tri_state output pin belonging to {buf_ref} (the "
-        f"same HCT541 whose input is on {clamp_net}), found {len(buf_out)} -- if a "
-        f"different buffer drives this net, channel data has crossed ICs",
-    )
-    buf_y_pin = int(buf_out[0].pin)
-    check(
-        buf_a_pin + buf_y_pin == 20,
-        f"channel {ch_idx} ({buf_net}): {buf_ref}'s input pin {buf_a_pin} (on {clamp_net}) "
-        f"and output pin {buf_y_pin} (on {buf_net}) don't satisfy the 74x541 family's "
-        f"fixed Ai<->Yi pairing -- this channel's _BUF data has been permuted within the "
-        f"buffer (the same class of defect as the _PI fork above, just on the copy Task "
-        f"11's NI optocouplers consume)",
-    )
+    # Hop 4b: same, on the HCT541_BUF fork -- once per leg of F1's paralleled pair.
+    for drv in buf_drivers:
+        buf_out = [n for n in nets[buf_net] if n.ref == drv.ref and "tri_state" in n.pintype]
+        check(
+            len(buf_out) == 1,
+            f"{buf_net}: expected exactly 1 tri_state output pin belonging to {drv.ref} (an "
+            f"HCT541 whose input is on {clamp_net}), found {len(buf_out)} -- if a "
+            f"different buffer drives this net, channel data has crossed ICs",
+        )
+        buf_y_pin = int(buf_out[0].pin)
+        check(
+            buf_a_pin + buf_y_pin == 20,
+            f"channel {ch_idx} ({buf_net}): {drv.ref}'s input pin {buf_a_pin} (on {clamp_net}) "
+            f"and output pin {buf_y_pin} (on {buf_net}) don't satisfy the 74x541 family's "
+            f"fixed Ai<->Yi pairing -- this channel's _BUF data has been permuted within the "
+            f"buffer (the same class of defect as the _PI fork above, just on the copy Task "
+            f"11's NI optocouplers consume)",
+        )
 
     return lvc_ref, buf_ref
 
 
 def _check_outbound_channel(
     nets: dict[str, list[Node]], values: dict[str, str], in_net: str, out_net: str,
-    mdr_pin: str | None,
-) -> str:
+    mdr_pin: str | None, expect_drivers: int = 1,
+) -> frozenset:
     """Walk one channel of the outbound SN74AHCT541PW: input net (produced elsewhere,
     consumed here by name) -> this sheet's own buffer input pin -> the SAME reference's
     own output pin (Ai+Yi=20) -> Connector 1's own pin. Returns the buffer's own reference
@@ -433,19 +474,30 @@ def _check_outbound_channel(
         if values.get(n.ref) == "SN74AHCT541PW" and "tri_state" in n.pintype
     ]
     check(
-        len(out_nodes) == 1,
-        f"{out_net}: expected exactly 1 SN74AHCT541PW tri_state output pin driving this "
-        f"net, found {[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
+        len(out_nodes) == expect_drivers,
+        f"{out_net}: expected exactly {expect_drivers} SN74AHCT541PW tri_state output "
+        f"pin(s) driving this net, found "
+        f"{[(n.ref, n.pin, values.get(n.ref)) for n in nets[out_net]]}",
     )
-    ref, y_pin = out_nodes[0].ref, int(out_nodes[0].pin)
-    a_pin = 20 - y_pin
+    for node in out_nodes:
+        ref, y_pin = node.ref, int(node.pin)
+        a_pin = 20 - y_pin
+        check(
+            any(n.ref == ref and n.pin == str(a_pin) for n in nets[in_net]),
+            f"{in_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
+            f"74x541 family's fixed Ai<->Yi pairing its partner input pin {a_pin} must sit on "
+            f"{in_net} -- it does not. This outbound channel has been permuted within the "
+            f"buffer, or is fed from the wrong signal. Nodes on {in_net}: "
+            f"{[(n.ref, n.pin) for n in nets[in_net]]}",
+        )
     check(
-        any(n.ref == ref and n.pin == str(a_pin) for n in nets[in_net]),
-        f"{in_net}->{out_net}: {ref} drives {out_net} from output pin {y_pin}, so by the "
-        f"74x541 family's fixed Ai<->Yi pairing its partner input pin {a_pin} must sit on "
-        f"{in_net} -- it does not. This outbound channel has been permuted within the "
-        f"buffer, or is fed from the wrong signal. Nodes on {in_net}: "
-        f"{[(n.ref, n.pin) for n in nets[in_net]]}",
+        # On (ref, pin), NOT on pin alone: a mirrored parallel leg deliberately uses the
+        # SAME local channel index on a DIFFERENT package (U10.15 and U72.15), which is
+        # the mirroring working correctly, not a duplicate.
+        len({(n.ref, n.pin) for n in out_nodes}) == len(out_nodes),
+        f"{out_net}: its {expect_drivers} drivers are not distinct physical channels "
+        f"{[(n.ref, n.pin) for n in out_nodes]} -- a paralleled pair must be two genuine "
+        f"channels, not one channel counted twice",
     )
     mdr_nodes = [n for n in nets[out_net] if n.ref.startswith("J")]
     if mdr_pin is None:
@@ -461,7 +513,7 @@ def _check_outbound_channel(
             mdr_nodes[0].pin == mdr_pin,
             f"{out_net}: lands on Connector 1 pin {mdr_nodes[0].pin}, expected pin {mdr_pin}",
         )
-    return ref
+    return frozenset(n.ref for n in out_nodes)
 
 
 def _check_one_led_per_driver_pin(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
@@ -600,52 +652,81 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], footprints: dict
         f"bank: {lvc_ref_counts}. HCT541 _BUF bank: {buf_ref_counts}."
     )
 
-    # --- Walk all 4 outbound channels end to end. ---
+    # --- Walk all 4 outbound channels end to end. ONE driver each: these land on
+    # Connector 1's own DAQ input pins and drive no optocoupler LED, so finding F1's
+    # paralleling does not apply to them -- doubling them would add parts for no load. ---
     outbound_refs: set[str] = set()
     for in_net, out_net, mdr_pin in OUTBOUND_CHANNELS:
-        outbound_refs.add(_check_outbound_channel(nets, values, in_net, out_net, mdr_pin))
+        outbound_refs |= _check_outbound_channel(nets, values, in_net, out_net, mdr_pin)
     check(
         len(outbound_refs) == 1,
         f"expected all 4 outbound channels on the SAME single SN74AHCT541PW package, "
         f"found {len(outbound_refs)}: {outbound_refs}",
     )
+    outbound_ref = next(iter(outbound_refs))
     summary.append(
         f"All 4 outbound channels (PD1_COMP, PD2_COMP, ACC_TRIG, RHS_STIM_OUT) walked end "
-        f"to end on the single outbound buffer {next(iter(outbound_refs))}, each landing "
+        f"to end on the single outbound buffer {outbound_ref}, each landing "
         f"on Connector 1's own pins 20-23."
     )
 
-    # --- Walk the 7 dedicated optocoupler-drive legs: 5 second legs off the _BUF bank's
-    # own third package (SECOND_LEG_CHANNELS) and 2 off the outbound package
-    # (COMPARATOR_OPTO_LEGS). Identical walks; none of them reaches Connector 1. ---
-    second_leg_refs: set[str] = set()
+    # --- Walk the 9 dedicated optocoupler-drive legs: 5 second legs off the _BUF bank's
+    # own third package (SECOND_LEG_CHANNELS), 2 off the outbound package
+    # (COMPARATOR_OPTO_LEGS), and 2 for RHS_STIM_OUT_BUF (F1). Identical walks; none of
+    # them reaches Connector 1.
+    #
+    # EVERY ONE OF THESE DRIVES AN OPTOCOUPLER LED, so every one is a PARALLELED PAIR as
+    # of finding F1 -- expect_drivers=2 throughout. ---
+    second_leg_refs: set[frozenset] = set()
     for in_net, out_net in SECOND_LEG_CHANNELS:
-        second_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None))
+        second_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None, expect_drivers=2))
     check(
-        len(second_leg_refs) == 1 and second_leg_refs.isdisjoint(outbound_refs),
-        f"expected all 5 second legs on ONE SN74AHCT541PW package, distinct from the "
-        f"outbound one ({outbound_refs}) -- found {second_leg_refs}",
+        len(second_leg_refs) == 1,
+        f"expected all 5 second legs on the SAME pair of SN74AHCT541PW packages -- found "
+        f"{sorted(sorted(s) for s in second_leg_refs)}",
     )
-    second_leg_ref = next(iter(second_leg_refs))
+    second_leg_pair = next(iter(second_leg_refs))
     check(
-        second_leg_ref in buf_refs,
-        f"the 5 second legs sit on {second_leg_ref}, which is not one of the three _BUF "
-        f"bank packages {buf_refs} -- they are meant to spend that bank's own last spare "
-        f"channels, not to add a package",
+        second_leg_pair.isdisjoint(outbound_refs),
+        f"the 5 second legs sit on {sorted(second_leg_pair)}, which overlaps the outbound "
+        f"package ({outbound_refs})",
     )
-    comparator_leg_refs: set[str] = set()
+    check(
+        len(second_leg_pair & buf_refs) == 1,
+        f"the 5 second legs sit on {sorted(second_leg_pair)}; exactly ONE of that pair "
+        f"must be one of the three _BUF bank packages {sorted(buf_refs)} (they spend that "
+        f"bank's own last spare channels rather than adding a package) and the other must "
+        f"be its F1 parallel mirror, which is a NEW package",
+    )
+    second_leg_ref = next(iter(second_leg_pair & buf_refs))
+    second_leg_mirror = next(iter(second_leg_pair - buf_refs))
+    comparator_leg_refs: set[frozenset] = set()
     for in_net, out_net in COMPARATOR_OPTO_LEGS:
-        comparator_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None))
+        comparator_leg_refs.add(_check_outbound_channel(nets, values, in_net, out_net, None, expect_drivers=2))
     check(
-        comparator_leg_refs == outbound_refs,
-        f"expected both comparator-optocoupler legs on the SAME package as the 4 outbound "
-        f"channels ({outbound_refs}) -- found {comparator_leg_refs}",
+        len(comparator_leg_refs) == 1 and outbound_refs <= next(iter(comparator_leg_refs)),
+        f"expected both comparator-optocoupler legs on the SAME pair of packages, one of "
+        f"which is the outbound package ({outbound_refs}) -- found "
+        f"{sorted(sorted(s) for s in comparator_leg_refs)}",
+    )
+    comparator_pair = next(iter(comparator_leg_refs))
+    # RHS_STIM_OUT_BUF (F1): both legs deliberately on the outbound package itself, which
+    # already takes RHS_STIM_OUT as an input on its Connector-1 channel. A package
+    # carrying BOTH legs of one LED sinks that LED's whole ~12.7mA rather than half, which
+    # is far inside the 75mA ground-pin limit -- unlike the eight-LED _BUF packages, where
+    # the pair genuinely has to span two packages.
+    rhs_pair = _check_outbound_channel(nets, values, "RHS_STIM_OUT", "RHS_STIM_OUT_BUF", None, expect_drivers=2)
+    check(
+        rhs_pair == outbound_refs,
+        f"expected both RHS_STIM_OUT_BUF legs on the outbound package "
+        f"({outbound_refs}), which already has RHS_STIM_OUT as an input -- found "
+        f"{sorted(rhs_pair)}",
     )
     summary.append(
-        f"All 7 dedicated optocoupler-drive legs walked end to end: 5 on {second_leg_ref} "
-        f"(the _BUF bank's own third package, now 8 of 8 channels) and 2 on "
-        f"{next(iter(outbound_refs))} (the outbound package, now 6 of 8), none of them "
-        f"reaching Connector 1."
+        f"All 9 dedicated optocoupler-drive legs walked end to end, each as an F1 "
+        f"PARALLELED PAIR: 5 on {second_leg_ref}+{second_leg_mirror} (the _BUF bank's own "
+        f"third package and its parallel mirror), 2 on {sorted(comparator_pair)} and 2 "
+        f"(RHS_STIM_OUT_BUF) on {outbound_ref} itself -- none of them reaching Connector 1."
     )
     summary.append(_check_one_led_per_driver_pin(nets, values))
 
@@ -1063,7 +1144,12 @@ def self_test(
     dropped_fork = copy.deepcopy(good_nets)
     buf_node = next(n for n in dropped_fork["EVT_D0_CLAMP"] if good_values.get(n.ref) == "SN74AHCT541PW")
     dropped_fork["EVT_D0_CLAMP"] = [n for n in dropped_fork["EVT_D0_CLAMP"] if n != buf_node]
-    msg = _assert_fails(dropped_fork, good_values, "expected exactly 4 nodes", "EVT_D0_CLAMP loses its _BUF fork")
+    # Asserts on the INVARIANT part of the complaint, not on the node count: that count is
+    # 4 -> 5 at F1 (the parallel leg's input joins the same protected node) and would move
+    # again if another buffered copy were ever added, and a control pinned to the number
+    # fails as "wrong complaint" every time -- which is how this one behaved when F1 first
+    # changed it. The property under test is that the node-count check fires at all.
+    msg = _assert_fails(dropped_fork, good_values, "nodes (series R, clamp diode", "EVT_D0_CLAMP loses its _BUF fork")
     results.append(f"Missing _BUF-bank fan-out (EVT_D0_CLAMP's HCT541 input dropped): caught -- {msg}")
 
     # Outbound-channel permutation: swap PD1_COMP_TPC's and PD2_COMP_TPC's own outbound

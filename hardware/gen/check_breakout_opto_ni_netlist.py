@@ -12,7 +12,7 @@ impossible to do silently on THIS sheet's own 24 channels.
 THE CENTRAL RISKS this file exists to catch, named explicitly by this task's own brief:
 
   1. All 24 channels must exist and cross the DGND->NI_GND barrier -- source_net (cathode)
-     -> LED (430R to +5V) -> ACSL-6400 -> pull-up (3.9k to NI_5V) -> final_net -> Connector
+     -> LED (249R to +5V) -> ACSL-6400 -> pull-up (3.9k to NI_5V) -> final_net -> Connector
      1's own REAL, sourced physical pin. Walked end to end per channel, not assumed from
      net names alone.
   2. The NI-isolated domain (NI_5V, NI_GND, every *_NI net) must be PIN-DISJOINT from every
@@ -27,7 +27,7 @@ THE CENTRAL RISKS this file exists to catch, named explicitly by this task's own
      that limit -- never 1k (the mule's own value) and never +5V (which would short the
      isolated output rail onto the non-isolated one, silently defeating the barrier while
      still looking like "a resistor to a valid power net" to ERC).
-  4. LED current-setting resistors are 430R (the value this sheet's own generator derives
+  4. LED current-setting resistors are 249R (the value this sheet's own generator derives
      for ~7.33mA, roughly half ACSL-6400's own datasheet-recommended top-of-range current).
   5. The MDR68 Connector 1 pin assignment matches NI's own X Series User Manual Figure
      A-18 -- redefined here from the SAME source, independently of
@@ -110,7 +110,12 @@ ACSL6400_PIN_VDD = ["10", "15"]
 ACSL6400_ALL_PINS = {p for triplet in ACSL6400_CH_PINS.values() for p in triplet} | set(ACSL6400_PIN_GND) | set(ACSL6400_PIN_VDD)
 assert ACSL6400_ALL_PINS == {str(n) for n in range(1, 17)}, sorted(ACSL6400_ALL_PINS, key=int)
 
-LED_R_OHMS = "430"
+LED_R_OHMS = "249"  # FINDING F1, 2026-08-16 -- was 430R, which under-drove every one of
+# these 24 LEDs (~5mA worst case against a 7.0mA I_FH minimum: the original sizing used
+# the rail's NOMINAL 5.00V, but +5V reaches these anodes through F4 and D3, and it used
+# V_F typ where the worst case is 1.80V). See gen_breakout_opto_ni.py's own LED_R_OHMS
+# comment for the full derivation, and note this value is ONLY safe because F1's other
+# half parallels two buffer outputs per LED.
 PULLUP_OHMS = "3.9k"  # fix round 1 -- corrected from 10k, which exceeded ACSL-6400's own
 # datasheet RL-max (4k); see gen_breakout_opto_ni.py's own module docstring, NI-SIDE
 # PULL-UP, and .superpowers/sdd/2026-08-13-breakout-pcb/task-11-report.md's "Fix round 1".
@@ -123,7 +128,12 @@ NI_CHANNELS = (
         ("RWD_CMD_BUF", "RWD_CMD_NI", 26),
         ("RWD_DLVR_BUF", "RWD_DLVR_NI", 27),
         ("STIM_TRIG_BUF", "STIM_TRIG_NI", 28),
-        ("RHS_STIM_OUT", "RHS_STIM_OUT_NI", 29),
+        # FINDING F1, 2026-08-16 -- was the bare "RHS_STIM_OUT". That was the one channel
+        # here whose LED hung directly on an ACSL-6420 output rather than a buffered leg,
+        # a deliberate exception that was correct at 430R (8.6mA of a 13mA budget) and
+        # stopped being correct at 249R (~13.9mA with the pull-up). See
+        # gen_breakout_opto_ni.py's own NI_CHANNELS comment.
+        ("RHS_STIM_OUT_BUF", "RHS_STIM_OUT_NI", 29),
         ("PD1_COMP_BUF", "PD1_COMP_NI", 30),
         ("PD2_COMP_BUF", "PD2_COMP_NI", 31),
     ]
@@ -188,7 +198,7 @@ def _mdr68_ref(values: dict[str, str]) -> str:
 
 
 def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
-    """Walk all 24 channels: source_net (cathode) -> LED (430R to +5V) -> ACSL-6400 ->
+    """Walk all 24 channels: source_net (cathode) -> LED (249R to +5V) -> ACSL-6400 ->
     pull-up (3.9k to NI_5V) -> final_net -> Connector 1's own real, sourced physical pin.
     Confirms every hop belongs to the SAME physical parts, not just that each net
     individually looks plausible (module docstring, risk 1).
@@ -254,7 +264,7 @@ def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, st
             f"found -- expected the LED's cathode driven directly from the source net",
         )
 
-        # Anode: LED resistor 430R bridges +5V <-> anode_net, and anode_net carries
+        # Anode: LED resistor 249R bridges +5V <-> anode_net, and anode_net carries
         # (pkg_ref, anode_pin).
         anode_net = _node_net(nets, pkg_ref, anode_pin)
         check(anode_net != source_net, f"{pkg_ref} pin {anode_pin} (ANODE) is on the same net as the CATHODE/source -- LED shorted")
@@ -282,7 +292,7 @@ def _check_channels_end_to_end(nets: dict[str, list[Node]], values: dict[str, st
         f"idle or two channels share one VOx pin (already caught above if so)",
     )
     summary = (
-        f"All 24 channels walked end to end (source_net -[LED 430R]-> ACSL-6400 -[3.9k "
+        f"All 24 channels walked end to end (source_net -[LED 249R]-> ACSL-6400 -[3.9k "
         f"pull-up]-> final_net -> Connector 1's own sourced physical pin), each on its "
         f"own distinct (package, VOx) pair across exactly 6 {ACSL6400_VALUE!r} instances."
     )
@@ -398,7 +408,7 @@ def _check_one_led_per_source_net(nets, sheet_label: str, source_nets) -> str:
     """Every LED cathode net named by this sheet's own channel table carries EXACTLY ONE
     optocoupler LED cathode pin, BOARD-WIDE.
 
-    Not a stylistic check. Each ACSL LED here is fed from +5V (or ISO_5V) through 430R and
+    Not a stylistic check. Each ACSL LED here is fed from +5V (or ISO_5V) through 249R and
     draws ~7.33mA -- a value chosen to sit inside the part's own 7-15mA recommended band
     and clear of its 7.0mA worst-case switching threshold, so it cannot simply be lowered.
     Two LEDs on one net means two LEDs on one driver pin: 14.7mA against SN74HCT541's 6mA
@@ -502,8 +512,11 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     anode_net = _node_net(good_nets, sorted(acsl_refs, key=lambda r: int(r[1:]))[0], "1")
     r_led = _find_bridging_resistor(good_nets, "+5V", anode_net)
     drifted2[r_led] = "330"
-    msg = _assert_fails(good_nets, drifted2, "expected '430'", f"{r_led} (EVT_D0_NI's own LED resistor) drifted 430->330 (the mule's own value)")
-    results.append(f"LED resistor value drift (430 -> the mule's own 330, {r_led}): caught -- {msg}")
+    # The complaint text this asserts on tracks LED_R_OHMS, which changed at F1 -- a
+    # negative control that still asserted on "expected '430'" would fail as "wrong
+    # complaint" rather than pass, which is exactly what it is for.
+    msg = _assert_fails(good_nets, drifted2, f"expected {LED_R_OHMS!r}", f"{r_led} (EVT_D0_NI's own LED resistor) drifted {LED_R_OHMS}->330 (the mule's own value)")
+    results.append(f"LED resistor value drift ({LED_R_OHMS} -> the mule's own 330, {r_led}): caught -- {msg}")
 
     # (4) Connector 1 physical-pin permutation: EVT_D2_NI and EVT_D7_NI swapped.
     swapped = copy.deepcopy(good_nets)

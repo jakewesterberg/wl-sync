@@ -217,9 +217,14 @@ CONTRACT_NETS = (
     # sheets consume, exactly like the *_BUF nets above.
     + ["EVT_STROBE_INTAN_BUF", "RWD_CMD_INTAN_BUF", "STIM_TRIG_INTAN_BUF"]
     + ["RWD_DLVR_BUF", "RWD_DLVR_INTAN_BUF", "PD1_COMP_BUF", "PD2_COMP_BUF"]
+    # Finding F1 (2026-08-16): RHS_STIM_OUT's own optocoupler LED moves onto a buffered
+    # leg, like every other opto-ni channel -- see RHS_STIM_OUT_BUF_LEGS. This is a net
+    # this sheet PRODUCES and opto-ni.kicad_sch consumes, exactly like the *_BUF nets
+    # above; RHS_STIM_OUT itself remains an INPUT here, driven by opto-intan's ACSL-6420.
+    + ["RHS_STIM_OUT_BUF"]
     + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 7 + 9 == 77
+assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 7 + 1 + 9 == 78
 
 # ---------------------------------------------------------------------------
 # Real physical MDR68 pin assignment, SOURCED (fix round 1; task-8-report.md's own "Fix
@@ -342,9 +347,16 @@ Y_LVC1, Y_LVC2, Y_LVC3 = GRID(60.96), GRID(137.16), GRID(213.36)
 X_HCTBUF = GRID(310)
 Y_HCTBUF1, Y_HCTBUF2, Y_HCTBUF3 = GRID(60.96), GRID(137.16), GRID(213.36)
 
-# Outbound HCT541 (+5V), 1 package, 6 of 8 channels used (4 outbound + 2 comparator-opto
-# legs -- see COMPARATOR_OPTO_LEGS).
+# Outbound HCT541 (+5V), 1 package, 8 of 8 channels used (4 outbound + 2 comparator-opto
+# legs -- see COMPARATOR_OPTO_LEGS -- + 2 RHS_STIM_OUT_BUF legs added at F1).
 X_OUTBUF, Y_OUTBUF = GRID(220), GRID(260)
+
+# F1 parallel-leg bank (+5V), 4 packages -- the SECOND output of every optocoupler LED
+# pair. Its own column, well clear of every existing anchor (the rightmost of those is
+# the X_NOTE4 text block at 400; the one-shot occupies 260-320), so nothing here can
+# collide with an already-placed part. Same 76.2mm row pitch as the _BUF bank it mirrors.
+X_PARALLEL = GRID(560)
+Y_PARALLEL = [GRID(60.96), GRID(137.16), GRID(213.36), GRID(289.56)]
 
 # Reward OR block.
 X_RWD_BTN, Y_RWD_BTN = GRID(20), GRID(300)
@@ -398,11 +410,16 @@ CHAN_A = {i: str(2 + i) for i in range(8)}   # 74x541 unit-1 pin numbers: A0..A7
 CHAN_Y = {i: str(18 - i) for i in range(8)}  # ...and Y0..Y7, paired by channel: Ai+Yi=20
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", ref=None):
     """Place a 2-pin part between two labeled nets -- same pattern as gen_mule.py's and
     gen_breakout_power.py's own two_pin() (duplicated rather than imported: kicad_sch.py,
-    not any one generator, is this project's shared machinery)."""
-    ref = sch.next_ref(ref_prefix)
+    not any one generator, is this project's shared machinery).
+
+    `ref`, when given, is an EXPLICIT out-of-band refdes used instead of next_ref() --
+    the same mechanism place_reward_oneshot() already uses for R191/C149/C150, needed
+    again for the F1 packages' own decoupling capacitors. See PARALLEL_LEG_PACKAGES.
+    """
+    ref = ref or sch.next_ref(ref_prefix)
     pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint)
     x1, y1 = pin_pos(x, y, pins["1"])
     sch.label(net1, x1, y1)
@@ -446,7 +463,8 @@ def bidirectional_clamp(sch, x, y, net_signal, net_hi, net_lo):
     return ref
 
 
-def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs, role_key, footprint):
+def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs, role_key,
+                       footprint, ref=None, cap_ref=None):
     """Place one 74x541-family octal buffer (LVC541 on +3V3, or HCT541 on +5V -- same
     physical pinout either way, see CHAN_A/CHAN_Y: input Ai at KiCad pin 2+i, tri-state
     output Yi at pin 18-i, so Ai+Yi=20 for every channel of every instance -- the
@@ -456,8 +474,18 @@ def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs,
     channels; channels not present are tied off safely (input -> DGND, output ->
     no-connect) -- gen_mule.py's own place_541() precedent, never leave a CMOS buffer
     input floating even when its output drives nothing.
+
+    Two channels MAY name the same output_net deliberately: that is finding F1's
+    paralleling, and it needs nothing special here because a net is a net -- what makes
+    it safe is that both channels also name the same INPUT net, which
+    PARALLEL_LEG_PACKAGES constructs by mirroring rather than by re-listing, and which
+    tests/hardware/test_netlist.py asserts independently.
+
+    `ref`/`cap_ref`, when given, are EXPLICIT out-of-band refdes used instead of
+    next_ref() -- see PARALLEL_LEG_PACKAGES for why F1's four new packages must be
+    minted that way.
     """
-    ref = sch.next_ref("U")
+    ref = ref or sch.next_ref("U")
     pins = sch.place(
         libname, symname, ref, value, x, y,
         footprint=footprint,
@@ -483,7 +511,8 @@ def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs,
     sch.label("DGND", gx, gy)
     vx, vy = pin_pos(x, y, pins["20"])
     sch.label(rail, vx, vy)
-    cap_ref = two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND", footprint=FOOTPRINT_C_SMALL)
+    cap_ref = two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND",
+                      footprint=FOOTPRINT_C_SMALL, ref=cap_ref)
     refs.setdefault(role_key, []).append(ref)
     refs.setdefault(role_key + "_decouple_c", []).append(cap_ref)
     return ref
@@ -874,6 +903,60 @@ COMPARATOR_OPTO_LEGS = [
     (5, "PD2_COMP", "PD2_COMP_BUF"),
 ]
 
+# ---------------------------------------------------------------------------
+# FINDING F1(b) -- TWO BUFFER OUTPUTS PER OPTOCOUPLER LED (parametric-audit.md,
+# 2026-08-16).
+#
+# The other half of F1. The resistor half alone (430R -> 249R, so the LED actually clears
+# its 7-8mA switching floor) was implemented once, verified, and REVERTED, because it is
+# not shippable on its own: 249R draws ~12.7mA, and one SN74AHCT541 output is budgeted at
+# 7.5mA. Neither value works alone -- 430R starves the LED below its switching threshold,
+# 249R overloads the driver -- so the two halves land together or not at all.
+#
+# Paralleling two outputs per LED halves the per-pin load to ~6.3mA and, just as
+# importantly, fixes a PACKAGE-level limit that no per-pin check could see: the AHCT541's
+# GND-pin absolute maximum is 75mA (SCLS269Q Sec.4.1) and U8/U9 each drive EIGHT LEDs.
+# The drive is active-low and the event bus idles at 0x0000, so sixteen LEDs are lit
+# CONTINUOUSLY -- a steady state, not a transient. At 249R unparalleled that is ~101mA
+# through one ground pin.
+#
+# THE MIRRORS ARE COMPUTED, NOT RE-LISTED. Each new package takes the (input, output)
+# pairs of the package it doubles, straight from the same tables that built the original
+# -- so a channel cannot be added to one leg and forgotten on the other, and the "both
+# outputs must share one input net" safety property (two tri-state outputs disagreeing is
+# a short across the die, not a marginal load) holds by construction rather than by
+# review. tests/hardware/test_netlist.py checks it independently anyway.
+#
+# REFDES ARE MINTED OUT OF BAND, exactly as U69/R191/C149-C150 already are on this sheet
+# (see place_reward_oneshot()'s own REFDES note) and for the identical reason: an
+# ordinary next_ref() call here would renumber every part this file places AFTER it, and
+# every downstream sibling sheet seeded its own counters from this file's committed
+# maxima. U70-U73 and C151-C154 sit above the whole board's current maximum (U69, C150),
+# so they collide with nothing and move nothing.
+#
+# COUNT: this takes the board from 5 AHCT541 packages to 9. The audit estimated 9 from
+# "30 LEDs plus ~12 other outputs"; the figure derived from the real netlist is the same
+# 9 but for slightly different reasons -- 2 of those 30 LEDs are not buffer-driven at all
+# (RHS_STIM_OUT's LED is driven by an ACSL-6420 output, and OPTO_INTAN_SPARE1_IN is an
+# unpopulated spare), there are 8 rather than ~12 other outputs, and F1 itself adds a
+# 29th buffer-driven LED by moving RHS_STIM_OUT's LED onto a buffered leg (see
+# RHS_STIM_OUT_BUF_LEGS). 29 LEDs x 2 + 8 others = 66 channels = 9 packages, with 6
+# spare -- which is also what finding F4 needs when the camera triggers are respread.
+PARALLEL_LEG_REFS = [("U70", "C151"), ("U71", "C152"), ("U72", "C153"), ("U73", "C154")]
+
+# RHS_STIM_OUT's own LED needs a buffered leg, which it did not have before F1. Its
+# driver is an ACSL-6420 output (opto-intan's inbound channel), NOT a buffer, so it
+# cannot be paralleled -- and at 249R its LED alone draws ~12.7mA, which with the 3.9k
+# pull-up already on that net is ~13.9mA against the ACSL's own 13mA I_OL budget. It was
+# the ONE channel of opto-ni's 24 whose LED hung directly on a non-buffer output; at 430R
+# that was comfortably inside spec (8.6mA) and gen_breakout_opto_ni.py's own
+# NI_CHANNELS comment records it as a deliberate, checked exception. The resistor change
+# retires that exception, so the LED moves to a buffered leg like every other channel and
+# the ACSL output is left driving only its pull-up (~1.2mA). U11's channel 3 already
+# takes RHS_STIM_OUT as an input, so both legs sit on the package that already has it.
+RHS_STIM_OUT_BUF_LEGS = [(6, "RHS_STIM_OUT", "RHS_STIM_OUT_BUF"),
+                         (7, "RHS_STIM_OUT", "RHS_STIM_OUT_BUF")]
+
 
 def _place_connector0(sch, refs):
     """Step 1, Connector 0: analog + AISENSE, per spec Sec.9.2's own confirmed split
@@ -1085,11 +1168,13 @@ def _place_inbound(sch, refs):
     for line_idx, line in enumerate([
         "ONE OPTOCOUPLER LED PER DRIVER PIN.",
         "",
-        "Each ACSL-6400/6420 LED on this board is fed from +5V through 430R and draws",
-        "~7.33mA (gen_breakout_opto_ni.py's own derivation: the value is chosen to sit",
-        "inside the part's 7-15mA recommended band and clear of its 7.0mA worst-case",
-        "switching threshold, so it cannot simply be reduced). A driver pin with TWO of",
-        "them sinks 14.7mA.",
+        "Each ACSL-6400/6420 LED on this board is fed from +5V through 249R and draws",
+        "~12.7mA as of finding F1 (2026-08-16; it was 430R/~7.33mA when this note was",
+        "written, which under-drove every LED on the board -- see the F1 note block).",
+        "The value cannot simply be reduced: it is pinned between the part's 7-15mA",
+        "recommended band and its 7.0mA worst-case switching threshold. A driver pin",
+        "with TWO LEDs on it sinks double, which is what this note block is about; F1",
+        "separately gives each SINGLE LED two outputs, which is the opposite thing.",
         "",
         "The _BUF bank names 19 SIGNALS, but the board carries 30 LEDs. The 11 unnamed",
         "ones were doubled up: EVT_STROBE_BUF, RWD_CMD_BUF and STIM_TRIG_BUF each fed",
@@ -1179,6 +1264,16 @@ def _place_outbound(sch, refs):
     STILL_PENDING_OUTBOUND is now empty -- all 4 outbound channels have a real driver.
     """
     channels = {i: (in_net, out_net) for i, (in_net, out_net) in enumerate(OUTBOUND_CHANNELS)}
+    # Plus, at F1, this package's own last 2 spare channels: BOTH legs of
+    # RHS_STIM_OUT_BUF. See RHS_STIM_OUT_BUF_LEGS for why that LED needed a buffered leg
+    # at all once the resistor changed. Both legs land here rather than one here and one
+    # on the parallel bank because channel 3 already takes RHS_STIM_OUT as its input, so
+    # the whole pair sits on the package that already has the signal -- and a package
+    # carrying both legs of one LED still only sinks that LED's ~12.7mA, nowhere near the
+    # 75mA ground-pin limit. 8 of 8 channels used after this.
+    for local, in_net, out_net in RHS_STIM_OUT_BUF_LEGS:
+        assert local not in channels, f"RHS_STIM_OUT_BUF leg {local} collides with an outbound channel"
+        channels[local] = (in_net, out_net)
     # Plus the 2 comparator-optocoupler legs -- see COMPARATOR_OPTO_LEGS' own comment.
     # These take the same 2 input nets channels 0/1 already take (PD1_COMP/PD2_COMP) and
     # produce a SECOND buffered copy each, for opto-ni.kicad_sch's own U61 LEDs, so that
@@ -1223,6 +1318,84 @@ def _place_outbound(sch, refs):
         "re-derived signal.",
     ]):
         sch.text(line, GRID(X_OUTBUF - 40.64), GRID(Y_OUTBUF + 30 + line_idx * 5.08))
+
+
+def _place_parallel_legs(sch, refs):
+    """Finding F1(b): the SECOND buffer output of every optocoupler LED pair, on four new
+    SN74AHCT541PW packages. See PARALLEL_LEG_REFS for the full account of why this exists
+    and why its refdes are minted out of band.
+
+    Every channel map below is DERIVED by mirroring the package it doubles, from the same
+    tables that built the original -- never re-listed. That is what makes the "both
+    outputs of a pair share one input net" property hold by construction: there is only
+    one list of pairs, used twice.
+
+    U73's own remaining 6 channels are genuine spares, tied off exactly as
+    place_octal_buffer() ties off any unused channel (input -> DGND, output ->
+    no-connect). They are the headroom finding F4 needs when the four camera triggers are
+    given one buffer channel each.
+    """
+    # Mirror of the three-package _BUF bank -- rebuilt here by the identical arithmetic
+    # _place_inbound() uses, so the two legs cannot drift apart.
+    buf_channels = [{}, {}, {}]
+    for ch_idx, _raw, clamp_net, _pi, buf_net in INBOUND_CHANNELS:
+        bank, local = divmod(ch_idx, 8)
+        buf_channels[bank][local] = (clamp_net, buf_net)
+    for local, in_net, out_net, _dest in SECOND_LEG_CHANNELS:
+        buf_channels[2][local] = (in_net, out_net)
+
+    # Mirror of the outbound package's LED-driving channels ONLY. Its other four outputs
+    # (PD1_COMP_TPC, PD2_COMP_TPC, ACC_TRIG_TPC, RHS_STIM_OUT_TPC) go to Connector 1's
+    # own DAQ input pins and drive no LED at all, so they need no second leg -- and
+    # paralleling them would be actively wrong, doubling the parts on a net for no load.
+    # RHS_STIM_OUT_BUF's two legs both live on U11 (see _place_outbound), so it does not
+    # appear here either.
+    outbound_led_mirror = {i: (in_net, out_net) for i, (_l, in_net, out_net)
+                           in enumerate(COMPARATOR_OPTO_LEGS)}
+
+    banks = buf_channels + [outbound_led_mirror]
+    assert len(banks) == len(PARALLEL_LEG_REFS) == len(Y_PARALLEL) == 4
+    for (u_ref, c_ref), channels, y in zip(PARALLEL_LEG_REFS, banks, Y_PARALLEL):
+        place_octal_buffer(
+            sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_PARALLEL, y, "+5V",
+            channels, refs, "hct541_parallel", FOOTPRINT_TSSOP20, ref=u_ref, cap_ref=c_ref,
+        )
+
+    for line_idx, line in enumerate([
+        "TWO BUFFER OUTPUTS PER OPTOCOUPLER LED (finding F1b, 2026-08-16).",
+        "",
+        "These four packages carry the SECOND output of every LED pair. They exist",
+        "because the LED series resistor had to fall from 430R to 249R -- at 430R the",
+        "LEDs were never guaranteed to switch (~5mA worst case against a 7.0mA I_FH",
+        "minimum, because the +5V rail reaches them through F4 and D3 and the original",
+        "sizing used a nominal 5.00V and a TYPICAL V_F) -- and 249R draws ~12.7mA,",
+        "which one AHCT541 output cannot sink. Neither value is shippable alone.",
+        "",
+        "It also fixes a PACKAGE limit no per-pin check can see. AHCT541's GND-pin",
+        "absolute maximum is 75mA; U8 and U9 drive eight LEDs each; the drive is",
+        "active-low and the event bus idles at 0x0000, so sixteen LEDs are lit",
+        "CONTINUOUSLY. At 249R unparalleled that is ~101mA through one ground pin.",
+        "Paralleled it is ~51mA, and each output pin sees ~6.3mA of a 7.5mA budget.",
+        "",
+        "  U70  doubles U8   -- EVT_D0_BUF .. EVT_D7_BUF",
+        "  U71  doubles U9   -- EVT_D8_BUF .. EVT_D15_BUF",
+        "  U72  doubles U10  -- strobe/RWD_CMD/STIM_TRIG _BUF + the 5 second legs",
+        "  U73  doubles U11's two LED channels -- PD1_COMP_BUF, PD2_COMP_BUF",
+        "       (6 spare channels, the headroom finding F4's camera triggers need)",
+        "",
+        "Each pair shares ONE input net, and that is a safety requirement rather than",
+        "tidiness: two tri-state outputs on one net are safe only while both are",
+        "guaranteed to drive the same direction. If their inputs ever differed, one",
+        "would source while the other sinks, limited by nothing but the two output",
+        "stages. The channel maps here are MIRRORED from the tables that built the",
+        "first leg rather than retyped, so the two cannot drift apart.",
+        "",
+        "REFDES U70-U73/C151-C154 are minted OUT OF BAND (explicit strings, never",
+        "next_ref()), above the whole board's current maximum -- the same mechanism",
+        "U69/R191/C149-C150 already use here. An ordinary next_ref() would renumber",
+        "every part placed after it AND every downstream sibling sheet.",
+    ]):
+        sch.text(line, X_PARALLEL, GRID(380) + line_idx * NOTE_DY)
 
 
 def _place_reward_or(sch, refs):
@@ -1473,6 +1646,10 @@ def build() -> tuple[Sch, dict]:
     _place_inbound(sch, refs)
     _place_outbound(sch, refs)
     _place_reward_or(sch, refs)
+    # LAST, and after every next_ref()-using call above, deliberately: this places only
+    # out-of-band refdes (U70-U73/C151-C154), so its position cannot shift any counter --
+    # but keeping it last means that stays true even if it ever gains a next_ref() call.
+    _place_parallel_legs(sch, refs)
 
     return sch, refs
 

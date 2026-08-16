@@ -121,11 +121,13 @@ from __future__ import annotations
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import pytest
 
 SNAPSHOT = Path(__file__).parents[2] / "hardware" / "breakout" / "netlist-contract.json"
+PARAMS = Path(__file__).parents[2] / "hardware" / "datasheet-params.toml"
 
 Node = tuple[str, str, str, str]  # (ref, pin, pinfunction, pintype)
 
@@ -844,6 +846,22 @@ def _net_sink_ma(name, nl, nodes, values, rails, two_pin) -> tuple[float, list[s
 
 
 def _check_driver_pin_sink_load(nodes: dict[str, list[Node]], values: dict[str, str]) -> None:
+    """Per-PIN, which after finding F1 is not the same number as per-NET.
+
+    When two buffer outputs are tied together and both pull low, each sinks roughly half
+    the branch current -- so the load a PIN carries is the net total divided by the number
+    of outputs actually driving that net. Charging the whole branch to each pin (which is
+    what this check did before F1) rejects a design that is genuinely inside spec: 249R
+    delivers ~12.7mA, which is over one AHCT541 pin's 7.5mA budget and comfortably inside
+    two.
+
+    The division is deliberately by the count of DRIVING OUTPUTS ON THE NET, not by a
+    per-part assumption, and check 18b asserts separately that those outputs have tied
+    inputs -- without which they are not a parallel pair at all and the division would be
+    unearned. Splitting the two makes this check safe to divide: nothing can lower its
+    reported load except a second output that check 18b has already proved is wired to
+    drive in lockstep with the first.
+    """
     rails = _rail_nets(nodes)
     two_pin = _two_terminal_passive_refs(nodes)
     overloaded = []
@@ -857,16 +875,21 @@ def _check_driver_pin_sink_load(nodes: dict[str, list[Node]], values: dict[str, 
         if not drivers:
             continue
         total, why = _net_sink_ma(name, nl, nodes, values, rails, two_pin)
+        share = total / len(drivers)
         for ref, pin in drivers:
             budget = MAX_SINK_MA[values[ref]]
-            if total > budget + 1e-6:
-                overloaded.append((name, ref, pin, values[ref], round(total, 2), budget, why))
+            if share > budget + 1e-6:
+                overloaded.append((
+                    name, ref, pin, values[ref], round(share, 2), budget, len(drivers),
+                    round(total, 2), why,
+                ))
     assert not overloaded, (
         f"{len(overloaded)} driver pin(s) are asked to sink more than this board allows "
         f"that part:\n  "
         + "\n  ".join(
-            f"{ref} pin {pin} ({part}) on {net}: {tot}mA > {budget}mA -- " + "; ".join(why)
-            for net, ref, pin, part, tot, budget, why in overloaded
+            f"{ref} pin {pin} ({part}) on {net}: {sh}mA/pin > {budget}mA "
+            f"({tot}mA across {n} paralleled output(s)) -- " + "; ".join(why)
+            for net, ref, pin, part, sh, budget, n, tot, why in overloaded
         )
         + "\nThis is summed ACROSS SHEETS on purpose. The real defect was five nets each "
         "carrying two optocoupler LEDs (~14.7mA against a 6mA or 4mA IOL), and no checker "
@@ -899,6 +922,32 @@ def test_driver_pin_sink_load_fires_on_led_on_the_4ma_or_gate(nodes, values):
         _check_driver_pin_sink_load(corrupted, values)
 
 
+def test_driver_pin_sink_load_fires_on_dropping_one_of_a_parallel_pair(nodes, values):
+    """FINDING F1's OWN TRAP, made executable: keep the 249R resistor and ship only one
+    output per LED. That combination -- which is exactly what an earlier attempt at F1
+    did, and why it was reverted -- puts ~12.7mA on a pin budgeted at 7.5mA.
+
+    This is the control that keeps the per-pin division honest. The division is the one
+    thing F1 loosened in this check, so it needs a test proving it does not simply make
+    the check unfailable."""
+    corrupted = dict(nodes)
+    drivers = [n for n in nodes["EVT_D0_BUF"] if values.get(n[0]) == "SN74AHCT541PW"]
+    assert len(drivers) == 2, f"expected a paralleled pair on EVT_D0_BUF, found {drivers}"
+    corrupted["EVT_D0_BUF"] = [n for n in nodes["EVT_D0_BUF"] if n != drivers[-1]]
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF.*1 paralleled output"):
+        _check_driver_pin_sink_load(corrupted, values)
+
+
+def test_driver_pin_sink_load_fires_on_a_third_led_across_a_parallel_pair(nodes, values):
+    """The other way to abuse the division: keep the pair, add a third LED to the net.
+    Two outputs sharing three LEDs is ~19mA/pin. Proves the division scales the load
+    rather than excusing it."""
+    corrupted = dict(nodes)
+    corrupted["EVT_D0_BUF"] = list(nodes["EVT_D0_BUF"]) + [("U64", "2", "CATHODE1_2", "passive")]
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF"):
+        _check_driver_pin_sink_load(corrupted, values)
+
+
 def test_driver_pin_sink_load_fires_on_pullup_value_drift(nodes, values):
     """Not only LEDs: an NI-side pull-up edited from 3.9k to 100R, which alone puts the
     optocoupler's own output stage over its 13mA."""
@@ -907,3 +956,497 @@ def test_driver_pin_sink_load_fires_on_pullup_value_drift(nodes, values):
     corrupted_values[r_ref] = "100"
     with pytest.raises(AssertionError, match=r"EVT_D5_NI"):
         _check_driver_pin_sink_load(nodes, corrupted_values)
+
+
+# ===========================================================================
+# 15-18: THE OTHER HALF OF EVERY TWO-SIDED CONSTRAINT (finding F1,
+# hardware/breakout/parametric-audit.md).
+#
+# Check 14 above verifies that LED current does not EXCEED what the driver can sink.
+# Nobody checked that it REACHES what the optocoupler needs to switch. Half a two-sided
+# constraint was tested, and the untested half was wrong on 30 channels for seventy-three
+# commits: 430R against a 7.0mA I_FH minimum delivers 4.4mA worst case, so those channels
+# were never guaranteed to switch at all. Check 14 could not have caught it -- an
+# under-driven LED sinks LESS than the budget, which is exactly what check 14 calls
+# "pass".
+#
+# Every assertion below reads a VALUE and compares it against a DATASHEET LIMIT, rather
+# than reading a net and comparing it against an expected name. The limits come from
+# hardware/datasheet-params.toml -- a committed, static data file whose whole stated
+# purpose is that "parametric checkers import limits from here rather than re-typing
+# them, so a datasheet revision is a one-line change that propagates to every assertion".
+# Reading it keeps this file's own hard-won independence intact (no KiCad, no import of
+# hardware/gen/, runs unconditionally in CI): tomllib is stdlib, and the .toml is
+# committed exactly like the snapshot beside it.
+#
+#   15. Every LED branch's WORST-CASE forward current clears the ACSL-6xx0's own
+#       guardbanded switching floor -- the assertion whose absence let F1 survive.
+#   16. Every LED branch's BEST-CASE forward current stays under the part's ABSOLUTE
+#       MAXIMUM I_F. 15mA is an absolute maximum, not a recommendation; both ends of the
+#       7-15mA window are hard, so shrinking the resistor to fix check 15 has to be
+#       stopped from overshooting the other way.
+#   17. Package GROUND-pin current, summed across every channel of a package. The
+#       AHCT541's GND absolute maximum is 75mA, and the event bus idles at 0x0000 --
+#       active-low drive means sixteen LEDs are lit CONTINUOUSLY, a steady state rather
+#       than a transient. This is a per-PACKAGE limit that no per-PIN check can see.
+#   18. Outputs wired in parallel onto one net must have their INPUTS tied to one net
+#       too. Paralleling is what makes check 14 pass at 249R (the current divides), and
+#       it is only safe while both outputs are guaranteed to drive the same direction --
+#       two push-pull outputs disagreeing is a supply-to-ground short through the die,
+#       not a marginal load.
+# ===========================================================================
+
+
+def _load_params() -> dict:
+    """Datasheet limits, from the committed hardware/datasheet-params.toml. Missing is a
+    broken checkout, not a skippable condition -- same reasoning as `_load_snapshot()`."""
+    assert PARAMS.exists(), (
+        f"{PARAMS} is missing. It is committed to the repository -- its absence means the "
+        f"checkout is broken. Every limit below is a datasheet fact, not a preference."
+    )
+    return tomllib.loads(PARAMS.read_text())
+
+
+@pytest.fixture(scope="module")
+def params() -> dict:
+    return _load_params()
+
+
+# What sits in series BETWEEN a rail's nominal voltage and an LED anode fed from it, as
+# (typical, maximum) volts. This is the "and the series drops in front of the rail" clause
+# of the audit's own proposed assertion, and it is the entire reason F1 needs TWO resistor
+# values rather than one:
+#
+#   +5V   arrives at the LEDs through F4 (1206L050 polyfuse) and D3 (SS14 reverse-polarity
+#         diode), so the anode rail is NOT 5.00V. SS14's V_F is specified at 1.0A, not at
+#         the ~0.45-0.50A this rail carries (datasheet-params.toml's own `note` on [ss14]
+#         warns that using the 0.50V headline directly over-estimates the drop by enough
+#         to change the resistor), so the estimated-at-450mA figures are the right ones.
+#         The fuse contributes I x R_min.
+#   ISO_5V is regulated locally, on the isolated side of the barrier, with nothing in
+#         series -- so an LED fed from it sees the full 5.00V and the SAME resistor would
+#         push it past the absolute maximum. Hence 249R on +5V and 301R on ISO_5V.
+#   NI_5V  feeds no LED anode on this board (it feeds the NI-side pull-ups only), but is
+#         priced here so the guard below cannot be satisfied vacuously if that changes.
+#
+# Derived from datasheet-params.toml at call time rather than written as literals here --
+# see `_rail_series_drop_v()`.
+LED_RAIL_RATED_CURRENT_A = 0.495  # +5V worst-case rail load, parametric-audit.md M7's own
+# "392 / 495 mA" figure -- the current the series drop is evaluated AT.
+
+# The external +5V supply's tolerance. F1 makes this LOAD-BEARING rather than incidental:
+# at a +-5% supply the LED tolerance spread is 1.95:1 against a 2.14:1 window, which fits
+# with nothing to spare, so the fix shrinks the SPREAD rather than chasing the resistor.
+# This number is therefore a specification the rig must meet, not an observation -- it
+# belongs beside the current rating in the spec, and this assertion is what holds the
+# design to it.
+SUPPLY_TOL = 0.02
+# E96 values (249, 301) are 1% parts; E24 (430) is nominally 5% but is held to the same
+# 1% here deliberately, so a regression to a loose value cannot hide behind a wider
+# tolerance band than the part it replaced.
+R_LED_TOL = 0.01
+
+
+def _rail_series_drop_v(params: dict) -> dict[str, tuple[float, float]]:
+    """{rail: (typical, maximum) volts dropped between the rail's nominal voltage and an
+    LED anode fed from it} -- computed from the pinned datasheet parameters of the parts
+    actually in the path, never written down as a literal."""
+    fuse_r = params["polyfuse_1206l050"]["r_min_ohm"]
+    fuse_drop = LED_RAIL_RATED_CURRENT_A * fuse_r
+    diode = params["ss14"]
+    return {
+        "+5V": (diode["v_f_estimated_at_450ma_typ_v"] + fuse_drop,
+                diode["v_f_estimated_at_450ma_max_v"] + fuse_drop),
+        "ISO_5V": (0.0, 0.0),
+        "NI_5V": (0.0, 0.0),
+    }
+
+
+def _led_branches(nodes: dict[str, list[Node]], values: dict[str, str], two_pin) -> list[dict]:
+    """Every optocoupler LED on the board, with the rail and resistor that set its current.
+
+    Found structurally, from the ACSL symbols' own ANODEn/CATHODEn pinfunctions, rather
+    than from any enumerated list of channels -- the same decision checks 13 and 14 above
+    already made and for the same reason: every defect these exist to catch arrived as a
+    LATER sheet adding a channel an earlier list could not have anticipated. All 32 LED
+    positions on this board (30 on +5V, 2 on ISO_5V) are picked up automatically.
+    """
+    out = []
+    for name, nl in nodes.items():
+        for ref, pin, pf, _pt in nl:
+            if not (pf or "").startswith("CATHODE"):
+                continue
+            chan = pf[len("CATHODE"):].split("_")[0]
+            anode_net = next(
+                (n2 for n2, nl2 in nodes.items() for r2, _p2, pf2, _t2 in nl2
+                 if r2 == ref and (pf2 or "").startswith(f"ANODE{chan}_")),
+                None,
+            )
+            assert anode_net, f"{name}: LED cathode {ref}.{pin} ({pf}) has no matching ANODE{chan} pin"
+            for r_ref in {r for r, _p, _pf, _t in nodes[anode_net]} & set(two_pin):
+                rail = next((n for n in two_pin[r_ref] if n in ("+5V", "ISO_5V", "NI_5V")), None)
+                ohms = _parse_ohms(values.get(r_ref, ""))
+                if rail is None or not ohms:
+                    continue
+                out.append({
+                    "cathode_net": name, "opto": ref, "pin": pin,
+                    "rail": rail, "r_ref": r_ref, "ohms": ohms,
+                })
+    return out
+
+
+def _led_current_bounds_ma(branch: dict, params: dict, drops: dict) -> tuple[float, float]:
+    """(worst-case minimum, best-case maximum) forward current for one LED branch, in mA.
+
+    The minimum stacks every tolerance the wrong way at once -- low supply, maximum
+    series drop in front of the rail, maximum LED V_F, maximum driver V_OL, high
+    resistor -- because that is the corner in which a marginal part fails to switch, and
+    "it works on the bench" is exactly how F1 survived. The maximum stacks them the other
+    way against an ABSOLUTE maximum, where a single overshooting unit is a dead part.
+    """
+    acsl, drv = params["acsl_6xx0"], params["sn74ahct541"]
+    nominal = RAIL_VOLTS[branch["rail"]]
+    drop_typ, drop_max = drops[branch["rail"]]
+    i_min = (
+        (nominal * (1 - SUPPLY_TOL) - drop_max - acsl["v_f_max_v"] - drv["v_ol_max_v"])
+        / (branch["ohms"] * (1 + R_LED_TOL))
+    ) * 1000
+    # Best case: the driver is barely conducting, so V_OL falls toward zero rather than
+    # its rated value at full I_OL -- not a tolerance that can be stacked favourably here.
+    i_max = (
+        (nominal * (1 + SUPPLY_TOL) - drop_typ - acsl["v_f_min_v"])
+        / (branch["ohms"] * (1 - R_LED_TOL))
+    ) * 1000
+    return i_min, i_max
+
+
+def _check_led_current_clears_switching_floor(nodes, values, params) -> None:
+    two_pin = _two_terminal_passive_refs(nodes)
+    drops = _rail_series_drop_v(params)
+    floor = params["acsl_6xx0"]["i_fh_recommended_min_ma"]
+    branches = _led_branches(nodes, values, two_pin)
+    assert branches, "no optocoupler LED branches found at all -- this check would pass vacuously"
+    unpriced = {b["rail"] for b in branches} - set(drops)
+    assert not unpriced, (
+        f"LED anode rail(s) {sorted(unpriced)} have no series-drop entry -- add one. A rail "
+        f"with drops in front of it that nobody priced is precisely how F1 happened: the "
+        f"resistor was sized against 5.00V at the anode, and the anode never saw 5.00V."
+    )
+    starved = []
+    for b in branches:
+        i_min, _ = _led_current_bounds_ma(b, params, drops)
+        if i_min < floor - 1e-9:
+            starved.append((b, round(i_min, 2)))
+    assert not starved, (
+        f"{len(starved)} optocoupler LED branch(es) are not guaranteed to switch -- "
+        f"worst-case forward current below the ACSL-6xx0's own {floor}mA recommended "
+        f"minimum (Broadcom AV02-0235EN Recommended Operating Conditions, footnote b: "
+        f"'It is recommended that minimum 8 mA be used for best performance and to permit "
+        f"guardband for LED degradation'; the hard I_FH minimum below which the part is "
+        f"not specified to switch at all is "
+        f"{params['acsl_6xx0']['i_fh_min_ma']}mA):\n  "
+        + "\n  ".join(
+            f"{b['cathode_net']}: LED {b['opto']}.{b['pin']} via {b['r_ref']}={b['ohms']:.0f}R "
+            f"from {b['rail']}: {ma}mA worst case"
+            for b, ma in starved
+        )
+        + "\nThis is the OTHER HALF of check 14 above. That check verifies current does "
+        "not EXCEED what the driver can sink; this one verifies it REACHES what the "
+        "optocoupler needs to switch. Half of a two-sided constraint was tested and the "
+        "untested half was wrong on 30 channels for seventy-three commits."
+    )
+
+
+def test_led_current_clears_switching_floor(nodes, values, params):
+    _check_led_current_clears_switching_floor(nodes, values, params)
+
+
+def test_led_current_clears_switching_floor_fires_on_resistor_drift(nodes, values, params):
+    """The defect verbatim: one LED resistor back at the original 430R, which delivers
+    ~5mA worst case against an 8mA floor."""
+    b = next(b for b in _led_branches(nodes, values, _two_terminal_passive_refs(nodes))
+             if b["cathode_net"] == "EVT_D0_BUF")
+    corrupted = dict(values)
+    corrupted[b["r_ref"]] = "430"
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF.*430R"):
+        _check_led_current_clears_switching_floor(nodes, corrupted, params)
+
+
+def test_led_current_clears_switching_floor_fires_on_iso_rail_using_the_main_value(nodes, values, params):
+    """The reason F1 needs TWO resistor values and not one. `+5V` reaches its LEDs through
+    F4 and D3; `ISO_5V` is regulated locally with nothing in series. This control proves
+    the check is genuinely rail-aware -- it moves an ISO_5V branch's resistor to the +5V
+    value, which is a real over-drive on that rail, and must be caught by check 16 rather
+    than passing because 'it is the same part'."""
+    iso = next(b for b in _led_branches(nodes, values, _two_terminal_passive_refs(nodes))
+               if b["rail"] == "ISO_5V")
+    _, i_max_iso = _led_current_bounds_ma({**iso, "ohms": 249.0}, params, _rail_series_drop_v(params))
+    assert i_max_iso > params["acsl_6xx0"]["i_f_abs_max_ma"], (
+        f"a 249R resistor on ISO_5V gives {i_max_iso:.1f}mA best case, which must exceed "
+        f"the part's absolute maximum for the two-value split to be load-bearing"
+    )
+
+
+# --- 16: LED current stays under the part's ABSOLUTE MAXIMUM I_F. ----------------------
+
+
+def _check_led_current_under_absolute_maximum(nodes, values, params) -> None:
+    two_pin = _two_terminal_passive_refs(nodes)
+    drops = _rail_series_drop_v(params)
+    ceiling = params["acsl_6xx0"]["i_f_abs_max_ma"]
+    branches = _led_branches(nodes, values, two_pin)
+    assert branches, "no optocoupler LED branches found at all -- this check would pass vacuously"
+    overdriven = []
+    for b in branches:
+        _, i_max = _led_current_bounds_ma(b, params, drops)
+        if i_max > ceiling + 1e-9:
+            overdriven.append((b, round(i_max, 2)))
+    assert not overdriven, (
+        f"{len(overdriven)} optocoupler LED branch(es) can exceed the ACSL-6xx0's "
+        f"ABSOLUTE MAXIMUM forward current of {ceiling}mA (Broadcom AV02-0235EN Absolute "
+        f"Maximum Ratings, 'Average Forward Input Current (per channel) I_F'):\n  "
+        + "\n  ".join(
+            f"{b['cathode_net']}: LED {b['opto']}.{b['pin']} via {b['r_ref']}={b['ohms']:.0f}R "
+            f"from {b['rail']}: {ma}mA best case"
+            for b, ma in overdriven
+        )
+        + "\n15mA is an absolute maximum, not a recommendation, so BOTH ends of the "
+        "7-15mA window are hard. This check exists so that shrinking the resistor to "
+        "clear the switching floor (check 15) cannot overshoot the other way -- 240R was "
+        "rejected during the audit for landing at 99% of this limit."
+    )
+
+
+def test_led_current_under_absolute_maximum(nodes, values, params):
+    _check_led_current_under_absolute_maximum(nodes, values, params)
+
+
+def test_led_current_under_absolute_maximum_fires_on_undersized_resistor(nodes, values, params):
+    """Overshooting the other way: 150R, comfortably clear of the switching floor and
+    straight past the absolute maximum."""
+    b = next(b for b in _led_branches(nodes, values, _two_terminal_passive_refs(nodes))
+             if b["cathode_net"] == "EVT_D0_BUF")
+    corrupted = dict(values)
+    corrupted[b["r_ref"]] = "150"
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF.*150R"):
+        _check_led_current_under_absolute_maximum(nodes, corrupted, params)
+
+
+# --- 17/18: paralleled outputs -- the second half of F1. -------------------------------
+
+_BUFFER_OUT_RE = re.compile(r"^Y(\d+)_")
+_BUFFER_IN_RE = re.compile(r"^A(\d+)_")
+
+# Parts whose outputs this board is allowed to wire in parallel, and their per-package
+# ground-pin absolute maximum in mA. Restricted to the octal buffers on purpose: an
+# open-collector optocoupler output and a push-pull gate output have completely different
+# paralleling rules, and neither is paralleled anywhere on this board.
+PARALLELABLE_PARTS = {"SN74AHCT541PW", "SN74LVC541APW"}
+
+
+def _buffer_channels(nodes, values) -> dict[str, dict[int, dict[str, str]]]:
+    """{package ref: {channel index: {"in": net, "out": net}}} for every octal buffer,
+    read from the symbols' own A{n}_/Y{n}_ pinfunctions rather than from pin arithmetic --
+    so this does not silently rot if a future package has a different pinout."""
+    out: dict[str, dict[int, dict[str, str]]] = {}
+    for name, nl in nodes.items():
+        for ref, _pin, pf, _pt in nl:
+            if values.get(ref) not in PARALLELABLE_PARTS:
+                continue
+            m_out, m_in = _BUFFER_OUT_RE.match(pf or ""), _BUFFER_IN_RE.match(pf or "")
+            if m_out:
+                out.setdefault(ref, {}).setdefault(int(m_out.group(1)), {})["out"] = name
+            elif m_in:
+                out.setdefault(ref, {}).setdefault(int(m_in.group(1)), {})["in"] = name
+    return out
+
+
+def _parallel_driver_count(nodes, values) -> dict[str, int]:
+    """{net: how many buffer outputs drive it}. 1 for an ordinary net; 2 for an LED
+    branch after F1. This is what makes check 14 correct rather than merely strict: when
+    two outputs are tied together and both pull low, each sinks about half the current,
+    and a checker that charges the whole branch to one pin would reject a design that is
+    actually inside spec."""
+    counts: dict[str, int] = {}
+    for ref, chans in _buffer_channels(nodes, values).items():
+        for _idx, c in chans.items():
+            net = c.get("out")
+            if net and not net.startswith("unconnected-"):
+                counts[net] = counts.get(net, 0) + 1
+    return counts
+
+
+def _check_led_drivers_are_paralleled(nodes, values, params) -> None:
+    """Finding F1(b). Every optocoupler LED driven by an on-board buffer must be driven by
+    at least TWO paralleled outputs, and those outputs must take their inputs from ONE
+    net.
+
+    The two halves of F1 are not independently shippable and this assertion is why: 430R
+    starves the LED below its switching threshold, and 249R on a SINGLE output asks
+    ~12.7mA of a pin budgeted at 7.5mA. Only both together land inside every bound.
+
+    The tied-input requirement is not bookkeeping. Two tri-state outputs wired together
+    are safe only while they are guaranteed to drive the same direction; if their inputs
+    ever differ, one sources and the other sinks and the current is limited by nothing but
+    the two output stages, which is a short across the die rather than a marginal load.
+    """
+    two_pin = _two_terminal_passive_refs(nodes)
+    chans = _buffer_channels(nodes, values)
+    counts = _parallel_driver_count(nodes, values)
+    branches = _led_branches(nodes, values, two_pin)
+    assert branches, "no optocoupler LED branches found at all -- this check would pass vacuously"
+
+    single = []
+    for b in branches:
+        net = b["cathode_net"]
+        n = counts.get(net, 0)
+        if n == 0:
+            continue  # not buffer-driven (a spare position, or an external/opto source)
+        if n < 2:
+            single.append((net, b))
+
+    assert not single, (
+        f"{len(single)} optocoupler LED(s) are driven by a SINGLE buffer output:\n  "
+        + "\n  ".join(
+            f"{net}: LED {b['opto']}.{b['pin']} via {b['r_ref']}={b['ohms']:.0f}R from {b['rail']}"
+            for net, b in single
+        )
+        + f"\nFinding F1(b): at the resistor value that actually switches the "
+        f"optocoupler, one output is asked for more than its budget, and the package's "
+        f"{params['sn74ahct541']['i_gnd_abs_max_ma']}mA ground-pin absolute maximum is "
+        f"exceeded on the packages driving the event bus, which idles at 0x0000 with "
+        f"sixteen LEDs lit CONTINUOUSLY. Parallel two outputs per LED, from tied inputs."
+    )
+
+
+def test_led_drivers_are_paralleled(nodes, values, params):
+    _check_led_drivers_are_paralleled(nodes, values, params)
+
+
+def test_led_drivers_are_paralleled_fires_on_a_dropped_second_leg(nodes, values, params):
+    """Half of F1 shipped alone -- the second leg removed from one LED, leaving the
+    resistor value that only a paralleled pair can carry."""
+    net = "EVT_D0_BUF"
+    chans = _buffer_channels(nodes, values)
+    victims = [r for r, c in chans.items() if any(v.get("out") == net for v in c.values())]
+    corrupted = dict(nodes)
+    corrupted[net] = [n for n in nodes[net] if n[0] != victims[-1]]
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF"):
+        _check_led_drivers_are_paralleled(corrupted, values, params)
+
+
+# --- 18b: paralleled outputs must take their inputs from ONE net. ----------------------
+
+
+def _check_paralleled_outputs_have_tied_inputs(nodes, values) -> None:
+    """Two tri-state outputs wired together are safe only while both are guaranteed to
+    drive the same direction. If their inputs ever differ, one sources while the other
+    sinks and the current is limited by nothing but the two output stages -- a short
+    across the die, not a marginal load. Separate from 18a on purpose: 18a asks whether
+    the paralleling EXISTS, this asks whether it is WIRED SAFELY, and a checker that
+    bundled them would report one when it meant the other."""
+    chans = _buffer_channels(nodes, values)
+    by_net: dict[str, set[str]] = {}
+    for _ref, cs in chans.items():
+        for c in cs.values():
+            net, src = c.get("out"), c.get("in")
+            if net and src and not net.startswith("unconnected-"):
+                by_net.setdefault(net, set()).add(src)
+    mismatched = {net: sorted(ins) for net, ins in by_net.items() if len(ins) > 1}
+    assert not mismatched, (
+        f"{len(mismatched)} net(s) have paralleled buffer outputs whose INPUTS are not "
+        f"tied together: "
+        + "; ".join(f"{net} <- inputs {ins}" for net, ins in sorted(mismatched.items()))
+        + "\nTwo tri-state outputs on one net are safe only while both are guaranteed to "
+        "drive the same direction. Different inputs means one sources while the other "
+        "sinks, limited by nothing but the two output stages."
+    )
+
+
+def test_paralleled_outputs_have_tied_inputs(nodes, values):
+    _check_paralleled_outputs_have_tied_inputs(nodes, values)
+
+
+def test_paralleled_outputs_have_tied_inputs_fires_on_untied_input(nodes, values):
+    """The hazard paralleling introduces, asserted rather than assumed: a second output
+    on the same net taking its input from somewhere else.
+
+    Fabricated as a WHOLLY SYNTHETIC package rather than on a spare channel of a real
+    one -- found necessary the hard way: borrowing a real package's channel index
+    silently overwrites that channel's genuine output in `_buffer_channels`, so the
+    control passed or failed depending on dict ordering rather than on the property under
+    test, and would have rotted the moment F1 filled the spare channels it borrowed."""
+    corrupted_values = dict(values) | {"UDBG97": "SN74AHCT541PW"}
+    corrupted = dict(nodes)
+    corrupted["EVT_D0_BUF"] = list(nodes["EVT_D0_BUF"]) + [("UDBG97", "18", "Y0_18", "tri_state")]
+    corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [("UDBG97", "2", "A0_2", "input")]
+    with pytest.raises(AssertionError, match=r"EVT_D0_BUF <- inputs"):
+        _check_paralleled_outputs_have_tied_inputs(corrupted, corrupted_values)
+
+
+# --- 17: per-PACKAGE ground-pin current, which no per-PIN check can see. ---------------
+
+
+def _check_package_ground_current(nodes, values, params) -> None:
+    """The AHCT541's absolute maximum through its GND pin is 75mA (SCLS269Q Sec.4.1), and
+    U8/U9 each drive EIGHT LEDs. Because the drive is active-low and the event bus idles
+    at 0x0000, sixteen LEDs are lit continuously -- a steady state, not a transient.
+
+    This is a per-PACKAGE limit, so check 14 (per-PIN) cannot see it: eight pins each
+    comfortably inside their own budget still add up to a package that is not.
+    """
+    two_pin = _two_terminal_passive_refs(nodes)
+    drops = _rail_series_drop_v(params)
+    counts = _parallel_driver_count(nodes, values)
+    limit = params["sn74ahct541"]["i_gnd_abs_max_ma"]
+
+    per_pkg: dict[str, list[tuple[str, float]]] = {}
+    for b in _led_branches(nodes, values, two_pin):
+        net = b["cathode_net"]
+        n = counts.get(net, 0)
+        if not n:
+            continue
+        _, i_max = _led_current_bounds_ma(b, params, drops)
+        share = i_max / n
+        for ref, chans in _buffer_channels(nodes, values).items():
+            for c in chans.values():
+                if c.get("out") == net:
+                    per_pkg.setdefault(ref, []).append((net, share))
+
+    over = [
+        (ref, round(sum(ma for _n, ma in legs), 2), len(legs))
+        for ref, legs in per_pkg.items()
+        if sum(ma for _n, ma in legs) > limit + 1e-9
+    ]
+    assert not over, (
+        f"{len(over)} buffer package(s) exceed the {limit}mA ground-pin absolute maximum "
+        f"with every LED they drive lit simultaneously:\n  "
+        + "\n  ".join(f"{ref}: {ma}mA across {n} LED-driving channel(s)" for ref, ma, n in over)
+        + "\nThe event bus idles at 0x0000 and the drive is active-low, so this is a "
+        "STEADY STATE, not a transient. A per-pin check cannot see it: eight pins each "
+        "inside their own budget still add up to a package that is not."
+    )
+
+
+def test_package_ground_current(nodes, values, params):
+    _check_package_ground_current(nodes, values, params)
+
+
+def test_package_ground_current_fires_when_paralleling_is_removed(nodes, values, params):
+    """F1's two halves are not independently shippable, asserted rather than asserted-in-
+    prose: keep the resistor value and drop the paralleling, and the packages driving the
+    event bus go over their ground-pin absolute maximum. This is the failure that made an
+    earlier resistor-only attempt get reverted."""
+    chans = _buffer_channels(nodes, values)
+    evt_nets = {f"EVT_D{i}_BUF" for i in range(8)}
+    # Strip every second driver from the D0-D7 LED nets, leaving one output per LED.
+    seen, corrupted = set(), dict(nodes)
+    for ref, cs in chans.items():
+        for c in cs.values():
+            net = c.get("out")
+            if net in evt_nets:
+                if net in seen:
+                    corrupted[net] = [n for n in corrupted[net] if n[0] != ref]
+                seen.add(net)
+    with pytest.raises(AssertionError, match=r"ground-pin absolute maximum"):
+        _check_package_ground_current(corrupted, values, params)

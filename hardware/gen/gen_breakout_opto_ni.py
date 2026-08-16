@@ -45,8 +45,21 @@ validation (logic-output, not phototransistor) -- only the DRIVE ORIENTATION dif
 the mule's own bring-up checks (propagation delay, edge quality) do not depend on which end
 of the LED is the "driven" one.
 
-LED DRIVE CURRENT -- "roughly half the datasheet-recommended forward current" (this task's
-own brief). ACSL-6400's Recommended Operating Conditions (Broadcom AV02-0235EN): IFH 7-15mA,
+LED DRIVE CURRENT -- 249R (E96), CORRECTED AT FINDING F1 (2026-08-16) from the 430R this
+paragraph originally derived. The original derivation is preserved below because the way it
+went wrong is the point: it is arithmetically correct and lands on a value that does not
+work, because it solved for the rail's NOMINAL 5.00V and for V_F TYP. The anode never sees
+5.00V (+5V reaches it through F4 and D3, 0.38-0.45V of series drop) and V_F's worst case is
+1.80V, not 1.52V -- so the real worst-case current at 430R is ~5mA against a 7.0mA I_FH
+minimum, below the threshold at which the part is specified to switch at all. Every figure
+in the paragraph below is a TYPICAL-case figure presented as if it bounded the design.
+
+249R gives 8.6mA worst case / 13.7mA best case, clearing both the 8mA guardbanded floor and
+the 15mA absolute maximum, and it is only safe because F1's other half parallels two buffer
+outputs per LED (one output cannot sink the ~12.7mA it draws). See LED_R_OHMS below and
+gen_breakout_taskpc_digital.py's own PARALLEL_LEG_REFS. The superseded derivation:
+
+ACSL-6400's Recommended Operating Conditions (Broadcom AV02-0235EN): IFH 7-15mA,
 footnote "recommended minimum 8mA for best performance / guardband against LED degradation".
 15mA is BOTH the absolute-maximum AND the top of the recommended range -- the single most
 textually-defensible "the datasheet-recommended forward current" to halve: 15/2 = 7.5mA,
@@ -184,23 +197,18 @@ from pathlib import Path
 
 from kicad_sch import (
     Sch,
-    find_max_refs,
     find_root_uuid,
     find_sheet_instance_path,
-    merge_max_refs,
     pin_pos,
     write_project_stub,
 )
+# The already-committed sibling sheet paths are no longer read: build()'s own
+# ref_start is PINNED (F1 task, 2026-08-16 -- see build()), not re-derived live
+# from them at generation time. Same treatment, and same reason, as
+# gen_breakout_pi_interface.py's own.
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
-POWER_SCH = OUT / "power.kicad_sch"
-TASKPC_SCH = OUT / "taskpc-digital.kicad_sch"
-PI_INTERFACE_SCH = OUT / "pi-interface.kicad_sch"
-ANALOG_FRONTEND_SCH = OUT / "analog-frontend.kicad_sch"
-ANALOG_NI_SCH = OUT / "analog-ni.kicad_sch"
-MUX_INTAN_SCH = OUT / "mux-intan.kicad_sch"
-COMPARATORS_SCH = OUT / "comparators.kicad_sch"
 OPTO_NI_SHEETFILE = "sheets/opto-ni.kicad_sch"  # exactly as gen_breakout.py's own
 # SHEET_NAMES / f"sheets/{name}.kicad_sch" spells it.
 
@@ -289,7 +297,27 @@ ACSL6400_CH_PINS = {
 ACSL6400_PIN_GND = ["9", "16"]
 ACSL6400_PIN_VDD = ["10", "15"]
 
-LED_R_OHMS = "430"    # targets ~7.33mA -- see module docstring for the full derivation
+LED_R_OHMS = "249"  # E96. FINDING F1 (parametric-audit.md), 2026-08-16: was 430R, which
+# under-drove every one of these 24 LEDs. The original derivation solved
+# (5.0 - V_OL - V_F)/I for a 7.5mA target and got 420R -> 430R, but it used the rail's
+# NOMINAL 5.00V. The anode never sees 5.00V: +5V reaches these LEDs through F4 (1206L050
+# polyfuse, R_min 0.15R) and D3 (SS14, ~0.35V typ / 0.42V max at this rail's ~0.45A), so
+# the anode rail is 4.55-4.62V, and it used V_F TYP (1.52V) where the worst case is
+# 1.80V. Corrected worst case at 430R is ~5mA against a 7.0mA I_FH minimum -- below the
+# threshold at which the part is specified to switch at all.
+#
+# 249R gives 8.6mA worst case / 13.7mA best case, clearing BOTH the 8mA guardbanded floor
+# (AV02-0235EN footnote b) and the 15mA ABSOLUTE maximum. 240R was rejected during the
+# audit for landing at 99% of that absolute maximum; 270R misses the 8mA guardband.
+#
+# THIS VALUE IS ONLY SAFE PARALLELED. At 249R one LED draws ~12.7mA, which is over a
+# single SN74AHCT541 output's 7.5mA budget -- so F1's other half (two buffer outputs per
+# LED, from tied inputs; gen_breakout_taskpc_digital.py's own PARALLEL_LEG_PACKAGES) is
+# not optional, and tests/hardware/test_netlist.py asserts both halves independently.
+# It also depends on the external +5V supply being specified at +-2%: at +-5% the
+# tolerance spread is 1.95:1 against a 2.14:1 window, which fits with nothing to spare.
+# That tolerance is now a load-bearing specification protecting 30 optocoupler channels,
+# not an incidental assumption.
 PULLUP_OHMS = "3.9k"  # fix round 1 -- corrected from this task's original 10k, which
 # exceeded ACSL-6400's own datasheet RL-max (4k); see module docstring, NI-SIDE PULL-UP.
 
@@ -306,7 +334,20 @@ NI_CHANNELS = (
         ("RWD_CMD_BUF", "RWD_CMD_NI", 26),
         ("RWD_DLVR_BUF", "RWD_DLVR_NI", 27),
         ("STIM_TRIG_BUF", "STIM_TRIG_NI", 28),
-        ("RHS_STIM_OUT", "RHS_STIM_OUT_NI", 29),
+        # FINDING F1, 2026-08-16 -- was the bare "RHS_STIM_OUT". This was the ONE channel
+        # of the 24 whose LED hung directly on a non-buffer output (opto-intan's ACSL-6420
+        # VO3, an open-collector pin budgeted at 13mA), and the paragraph below records it
+        # as a deliberate, checked exception: 7.33mA of LED plus 1.28mA of pull-up was
+        # comfortably inside 13mA. The resistor change retires that exception -- at 249R
+        # the LED alone draws ~12.7mA, and with the pull-up that is ~13.9mA, OVER the
+        # ACSL's own budget. An optocoupler output cannot be paralleled the way F1's
+        # buffer outputs are (its partner channel is a spare in the same direction, and
+        # tying them would double the load on the Intan's own already-marginal output --
+        # finding F2), so the LED moves onto a buffered leg like every other channel here.
+        # gen_breakout_taskpc_digital.py's own RHS_STIM_OUT_BUF_LEGS produces it, from
+        # U11's own last 2 spare channels, paralleled like every other LED on this board.
+        # The ACSL-6420 output is left driving only its 3.9k pull-up (~1.2mA).
+        ("RHS_STIM_OUT_BUF", "RHS_STIM_OUT_NI", 29),
         ("PD1_COMP_BUF", "PD1_COMP_NI", 30),
         ("PD2_COMP_BUF", "PD2_COMP_NI", 31),
     ]
@@ -319,12 +360,22 @@ assert len({c[0] for c in NI_CHANNELS}) == 24, (
 )
 assert len({c[1] for c in NI_CHANNELS}) == 24
 assert sorted(c[2] for c in NI_CHANNELS) == list(range(8, 32))
-# EVERY SOURCE NET IS A BUFFERED LEG WITH ONE LED ON IT -- except RHS_STIM_OUT, whose
-# driver is structurally different and correct as-is: it is an ACSL-6420 output on the
-# opto-intan sheet (a signal ORIGINATING inside the Intan domain and crossing INTO this
-# one), specified at IOL=13mA, so its 7.33mA LED plus its own 3.9k pull-up's 1.28mA is
-# comfortably inside spec. Every other channel here is driven by a 74HCT541 output pin
-# that drives that LED and nothing else. Four of these source names changed at the
+# EVERY SOURCE NET IS A BUFFERED LEG, WITH NO EXCEPTIONS AS OF F1 (2026-08-16).
+#
+# RHS_STIM_OUT used to be the one exception, and it was a checked one rather than an
+# oversight: its driver is an ACSL-6420 output on the opto-intan sheet (a signal
+# ORIGINATING inside the Intan domain and crossing INTO this one), specified at IOL=13mA,
+# so its 7.33mA LED plus its own 3.9k pull-up's 1.28mA was comfortably inside spec.
+#
+# The F1 resistor change retired it. At 249R that LED draws ~12.7mA, and ~13.9mA with the
+# pull-up is OVER the ACSL's 13mA -- so the exception stopped being safe the moment the
+# resistor moved, and the channel now sources from RHS_STIM_OUT_BUF instead. Worth
+# recording as its own lesson: the exception was correct when written and was invalidated
+# by a change made two sheets away for an unrelated reason. Nothing about the exception
+# itself changed; the number it had been checked against did.
+#
+# Every channel here is now driven by a PAIR of paralleled 74AHCT541 outputs that drive
+# that LED and nothing else. Four of these source names changed at the
 # "one LED per driver pin" fix -- BARCODE_PI -> BARCODE_BUF, RWD_DLVR -> RWD_DLVR_BUF
 # (both had been doubled onto a pin that also fed the Intan LED), and PD1_COMP/PD2_COMP
 # -> PD1_COMP_BUF/PD2_COMP_BUF, which were worse than a load problem: those two nets wire
@@ -523,27 +574,38 @@ def build() -> tuple[Sch, dict]:
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, OPTO_NI_SHEETFILE)
-    ref_start = merge_max_refs(
-        find_max_refs(POWER_SCH.read_text()),
-        find_max_refs(TASKPC_SCH.read_text()),
-        find_max_refs(PI_INTERFACE_SCH.read_text()),
-        find_max_refs(ANALOG_FRONTEND_SCH.read_text()),
-        find_max_refs(ANALOG_NI_SCH.read_text()),
-        find_max_refs(MUX_INTAN_SCH.read_text()),
-        find_max_refs(COMPARATORS_SCH.read_text()),
-    )
-    # PINNED, not left to merge_max_refs' own recompute: comparators.kicad_sch gained a
-    # 5th resistor (R190, channel 4's series resistor -- gen_breakout_comparators.py's own
-    # CHANNEL4_SERIES_REF) placed with an EXPLICIT refdes chosen to sit above the whole
-    # board's prior "R" range on purpose, specifically so no sibling's own numbering has to
-    # move for it. Left to recompute here, find_max_refs(COMPARATORS_SCH) would see "R190"
-    # in that file's own text and hand this sheet's own next_ref("R") calls a seed 69
-    # higher than before (121 -> 190), silently renumbering all 49 of this sheet's own
-    # already-committed resistors for zero functional reason. 121 is
-    # comparators.kicad_sch's own true resistor count EXCLUDING R190 (3 populated channels
-    # x 3 resistors + 1 DNP channel x 2 = 11, seeded at 110 from mux-intan.kicad_sch) --
-    # confirmed against this sheet's own committed R111-R121 range, unaffected by this fix.
-    ref_start["R"] = 121
+    # PINNED IN FULL, not re-derived live -- extended from the "R"-only pin below to
+    # EVERY prefix at the F1 task (2026-08-16). The "R" half of this was already here,
+    # and its reasoning generalises exactly: a sibling sheet gaining ANY out-of-band
+    # refdes silently re-seeds this sheet's counters at the next regeneration.
+    #
+    # That is no longer hypothetical. taskpc-digital.kicad_sch has since gained U69/R191/
+    # C149-C150 (the panel-instrumentation one-shot), so merge_max_refs() over the seven
+    # siblings below now returns {'#PWR':11,'C':150,'FB':2,'J':56,'U':69,...} where this
+    # sheet was generated against {'#PWR':7,'C':120,'FB':2,'J':44,'U':55}. Confirmed
+    # empirically BEFORE any F1 edit, by running this generator unmodified: all seven
+    # ACSL packages moved U56-U62 -> U70-U76, all 16 capacitors C121-C136 -> C151-C166,
+    # J45 -> J57, #PWR8 -> #PWR12. F1 requires regenerating this sheet (LED_R_OHMS
+    # 430 -> 249), so the hazard was directly in the path of this change rather than
+    # latent.
+    #
+    # The values below are this sheet's own committed minima minus one, verified by
+    # regenerating and diffing: with them pinned, an F1-free run of this generator
+    # reproduces the committed file byte for byte.
+    #
+    # "R" = 121 specifically (the original pin, reasoning preserved): comparators.
+    # kicad_sch gained a 5th resistor (R190, channel 4's series resistor --
+    # gen_breakout_comparators.py's own CHANNEL4_SERIES_REF) placed with an EXPLICIT
+    # refdes chosen to sit above the whole board's prior "R" range on purpose,
+    # specifically so no sibling's own numbering has to move for it. Left to recompute,
+    # find_max_refs(COMPARATORS_SCH) would see "R190" and hand this sheet's own
+    # next_ref("R") calls a seed 69 higher than before (121 -> 190), silently renumbering
+    # all 49 of this sheet's own already-committed resistors for zero functional reason.
+    # 121 is comparators.kicad_sch's own true resistor count EXCLUDING R190 (3 populated
+    # channels x 3 resistors + 1 DNP channel x 2 = 11, seeded at 110 from
+    # mux-intan.kicad_sch) -- confirmed against this sheet's own committed R111-R121
+    # range, unaffected by this fix.
+    ref_start = {"#PWR": 7, "C": 120, "FB": 2, "J": 44, "R": 121, "U": 55}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}
@@ -579,15 +641,22 @@ def build() -> tuple[Sch, dict]:
         sch.text(line, X_NOTE1, Y_NOTE1 + line_idx * NOTE_DY)
 
     for line_idx, line in enumerate([
-        "LED DRIVE: 430R (E24), targeting ~7.33mA -- roughly half ACSL-6400's own",
-        "datasheet-recommended top-of-range forward current (15mA/2=7.5mA), landing",
-        "inside (not below) the recommended 7-15mA band. R = (5.0V - VOL(driver, 0.33V,",
-        "SN74HCT541 @ IOL=6mA) - VF(LED, 1.52V typ @ IF=10mA)) / 7.5mA = 420R -> 430R",
-        "(E24) -> 7.33mA actual. Both VOL/VF figures are the closest datasheet test",
-        "points, used as approximations (flagged, not measured at this exact current).",
-        "The timing budget is hundreds of microseconds, so the speed cost of a",
-        "conservative drive is irrelevant; the CTR-degradation margin over a decade of",
-        "service is large.",
+        "LED DRIVE: 249R (E96, 1%) -- FINDING F1, 2026-08-16. Was 430R, which",
+        "under-drove all 24 of these LEDs: ~5mA worst case against the ACSL-6xx0's own",
+        "7.0mA I_FH minimum, i.e. not guaranteed to switch at all. The original sizing",
+        "was arithmetically right and physically wrong -- it solved (5.0V - VOL - VF)/I",
+        "using the rail's NOMINAL 5.00V and VF TYP (1.52V), but +5V reaches these anodes",
+        "through F4 and D3 (0.38-0.45V of drop, so 4.55-4.62V) and VF's worst case is",
+        "1.80V. 249R gives 8.6mA worst / 13.7mA best: clear of the 8mA guardbanded floor",
+        "(AV02-0235EN footnote b) and of the 15mA ABSOLUTE maximum. 240R was rejected at",
+        "99% of that maximum; 270R misses the 8mA floor.",
+        "",
+        "THIS VALUE IS ONLY SAFE PARALLELED: at 249R one LED draws ~12.7mA, over a",
+        "single SN74AHCT541 output's 7.5mA budget, so every LED here is driven by TWO",
+        "outputs from tied inputs (taskpc-digital's U70-U73). It also assumes the",
+        "external +5V supply is specified at +-2% -- at +-5% the tolerance spread is",
+        "1.95:1 against a 2.14:1 window, which fits with nothing to spare. That",
+        "tolerance is a load-bearing specification now, not an assumption.",
         "",
         "NI-SIDE PULL-UP: 3.9k -- fix round 1, corrected from this task's original 10k,",
         "which compared only against the mule's own 1k and never checked ACSL-6400's",

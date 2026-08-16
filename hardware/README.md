@@ -740,8 +740,9 @@ real, silent hazard for a 16-bit word, not merely a style choice. This sheet ins
 each LED's anode to `+5V` through the series resistor and drives the cathode directly from
 the source net, which cancels the inversion by relying only on the driving 74HCT541/74HCT32
 push-pull output's ordinary ability to sink a few mA — see the generator's own module
-docstring for the full derivation. LED series resistors are 430 Ω (≈7.33 mA, roughly half
-ACSL-6400's own datasheet-recommended top-of-range forward current). NI-side pull-ups are
+docstring for the full derivation. LED series resistors are **249 Ω on `+5V` and 301 Ω on
+`ISO_5V`** (finding F1, 2026-08-16 — corrected from a single 430 Ω, which under-drove every
+optocoupler on the board; see "One optocoupler LED per driver pin" below). NI-side pull-ups are
 **3.9 kΩ, not the mule's 1 kΩ** — driven by NI's 250 mA/connector budget (24 output stages
 already draw ~120–168 mA; 1 kΩ pull-ups would add another ~120 mA, at or over the budget) —
 **fixed round 1 from an original 10 kΩ choice that fit the budget too but exceeded
@@ -837,8 +838,9 @@ moment this sheet wires a real `open_collector` driver onto it, exactly as that
 generator's own docstring already specified. `check_breakout_pi_interface_netlist.py`'s own
 `BARCODE_PI` fan-out count moved 5→6 at Task 11's `opto-ni.kicad_sch` (its first real load)
 and 6→7 here (opto-intan's own) — **and back to 5 afterwards.** Widening that count to
-absorb the two new loads was the wrong response: both were optocoupler LEDs at ~7.33 mA
-each, so the trigger buffer's own Y0 pin was being asked for 14.7 mA against a 6 mA IOL.
+absorb the two new loads was the wrong response: both were optocoupler LEDs (~7.33 mA each
+at the then-current 430 Ω; ~12.65 mA at F1's 249 Ω), so the trigger buffer's own Y0 pin was
+being asked for double against a 6 mA IOL.
 They now hang on `BARCODE_BUF`/`BARCODE_INTAN_BUF`, dedicated channels off the same
 package, and that checker asserts `BARCODE_PI` carries no LED cathode at all rather than
 just counting loads — see "One optocoupler LED per driver pin" below.
@@ -850,11 +852,13 @@ An earlier ruling (F2, `.superpowers/sdd/2026-08-13-breakout-pcb/progress.md`) c
 named **19 signals** for what is really a **30-LED** board, and the 11 unnamed LEDs ended up
 doubled onto driver pins that already had one.
 
-Each `ACSL-6400`/`ACSL-6420` LED is fed from `+5V` through 430 Ω and draws ~7.33 mA. That
-value is not free to move: it is pinned between the part's own 7–15 mA recommended forward
-current and its **7.0 mA worst-case switching threshold**, so a driver cannot be helped by
-lowering it (see `gen_breakout_opto_ni.py`'s own derivation). Two LEDs on one pin is
-14.7 mA — against `SN74HCT541`'s 6 mA IOL, and against `SN74HCT32`'s 4 mA.
+Each `ACSL-6400`/`ACSL-6420` LED is fed from `+5V` through **249 Ω** and draws ~12.65 mA
+(finding F1; it was 430 Ω/~7.33 mA when this section was first written, which under-drove
+every LED on the board — see the F1 note below). That value is not free to move: it is
+pinned between the part's own 7–15 mA recommended forward current and its **7.0 mA
+worst-case switching threshold**, so a driver cannot be helped by lowering it (see
+`gen_breakout_opto_ni.py`'s own derivation). Two LEDs on one pin is double — against
+`SN74HCT541`'s 6 mA IOL, and against `SN74HCT32`'s 4 mA.
 
 The 74HCT32 case had a failure mode rather than a margin. `RWD_DLVR` came straight off the
 reward-OR gate and fed both its NI and Intan optocouplers; that gate's LOW level is read by
@@ -870,38 +874,76 @@ powered while the sync box is off, ~7 mA is injected into an unpowered pad. They
 only 2 of the 24 NI optocoupler LEDs not driven from a buffered leg.
 
 **The rule now: one HCT541 output pin drives exactly one LED, and no LED hangs on a net that
-reaches a sync-module GPIO.** No component was added — every new channel is a label on a pin
-that was previously tied off, so reference designators and the BOM are unchanged. `U10` (the
-`_BUF` bank's third package) spent its last 5 spare channels; `U11` (the outbound buffer) and
-`U15` (the trigger buffer) spent 2 each.
+reaches a sync-module GPIO.** At the time, no component was added — every new channel was a
+label on a pin that was previously tied off, so reference designators and the BOM were
+unchanged. `U10` (the `_BUF` bank's third package) spent its last 5 spare channels; `U11`
+(the outbound buffer) and `U15` (the trigger buffer) spent 2 each.
 
-| Driver pin | Part | Net | LEDs | Pull-up | Total sink | Budget |
+**Finding F1 (2026-08-16) added the converse rule: one LED is driven by exactly TWO output
+pins, from tied inputs.** The two are not in tension — one pin still drives at most one LED;
+each LED now simply has a second pin behind it. F1 became necessary because the LED series
+resistor had to fall from 430 Ω to 249 Ω: at 430 Ω these LEDs were never guaranteed to
+switch (~5 mA worst case against the ACSL-6xx0's 7.0 mA I_FH minimum, because the original
+sizing used the rail's nominal 5.00 V and a typical V_F, while `+5V` reaches the anodes
+through `F4` and `D3` and V_F's worst case is 1.80 V). At 249 Ω one LED draws ~12.65 mA,
+over a single output's 7.5 mA budget — so **neither half of F1 is shippable alone**, and an
+earlier resistor-only attempt was correctly rejected by `test_driver_pin_sink_load` and
+reverted. This one **did** add components: four `SN74AHCT541PW` packages (`U70`–`U73`) and
+their decoupling capacitors (`C151`–`C154`), taking the board from 5 buffer packages to 9,
+with 6 spare channels left. Their refdes were minted **out of band**, above the whole
+board's maximum, so nothing already placed moved.
+
+| Driver pin | Part | Net | LEDs | Pull-up | Sink/pin | Budget |
 |---|---|---|---:|---:|---:|---:|
-| `U8.11–18` (8 pins) | SN74AHCT541PW | `EVT_D0..7_BUF` | 1 each | — | 7.33 mA | 7.5 mA† |
-| `U9.11–18` (8 pins) | SN74AHCT541PW | `EVT_D8..15_BUF` | 1 each | — | 7.33 mA | 7.5 mA† |
-| `U10.18` | SN74AHCT541PW | `EVT_STROBE_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.17` | SN74AHCT541PW | `RWD_CMD_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.16` | SN74AHCT541PW | `STIM_TRIG_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.15` | SN74AHCT541PW | `EVT_STROBE_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.14` | SN74AHCT541PW | `RWD_CMD_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.13` | SN74AHCT541PW | `STIM_TRIG_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.12` | SN74AHCT541PW | `RWD_DLVR_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U10.11` | SN74AHCT541PW | `RWD_DLVR_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U11.14` | SN74AHCT541PW | `PD1_COMP_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U11.13` | SN74AHCT541PW | `PD2_COMP_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U15.15` | SN74AHCT541PW | `BARCODE_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
-| `U15.14` | SN74AHCT541PW | `BARCODE_INTAN_BUF` | 1 | — | 7.33 mA | 7.5 mA† |
+| `U8.11–18` + `U70.11–18` | SN74AHCT541PW | `EVT_D0..7_BUF` | 1 each, **2 pins each** | — | 6.33 mA | 7.5 mA† |
+| `U9.11–18` + `U71.11–18` | SN74AHCT541PW | `EVT_D8..15_BUF` | 1 each, **2 pins each** | — | 6.33 mA | 7.5 mA† |
+| `U10.18` + `U72.18` | SN74AHCT541PW | `EVT_STROBE_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.17` + `U72.17` | SN74AHCT541PW | `RWD_CMD_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.16` + `U72.16` | SN74AHCT541PW | `STIM_TRIG_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.15` + `U72.15` | SN74AHCT541PW | `EVT_STROBE_INTAN_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.14` + `U72.14` | SN74AHCT541PW | `RWD_CMD_INTAN_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.13` + `U72.13` | SN74AHCT541PW | `STIM_TRIG_INTAN_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.12` + `U72.12` | SN74AHCT541PW | `RWD_DLVR_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U10.11` + `U72.11` | SN74AHCT541PW | `RWD_DLVR_INTAN_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U11.14` + `U73.18` | SN74AHCT541PW | `PD1_COMP_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U11.13` + `U73.17` | SN74AHCT541PW | `PD2_COMP_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U11.12` + `U11.11` | SN74AHCT541PW | `RHS_STIM_OUT_BUF` ‡ | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U15.15` + `U15.12` | SN74AHCT541PW | `BARCODE_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
+| `U15.14` + `U15.11` | SN74AHCT541PW | `BARCODE_INTAN_BUF` | 1, 2 pins | — | 6.33 mA | 7.5 mA† |
 | `U12.3` | SN74HCT32D | `RWD_DLVR` | **0** | — | ~0 mA | 4 mA |
 | `U15.18` | SN74AHCT541PW | `BARCODE_PI` | **0** | — | ~0 mA | 7.5 mA† |
 | `U54.1/2/13/14` | LM339 (open-collector) | `PD2_COMP`/`PD1_COMP`/`ACC_TRIG`/`A_MISC1_COMP` | **0** | 10 kΩ→+3V3 | 0.33 mA | 6 mA |
-| `U65.3` | ACSL-6420 | `RHS_STIM_OUT` | 1 | 3.9 kΩ→+5V | 8.61 mA | 13 mA |
-| `U56–U61.11–14`, `U64.11–14`, `U65.2/10/11` | ACSL-6400/6420 | the 28 `*_NI`/`*_INTAN` nets | 0 | 3.9 kΩ | 1.28 mA | 13 mA |
+| `U65.3` | ACSL-6420 | `RHS_STIM_OUT` ‡ | **0** | 3.9 kΩ→+5V | 1.20 mA | 13 mA |
+| `U56–U61.11–14`, `U64.11–14`, `U65.2/10/11` | ACSL-6400/6420 | the 28 `*_NI`/`*_INTAN` nets | 0 | 3.9 kΩ | 1.20 mA | 13 mA |
 
-Package totals through GND: `U8`, `U9`, `U10` at 58.6 mA each, `U11` and `U15` at 14.7 mA,
-against `SN74AHCT541PW`'s ±100 mA absolute maximum (58.6 mA is 59% of that, not the 84%
-of ±70 mA it was against the original `SN74HCT541PW`). `U10` joining `U8`/`U9` at 58.6 mA
-is the direct cost of spending its 5 spares here, and is the same figure `U8`/`U9` have
-carried since Task 8.
+**‡ `RHS_STIM_OUT` lost its LED at F1.** It was the one opto-ni channel whose LED hung
+directly on a non-buffer output — an ACSL-6420 open-collector pin budgeted at 13 mA. That
+was a deliberate, checked exception, correct at 430 Ω (8.61 mA of 13 mA) and *not* correct at
+249 Ω (12.65 mA of LED + 1.20 mA of pull-up = 13.85 mA, over budget). An optocoupler output
+cannot be paralleled the way a buffer output can, so the LED moved onto `RHS_STIM_OUT_BUF`,
+a new buffered leg off `U11`'s last two spare channels. Worth recording as its own lesson:
+**the exception was correct when written and was invalidated by a change made two sheets away
+for an unrelated reason.** Nothing about the exception changed; the number it had been
+checked against did.
+
+Package totals through GND, with every LED that package drives lit simultaneously:
+`U8`/`U70`, `U9`/`U71` and `U10`/`U72` at **50.6 mA** each (8 LED legs × 6.33 mA nominal,
+**55.6 mA** at the best-case corner the checker actually enforces), `U11` and `U15` at
+**25.3 mA** nominal / 27.8 mA best case (4 legs each), `U73` at **12.7 mA** / 13.9 mA
+(2 legs).
+
+Per-LED current, worst case to best case, is **8.61–13.90 mA** on `+5V` through 249 Ω and
+**8.75–12.92 mA** on `ISO_5V` through 301 Ω — against an 8 mA guardbanded floor (the hard
+I_FH minimum is 7 mA) and a 15 mA absolute maximum. Both ends of that window are checked.
+
+That limit is **±75 mA**, not the ±100 mA an earlier revision of this section claimed —
+`SN74AHCT541`'s continuous current through V_CC or GND, SCLS269Q §4.1, pinned in
+`hardware/datasheet-params.toml` as `sn74ahct541.i_gnd_abs_max_ma`. Correcting it matters
+here rather than being pedantry: the event bus idles at `0x0000` and the drive is active-low,
+so **sixteen LEDs are lit continuously** — a steady state, not a transient. Unparalleled at
+249 Ω that would be ~101 mA through one ground pin, over the real limit and under the
+mistaken one. This is a per-**package** constraint that no per-**pin** check can see: eight
+pins each inside their own budget still add up to a package that is not.
 
 **† `SN74AHCT541PW`, not `SN74HCT541PW` — a Value/MPN swap, recorded rather than left
 implicit.** `SN74HCT541` was rated IOL = 6 mA (V_OL 0.33 V max at V_CC 4.5 V) against a
@@ -910,12 +952,17 @@ against the part's own ~55 Ω output impedance (not the single 6 mA datasheet te
 closer to 7.18 mA against the ACSL LED's own 7.0 mA worst-case switching floor than the
 naive number suggested, with headroom eroded further at V_F max / VCC 5% low. `SN74AHCT541`
 is rated IOL = 8 mA — identical pinout, identical TSSOP-20 footprint, same `74xx:74LS541`-
-derived KiCad symbol family — making 7.33 mA fully compliant and doubling both absolute
-maxima (25 mA→50 mA per pin, 70 mA→100 mA per package). Confirmed as Value/MPN only: same
-5 refdes (`U8`–`U11`, `U15`), zero refdes churn, diffed against the netlist contract before
-the swap. `tests/hardware/test_netlist.py`'s own `MAX_SINK_MA` keeps the 7.5 mA budget
-(comfortably under the new 8 mA rating, not loosened to it) so a second LED on the same pin
-still fails hard either way. AHCT's faster edge rates are a placement-stage series-
+derived KiCad symbol family — making 7.33 mA fully compliant. Confirmed as Value/MPN only:
+same 5 refdes (`U8`–`U11`, `U15`), zero refdes churn, diffed against the netlist contract
+before the swap. `tests/hardware/test_netlist.py`'s own `MAX_SINK_MA` keeps the 7.5 mA
+budget (comfortably under the 8 mA rating, not loosened to it) so a second LED on the same
+pin still fails hard either way.
+
+An earlier revision of this paragraph also claimed the swap doubled both absolute maxima
+(25 mA→50 mA per pin, 70 mA→100 mA per package). **That is wrong and is corrected here:**
+`SN74AHCT541`'s own absolute maxima are 25 mA per output pin and ±75 mA through V_CC/GND
+(SCLS269Q §4.1), pinned in `hardware/datasheet-params.toml`. The ±75 mA figure is the one
+finding F1(b) exists to satisfy, so believing it was 100 mA hid part of the problem. AHCT's faster edge rates are a placement-stage series-
 termination question for the MDR68 cable runs, not a schematic-capture one — see
 `hardware/breakout/design-review.md`.
 
