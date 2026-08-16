@@ -475,7 +475,7 @@ isolators for their RF carrier and then adding a switcher to the same board woul
 | Rail | Source |
 |---|---|
 | Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Separate from the board's +5 V rail. Substituting is a false economy on a CM5-class board |
-| ±12 V analog, **+5 V** | External linear supply, panel inlet — **5-position M12 A-coded**: +12 V, −12 V, +5 V, GND, shield |
+| ±12 V analog, **+5 V** | External linear supply, panel inlet — **5-position M12 A-coded**: +12 V, −12 V, +5 V, GND, shield. **+5 V output: ≥0.8 A at ±2 %** — the tolerance is load-bearing, see §8.2 |
 | +3.3 V | LDO. **+5 V is NOT derived on board** — see §8.2 |
 | NI domain | +5 V from NI's 68-pin connector, **250 mA per connector** — switcher-free and already referenced to NI's ground. See §8.1 |
 | **Intan domain** | **One isolated ±12 V DC-DC**, pi-filtered with LDO post-regulation |
@@ -485,16 +485,39 @@ there (§5.5). As the only switcher in the enclosure it receives the whole filte
 
 ### 8.2 +5 V comes from the external supply, not from +12 V on board
 
-The +5 V rail feeds the optocoupler LEDs, and there are **30** isolated channels. Worst-case
-simultaneous conduction is about **28 LEDs** — all 16 data bits high at once, plus strobe,
-barcode, reward commanded, reward delivered, stim trigger, and the five Intan-bound copies:
+The +5 V rail feeds the optocoupler LEDs, and there are **30** on this rail. Worst case is
+**29 lit simultaneously** — all 16 data bits, strobe, barcode, reward commanded, reward
+delivered, stim trigger, the five Intan-bound copies, both comparator legs and the buffered
+`RHS_STIM_OUT` leg. (The 30th, `OPTO_INTAN_SPARE1_IN`, is a populated spare on an unused net
+and never conducts.)
 
-| Drive per LED | Worst-case rail current |
+**Revised 2026-08-16, finding F1.** The two figures this section originally budgeted from —
+6.3 mA and 10 mA per LED — are both wrong for this board, in different ways. 6.3 mA came from
+the **HCPL-4661** family; this design uses **ACSL-6xx0**, whose recommended minimum is 7 mA
+with an 8 mA guardband (Broadcom AV02-0235EN, footnote b), so 6.3 mA is below the threshold at
+which the part is specified to switch. 10 mA was the mule's value on a different rail with no
+series drops in front of it. The real drive, set by clearing that 8 mA floor once `F4` and
+`D3` are accounted for, is:
+
+| Drive per LED | Worst-case rail current (29 lit) |
 |---|---|
-| 6.3 mA (HCPL-4661 family recommended minimum) | ~176 mA |
-| 10 mA (as used on the mule for edge quality) | ~280 mA |
+| 12.65 mA nominal (249 Ω on `+5V`) | ~367 mA |
+| **13.90 mA at the max-current corner** | **~403 mA** |
 
-**Budget: 400 mA**, so downstream sheets have headroom without reopening this.
+**Budget: 600 mA.** Raised from the 400 mA this section previously carried, which the LEDs
+alone now exceed. With the logic and regulator branch on top, the rail carries **392 mA
+typical / 495 mA maximum** (762 mA if the NI-fallback `TMA-0505S` is ever populated) — see
+finding M7. Two consequences follow, both tracked there rather than here: `F4` must rise from
+0.5 A to **≥1.1 A**, and the external supply's own +5 V output must be rated **≥0.8 A** (the
+audit's 0.5 A figure sits exactly at the computed maximum, which is not a margin).
+
+**The +5 V output must be specified at ±2 %.** This is a requirement, not an observation. The
+optocoupler window is 8–15 mA — a 1.88:1 ratio — and every tolerance in the chain (supply,
+series drop, V_F, V_OL, resistor) has to fit inside it. At ±5 % the spread is 1.95:1 against
+that window and does not fit; at ±2 % it does, with margin at both ends. **This tolerance
+protects 29 optocoupler channels and is load-bearing** — it is the reason the resistor value
+works, so it belongs beside the current rating rather than being left to whichever brick is
+on the shelf.
 
 Duty cycle does not rescue a smaller supply — a regulator supplies peak, not average, and riding
 260 mA through a 750 µs code on bulk capacitance would need ~2000 µF for 100 mV of droop, which
@@ -509,7 +532,8 @@ trade.
 isolators for modulating an RF carrier beside headstages (§2 decision 3) and rejected on-board
 switchers for consistency with that (§8). The isolated ±12 V DC-DC remains the sole switcher.
 
-So the external supply becomes a **three-output linear brick** and the inlet gains a pin.
+So the external supply becomes a **three-output linear brick** — +12 V, −12 V and
+**+5 V at ≥0.8 A, ±2 %** — and the inlet gains a pin.
 
 ### 8.1 The NI +5 V budget is 250 mA, and it constrains the pull-ups
 
@@ -753,7 +777,9 @@ pin 2 **+12 V**, pin 3 tach.
 
 **12 V, not 5 V.** An NF-A8-class 12 V fan draws ~0.06 A against ~0.1 A for the 5 V variant, so
 four is **~240 mA on the ±12 V rail that already exists** for the analog section rather than
-~400 mA on a +5 V rail already carrying 150–199 mA of optocoupler load. The 5 V Noctuas are
+~400 mA on a +5 V rail already carrying 367–403 mA of optocoupler load (§8.2, revised at
+finding F1 — this comparison originally cited 150–199 mA, which was the NI-side domain's
+figure rather than this rail's, and the correction only strengthens the argument). The 5 V Noctuas are
 really the USB-powered variants and buy nothing here. **The external supply's +12 V budget grows
 by 240 mA.**
 
