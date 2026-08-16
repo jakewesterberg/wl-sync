@@ -136,20 +136,14 @@ from pathlib import Path
 
 from kicad_sch import (
     Sch,
-    find_max_refs,
     find_root_uuid,
     find_sheet_instance_path,
-    merge_max_refs,
     pin_pos,
     write_project_stub,
 )
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
-POWER_SCH = OUT / "power.kicad_sch"                     # already-committed sibling (Task 7)
-TASKPC_SCH = OUT / "taskpc-digital.kicad_sch"            # already-committed sibling (Task 8)
-PI_INTERFACE_SCH = OUT / "pi-interface.kicad_sch"        # already-committed sibling (Task 9)
-ANALOG_FRONTEND_SCH = OUT / "analog-frontend.kicad_sch"  # already-committed sibling (Task 10a)
 ANALOG_NI_SHEETFILE = "sheets/analog-ni.kicad_sch"  # exactly as gen_breakout.py's own
 # SHEET_NAMES / f"sheets/{name}.kicad_sch" spells it.
 
@@ -397,12 +391,26 @@ def build() -> tuple[Sch, dict]:
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, ANALOG_NI_SHEETFILE)
-    ref_start = merge_max_refs(
-        find_max_refs(POWER_SCH.read_text()),
-        find_max_refs(TASKPC_SCH.read_text()),
-        find_max_refs(PI_INTERFACE_SCH.read_text()),
-        find_max_refs(ANALOG_FRONTEND_SCH.read_text()),
-    )
+    # PINNED IN FULL, not re-derived live -- the F1/F7 task, 2026-08-16.
+    #
+    # `ref_start` used to be recomputed here by reading every already-committed sibling
+    # sheet at generation time. That is a latent renumbering bomb: the moment ANY sibling
+    # gains a refdes above its old maximum, every counter this sheet seeds moves, and
+    # regenerating this file for an unrelated one-line reason silently renumbers all of
+    # its own parts -- and, transitively, everything downstream that seeded past THEM.
+    #
+    # It was not hypothetical by the time this was written. taskpc-digital.kicad_sch had
+    # gained U69/R191/C149-C150 (the panel-instrumentation one-shot) and then U70-U73/
+    # C151-C154 (finding F1's parallel buffer legs), and power.kicad_sch had gained D44
+    # (finding F7's fan-branch diode). Running this generator UNMODIFIED against the
+    # current siblings was confirmed to rewrite this sheet's whole refdes space.
+    #
+    # The values below are this sheet's own committed minima minus one (U31-U37, C72-C85, J36, R78-R102).
+    # Verified the way the whole family was: pin, regenerate, re-export the netlist and
+    # confirm netlist-contract.json is byte-identical. Do NOT verify by diffing the
+    # .kicad_sch -- several sheets were last written by KiCad rather than by their
+    # generator, so the file reformats even when nothing electrical changes.
+    ref_start = {"C": 71, "J": 35, "R": 77, "U": 30}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

@@ -173,25 +173,14 @@ from pathlib import Path
 
 from kicad_sch import (
     Sch,
-    find_max_refs,
     find_root_uuid,
     find_sheet_instance_path,
-    merge_max_refs,
     pin_pos,
     write_project_stub,
 )
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
-POWER_SCH = OUT / "power.kicad_sch"
-TASKPC_SCH = OUT / "taskpc-digital.kicad_sch"
-PI_INTERFACE_SCH = OUT / "pi-interface.kicad_sch"
-ANALOG_FRONTEND_SCH = OUT / "analog-frontend.kicad_sch"
-ANALOG_NI_SCH = OUT / "analog-ni.kicad_sch"
-MUX_INTAN_SCH = OUT / "mux-intan.kicad_sch"
-COMPARATORS_SCH = OUT / "comparators.kicad_sch"
-OPTO_NI_SCH = OUT / "opto-ni.kicad_sch"
-OPTO_INTAN_SCH = OUT / "opto-intan.kicad_sch"
 CONTROL_USB_I2C_SHEETFILE = "sheets/control-usb-i2c.kicad_sch"  # exactly as
 # gen_breakout.py's own SHEET_NAMES / f"sheets/{name}.kicad_sch" spells it.
 
@@ -451,26 +440,34 @@ def build() -> tuple[Sch, dict]:
     breakout_text = BREAKOUT_ROOT_SCH.read_text()
     breakout_root_uuid = find_root_uuid(breakout_text)
     instance_path = find_sheet_instance_path(breakout_text, breakout_root_uuid, CONTROL_USB_I2C_SHEETFILE)
-    ref_start = merge_max_refs(
-        find_max_refs(POWER_SCH.read_text()),
-        find_max_refs(TASKPC_SCH.read_text()),
-        find_max_refs(PI_INTERFACE_SCH.read_text()),
-        find_max_refs(ANALOG_FRONTEND_SCH.read_text()),
-        find_max_refs(ANALOG_NI_SCH.read_text()),
-        find_max_refs(MUX_INTAN_SCH.read_text()),
-        find_max_refs(COMPARATORS_SCH.read_text()),
-        find_max_refs(OPTO_NI_SCH.read_text()),
-        find_max_refs(OPTO_INTAN_SCH.read_text()),
-    )
-    # PINNED -- see gen_breakout_opto_ni.py's own identical comment for the full reasoning.
-    # comparators.kicad_sch's own R190 (channel 4's series resistor, explicit refdes above
-    # the whole board's prior "R" range) must not shift this sheet's own resistor
-    # numbering, and this sheet reads COMPARATORS_SCH directly too (not only through
-    # opto-ni/opto-intan), so it needs the identical pin. 187 is opto-intan.kicad_sch's own
-    # true resistor count (seeded at 170) -- the correct seed for THIS sheet's own two I2C
-    # bus pull-ups (R188, R189) regardless of what comparators.kicad_sch's own text now
-    # also contains.
-    ref_start["R"] = 187
+    # PINNED IN FULL, not re-derived live -- the F1/F7 task, 2026-08-16.
+    #
+    # `ref_start` used to be recomputed here by reading every already-committed sibling
+    # sheet at generation time. That is a latent renumbering bomb: the moment ANY sibling
+    # gains a refdes above its old maximum, every counter this sheet seeds moves, and
+    # regenerating this file for an unrelated one-line reason silently renumbers all of
+    # its own parts -- and, transitively, everything downstream that seeded past THEM.
+    #
+    # It was not hypothetical by the time this was written. taskpc-digital.kicad_sch had
+    # gained U69/R191/C149-C150 (the panel-instrumentation one-shot) and then U70-U73/
+    # C151-C154 (finding F1's parallel buffer legs), and power.kicad_sch had gained D44
+    # (finding F7's fan-branch diode). Running this generator UNMODIFIED against the
+    # current siblings was confirmed to rewrite this sheet's whole refdes space.
+    #
+    # The values below are this sheet's own committed minima minus one (U66-U68, C143-C146, R188-R189).
+    # Verified the way the whole family was: pin, regenerate, re-export the netlist and
+    # confirm netlist-contract.json is byte-identical. Do NOT verify by diffing the
+    # .kicad_sch -- several sheets were last written by KiCad rather than by their
+    # generator, so the file reformats even when nothing electrical changes.
+    # "R" = 187 was already pinned individually before this change, and its reasoning is
+    # preserved because it is the narrower case that made the general one obvious:
+    # comparators.kicad_sch's own R190 (channel 4's series resistor, an explicit refdes
+    # placed above the whole board's prior "R" range precisely so no sibling has to move
+    # for it) must not shift this sheet's own resistor numbering, and this sheet reads
+    # COMPARATORS_SCH directly. 187 is opto-intan.kicad_sch's own true resistor count
+    # (seeded at 170) -- the correct seed for this sheet's two I2C bus pull-ups (R188,
+    # R189) regardless of what comparators.kicad_sch's text now also contains.
+    ref_start = {"C": 142, "R": 187, "U": 65}
 
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}

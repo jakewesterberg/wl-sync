@@ -132,27 +132,30 @@ rail must sit at or below the driver's high level.
 the larger `F4` recovers ~0.45 V, letting 300 Ω give 7.9–12.8 mA. One new part type for real
 headroom on both bounds. *Not taken at implementation — 249 Ω clears both bounds without it.*
 
-> **A latent generator bug this finding's implementation surfaced, still live on five
-> generators.** `ref_start` is seeded by reading sibling sheets at generation time, so any
-> sibling gaining an out-of-band refdes silently renumbers everything downstream at the next
+> **A latent generator bug this finding's implementation surfaced — now FIXED board-wide
+> (2026-08-16).** `ref_start` was seeded by reading sibling sheets at generation time, so any
+> sibling gaining an out-of-band refdes silently renumbered everything downstream at the next
 > regeneration. `taskpc-digital` gained `U69`/`R191`/`C149`–`C150` during the panel-
-> instrumentation task, and the consequence is already armed: running any of the five
-> generators below **unmodified, today** rewrites its whole refdes space.
+> instrumentation task, which armed it: running these generators **unmodified** rewrote their
+> whole refdes space.
 >
-> | Generator | What a plain re-run does today |
+> | Generator | What a plain re-run did before the fix |
 > |---|---|
-> | `gen_breakout_analog_frontend.py` | `U16`–`U30` → `U70`–`U84`; ~130 R/C/D/J refs move |
+> | `gen_breakout_analog_frontend.py` | `U16`–`U30` → `U70`–`U84`; ~130 R/C/D/J refs moved |
 > | `gen_breakout_analog_ni.py` | `U31`–`U37` → `U70`–`U76`; ~40 more |
 > | `gen_breakout_mux_intan.py` | `U38`–`U53` → `U70`–`U85`; ~50 more |
 > | `gen_breakout_comparators.py` | `U54`–`U55` → `U70`–`U71`; ~25 more |
 > | `gen_breakout_control_usb_i2c.py` | `U66`–`U68` → `U70`–`U72`; 4 more |
 >
-> `taskpc-digital`, `pi-interface` (pinned at the panel-instrumentation task) and now both
-> opto generators (pinned here) are safe. The fix is mechanical and identical each time — pin
-> `ref_start` to the sheet's own committed minima and drop the live `find_max_refs` reads —
-> and each one should be verified the way the two here were: regenerate, re-export, and
-> confirm the netlist contract is **unchanged**. Byte-comparing the `.kicad_sch` will not
-> work; several sheets were last written by KiCad itself rather than by their generator.
+> All five are now pinned, as `taskpc-digital`/`pi-interface` already were and as both opto
+> generators were during F1. **All ten sheets are pinned; none reads a sibling's refdes any
+> more.** Verified the only way that means anything: regenerate *every* sheet, twice, re-export
+> the netlist and confirm `netlist-contract.json` is byte-identical each time. It is — the board
+> is now idempotent under full regeneration, which it demonstrably was not before.
+>
+> Do **not** verify this by diffing the `.kicad_sch` files. Several were last written by KiCad
+> itself rather than by their generator, so they reformat wholesale even when nothing electrical
+> changes; the netlist is the only signal that carries meaning here.
 
 ### F2 — The inbound stim channel is under-driven, and depends on an undocumented switch
 

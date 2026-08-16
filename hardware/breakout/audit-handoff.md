@@ -53,8 +53,15 @@ would remove a whole class of wasted debugging.
 >   resistor changes. 29 × 2 + 8 = 66 channels = 9 packages, 6 spare.
 > - **The refdes hazard was worse than "check `build()`'s baseline comment".** It was not
 >   latent: regenerating either opto sheet — which F1 *requires* — renumbered its entire
->   refdes space before any F1 edit was made. Both are now pinned. Five other generators are
->   still armed; see the table at the end of `parametric-audit.md`'s F1 entry.
+>   refdes space before any F1 edit was made. Both were pinned then; the remaining five
+>   generators were pinned immediately afterwards, so **all ten sheets are now pinned and none
+>   reads a sibling's refdes.** The board is idempotent under full regeneration — verified by
+>   regenerating every sheet twice and confirming the netlist contract is byte-identical. See
+>   the table in `parametric-audit.md`'s F1 entry for what each generator used to do.
+>
+>   This also retires most of §1's warning above: the stale-`.net` trap is still real, but the
+>   far nastier version — where regenerating a sheet to *fix* the stale netlist was itself
+>   destructive — is gone.
 >
 > The rest of this section is left as written, as the record of what was known going in.
 
