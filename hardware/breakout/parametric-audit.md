@@ -15,8 +15,20 @@ a datasheet minimum, does this voltage survive the series drops in front of it, 
 converter's rating cover its load, does this footprint's axis match the mechanics of the
 enclosure.
 
-**The board was verified for connectivity and never for operating points.** Section 4 proposes
-the checkers that close that gap.
+**The board was verified for connectivity and largely not for operating points.**
+
+*Largely*, not entirely — corrected 2026-08-16. `tests/hardware/test_netlist.py`'s
+`test_driver_pin_sink_load` IS a parametric check: it computes per-pin sink current from
+component values and compares against a per-part I_OL budget table, and its own comment
+records that it already caught a real defect (the original `SN74HCT541` at 6 mA was 22% over
+its rated sink, which is why the board moved to the AHCT variant).
+
+That check verifies the **upper** bound — current must not exceed what the driver can sink.
+Nobody checked the **lower** bound — current must clear what the optocoupler needs to switch.
+F1 is the exact mirror image of an assertion that was already present, which is why it
+survived: half the constraint was tested and half was not.
+
+Section 5 proposes the checkers that close the rest of the gap.
 
 Severity keys: **F** = would prevent correct operation. **M** = marginal or robustness.
 **D** = documentation error. **R** = needs a human ruling.
@@ -68,7 +80,10 @@ F7 (the fan tap), both of which affect this rail.
 active-low and the event bus idles at `0x0000`, sixteen LEDs are lit **continuously** — a
 steady state, not a transient. At 11 mA × 8 that is 88 mA, over the limit.
 
-**Fix:** parallel two buffer outputs per LED, from tied inputs. Halving the effective
+**Fix:** parallel two buffer outputs per LED, from tied inputs. **This half and the resistor
+change must land together** — `test_driver_pin_sink_load` correctly rejects 249 Ω on a single
+output (12.65 mA against a 7.5 mA budget). Neither half is shippable alone: the old resistor
+starves the LED, the new resistor overloads the driver. Halving the effective
 on-resistance also improves V_OL. Per-output current falls to ~5.5 mA against a
 recommended 8 mA; package ground current to ~44 mA against 75 mA. Cost: 30 LEDs plus ~12
 other outputs needs **9 packages against today's 5**.
