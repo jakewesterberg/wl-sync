@@ -368,9 +368,28 @@ def _check_iso5v_supply(nets: dict[str, list[Node]], values: dict[str, str]) -> 
 def _check_all_bncs(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
     """6 BNCs total (5 outbound + 1 inbound), each shell on INTAN_GND, no two channels
     sharing one connector. Returns (summary, own_refs)."""
-    expected_center_nets = {c[1] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[1], "RHS_STIM_BNC"}
+    # Each of the 5 OUTBOUND connectors now sits on `<channel>_BNC`, one 100R series
+    # resistor away from the channel's own output net (finding M3's class, extended
+    # 2026-08-16 -- see gen_breakout_opto_intan.py's own place_bnc()). The inbound channel
+    # keeps RHS_STIM_BNC, which was already behind its own 100R. So the connector is never
+    # on the driver's net, which is the property that changed.
+    driven_nets = {c[1] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[1]}
+    expected_center_nets = {f"{n}_BNC" for n in driven_nets} | {"RHS_STIM_BNC"}
     check(len(expected_center_nets) == 6, f"internal inconsistency: expected 6 BNC center nets, computed {len(expected_center_nets)}")
     all_bnc_refs = set()
+    for net in sorted(driven_nets):
+        r_ref = _find_bridging_resistor(nets, net, f"{net}_BNC")
+        check(
+            values.get(r_ref) == "100",
+            f"{net}: series resistor {r_ref} to its connector should be '100', found "
+            f"{values.get(r_ref)!r} -- every panel connection on this board carries series "
+            f"resistance, and these five outbound BNCs were the exception until 2026-08-16",
+        )
+        check(
+            not [n for n in nets[net] if n.ref.startswith("J")],
+            f"{net}: a BNC connector still sits on the DRIVER's own net -- it must sit on "
+            f"{net}_BNC, behind the series resistor",
+        )
     for net in expected_center_nets:
         check(net in nets, f"missing net: {net!r}")
         j_nodes = [n for n in nets[net] if n.ref.startswith("J")]
@@ -629,7 +648,9 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
 
     # (7) A BNC shell disconnected from INTAN_GND (simulating a dropped/misrouted shell tie).
     no_shell = copy.deepcopy(good_nets)
-    bnc_ref_on_barcode = next(n.ref for n in good_nets["BARCODE_INTAN"] if n.ref.startswith("J"))
+    # BARCODE_INTAN_BNC, not BARCODE_INTAN: the connector moved behind its own 100R at
+    # the M3-class extension (2026-08-16), so the driver net no longer carries a J pin.
+    bnc_ref_on_barcode = next(n.ref for n in good_nets["BARCODE_INTAN_BNC"] if n.ref.startswith("J"))
     shell_node = next(n for n in good_nets["INTAN_GND"] if n.ref == bnc_ref_on_barcode)
     no_shell["INTAN_GND"] = [n for n in no_shell["INTAN_GND"] if n != shell_node]
     msg = _assert_fails(no_shell, good_values, "shell (pin 2) not found on INTAN_GND", f"{bnc_ref_on_barcode}'s own shell dropped from INTAN_GND")

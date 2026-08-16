@@ -376,10 +376,44 @@ def opto_channel(sch, x_pkg, y_pkg, pkg_pins, ch_pins, row_y, led_hi, led_lo_sou
     return r_led, r_pu
 
 
-def place_bnc(sch, y, desc, center_net, refs):
+# FINDING M3's OWN CLASS, EXTENDED -- 2026-08-16. M3 lists six panel outputs with no
+# series resistance (the five camera triggers and the reward BNC) and states that "every
+# Intan output has a series resistor". That is true of the ANALOG Intan outputs --
+# mux-intan.kicad_sch's INTAN_AO1-8 each sit behind their own 100R -- and NOT true of these
+# five DIGITAL ones, which sat directly on the ACSL-6xx0 output pin. The audit undercounted;
+# there were eleven, not six.
+#
+# Found by the checker written FOR M3 rather than by re-reading the finding, which is the
+# argument for stating a rule over every panel output instead of over the nets already
+# known to be wrong. 100R, the same value every other panel connection on this board uses,
+# and the same value the inbound channel on this very sheet already carries.
+#
+# It buys mis-plug protection rather than transmission-line matching: the ACSL output is
+# open-collector behind a 3.9k pull-up, so the rising edge is already heavily
+# source-damped, but a fault voltage applied to the panel connector previously fed
+# straight into the output transistor. Refdes minted out of band -- this sheet's counters
+# are pinned and its range fully spent.
+BNC_SERIES_OHMS = "100"
+BNC_SERIES_REFS = {
+    "EVT_STROBE_INTAN": "R204", "BARCODE_INTAN": "R205", "RWD_CMD_INTAN": "R206",
+    "RWD_DLVR_INTAN": "R207", "STIM_TRIG_INTAN": "R208",
+}
+X_BNC_SERIES = GRID(205)  # series-R column, between the pull-up column and the BNCs
+
+
+def place_bnc(sch, y, desc, center_net, refs, series_ref=None):
+    """`series_ref`, when given, inserts a 100R between the driven net and the connector,
+    so the BNC lands on `<net>_BNC` rather than on the driver's own net."""
+    bnc_net = center_net
+    if series_ref:
+        bnc_net = f"{center_net}_BNC"
+        refs.setdefault("bnc_series_r", []).append(two_pin(
+            sch, "Device", "R", "R", BNC_SERIES_OHMS, X_BNC_SERIES, y,
+            center_net, bnc_net, footprint=FOOTPRINT_R, ref=series_ref,
+        ))
     ref = sch.next_ref("J")
     pins = sch.place("Connector", "Conn_Coaxial", ref, desc, X_BNC, y, footprint=FOOTPRINT_BNC)
-    lbl(sch, X_BNC, y, pins, "1", center_net)
+    lbl(sch, X_BNC, y, pins, "1", bnc_net)
     lbl(sch, X_BNC, y, pins, "2", "INTAN_GND")
     refs.setdefault("bnc", []).append(ref)
     return ref
@@ -400,7 +434,8 @@ def place_package_a(sch, refs):
         )
         refs.setdefault("led_r", []).append(r_led)
         refs.setdefault("pullup_r", []).append(r_pu)
-        place_bnc(sch, GRID(Y_BNC0 + local_idx * LOAD_DY), f"Intan opto out: {final_net} (BNC)", final_net, refs)
+        place_bnc(sch, GRID(Y_BNC0 + local_idx * LOAD_DY), f"Intan opto out: {final_net} (BNC)",
+                  final_net, refs, series_ref=BNC_SERIES_REFS[final_net])
 
     for gpin in ACSL6400_PIN_GND:
         lbl(sch, X_PKG, y_pkg, pkg_pins, gpin, "INTAN_GND")
@@ -430,7 +465,8 @@ def place_package_b(sch, refs):
     r_led1, r_pu1 = opto_channel(sch, X_PKG, y_pkg, pkg_pins, ACSL6420_DIR_1TO2[1], row_y1, "+5V", source1, "ISO_5V", final1)
     refs.setdefault("led_r", []).append(r_led1)
     refs.setdefault("pullup_r", []).append(r_pu1)
-    place_bnc(sch, GRID(Y_BNC0 + 4 * LOAD_DY), f"Intan opto out: {final1} (BNC)", final1, refs)
+    place_bnc(sch, GRID(Y_BNC0 + 4 * LOAD_DY), f"Intan opto out: {final1} (BNC)",
+              final1, refs, series_ref=BNC_SERIES_REFS[final1])
 
     # --- Channel 2: spare, direction 1->2 ---
     row_y2 = GRID(Y0 + 5 * CH_ROW_DY)

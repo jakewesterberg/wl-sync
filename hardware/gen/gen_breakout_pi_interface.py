@@ -333,6 +333,48 @@ X_NOTE3, Y_NOTE3 = GRID(15), GRID(220)     # RWD_DLVR level-shift note
 X_TRIGBUF, Y_TRIGBUF = GRID(300), GRID(160)    # BARCODE/CAM_TRIG output SN74AHCT541PW
 X_BARCODE_LOADS, Y_BARCODE_LOADS0 = GRID(360), GRID(120)  # 5 barcode placeholder loads
 LOAD_DY = GRID(12.7)
+# ---------------------------------------------------------------------------
+# FINDINGS F4 and M3, 2026-08-16 -- one buffer channel per panel connector, each behind
+# its own series resistor.
+#
+# F4: all four behaviour-trigger BNCs hung on ONE SN74AHCT541 output. Four parallel coax
+# runs present Z0/4 ~ 12.5 ohm, so the initial edge drew roughly 118 mA against the
+# part's 25 mA per-output ABSOLUTE maximum -- brief, but on every edge for the life of
+# the board. A systematic sweep of every logic output on this board confirmed this was the
+# ONLY net where one output drove multiple BNCs: a single site, not a pattern.
+#
+# M3: neither those four nor the eye trigger had any series resistance. Every other panel
+# connection on this board has it -- every input carries series R plus a BAT54S, every
+# Intan output carries series R -- so these were the exception rather than the rule.
+#
+# 47 ohm ERRS HIGH ON PURPOSE. An AHCT541's own output impedance is ~25-35 ohm, so
+# textbook series termination into 50 ohm coax would be nearer 20 ohm; 47 ohm over-damps.
+# That costs a little edge rate and buys margin against the failure that actually matters
+# here -- a reflection re-crossing a camera's input threshold and triggering a SECOND
+# frame, which is corrupted frame timing rather than a cosmetic fault. The first step at a
+# high-impedance camera input lands at ~77% of the swing before settling, still far above
+# any TTL V_IH.
+#
+# THE FOUR TRIGGERS STILL SHARE ONE SOURCE. Spec Sec.9.4 is unchanged: only two hardware
+# PWM pins survive the contiguous capture range, so every behaviour camera shares one
+# trigger RATE. What changed is that they no longer share one DRIVER PIN.
+CAM_SERIES_OHMS = "47"
+# Channel 2 of the existing trigger buffer keeps behaviour trigger 1; the other three move
+# to a new package. NOT to finding F1's spare channels on U73, which the audit expected --
+# those are on taskpc-digital.kicad_sch, and routing an unbuffered 3.3 V trigger across the
+# board and its buffered copies back again is the wrong trade for a signal whose entire
+# problem is edge quality at the connector. The source GPIO, the buffer and the BNCs stay
+# on one sheet.
+CAM_BEH_EXTRA_BUF_REF = "U74"
+CAM_BEH_EXTRA_BUF_CAP = "C157"
+# Out-of-band refdes for the six series resistors (5 here + J6's on taskpc-digital) --
+# this sheet's counters are pinned and its range fully spent.
+CAM_SERIES_REFS = {"CAM_TRIG_EYE": "R198", "CAM_TRIG_BEH1": "R199",
+                   "CAM_TRIG_BEH2": "R200", "CAM_TRIG_BEH3": "R201",
+                   "CAM_TRIG_BEH4": "R202"}
+X_CAM_SERIES = GRID(330)                   # series-R column, between buffer and BNC
+X_TRIGBUF2, Y_TRIGBUF2 = GRID(300), GRID(300)  # U74, below the existing trigger buffer
+
 X_BNC, Y_BNC0 = GRID(360), GRID(210)       # 5 camera-trigger BNC positions
 X_NOTE4, Y_NOTE4 = GRID(300), GRID(280)    # barcode/camera fan-out note
 
@@ -350,11 +392,11 @@ CHAN_A = {i: str(2 + i) for i in range(8)}   # 74x541 unit-1 pin numbers: A0..A7
 CHAN_Y = {i: str(18 - i) for i in range(8)}  # ...and Y0..Y7, paired by channel: Ai+Yi=20
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint=""):
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", ref=None):
     """Place a 2-pin part between two labeled nets -- same pattern as every other
     generator in this project's own two_pin() (duplicated rather than imported:
     kicad_sch.py, not any one generator, is this project's shared machinery)."""
-    ref = sch.next_ref(ref_prefix)
+    ref = ref or sch.next_ref(ref_prefix)
     pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint)
     x1, y1 = pin_pos(x, y, pins["1"])
     sch.label(net1, x1, y1)
@@ -363,7 +405,8 @@ def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprin
     return ref
 
 
-def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs, role_key, footprint):
+def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs, role_key,
+                       footprint, ref=None, cap_ref=None):
     """Place one 74x541-family octal buffer -- IDENTICAL logic to
     gen_breakout_taskpc_digital.py's own place_octal_buffer() (duplicated, not imported,
     same "kicad_sch.py is the shared machinery" discipline as two_pin() above): input Ai
@@ -373,7 +416,7 @@ def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs,
     channels; channels not present are tied off safely (input -> DGND, output ->
     no-connect), never left floating.
     """
-    ref = sch.next_ref("U")
+    ref = ref or sch.next_ref("U")
     pins = sch.place(
         libname, symname, ref, value, x, y,
         footprint=footprint,
@@ -399,7 +442,8 @@ def place_octal_buffer(sch, libname, symname, value, x, y, rail, channels, refs,
     sch.label("DGND", gx, gy)
     vx, vy = pin_pos(x, y, pins["20"])
     sch.label(rail, vx, vy)
-    cap_ref = two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND", footprint=FOOTPRINT_C_SMALL)
+    cap_ref = two_pin(sch, "Device", "C", "C", "100nF", x - DECOUPLE_DX, y, rail, "DGND",
+                      footprint=FOOTPRINT_C_SMALL, ref=cap_ref)
     refs.setdefault(role_key, []).append(ref)
     refs.setdefault(role_key + "_decouple_c", []).append(cap_ref)
     return ref
@@ -566,8 +610,8 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     """
     channels = {
         0: ("BARCODE_RAW", "BARCODE_PI"),
-        1: ("CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE"),
-        2: ("CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH"),
+        1: ("CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE_BUF"),  # M3: series R now follows
+        2: ("CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH1_BUF"),  # F4: was "CAM_TRIG_BEH", one net for 4 BNCs
     }
     # ONE OPTOCOUPLER LED PER DRIVER PIN -- see BARCODE_OPTO_LEGS.
     for local, in_net, out_net in BARCODE_OPTO_LEGS:
@@ -621,19 +665,34 @@ def _place_trigger_buffer_and_fanout(sch, refs):
         )
         refs["barcode_load_hdr"].append(r)
 
+    # Findings F4/M3: every camera trigger gets its OWN buffer channel and its OWN series
+    # resistor. `<net>_BUF` is the buffer output; the resistor bridges to `<net>`, which is
+    # what the BNC sees. A driver and a connector on the same net is exactly the defect, so
+    # the split is structural rather than cosmetic.
     refs["cam_trig_bnc"] = []
-    eye_ref = two_pin(
-        sch, "Connector", "Conn_Coaxial", "J", "Eye camera trigger out (BNC)",
-        X_BNC, Y_BNC0, "CAM_TRIG_EYE", "DGND", footprint=FOOTPRINT_BNC,
+    refs["cam_series_r"] = []
+    for idx, net in enumerate(["CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2",
+                               "CAM_TRIG_BEH3", "CAM_TRIG_BEH4"]):
+        y = Y_BNC0 + idx * LOAD_DY
+        desc = ("Eye camera trigger out (BNC)" if idx == 0
+                else f"Behavior camera trigger out {idx} (BNC)")
+        refs["cam_series_r"].append(two_pin(
+            sch, "Device", "R", "R", CAM_SERIES_OHMS, X_CAM_SERIES, y,
+            f"{net}_BUF", net, footprint=FOOTPRINT_R, ref=CAM_SERIES_REFS[net],
+        ))
+        refs["cam_trig_bnc"].append(two_pin(
+            sch, "Connector", "Conn_Coaxial", "J", desc,
+            X_BNC, y, net, "DGND", footprint=FOOTPRINT_BNC,
+        ))
+
+    # U74: the three extra behaviour-trigger channels, all from the SAME CAM_TRIG_BEH_RAW
+    # input channel 2 already takes. Five channels spare.
+    place_octal_buffer(
+        sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_TRIGBUF2, Y_TRIGBUF2, "+5V",
+        {i: ("CAM_TRIG_BEH_RAW", f"CAM_TRIG_BEH{i + 2}_BUF") for i in range(3)},
+        refs, "trigger_buf2", FOOTPRINT_TSSOP20,
+        ref=CAM_BEH_EXTRA_BUF_REF, cap_ref=CAM_BEH_EXTRA_BUF_CAP,
     )
-    refs["cam_trig_bnc"].append(eye_ref)
-    for i in range(4):
-        y = Y_BNC0 + (i + 1) * LOAD_DY
-        r = two_pin(
-            sch, "Connector", "Conn_Coaxial", "J", f"Behavior camera trigger out {i + 1} (BNC)",
-            X_BNC, y, "CAM_TRIG_BEH", "DGND", footprint=FOOTPRINT_BNC,
-        )
-        refs["cam_trig_bnc"].append(r)
 
     for line_idx, line in enumerate([
         "BARCODE_PI fan-out (5 loads, brief Step 3): 2 placeholder positions for Task",

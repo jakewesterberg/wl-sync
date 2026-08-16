@@ -222,9 +222,12 @@ CONTRACT_NETS = (
     # this sheet PRODUCES and opto-ni.kicad_sch consumes, exactly like the *_BUF nets
     # above; RHS_STIM_OUT itself remains an INPUT here, driven by opto-intan's ACSL-6420.
     + ["RHS_STIM_OUT_BUF"]
+    # Finding M3 (2026-08-16): the reward BNC moves behind a 100 ohm series resistor,
+    # so the panel connector no longer sits on RWD_DLVR itself.
+    + ["RWD_DLVR_BNC"]
     + ANALOG_CONTRACT_NETS
 )
-assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 7 + 1 + 9 == 78
+assert len(CONTRACT_NETS) == 16 + 1 + 16 + 1 + 16 + 1 + 6 + 4 + 7 + 1 + 1 + 9 == 79
 
 # ---------------------------------------------------------------------------
 # Real physical MDR68 pin assignment, SOURCED (fix round 1; task-8-report.md's own "Fix
@@ -1534,10 +1537,26 @@ def _place_reward_or(sch, refs):
         "Connector", "Conn_Coaxial", bnc_ref,
         "Reward driver out (BNC)", X_RWD_BNC, Y_RWD_BNC, footprint=FOOTPRINT_BNC,
     )
+    # FINDING M3, 2026-08-16 -- series resistance between the driving gate and the panel.
+    # J6 used to sit directly on RWD_DLVR, i.e. a 74HCT32 gate output wired straight onto a
+    # panel BNC that runs off-board to a solenoid driver. Every other panel connection on
+    # this board carries series resistance -- every input has it plus a BAT54S clamp, every
+    # Intan output has it -- and this was one of the six exceptions. An inductive kick from
+    # the solenoid side, or a mis-plug onto a live rail, fed straight back into the gate.
+    #
+    # 100 ohm, not the 47 ohm the camera triggers get: this pin's problem is FAULT CURRENT,
+    # not transmission-line matching. 100 ohm is this board's own established panel-series
+    # value (the same figure every clamped input uses), and into a solenoid driver's own
+    # high-impedance logic input it costs nothing. Refdes minted out of band.
     x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_pins["1"])
-    sch.label("RWD_DLVR", x, y)
+    sch.label("RWD_DLVR_BNC", x, y)
     x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_pins["2"])
     sch.label("DGND", x, y)
+    rwd_series_ref = two_pin(
+        sch, "Device", "R", "R", "100", GRID(X_RWD_BNC - 20.32), Y_RWD_BNC,
+        "RWD_DLVR", "RWD_DLVR_BNC", footprint=FOOTPRINT_R, ref="R203",
+    )
+    refs["reward_bnc_series_r"] = rwd_series_ref
 
     refs["reward_btn_hdr"] = btn_ref
     refs["reward_jack_hdr"] = jack_ref

@@ -2347,3 +2347,164 @@ def test_comparator_pullup_rise_time_fires_on_overloading_the_comparator(nodes, 
     # numeric limit is read from datasheet-params.toml and moves with a datasheet revision.
     with pytest.raises(AssertionError, match=r"output absolute maximum"):
         _check_comparator_pullup_rise_time(nodes, corrupted, params)
+
+
+# ===========================================================================
+# 26: PANEL OUTPUTS -- fan-out and series termination (findings F4 and M3).
+#
+# Two properties of the same wire, and the board violated both on the same six pins:
+#
+#   - HOW MANY panel connectors one logic output drives. `CAM_TRIG_BEH` drove FOUR BNCs
+#     from a single SN74AHCT541 output: four parallel coax runs are ~12.5 ohm of
+#     transmission line, and the initial edge into that draws roughly 118 mA against the
+#     part's 25 mA per-output ABSOLUTE MAXIMUM. Short, but on every edge for the life of
+#     the board.
+#
+#   - WHETHER there is series resistance between the driver and the connector. Without it
+#     the cameras see reflections that can double-trigger -- and a double-triggered
+#     behaviour camera is corrupted frame timing, not a cosmetic fault. The same omission
+#     left `J6` (reward driver out) with a 74HCT32 gate wired straight onto a panel BNC
+#     that runs to a solenoid driver, where an inductive kick or a mis-plug feeds directly
+#     into the gate.
+#
+# Every OTHER panel connection on this board already has series resistance -- every input
+# has it plus a BAT54S, and every Intan output has it. These six were the exception, which
+# is why stating the rule over ALL panel outputs is the point rather than fixing six nets.
+# ===========================================================================
+
+# Series resistance expected between a logic driver and a panel BNC, in ohms.
+#   Camera triggers: ~47 ohm, to bring source impedance near the 50 ohm coax. This ERRS
+#   HIGH on purpose. An AHCT541's own output impedance is ~25-35 ohm, so the textbook
+#   series-termination value would be nearer 20 ohm; 47 ohm over-damps, which costs a
+#   little edge rate and buys margin against the failure that actually matters here
+#   (a reflection re-crossing the camera's input threshold and triggering a second frame).
+#   The first step at a high-impedance camera input is ~77% of the swing before settling,
+#   still far above any TTL V_IH.
+#   Reward out: 100 ohm, this board's own established panel-series value -- that pin's
+#   problem is fault protection, not transmission-line matching.
+PANEL_SERIES_MIN_OHM = 20.0
+PANEL_SERIES_MAX_OHM = 220.0
+
+
+def _panel_bnc_refs(values) -> set[str]:
+    return {r for r, v in values.items() if r.startswith("J") and "(BNC)" in v}
+
+
+def _check_panel_outputs_have_one_driver_and_series_r(nodes, values) -> None:
+    two_pin = _two_terminal_passive_refs(nodes)
+    bncs = _panel_bnc_refs(values)
+    assert bncs, "no panel BNCs found at all -- this check would pass vacuously"
+
+    fanout, unterminated = [], []
+    for name, nl in nodes.items():
+        bnc_here = sorted({ref for ref, _p, _pf, _t in nl if ref in bncs})
+        if not bnc_here:
+            continue
+        drivers = sorted({
+            (ref, pin) for ref, pin, _pf, pt in nl
+            if values.get(ref) in MAX_SINK_MA
+            and any(k in pt for k in ("output", "tri_state", "open_collector"))
+            and "no_connect" not in pt
+        })
+        if not drivers:
+            continue  # an input net, or driven from off-board
+        # F4: one logic output must not drive several panel connectors.
+        if len(bnc_here) > 1:
+            fanout.append((name, drivers, bnc_here))
+        # M3: a driver and a connector on the SAME net means no series resistance between
+        # them. With a series resistor the two sit on different nets by construction.
+        unterminated.append((name, drivers, bnc_here))
+
+    assert not fanout, (
+        f"{len(fanout)} logic output(s) drive more than one panel connector:\n  "
+        + "\n  ".join(
+            f"{net}: {[f'{r}.{p}' for r, p in d]} drives {len(b)} BNCs {b}"
+            for net, d, b in fanout
+        )
+        + "\nFinding F4. N parallel coax runs are Z0/N of transmission line; four is "
+        "~12.5 ohm, and the initial edge into that draws ~118 mA against the AHCT541's "
+        "25 mA per-output ABSOLUTE maximum -- on every edge, for the life of the board. "
+        "Give each connector its own buffer channel."
+    )
+    assert not unterminated, (
+        f"{len(unterminated)} panel connector(s) sit on the SAME net as their logic "
+        f"driver, so there is no series resistance between them:\n  "
+        + "\n  ".join(
+            f"{net}: {[f'{r}.{p}' for r, p in d]} -> {b} directly"
+            for net, d, b in unterminated
+        )
+        + "\nFinding M3. Every other panel connection on this board carries series "
+        "resistance -- every input has it plus a BAT54S clamp, every Intan output has it. "
+        "Without it a trigger's reflections can double-trigger a camera, and a mis-plug or "
+        "an inductive kick on an output feeds straight back into the driving gate."
+    )
+
+
+def test_panel_outputs_have_one_driver_and_series_r(nodes, values):
+    _check_panel_outputs_have_one_driver_and_series_r(nodes, values)
+
+
+def _check_panel_series_resistor_values(nodes, values) -> None:
+    """The series resistors that check 26 requires must actually be resistors of a
+    sensible value -- a 0 ohm link would satisfy the topology and terminate nothing."""
+    two_pin = _two_terminal_passive_refs(nodes)
+    bncs = _panel_bnc_refs(values)
+    bad = []
+    for name, nl in nodes.items():
+        bnc_here = {ref for ref, _p, _pf, _t in nl if ref in bncs}
+        if not bnc_here:
+            continue
+        for r_ref in {r for r, _p, _pf, _t in nl} & set(two_pin):
+            if not r_ref.startswith("R"):
+                continue
+            other = next((n for n in two_pin[r_ref] if n != name), None)
+            if other is None:
+                continue
+            driven = any(
+                values.get(ref) in MAX_SINK_MA
+                and any(k in pt for k in ("output", "tri_state", "open_collector"))
+                for ref, _p, _pf, pt in nodes[other]
+            )
+            if not driven:
+                continue
+            ohms = _parse_ohms(values.get(r_ref, ""))
+            if ohms is None or not (PANEL_SERIES_MIN_OHM <= ohms <= PANEL_SERIES_MAX_OHM):
+                bad.append((name, r_ref, values.get(r_ref)))
+    assert not bad, (
+        "panel-output series resistor(s) outside the usable "
+        f"{PANEL_SERIES_MIN_OHM:.0f}-{PANEL_SERIES_MAX_OHM:.0f} ohm window: "
+        + "; ".join(f"{net}: {r}={v!r}" for net, r, v in bad)
+        + "\nToo low terminates nothing (a 0 ohm link satisfies the topology and does no "
+        "work); too high droops the edge into the receiver's own input current."
+    )
+
+
+def test_panel_series_resistor_values(nodes, values):
+    _check_panel_series_resistor_values(nodes, values)
+
+
+def test_panel_outputs_fires_on_shared_driver(nodes, values):
+    """The F4 defect verbatim: the four behaviour-trigger BNCs put back onto the single
+    buffer output that used to drive them all.
+
+    Corrupts the net carrying the DRIVER (`CAM_TRIG_BEH1_BUF`), not the post-resistor net
+    the connector now sits on -- a net with no driver on it is skipped by the check, so
+    corrupting that one would have proved nothing."""
+    corrupted = dict(nodes)
+    beh_bncs = sorted(r for r, v in values.items() if "Behavior camera trigger" in v)
+    assert len(beh_bncs) == 4, f"expected 4 behaviour-trigger BNCs, found {beh_bncs}"
+    corrupted["CAM_TRIG_BEH1_BUF"] = (
+        list(nodes["CAM_TRIG_BEH1_BUF"]) + [(j, "1", "", "passive") for j in beh_bncs]
+    )
+    with pytest.raises(AssertionError, match=r"more than one panel connector"):
+        _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)
+
+
+def test_panel_outputs_fires_on_missing_series_resistance(nodes, values):
+    """The M3 half, on its own: ONE connector moved onto its driver's net, so the fan-out
+    assertion stays silent and only the missing-series-resistance one can fire."""
+    corrupted = dict(nodes)
+    victim = next(r for r, v in values.items() if v == "Reward driver out (BNC)")
+    corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [(victim, "1", "", "passive")]
+    with pytest.raises(AssertionError, match=r"no series resistance between them"):
+        _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)

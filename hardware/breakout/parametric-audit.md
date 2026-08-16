@@ -213,7 +213,26 @@ a display patch at roughly 0.29 mW/cm², photocurrent is **~11 µA**. Into 1 MΩ
 one component. A jumper at a summing junction that sensitive would be a leakage and noise
 liability; a parallel pad is not.
 
-### F4 — Four camera triggers share one unterminated buffer output
+### F4 — Four camera triggers share one unterminated buffer output — **IMPLEMENTED 2026-08-16**
+
+> Each of the five camera triggers now has its **own buffer channel and its own 47 Ω**.
+> `CAM_TRIG_BEH` split into `CAM_TRIG_BEH1`–`4`; channel 2 of the existing trigger buffer
+> keeps trigger 1 and a new package (`U74`) takes the other three. They still share one
+> trigger *rate* via `CAM_TRIG_BEH_RAW` — spec §9.4 is unchanged; they no longer share one
+> *driver pin*.
+>
+> **Not on F1's spare channels, which this finding expected.** Those are on
+> `taskpc-digital`, and routing an unbuffered 3.3 V trigger across the board and its
+> buffered copies back again is the wrong trade for a signal whose entire problem is edge
+> quality at the connector. Source GPIO, buffer and BNCs stay on one sheet; cost is one
+> package.
+>
+> **47 Ω errs high deliberately.** An AHCT541's output impedance is ~25–35 Ω, so textbook
+> series termination into 50 Ω coax would be nearer 20 Ω. Over-damping costs a little edge
+> rate and buys margin against the failure that actually matters — a reflection re-crossing
+> a camera's input threshold and triggering a *second frame*. The first step at a
+> high-impedance camera input lands at ~77 % of the swing before settling, far above any
+> TTL V_IH.
 
 `CAM_TRIG_BEH` drives `J14`–`J17` from a single `SN74AHCT541` output — four parallel coax
 runs, about 12.5 Ω of transmission line. The initial edge draws roughly **118 mA** against
@@ -414,7 +433,27 @@ Intan's 0.31 mV. The photodiode channels are the outlier because they tap `A_PD1
 **Fix, free:** `U32C` already sits there as a unity-gain follower producing `A_PD1_NI_BUF`.
 Retap the eight mux `S7`/`S8` inputs to the buffer outputs. A net reassignment, no new parts.
 
-### M3 — Six panel outputs have no series resistance and no clamp
+### M3 — Six panel outputs have no series resistance and no clamp — **IMPLEMENTED 2026-08-16, and there were ELEVEN**
+
+> Series resistance added to all six named here: the five camera triggers (47 Ω, per F4)
+> and `J6`, the reward driver out (**100 Ω** — that pin's problem is fault current from an
+> inductive kick or a mis-plug, not transmission-line matching, so it takes this board's
+> established panel-series value rather than the termination one).
+>
+> **The count was wrong, and the checker written for this finding is what found it.** This
+> finding states that "every Intan output has a series resistor". That is true of the
+> *analog* ones — `mux-intan`'s `INTAN_AO1`–`8` each sit behind their own 100 Ω — and **not
+> true of the five digital ones**, whose BNCs sat directly on the ACSL-6xx0 output pin.
+> Eleven panel outputs were bare, not six. All five now sit behind 100 Ω
+> (`R204`–`R208`), which buys mis-plug protection rather than termination: the ACSL output
+> is open-collector behind a 3.9 kΩ pull-up, so its rising edge is already heavily
+> source-damped, but a fault voltage on the connector previously fed straight into the
+> output transistor.
+>
+> That is the argument for the checker's shape. It is stated over **every** panel output
+> rather than over the six nets this finding names — so it caught the five the finding
+> missed. **Clamps were not added**; this finding's own fix line asks for series resistance,
+> and adding clamp diodes to eleven outputs is a separate decision.
 
 Every input on this board has series resistance plus a `BAT54S`; every Intan output has a
 series resistor. `J13`–`J17` (camera triggers) and `J6` (reward driver out) have neither.

@@ -247,7 +247,7 @@ RAIL_BYPASS_EXPECTED = {
                                    # moved from this pair to +12V/AGND (33/33 -> 34/32).
                                    # See gen_breakout_comparators.py's own "THE SECOND
                                    # DESTROY-HARDWARE CONSTRAINT".
-    ("+5V", "DGND"): 17,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 18,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
                                    # (Task 9); + 1 from opto-intan.kicad_sch's own
@@ -272,7 +272,10 @@ RAIL_BYPASS_EXPECTED = {
                                    # current in 220 kHz pulses and reflects
                                    # 80 mAp-p back into +5V, so local bulk +
                                    # HF bypass on its primary is required,
-                                   # not stylistic. 15 -> 17.
+                                   # not stylistic. 15 -> 17; + 1 (C157) from finding
+                                   # F4's own second trigger buffer (U74,
+                                   # pi-interface.kicad_sch), one decoupler per IC
+                                   # as always. 17 -> 18.
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk

@@ -139,6 +139,23 @@ paragraph below):
                   └─ [F1] → FAN_12V_RAW → [D44] → FAN_12V   (fans, 240 mA)
   ```
 
+- **Every panel output now sits behind series resistance, and no logic output drives more
+  than one connector (findings F4 and M3, 2026-08-16).** `CAM_TRIG_BEH` drove **four** BNCs
+  from a single `SN74AHCT541` output: four parallel coax runs present Z₀/4 ≈ 12.5 Ω, so the
+  initial edge drew roughly **118 mA against the part's 25 mA per-output absolute
+  maximum** — brief, but on every edge for the life of the board, and with no source
+  termination the cameras could see reflections and double-trigger. Each trigger now has its
+  own buffer channel (`CAM_TRIG_BEH1`–`4`, the extra three on `U74`) and its own **47 Ω**.
+  They still share one trigger *rate* via `CAM_TRIG_BEH_RAW`; they no longer share a driver.
+
+  M3 named **six** bare panel outputs. There were **eleven** — the five *digital* Intan
+  output BNCs sat directly on the ACSL-6xx0 output pins too. (The finding's "every Intan
+  output has a series resistor" is true of the *analog* outputs, which each sit behind
+  100 Ω, and was not true of the digital ones.) All eleven now carry series resistance:
+  47 Ω on the five camera triggers, 100 Ω on `J6` and the five Intan BNCs. The extra five
+  were found by the checker written *for* M3, which is stated over every panel output rather
+  than over the six nets the finding lists.
+
   `tests/hardware/test_netlist.py` derives series-ness from **topology** — by testing
   whether removing one fuse disconnects another from the supply inlet — rather than from
   net names. That matters: the audit's own published fix for this named `P12_FUSED` as

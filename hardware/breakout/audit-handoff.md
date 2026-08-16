@@ -201,6 +201,23 @@ Dependencies are real here — doing these out of order means redoing arithmetic
    build the BNC footprint, redraw the panel elevations.
 6. **Parametric checkers** — every limit they need is already in `datasheet-params.toml`.
 
+## 5a. Findings implemented outside the numbered order
+
+F4 and M3 were taken after step 4 rather than waiting for step 5, because F1 had already
+provisioned for F4 and both are electrical rather than mechanical. Done 2026-08-16.
+
+**M3's count was wrong and its own new checker found that.** It names six bare panel
+outputs; there were eleven. The five digital Intan output BNCs sat directly on the
+ACSL-6xx0 output pins — the finding's claim that "every Intan output has a series resistor"
+is true of the analog outputs and not of the digital ones. The checker is stated over every
+panel output rather than the six named nets, which is the only reason the gap surfaced.
+
+Worth carrying forward: **that is now four times a negative control has gone vacuous** when
+the thing it corrupted moved. This round it was two more — the pi-interface trigger-swap
+control (the buffer outputs moved to `_BUF` nets, so there was no `tri_state` pin left to
+find) and the opto-intan shell control (the connector moved behind a series resistor). When
+a fix relocates a net, grep the self-tests for its name before assuming they still bite.
+
 ## 6. The one-line lesson
 
 `test_driver_pin_sink_load` already checked that LED current does not **exceed** what the
