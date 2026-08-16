@@ -329,7 +329,7 @@ but by asking MH and the BNC vendor, not by assuming 3M's figure applies.
 
 ## 3. Needs a ruling
 
-### R1 — The M12 inlet has no shield pin
+### R1 — The M12 inlet has no shield pin — **RULED 2026-08-16**
 
 | Pin | Net |
 |---|---|
@@ -340,27 +340,56 @@ but by asking MH and the BNC vendor, not by assuming 3M's figure applies.
 | 5 | **`AGND`** |
 
 Spec §9.1 specifies "+12 V, −12 V, +5 V, GND, **shield**". Pin 5 is a second ground instead.
-Doubling the return is defensible; the consequence is that the supply cable's shield has
-nowhere to land, leaving a hole in the single-point bonding story.
 
-**Also unconfirmed:** gender. M12 convention is *device carries pins, cable carries sockets*
-so the live cable end has no exposed metal. The board is the device; it should be **male**.
-Both the specified part and the Binder candidate are described as female.
+**Ruling: keep pin 5 as a second ground; the cable shield bonds through the connector shell
+to the panel.** This became available only once the M12 was established as panel-mounted
+rather than board-mounted (see below) — the threaded shell contacts the chassis directly, so
+shield current terminates on chassis earth and never enters signal ground, while pin 5 keeps
+halving the supply return resistance. The spec's five-conductor intent is satisfied; the fifth
+conductor is simply the shell rather than a pin.
 
-### R2 — `J19` DB37 shell floats
+> **One verification this ruling now depends on.** The bond only exists if the connector's
+> M12 thread is metal. The Phoenix datasheet states contact material CuZn and contact carrier
+> PA 66 but does not name the body material in what has been retrieved. **Confirm the thread
+> is metallic before treating the shield as terminated** — if the body is plastic, this ruling
+> reverts to routing pin 5 to the chassis earth stud.
+
+**Gender, resolved:** the board is the device and should carry pins so the live cable end has
+no exposed metal. Phoenix `1551833` is a **Pin (male)** type, which is correct. The originally
+specified part and the Binder candidate were both female.
+
+**Mounting, resolved:** the pins emerge axially, the part is rated by wire gauge (AWG 22-20),
+and tightening torque is 1.5–2 N·m. It is a panel-mount connector with flying leads, **not a
+board-mount part**. The board needs a 5-way header, and the custom `M12A_5_Panel` footprint
+can be deleted — one of three custom footprints retired.
+
+**New finding this exposed:** as built, the M12 is a board-mounted part, so every cable
+insertion and every 2 N·m tightening loads PCB pads directly. That is a mechanical defect
+independent of the footprint's dimensions.
+
+### R2 — `J19` DB37 shell floats — **RULED 2026-08-16**
 
 The ACCES I/O eye-tracker connector's shell pad carries no net, while every BNC shell on this
-board lands deliberately. Either an unstated decision or an oversight.
+board lands deliberately.
 
-### R3 — LDO thermal pads carry no net
+**Ruling: fit a selectable resistor position between the shell and `AGND` — 0 Ω / 10 Ω / DNP,
+populated at bring-up.** This matches the design's existing philosophy rather than inventing a
+new one: rig inputs are received differentially precisely so bonding decisions can be deferred
+or reversed without touching the board. The eye-tracker cable runs to a separate
+mains-powered PC, which is a materially different situation from the battery-powered booth
+sensors, so committing that bond in copper now would be guessing. One pad, one resistor.
+
+### R3 — LDO thermal pads carry no net — **RULED 2026-08-16**
 
 `U3` and `U4` pad 9 (the PowerPAD) has no net. Both datasheets permit "left open", but both
 also say *"Solder to the PCB plane to enhance thermal performance"* and explicitly allow
-tying to GND. Leaving it netless also leaves a layout ambiguity under a 0.65 mm-pitch part.
+tying to GND.
 
-**Recommend:** add pin 9 to both symbols and tie to `INTAN_GND`.
-
----
+**Ruling: add pin 9 to both hand-built symbols and tie it to `INTAN_GND`.** The datasheet-
+preferred option. It removes the layout ambiguity of a large unnetted pad beneath a 0.65 mm-
+pitch part, gives both regulators a thermal path, and prevents an accidental connection to
+whatever plane passes underneath. Dissipation is modest (~0.16 W and ~0.07 W), so this is
+about determinism rather than heat.
 
 ## 4. Verified correct
 
