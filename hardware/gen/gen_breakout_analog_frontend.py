@@ -278,6 +278,7 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
+from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
@@ -301,9 +302,17 @@ FOOTPRINT_HDR2X03 = "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"
 # (Conn_02x03_Top_Bottom -> Conn_02x03_Odd_Even) and pin assignment changed, to match this
 # footprint's own real pad geometry (fix round 3 confirmed it column-paired, not
 # row-paired -- see _atten_leg_pair()'s own docstring for the full derivation).
-FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"     # same isolated (2-pad,
-# no separate chassis pad) BNC every other panel BNC on this board uses -- spec Sec.9.1's
-# "Isolated BNCs throughout", not a different/new part for these 10 positions.
+FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
+# Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
+# to the PCB -- a 9.65 mm barrel hole straight through the board. On a 430 x 240 mm board
+# lying flat in a 2U chassis those BNCs point at the lid, not at the panels all 31 are
+# supposed to emerge from. It also cost ~5,650 mm2 of pad and ~2,270 mm2 of removed copper
+# on EVERY layer, punched through a mixed-signal board carrying five ground domains.
+#
+# Now a right-angle DUAL jack with independently isolated shells (Amphenol RF 031-6575),
+# two ports per body. See hardware/gen/bnc_dual.py for the pairing and why no refdes moved,
+# and check_footprint_geometry.py for the assertions that keep the four signal pads
+# independent -- which is what the ten separately-routed per-connector shields depend on.
 FOOTPRINT_DSUB37 = (
     "Connector_Dsub:DSUB-37_Pins_Horizontal_P2.77x2.84mm_EdgePinOffset9.90mm_Housed_"
     "MountingHolesOffset11.32mm"
@@ -537,13 +546,16 @@ def bnc_front_end(sch, x, y, name, desc):
     already on shield_net directly; the 10R sits in a PARALLEL branch to AGND, not in series
     between the connector and the amplifier).
     """
-    ref = sch.next_ref("J")
-    pins = sch.place("Connector", "Conn_Coaxial", ref, desc, x, y, footprint=FOOTPRINT_BNC)
+    ref, centre, shell = DualBncAllocator.for_sheet(sch).place_port(
+        sch, desc, x, y, footprint=FOOTPRINT_BNC
+    )
     raw_net = f"{name}_RAW"
     clamp_net = f"{name}_CLAMP"
     shield_net = f"{name}_SHLD"
-    lbl(sch, x, y, pins, "1", raw_net)     # "In" -- coax centre conductor
-    lbl(sch, x, y, pins, "2", shield_net)  # "Ext" -- shell
+    sch.label(raw_net, *pin_pos(x, y, centre))      # coax centre conductor
+    sch.label(shield_net, *pin_pos(x, y, shell))    # this port's OWN shell -- the 031-6575
+    # isolates each shell from the panel and from its neighbour, which is what lets these
+    # ten channels keep a separately-routed shield each (finding F6 / bnc_dual.py).
     two_pin(sch, "Device", "R", "R", "1k", x + X_R1K, y, raw_net, clamp_net, footprint=FOOTPRINT_R)
     two_pin(
         sch, "Device", "R", "R", "10", x + X_SHELLR, y + SHELLR_DY, shield_net, "AGND",

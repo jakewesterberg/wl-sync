@@ -72,6 +72,18 @@ from kicad_sch import (  # noqa: E402
     find_sheet_instance_path,
 )
 
+# FINDING F6 (2026-08-15): the panel BNCs are DUAL bodies -- Amphenol 031-6575, two
+# independently-isolated ports per connector. A port is therefore (reference, centre pad),
+# not a reference. This maps each centre-conductor pad to its OWN shell pad.
+#
+# Stated here rather than imported from hardware/gen/bnc_dual.py on purpose: a checker that
+# read the pad map out of the generator it is checking would confirm the generator against
+# its own claim. Same per-checker independence discipline every sheet contract in this
+# directory already follows.
+BNC_PORT_SHELL = {"1": "2", "3": "4"}
+BNC_DUAL_FOOTPRINT = "wl-sync:BNC_Dual_RA_Isolated"
+PANEL_BUTTON_FOOTPRINT = "Button_Switch_THT:SW_PUSH-12mm"
+
 DEFAULT_NET_PATH = Path("/tmp/breakout.net")
 DEFAULT_BREAKOUT_SCH = Path(__file__).resolve().parent.parent / "breakout" / "breakout.kicad_sch"
 DEFAULT_TASKPC_SCH = DEFAULT_BREAKOUT_SCH.parent / "sheets" / "taskpc-digital.kicad_sch"
@@ -881,13 +893,49 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], footprints: dict
             f"J4: expected footprint 'Button_Switch_THT:SW_PUSH-12mm' (a real panel/"
             f"chassis-mount momentary pushbutton), found {footprints.get('J4')!r}",
         )
-        for ref in ("J5", "J6"):
-            check(ref in footprints, f"{ref} not found in the netlist's own component list")
+        # FINDING F6 (2026-08-15): the two reward BNCs are now the two PORTS of one dual
+        # body, so there is one reference here where there used to be two. Stated over the
+        # NETS rather than over J5/J6 by name -- the property that matters is "each reward
+        # signal reaches its own isolated BNC port", and that survives the connector being
+        # repackaged. Naming references is what made the pre-F6 version of this check need
+        # editing at all.
+        reward_ports = {}
+        for label, net in (("remote reward jack", "RWD_BTN"), ("reward driver out", "RWD_DLVR_BNC")):
+            # RWD_BTN also carries J4, the panel pushbutton, whose pin "1" would otherwise
+            # read as a centre conductor -- so the button is excluded BY ITS OWN footprint.
+            # Deliberately not the inverse (selecting only things that already carry the BNC
+            # footprint): that would make a reverted footprint vanish from the list instead
+            # of failing the footprint assertion below, which is the assertion this check
+            # exists to make and the one its negative control exercises.
+            j_nodes = [
+                n for n in nets.get(net, [])
+                if n.ref.startswith("J")
+                and n.pin in BNC_PORT_SHELL
+                and footprints.get(n.ref) != PANEL_BUTTON_FOOTPRINT
+            ]
             check(
-                footprints.get(ref) == "Connector_Coaxial:BNC_PanelMountable_Vertical",
-                f"{ref}: expected footprint 'Connector_Coaxial:BNC_PanelMountable_Vertical' "
-                f"(a real BNC -- 'the reward positions are BNC'), found {footprints.get(ref)!r}",
+                len(j_nodes) == 1,
+                f"{net} ({label}): expected exactly 1 BNC centre-conductor pin, found {j_nodes} "
+                f"-- 'the reward positions are BNC' (spec Sec.9.6)",
             )
+            ref, centre = j_nodes[0].ref, j_nodes[0].pin
+            check(
+                footprints.get(ref) == BNC_DUAL_FOOTPRINT,
+                f"{ref} ({label}): expected footprint {BNC_DUAL_FOOTPRINT!r} (a real "
+                f"RIGHT-ANGLE isolated BNC -- finding F6 retired the panel-mount vertical "
+                f"part, whose axis pointed at the chassis lid), found {footprints.get(ref)!r}",
+            )
+            shell = BNC_PORT_SHELL[centre]
+            check(
+                any(n.ref == ref and n.pin == shell for n in nets.get("DGND", [])),
+                f"{ref} port {centre}/{shell} ({label}): this port's own shell is not on DGND",
+            )
+            reward_ports[net] = (ref, centre)
+        check(
+            len(set(reward_ports.values())) == 2,
+            f"the two reward BNCs share one port: {reward_ports} -- they may share a dual "
+            f"BODY, but never a port",
+        )
         # No 3.5mm TRS footprint anywhere on the whole board -- spec Sec.9.6: "the 3.5mm
         # TRS leaves the design with it [the reward remote's own move to BNC]". Checked
         # against EVERY footprint in the whole exported netlist (not just this sheet's
@@ -1297,14 +1345,26 @@ def self_test(
     )
     results.append(f"Reward button J4 reverted to a generic 2-pin header placeholder: caught -- {msg}")
 
-    # Reward connector footprint regression: J6 (should be a real BNC) reverted to the
-    # old placeholder -- same construction as J4's own test, mirrored onto a BNC position.
-    j6_reverted = dict(good_footprints)
-    j6_reverted["J6"] = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
-    msg = _assert_fails(
-        good_nets, good_values, "J6: expected footprint", "J6 (reward-driver BNC) reverted to a generic placeholder", j6_reverted,
+    # Reward connector footprint regression: the reward-driver BNC reverted to the old
+    # placeholder -- same construction as J4's own test, mirrored onto a BNC position.
+    #
+    # FINDING F6 (2026-08-15): this control used to name "J6" literally. J6 no longer
+    # exists -- the two reward BNCs became the two ports of one dual body, so the second
+    # reference was retired (hardware/gen/bnc_dual.py). Corrupting a reference that is not
+    # on the board corrupts nothing, and this control passed VACUOUSLY the moment F6
+    # landed. It now finds the body through the net, so a future repackaging cannot silence
+    # it the same way. That makes six times a negative control on this project has gone
+    # vacuous when the thing it corrupted moved.
+    reward_bnc_ref = next(
+        n.ref for n in good_nets["RWD_DLVR_BNC"]
+        if good_footprints.get(n.ref) == BNC_DUAL_FOOTPRINT
     )
-    results.append(f"Reward-driver-out J6 reverted to a generic 2-pin header placeholder: caught -- {msg}")
+    bnc_reverted = dict(good_footprints)
+    bnc_reverted[reward_bnc_ref] = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    msg = _assert_fails(
+        good_nets, good_values, "expected footprint", f"{reward_bnc_ref} (reward-driver BNC) reverted to a generic placeholder", bnc_reverted,
+    )
+    results.append(f"Reward-driver-out {reward_bnc_ref} reverted to a generic 2-pin header placeholder: caught -- {msg}")
 
     # TRS regression: a hypothetical future edit reintroduces a 3.5mm TRS jack footprint
     # somewhere on the board (not necessarily J5 -- this check scans every footprint, so

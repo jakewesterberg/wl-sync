@@ -20,5 +20,5 @@
 	(lib (name "Resistor_SMD") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/Resistor_SMD.pretty") (options "") (descr "Resistor footprints, surface mount (SMD)"))
 	(lib (name "TerminalBlock_Phoenix") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/TerminalBlock_Phoenix.pretty") (options "") (descr "Phoenix Contact terminal blocks"))
 	(lib (name "TestPoint") (type "KiCad") (uri "${KICAD10_FOOTPRINT_DIR}/TestPoint.pretty") (options "") (descr "Test point footprints"))
-	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.pretty") (options "") (descr "wl-sync custom footprints: MDR68, mini-XLR TA4M/TA5M panel, M12A_5 panel"))
+	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.pretty") (options "") (descr "wl-sync custom footprints: MDR68 right-angle, mini-XLR TA4M/TA5M panel, dual right-angle isolated BNC"))
 )

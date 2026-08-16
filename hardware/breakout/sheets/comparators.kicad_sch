@@ -2,7 +2,7 @@
 	(version 20231120)
 	(generator "wl-sync-gen")
 	(generator_version "8.0")
-	(uuid "c8fa5522-d40c-4331-b569-0286402f0da1")
+	(uuid "3cb8cdd5-2cc5-473c-926c-b4f8ca9bc511")
 	(paper "A2")
 	(lib_symbols
 (symbol "Comparator:LM339"
@@ -1052,7 +1052,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "7227e6da-b5ab-471e-be44-0fac8b69c71b")
+		(uuid "00da3848-d5e9-4183-b66e-a930a96e7818")
 		(property "Reference" "U54"
 			(at 76.962 20.32 0)
 			(effects (font (size 1.27 1.27)))
@@ -1069,9 +1069,9 @@
 			(at 74.93 20.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "2" (uuid "bf8a464d-e4f9-4a9e-9eed-12301f3d39fd"))
-		(pin "4" (uuid "e5f9d21f-b9d3-453b-a908-8007b8a6e660"))
-		(pin "5" (uuid "a9048440-57ae-496c-9109-e712af4fd491"))
+		(pin "2" (uuid "73e02cc9-4d46-4af6-8152-1b813b8502b3"))
+		(pin "4" (uuid "d54b530d-3a0c-4fe6-a4ad-48759f0f54da"))
+		(pin "5" (uuid "7a915a10-a87c-49a7-966c-f41d6d767d37"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1088,7 +1088,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "0fdc86a5-a43a-483d-b41e-f9f3d452fce2")
+		(uuid "38da625a-24de-456d-82a6-a5c0ce13fb04")
 		(property "Reference" "U54"
 			(at 76.962 45.72 0)
 			(effects (font (size 1.27 1.27)))
@@ -1105,9 +1105,9 @@
 			(at 74.93 45.72 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "866d329b-71b4-4dcd-ad6e-990f1ee1cc88"))
-		(pin "6" (uuid "0656323d-a4cf-4cbd-a0aa-2b158ab5a866"))
-		(pin "7" (uuid "2ed4923a-c9e3-41ac-8e3d-d14c1423905d"))
+		(pin "1" (uuid "723f5d1b-528d-4b02-8e67-12317de63da6"))
+		(pin "6" (uuid "8d70bc51-3543-4b90-babd-5a66b0de82ba"))
+		(pin "7" (uuid "a320e394-8035-42e1-8aa3-7e412ce28096"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1124,7 +1124,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "77c832a0-0b05-4e14-9889-b00146a16bd0")
+		(uuid "7abc94ad-c409-47ca-872f-d5c6d3b4d727")
 		(property "Reference" "U54"
 			(at 76.962 71.12 0)
 			(effects (font (size 1.27 1.27)))
@@ -1141,9 +1141,9 @@
 			(at 74.93 71.12 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "10" (uuid "9a1ef88a-397c-4472-82e2-7357e4a8c0e9"))
-		(pin "11" (uuid "39ff790d-d794-4cd5-807b-1ecf8f3a2abd"))
-		(pin "13" (uuid "9febb578-26d8-4a58-a539-a121c2803788"))
+		(pin "10" (uuid "175ff6c8-c8d7-471b-a4f9-5503ce35a1b6"))
+		(pin "11" (uuid "e2c2fc4d-e0f9-4f5b-a5d5-59779e6a570d"))
+		(pin "13" (uuid "6b465c82-b6b9-4736-9702-35f1ab2a1626"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1160,7 +1160,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "4044feda-c09e-4f5a-b307-fdbc7ddde07e")
+		(uuid "c284ac56-4457-45a1-96bb-f2bdd5149dcb")
 		(property "Reference" "U54"
 			(at 76.962 96.52 0)
 			(effects (font (size 1.27 1.27)))
@@ -1177,9 +1177,9 @@
 			(at 74.93 96.52 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "8" (uuid "ae5c5d11-7b37-4876-a3ce-f610a8acb697"))
-		(pin "9" (uuid "d172e534-66d5-4d50-a51d-df68094ad337"))
-		(pin "14" (uuid "741a4cad-5063-4d8a-9b46-856af40a383b"))
+		(pin "8" (uuid "28b27adf-14c6-40f4-b9e0-61b5eb0176ae"))
+		(pin "9" (uuid "9fc71545-6005-4be1-945e-ce52dac60ae5"))
+		(pin "14" (uuid "5de470c7-cfca-4a05-bae8-c3fc0c46fa82"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1196,7 +1196,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "47b31fb1-912a-44d7-ad0f-493e8acdf61a")
+		(uuid "fc482b83-cf2a-464c-93ba-27c2985e9f63")
 		(property "Reference" "U54"
 			(at 76.962 147.32 0)
 			(effects (font (size 1.27 1.27)))
@@ -1213,8 +1213,8 @@
 			(at 74.93 147.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "3" (uuid "ec04c23a-e9eb-4824-88b0-9b9545bfec4d"))
-		(pin "12" (uuid "c1c77d0f-1329-465a-adab-1794e455f39f"))
+		(pin "3" (uuid "796aab94-4010-428f-9980-ae091d55f2ae"))
+		(pin "12" (uuid "bc1f2406-cd9e-4f26-b1b5-b70ab75cb06e"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1227,7 +1227,7 @@
 		(shape bidirectional)
 		(at 72.39 139.7 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "53f8f09a-cf21-4999-a456-3ce7944e4565")
+		(uuid "70dc2d5f-01a2-4042-a2b4-a237a2d5b994")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 72.39 139.7 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1237,7 +1237,7 @@
 		(shape bidirectional)
 		(at 72.39 154.94 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c444bc88-0455-4acd-8835-baf55105309e")
+		(uuid "7cddad0a-a212-44e0-940c-148a36f7c9e3")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 72.39 154.94 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1251,7 +1251,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "9253bb03-189d-4d9f-a97a-9767a596d0a3")
+		(uuid "498c7eca-a80d-47be-9633-a95a6739ec0f")
 		(property "Reference" "C118"
 			(at 61.72200000000001 142.23999999999998 0)
 			(effects (font (size 1.27 1.27)))
@@ -1268,8 +1268,8 @@
 			(at 59.690000000000005 142.23999999999998 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "3283364e-96b9-46d4-9863-a5d544354e97"))
-		(pin "2" (uuid "dd34a2fd-a490-4532-aff3-f88551c8ddf4"))
+		(pin "1" (uuid "d0a3034d-5cff-411f-ab66-60036635905c"))
+		(pin "2" (uuid "c7305528-fead-45f3-8505-359afbc16aab"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1282,7 +1282,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 138.42999999999998 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "26d210df-63d0-4589-b576-baa6bc1b924d")
+		(uuid "009cd312-d3bd-4789-a8fc-b68f3f331373")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 138.42999999999998 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1292,7 +1292,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 146.04999999999998 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "6b808f52-a27f-4b0b-92af-dd1ec6c66c7b")
+		(uuid "91d036a7-8da4-4d55-bf30-2eaf6273cc27")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 146.04999999999998 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1306,7 +1306,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "5bbde68a-693a-4776-92e4-21587fb7da63")
+		(uuid "1383f058-3da7-441b-ae9f-c4a7a71664b9")
 		(property "Reference" "C119"
 			(at 61.72200000000001 152.4 0)
 			(effects (font (size 1.27 1.27)))
@@ -1323,8 +1323,8 @@
 			(at 59.690000000000005 152.4 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "c26076a1-6c0b-426c-842c-c06341ca1268"))
-		(pin "2" (uuid "a1a19d3c-5ab2-4e4a-864d-f9b7c8979317"))
+		(pin "1" (uuid "860080e7-a8bb-43c3-ac08-71a84e92ec79"))
+		(pin "2" (uuid "1693ec32-54ce-4e8e-a207-10dd260af87d"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1337,7 +1337,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 148.59 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "00422fa5-5627-414a-88f6-dc04cbe1aca7")
+		(uuid "0be19bfa-c83a-4c88-8519-76855785f9ba")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 148.59 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1347,7 +1347,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 156.21 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "b4034855-4af1-4361-b442-d2d4b35707a1")
+		(uuid "b0c594cb-f081-462d-bf6a-172b6b910c11")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 156.21 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1361,7 +1361,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "04f7a95a-7c3a-4d1d-8979-6f586204d726")
+		(uuid "8e5cc1b1-b0b9-405f-a1fb-396ae51a1135")
 		(property "Reference" "U55"
 			(at 76.962 121.92 0)
 			(effects (font (size 1.27 1.27)))
@@ -1378,16 +1378,16 @@
 			(at 74.93 121.92 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "7c6a15b6-f710-49d8-a69d-59d5e6703623"))
-		(pin "2" (uuid "fa1158d6-eadb-485a-854c-45051b20e5c1"))
-		(pin "3" (uuid "fa53124f-24ee-4d00-ae13-f8a432670a61"))
-		(pin "4" (uuid "2ada4c86-97e9-4248-9a9d-ea2b2c646873"))
-		(pin "5" (uuid "5ddce262-47a5-4d37-be8a-2bbb8b7f7187"))
-		(pin "6" (uuid "f9133d44-ddeb-4837-94a0-43dcfe4fa2d9"))
-		(pin "7" (uuid "ab969a2a-7fb5-4696-a38d-a0bdec96863c"))
-		(pin "8" (uuid "eaa2cc66-6b2a-4050-840f-c06cda0f1e24"))
-		(pin "9" (uuid "56769d27-4998-40c5-9e90-f2b54268bcb8"))
-		(pin "10" (uuid "bb98958d-918f-43b4-afca-489001db5d01"))
+		(pin "1" (uuid "935f1ebb-1441-45f6-a3e6-7ee112ec358a"))
+		(pin "2" (uuid "a8e9de53-dbac-42c9-8061-7873ca2f8303"))
+		(pin "3" (uuid "0bfbcd21-1a0a-41d6-aff6-e0af0edc7da1"))
+		(pin "4" (uuid "10b33e49-c0dc-43b1-9257-317d218b9be8"))
+		(pin "5" (uuid "d9aadd20-0e70-44e6-beea-ae4d8658a190"))
+		(pin "6" (uuid "5681a656-7d4b-48b5-b250-b22b768c2649"))
+		(pin "7" (uuid "f14f1ef5-d715-4c3a-9103-b3c36675ad48"))
+		(pin "8" (uuid "c544e3c7-e85a-4d5e-9ec2-00e6b3ad5adf"))
+		(pin "9" (uuid "704201f9-8363-4731-9c4c-82d1c60a9f68"))
+		(pin "10" (uuid "8c78785e-d638-435d-8011-184b0080af7a"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1400,7 +1400,7 @@
 		(shape bidirectional)
 		(at 74.93 114.3 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "745b1767-c3b7-48f2-a4d9-cee6a2cedfe1")
+		(uuid "8df67efe-d6b3-49fd-bcc4-44ffd489e1ee")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 74.93 114.3 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1410,7 +1410,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 119.38 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "0a35ccbc-7786-4324-8dcc-1674a7e38a49")
+		(uuid "dbf33131-2bf3-45f2-8d9c-bb20d17134f8")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 119.38 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1420,7 +1420,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 121.92 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "e0440a2d-f1c2-499d-b29a-c8692e500d99")
+		(uuid "512974b7-2bae-412a-91b6-3a049d61bc0a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 121.92 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1430,7 +1430,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 124.46000000000001 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "2fd9baf7-9e41-4100-a9df-c432aa3c169f")
+		(uuid "e02edcde-dfa7-4c43-bca2-7c3d5aa2f40f")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 124.46000000000001 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1438,13 +1438,13 @@
 	)
 	(no_connect
 		(at 59.690000000000005 127.0)
-		(uuid "0f325ac7-78a9-4974-8b64-f29487c5447c")
+		(uuid "51623877-10f3-4b7e-9cb0-03c7c19516f0")
 	)
 	(global_label "PD1_COMP_THR"
 		(shape bidirectional)
 		(at 90.17 119.38 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "e20c9da9-289a-4439-b63e-66fa3f90ffbd")
+		(uuid "d88c76bc-6491-4420-b118-a5aad7cc220d")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 119.38 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1454,7 +1454,7 @@
 		(shape bidirectional)
 		(at 90.17 121.92 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "b2a2d8f4-6fd1-4062-ac7b-90abb99a986c")
+		(uuid "57652745-30c0-4e08-aa02-ba9268b0cb7b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 121.92 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1464,7 +1464,7 @@
 		(shape bidirectional)
 		(at 90.17 124.46000000000001 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "a48eb050-4754-4f72-a58d-88904129f43e")
+		(uuid "4a5870b8-c0b8-4984-9ad7-368a4911fe37")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 124.46000000000001 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1474,7 +1474,7 @@
 		(shape bidirectional)
 		(at 90.17 127.0 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c7d029ff-4b2c-44d4-a4ca-cbaad809483a")
+		(uuid "9a8bc66b-bc06-400f-b3be-d4acd40421c4")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 90.17 127.0 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1484,7 +1484,7 @@
 		(shape bidirectional)
 		(at 74.93 132.08 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c132cbed-fdc8-4bdb-a612-891a49274313")
+		(uuid "8ba3cac2-8cbd-4bdc-9306-b57320710a0a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 74.93 132.08 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1498,7 +1498,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "0048f0b6-0d5a-498f-a8a4-62c666e309e5")
+		(uuid "9d3d1b08-a381-4987-ac50-3f805e0c0bea")
 		(property "Reference" "C120"
 			(at 61.72200000000001 121.92 0)
 			(effects (font (size 1.27 1.27)))
@@ -1515,8 +1515,8 @@
 			(at 59.690000000000005 121.92 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "c105c944-57a8-4d95-9d6e-fd75c636960b"))
-		(pin "2" (uuid "5812ee31-6068-4c7d-8069-725368231e81"))
+		(pin "1" (uuid "51906464-7716-4429-a766-a2082fa1f7d4"))
+		(pin "2" (uuid "2d916d22-b2b8-4814-8c5d-f00013e472f9"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1529,7 +1529,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 118.11 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "18f87935-2d51-4281-b31f-e665d6e5373b")
+		(uuid "f04a57bd-10c3-4859-91f1-9afc61e014ef")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 118.11 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1539,7 +1539,7 @@
 		(shape bidirectional)
 		(at 59.690000000000005 125.73 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "5796cfbe-30dc-4b8c-b3a2-df7a1d4e1402")
+		(uuid "a1a09b59-bb21-415c-b54c-b6dd083d4007")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 59.690000000000005 125.73 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1549,7 +1549,7 @@
 		(shape bidirectional)
 		(at 67.31 22.86 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c65d9f5f-d5da-40e2-b92e-d6dbd580f54c")
+		(uuid "9d6a7c1e-109f-4a2f-a326-1363265e1819")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 22.86 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1559,7 +1559,7 @@
 		(shape bidirectional)
 		(at 82.55000000000001 20.32 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "83cc18b8-b913-4282-bc6c-d82dcb860f84")
+		(uuid "53cb78dd-222a-41fb-8cd1-9a21173716be")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 82.55000000000001 20.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1569,7 +1569,7 @@
 		(shape bidirectional)
 		(at 67.31 17.78 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "1f7eef6c-1dd9-4c81-98cb-2da0d85d0ec1")
+		(uuid "32f4508e-f338-43d7-947e-52e95f7c9d87")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 17.78 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1583,7 +1583,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "a5994f8a-64ea-4664-aadd-b833afc466e3")
+		(uuid "45f93d92-29e8-4eb1-9e05-89fd94294aa4")
 		(property "Reference" "R111"
 			(at 46.482 20.32 0)
 			(effects (font (size 1.27 1.27)))
@@ -1600,8 +1600,8 @@
 			(at 44.45 20.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "06556e79-0f32-4bfe-9aaa-42ac6e571ae0"))
-		(pin "2" (uuid "fa919937-bdca-4407-bfd8-328cc7ec9f0e"))
+		(pin "1" (uuid "8b0e1e03-4db1-483e-af1b-9177030d8899"))
+		(pin "2" (uuid "a07e47d0-2fb3-4e0d-bf7e-0656f5801e4c"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1614,7 +1614,7 @@
 		(shape bidirectional)
 		(at 44.45 16.51 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "364c7ae9-f794-4a9c-b356-c1a575b349ac")
+		(uuid "3c63e7f7-d87b-460c-b53a-3e4eb014dedb")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 16.51 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1624,7 +1624,7 @@
 		(shape bidirectional)
 		(at 44.45 24.13 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "e212a07e-ab5e-4a68-b6eb-fb2b624ee6a8")
+		(uuid "09c39cc1-d047-4b22-a77a-a6bcc582d5bc")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 24.13 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1638,7 +1638,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "3fc91933-784f-4a45-9421-39a907a4c639")
+		(uuid "41623954-18f2-4646-be0e-97700d72ecf1")
 		(property "Reference" "R112"
 			(at 102.362 20.32 0)
 			(effects (font (size 1.27 1.27)))
@@ -1655,8 +1655,8 @@
 			(at 100.33 20.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "aaf809d5-bb26-48be-83bd-f464b21d4686"))
-		(pin "2" (uuid "d1e34210-9e21-486c-ae2d-476ea20db65c"))
+		(pin "1" (uuid "83978c29-7840-479c-b245-310ff95ef41b"))
+		(pin "2" (uuid "877d06ec-f579-4042-ba07-c0396913f2f5"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1669,7 +1669,7 @@
 		(shape bidirectional)
 		(at 100.33 16.51 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "5f31128e-c611-4526-a4d8-794bcc764c9f")
+		(uuid "b09857d3-e228-4231-980c-929b428c2c07")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 16.51 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1679,7 +1679,7 @@
 		(shape bidirectional)
 		(at 100.33 24.13 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "4fa53823-afd6-4907-b159-8f2bd4e9eaca")
+		(uuid "be41d43d-83b8-4c72-b0f1-5541f9696ce7")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 24.13 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1693,7 +1693,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f08cb3ee-acf7-4605-b3d0-586459e4288c")
+		(uuid "280807d3-37dc-438d-92c4-468d80880248")
 		(property "Reference" "R113"
 			(at 126.49199999999999 20.32 0)
 			(effects (font (size 1.27 1.27)))
@@ -1710,8 +1710,8 @@
 			(at 124.46 20.32 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "72781ea4-eeb1-4b28-986f-af0fc117a134"))
-		(pin "2" (uuid "347f90d4-14a7-4c40-b9c0-2c8dd26df2d3"))
+		(pin "1" (uuid "e33efc96-cc26-4d54-be4d-5fed7f49630d"))
+		(pin "2" (uuid "2700fc48-9d05-4645-9a9a-5cce0df98c2d"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1724,7 +1724,7 @@
 		(shape bidirectional)
 		(at 124.46 16.51 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "3e07151c-18ee-4574-948f-083ec61ddce1")
+		(uuid "0666e5af-90de-43cf-b692-44b1488898f5")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 16.51 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1734,7 +1734,7 @@
 		(shape bidirectional)
 		(at 124.46 24.13 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "bb19a0f5-a8eb-473a-948c-a720cbb2224c")
+		(uuid "38bcba87-66f3-4047-ac6c-41a639ecca0e")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 24.13 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1744,7 +1744,7 @@
 		(shape bidirectional)
 		(at 67.31 48.26 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c157bba0-e5a1-429d-861c-7a47a277d314")
+		(uuid "e4fa02b4-0c57-4e3e-a86a-d21d52794efc")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 48.26 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1754,7 +1754,7 @@
 		(shape bidirectional)
 		(at 82.55000000000001 45.72 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "296d1571-89e5-4138-b29e-6a40579ef77d")
+		(uuid "ef641f0d-6eac-4141-9f56-8315386c8eb3")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 82.55000000000001 45.72 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1764,7 +1764,7 @@
 		(shape bidirectional)
 		(at 67.31 43.18 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "62cc4ab8-4b9b-44f9-9f89-e61fb146714c")
+		(uuid "c1f9c4a5-5725-4057-b3a1-604bbb6b4b60")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 43.18 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1778,7 +1778,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "d3162ad5-f59b-4a52-b63c-cef6eff96b6a")
+		(uuid "9b4e1092-7b94-4a24-9a75-f477183c6b09")
 		(property "Reference" "R114"
 			(at 46.482 45.72 0)
 			(effects (font (size 1.27 1.27)))
@@ -1795,8 +1795,8 @@
 			(at 44.45 45.72 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "620b4b3b-16cb-4453-967c-1f39d813b909"))
-		(pin "2" (uuid "4f6d664b-b6c7-4439-8858-b0ef90a7b0b3"))
+		(pin "1" (uuid "f0575c69-b98c-48f2-849f-88a0801e4325"))
+		(pin "2" (uuid "16f664ad-0da1-4f3b-adf9-a0037afb45f5"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1809,7 +1809,7 @@
 		(shape bidirectional)
 		(at 44.45 41.91 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "67e0a020-b2dd-41d1-8768-3f35e4e54166")
+		(uuid "3c824f2a-10e9-44d8-9370-a2b9186c123a")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 41.91 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1819,7 +1819,7 @@
 		(shape bidirectional)
 		(at 44.45 49.53 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "d1b3c419-4250-4500-b98d-07599b6c4374")
+		(uuid "90e81d71-29da-4a2f-8584-8763b0bc9279")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 49.53 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1833,7 +1833,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "8f3afb47-a2da-4f06-ac0e-753d981313dd")
+		(uuid "a112f5ef-f4c4-4be5-a291-3f5b8d082dce")
 		(property "Reference" "R115"
 			(at 102.362 45.72 0)
 			(effects (font (size 1.27 1.27)))
@@ -1850,8 +1850,8 @@
 			(at 100.33 45.72 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "0d95f648-ce1c-422c-8727-802c1d1e9c0a"))
-		(pin "2" (uuid "41d460a1-e289-46b1-931e-6da89fe2438a"))
+		(pin "1" (uuid "5ffa18cc-b1ca-4056-b1f4-1aa5214d6152"))
+		(pin "2" (uuid "0f9294e2-f727-4579-820f-208be4632222"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1864,7 +1864,7 @@
 		(shape bidirectional)
 		(at 100.33 41.91 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "861f50d3-bd95-4f14-92a2-8d5c454e6170")
+		(uuid "ec5c1942-6e00-4daf-9d8b-01a9fe9e8e77")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 41.91 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1874,7 +1874,7 @@
 		(shape bidirectional)
 		(at 100.33 49.53 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "8900e6d1-904f-4a4e-846c-e164731f392b")
+		(uuid "37ac68e3-9346-4014-a226-353999f33bdb")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 49.53 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1888,7 +1888,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "6b51a879-98c8-4678-b533-1174cf112087")
+		(uuid "ee4d437c-04a9-49c8-9ede-6e9fdb48e4b8")
 		(property "Reference" "R116"
 			(at 126.49199999999999 45.72 0)
 			(effects (font (size 1.27 1.27)))
@@ -1905,8 +1905,8 @@
 			(at 124.46 45.72 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "714ea5ad-4541-4a23-8778-e580f45bfc0a"))
-		(pin "2" (uuid "d9f8a704-4570-4158-9973-de66b4ecf49d"))
+		(pin "1" (uuid "a2d8487e-fb30-4bbd-875a-b41ab0ebaabb"))
+		(pin "2" (uuid "a31bbce4-e519-4e1b-9c2f-85c882c42100"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -1919,7 +1919,7 @@
 		(shape bidirectional)
 		(at 124.46 41.91 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "0371ab8b-8238-4132-966c-abddd8270eda")
+		(uuid "004153a8-a1e6-425d-822b-44c17e1011cc")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 41.91 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1929,7 +1929,7 @@
 		(shape bidirectional)
 		(at 124.46 49.53 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "82f7efce-022b-41e2-9e1b-131054169924")
+		(uuid "2f13bcf5-2000-4acb-86c7-6a21c6a95f58")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 49.53 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1939,7 +1939,7 @@
 		(shape bidirectional)
 		(at 67.31 73.66000000000001 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "a7c57213-9072-47fe-b5c2-939f1978904e")
+		(uuid "d0cdd9db-7b5a-4662-817d-b682ec39407b")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 73.66000000000001 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1949,7 +1949,7 @@
 		(shape bidirectional)
 		(at 82.55000000000001 71.12 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "1a07a49b-cc21-4175-9eef-cecb2f4c3030")
+		(uuid "d7bdfecb-7906-44c6-9931-07ec5e2bb71d")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 82.55000000000001 71.12 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1959,7 +1959,7 @@
 		(shape bidirectional)
 		(at 67.31 68.58 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "2bdc6c02-cfe3-4111-868f-967c4d67f639")
+		(uuid "1d2c6c75-ff90-4414-b59d-4ce1381e8250")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 68.58 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -1973,7 +1973,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "192e8abb-50b6-44e6-a03e-634b275cc451")
+		(uuid "609aa8b0-89f3-4739-aa7d-f1ff70b44261")
 		(property "Reference" "R117"
 			(at 46.482 71.12 0)
 			(effects (font (size 1.27 1.27)))
@@ -1990,8 +1990,8 @@
 			(at 44.45 71.12 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "b476bbec-d56b-49a2-9026-219c80f34327"))
-		(pin "2" (uuid "c0b83620-af1a-4677-aacd-8532f93b473c"))
+		(pin "1" (uuid "e132f8d9-0571-40e8-beb1-572d9ddaf6ea"))
+		(pin "2" (uuid "c67d9e1f-dc4c-4386-8d48-3663f6abe17f"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2004,7 +2004,7 @@
 		(shape bidirectional)
 		(at 44.45 67.31 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "db4da425-8cf9-4acd-bc48-08a6c288e3a2")
+		(uuid "d503af55-ecb1-4c73-a65f-2d55bf7472b5")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 67.31 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2014,7 +2014,7 @@
 		(shape bidirectional)
 		(at 44.45 74.93 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "6129431a-76ca-4497-9454-63d22691ac90")
+		(uuid "9487669e-3ef5-4352-bac4-777a5b71bdf2")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 74.93 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2028,7 +2028,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "968b7bb8-76c2-4d3d-86c3-5ffa665ed8f8")
+		(uuid "d887562e-3943-4c0d-be9c-25646aee405d")
 		(property "Reference" "R118"
 			(at 102.362 71.12 0)
 			(effects (font (size 1.27 1.27)))
@@ -2045,8 +2045,8 @@
 			(at 100.33 71.12 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "c4b5e829-d7b6-4818-b0d9-b2e97b60d3ab"))
-		(pin "2" (uuid "291cc9f8-4a45-4fbd-9a8b-a3b3dfacab66"))
+		(pin "1" (uuid "201e7238-12ec-411f-b546-fe5ed8fa88f4"))
+		(pin "2" (uuid "b748c182-a851-4f4d-af64-02fcd70b84af"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2059,7 +2059,7 @@
 		(shape bidirectional)
 		(at 100.33 67.31 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "00b0bf71-844a-45b9-a498-3b693f8cd629")
+		(uuid "d41d10c8-de09-4ac0-8874-4a3e94ad7b75")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 67.31 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2069,7 +2069,7 @@
 		(shape bidirectional)
 		(at 100.33 74.93 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "ea173706-1997-499e-a5b6-e58dd551174d")
+		(uuid "eef290ad-cb9c-451e-942d-c55def626fe6")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 74.93 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2083,7 +2083,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "cabad802-3f9d-4335-80bb-1360d7aadcb3")
+		(uuid "86f077e5-f415-4e8f-97f4-9709f4305051")
 		(property "Reference" "R119"
 			(at 126.49199999999999 71.12 0)
 			(effects (font (size 1.27 1.27)))
@@ -2100,8 +2100,8 @@
 			(at 124.46 71.12 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "5527e3f3-7ce1-46b8-9d0c-396503e036b4"))
-		(pin "2" (uuid "2938e605-7bed-4da2-bfc8-11b5521d0ac2"))
+		(pin "1" (uuid "54fecb2e-9a8b-4f97-a20d-21dbb90ff64b"))
+		(pin "2" (uuid "043ea8c2-24e7-43e8-be2f-388778b4d591"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2114,7 +2114,7 @@
 		(shape bidirectional)
 		(at 124.46 67.31 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "9aca71e9-7a51-43ef-96d2-16aabeab581d")
+		(uuid "5c75ede2-0838-404d-abe8-c81263df48c8")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 67.31 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2124,7 +2124,7 @@
 		(shape bidirectional)
 		(at 124.46 74.93 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "ca26aeac-68dd-41b4-9965-cb52fc25e2a0")
+		(uuid "fa1358b8-c278-4102-aa2b-1a9abf46d1a0")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 74.93 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2134,7 +2134,7 @@
 		(shape bidirectional)
 		(at 67.31 99.06 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "3bacaf66-2685-4a82-98f1-4ca784d92adb")
+		(uuid "07d93e3e-dd83-49ee-9e7d-7f9d241654c9")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 99.06 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2144,7 +2144,7 @@
 		(shape bidirectional)
 		(at 82.55000000000001 96.52 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "a799ee64-359e-4edf-b250-6555dd5e3291")
+		(uuid "c1fd56ab-94ef-47ac-8c9b-67c03bf72b69")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 82.55000000000001 96.52 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2154,7 +2154,7 @@
 		(shape bidirectional)
 		(at 67.31 93.97999999999999 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "badca2fe-6bf4-40c3-a8c7-d4c8bab9a57f")
+		(uuid "eec66440-f7ab-4087-898b-0f24d117df3c")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 67.31 93.97999999999999 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2168,7 +2168,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "d0d8ed45-a71e-43d9-824d-bc0550757788")
+		(uuid "1128420b-c66a-4162-8c4a-b1c1fb9b8002")
 		(property "Reference" "R190"
 			(at 46.482 96.52 0)
 			(effects (font (size 1.27 1.27)))
@@ -2185,8 +2185,8 @@
 			(at 44.45 96.52 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "07ad664d-f17d-42e1-a83e-159faff038c6"))
-		(pin "2" (uuid "e37fa27b-dc5f-4a25-8a46-b82624baa427"))
+		(pin "1" (uuid "bfcb1b9a-5689-48ce-a610-725d37ecce34"))
+		(pin "2" (uuid "1e61ae2a-1d65-4278-8cd1-c101e966beee"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2199,7 +2199,7 @@
 		(shape bidirectional)
 		(at 44.45 92.71 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c2ae2558-f76c-4f5d-89a6-e7fe5d187ef2")
+		(uuid "cd547e97-e9a4-4caa-a28b-befc91aff322")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 92.71 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2209,7 +2209,7 @@
 		(shape bidirectional)
 		(at 44.45 100.33 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "f077ca16-5df2-4065-876b-a9d04ada7142")
+		(uuid "236ad367-7606-4bb9-81a8-0a24d2209a47")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 44.45 100.33 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2223,7 +2223,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp yes)
-		(uuid "8c19b105-109a-4ae5-9c98-dabc4d52cc35")
+		(uuid "6c2a0aec-3667-4e07-9ae2-fef4d9abf2c5")
 		(property "Reference" "R120"
 			(at 102.362 96.52 0)
 			(effects (font (size 1.27 1.27)))
@@ -2240,8 +2240,8 @@
 			(at 100.33 96.52 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "eb744549-b84d-45c9-9669-1fd87f87f8cd"))
-		(pin "2" (uuid "016f95c5-602e-441d-8e69-c31b43db4ae4"))
+		(pin "1" (uuid "22b84b60-a2c3-4d90-825a-bc219fa781e9"))
+		(pin "2" (uuid "00ffafbd-c7e4-435c-8fff-82ed4cd8d589"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2254,7 +2254,7 @@
 		(shape bidirectional)
 		(at 100.33 92.71 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "c019cbcf-c17f-40a9-ab12-276faa36bfe7")
+		(uuid "2cfe1790-adfd-492d-ae2f-f4ef845b02bd")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 92.71 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2264,7 +2264,7 @@
 		(shape bidirectional)
 		(at 100.33 100.33 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "1824d297-6b8f-4694-b12c-5b6b4234f83b")
+		(uuid "c52c9d73-b256-4ae7-b63c-ab88da543011")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 100.33 100.33 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2278,7 +2278,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp yes)
-		(uuid "cb2424d9-0a68-4111-85b0-caa809761b57")
+		(uuid "86e92d41-6583-4fff-afe6-a301c68c1572")
 		(property "Reference" "R121"
 			(at 126.49199999999999 96.52 0)
 			(effects (font (size 1.27 1.27)))
@@ -2295,8 +2295,8 @@
 			(at 124.46 96.52 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
 		)
-		(pin "1" (uuid "f24b6834-b706-4c99-bac2-8183a442e47b"))
-		(pin "2" (uuid "b4b6cf93-7f23-45e9-b5ee-94df286618cd"))
+		(pin "1" (uuid "99384de2-69ce-4280-8699-f3f35f4318be"))
+		(pin "2" (uuid "ed3ffbb4-98f2-4cb2-a833-70b760f2da46"))
 		(instances
 			(project "breakout"
 				(path "/d2c4d978-5db4-46d9-a1cd-a7af0aeb1700/a820ebcd-3d3c-49b0-9588-1f06b2b85c3d"
@@ -2309,7 +2309,7 @@
 		(shape bidirectional)
 		(at 124.46 92.71 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "d4a97144-e7be-4ac8-8972-162f66da5f41")
+		(uuid "e52d4aa4-e141-41c1-b6e2-b1b901dd9d30")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 92.71 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2319,7 +2319,7 @@
 		(shape bidirectional)
 		(at 124.46 100.33 0)
 		(effects (font (size 1.27 1.27)) (justify left))
-		(uuid "b8cdc933-a26c-4aee-a6fc-04aae0a2422c")
+		(uuid "6082c9a1-ce28-4b6a-83b4-be9386083ae0")
 		(property "Intersheetrefs" "${INTERSHEET_REFS}"
 			(at 124.46 100.33 0)
 			(effects (font (size 1.27 1.27)) (hide yes))
@@ -2328,767 +2328,767 @@
 	(text "Comparators (Task 10d) -- one LM339 quad comparator. Three channels used:"
 		(at 180.34 20.32 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b06eaa48-d675-456e-9241-dcf2a8334b73")
+		(uuid "03dec9f7-aa8b-414c-82a5-99e4f8fe9ac6")
 	)
 	(text "A_PD1->PD1_COMP, A_PD2->PD2_COMP, A_ACC->ACC_TRIG (Task 10a's own sources,"
 		(at 180.34 25.4 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "eccee741-9974-4780-8102-b70afd4bfad2")
+		(uuid "a9c8d94d-6471-4f9a-91a2-5ed8acaa3031")
 	)
 	(text "spec Sec.6.5). Fourth (A_MISC1) brought out, unpopulated -- see below."
 		(at 180.34 30.48 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "8dcb5404-a15c-423b-ad8b-3a2ff3bce55c")
+		(uuid "d370dec7-a7e5-4521-a443-29aa70ba7cd5")
 	)
 	(text ""
 		(at 180.34 35.56 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b653a991-01a1-4e48-b315-9908b2284143")
+		(uuid "d440f2b7-30a5-4697-a5d7-c7cf48f57e03")
 	)
 	(text "Every '+' (non-inverting) input takes its own channel's analog source (through"
 		(at 180.34 40.64 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "d633e8d9-1df6-4fbd-a309-b46af361a820")
+		(uuid "73ee80a6-8667-419b-b2ec-677e4460a82f")
 	)
 	(text "a 10k series resistor on populated channels -- see the hysteresis note below);"
 		(at 180.34 45.72 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "59ca2325-6750-47d6-b01e-47389420fc6c")
+		(uuid "531320d6-8f19-46d8-998a-05851436d6e7")
 	)
 	(text "every '-' (inverting) input takes a fixed threshold from one of the MCP4728's"
 		(at 180.34 50.8 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c2cc5636-b0c9-43d1-be48-e3156fbfc48e")
+		(uuid "1fd31a79-a22d-416e-b5fc-67e2eb812ad6")
 	)
 	(text "four VOUT channels, direct wire. Output is open-collector, pulled up to +3V3"
 		(at 180.34 55.88 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6b915394-e925-48fc-9761-1f5e49a3176b")
+		(uuid "93eee8c3-9b16-4ca2-8ebe-e7d14a6277c3")
 	)
 	(text "(never +5V -- see below) and fed back 1M to the '+' node for hysteresis."
 		(at 180.34 60.96 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ab58a7f3-1598-41c5-99f2-bff96acdebeb")
+		(uuid "7121d2c4-e704-4ed6-8493-d503598cef7b")
 	)
 	(text ""
 		(at 180.34 66.03999999999999 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "fbabab96-1e8b-4ac8-b060-8950d34e5abe")
+		(uuid "c98a144b-dbd6-4ccf-b40a-6de2b06c24bb")
 	)
 	(text "All three outputs (PD1_COMP/PD2_COMP/ACC_TRIG) reach the sync module's own GPIO"
 		(at 180.34 71.12 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "933839c2-6b46-4197-aa57-4463fff16cf4")
+		(uuid "6b7d6439-d185-4b0d-8d36-88e1b049c6d3")
 	)
 	(text "DIRECTLY (pi-interface.kicad_sch, Task 9, GPIO20/21/25 -- 'direct' kind, no"
 		(at 180.34 76.2 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "348f4d2d-2d3d-4631-a09a-b61dec4580e7")
+		(uuid "b098e61f-8c32-427b-a677-433184ccea50")
 	)
 	(text "protection in between) and the task PC's own outbound buffer"
 		(at 180.34 81.28 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "65396c79-8f87-4236-b387-a4c3db134a31")
+		(uuid "85dc9703-9e85-42db-a5d3-45d138a53caf")
 	)
 	(text "(taskpc-digital.kicad_sch, Task 8) -- confirmed by reading both sheets' own"
 		(at 180.34 86.36000000000001 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4b702f3d-4c23-4e17-96ab-d4a02c136392")
+		(uuid "be88bfa2-2932-4194-920e-92cb634c706d")
 	)
 	(text "committed source before writing this one, not assumed."
 		(at 180.34 91.44 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c14a68ab-2407-487f-b5db-aaf6ea3a716c")
+		(uuid "d69b67bf-f471-46c9-ba1a-5e897b9a2fb9")
 	)
 	(text "PULL-UPS GO TO +3V3, NEVER +5V -- THE DESTROY-HARDWARE CONSTRAINT. All three"
 		(at 180.34 95.25 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "53bf6609-7f38-46fc-8c74-0066db8a8e53")
+		(uuid "3bdb11f0-d906-452f-85ad-b1167332ed73")
 	)
 	(text "comparator outputs wire DIRECTLY to the sync module's own GPIO20/21/25, which"
 		(at 180.34 100.33 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c69a451c-9703-48c1-ac10-07f7bf44c024")
+		(uuid "263e5e0f-f8da-4007-baf5-0b6c5f267a9b")
 	)
 	(text "is 3.3V and NOT 5V tolerant. Pulled to +5V, an open-collector HIGH would put 5V"
 		(at 180.34 105.41 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "1c321ce1-4c18-4c21-8d91-31ea94dacd8b")
+		(uuid "a8b3923c-9fb3-4b43-b9ab-9864258bd5cd")
 	)
 	(text "straight onto an unprotected 3.3V input and destroy the module."
 		(at 180.34 110.49 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a9ec8464-c3ec-475c-87dd-4052dc408c23")
+		(uuid "8116483a-306d-484d-a4fb-c1ad338eee4b")
 	)
 	(text ""
 		(at 180.34 115.57 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "8554b9d6-1816-48d9-8507-8c4ed260eba1")
+		(uuid "e0fd8d4e-5e0a-4714-a87b-3af0e6154b9b")
 	)
 	(text "Pulled to +3V3 the module path is safe BY CONSTRUCTION, and the task-PC path"
 		(at 180.34 120.65 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9a3d2df3-407a-40e4-9d66-df3fa27f7654")
+		(uuid "cd460629-20e6-4eca-8282-2a7eea1b9fa7")
 	)
 	(text "still works: Task 8's own outbound SN74HCT541PW buffer runs on +5V, and"
 		(at 180.34 125.73 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "e75261a5-e98a-4475-8aea-b45e0759cd02")
+		(uuid "33d75eca-e332-49da-940c-e29f59cfdd98")
 	)
 	(text "74HCT's own input threshold is TTL-compatible (~2.0V min, not a fraction of"
 		(at 180.34 130.81 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c23ab714-24ed-4914-872f-0a7f442879a8")
+		(uuid "5709b01e-14ac-4574-a2ce-3097c506c0b0")
 	)
 	(text "its own 5V supply) -- a 3.3V high from this sheet still reads as a valid logic"
 		(at 180.34 135.89 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4e72274d-a9e2-4006-902c-77b80e7bcb7e")
+		(uuid "b333fc4c-390a-4e69-8ffe-2eddd5477e31")
 	)
 	(text "HIGH into that buffer. The 3.3V->5V up-shift happens there, in a buffer that"
 		(at 180.34 140.97 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f79a57cb-b9a5-4b59-a772-829871a907ee")
+		(uuid "1264400b-62dd-46b8-a346-f519c1e4884c")
 	)
 	(text "already exists, not on this sheet."
 		(at 180.34 146.05 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ae4fd1e1-deb5-4cbd-b2f9-d8d1ca30288f")
+		(uuid "2675614a-e045-4a95-a397-c012fef0d00a")
 	)
 	(text ""
 		(at 180.34 151.13 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f05ba162-e8d2-49b5-9f76-8394c274bace")
+		(uuid "5874a34a-78c8-4012-8b65-a5f5c13fc4ab")
 	)
 	(text "This is exactly the class of error that passes kicad-cli sch erc (a resistor"
 		(at 180.34 156.21 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "49505b2a-ac22-440a-bd00-8406cf6178e4")
+		(uuid "5ce52bca-19dc-40ca-a0e8-3550fe1d990f")
 	)
 	(text "to a valid, correctly-typed power net is not an ERC violation regardless of"
 		(at 180.34 161.29000000000002 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "90d696f8-5eff-4b67-9e2c-7f9fcaf98d72")
+		(uuid "c9e829a3-e1da-489d-b4ea-ebd757be49e1")
 	)
 	(text "WHICH power net) and is found only by smoke on real hardware --"
 		(at 180.34 166.37 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f4c2df8a-dbb4-483d-bc47-c5ac029dabfc")
+		(uuid "ad619c23-5326-4b0a-9550-437aaba3bce3")
 	)
 	(text "check_breakout_comparators_netlist.py asserts every one of the four pull-ups"
 		(at 180.34 171.45 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3926c13b-4511-4a27-b069-72697207e1d5")
+		(uuid "ab26a78c-5282-493d-8f7e-68dcf391f659")
 	)
 	(text "(all three populated ones AND the fourth, DNP one) lands on +3V3 and never"
 		(at 180.34 176.53 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3797d863-3445-4d10-8fbc-d23f0d80010a")
+		(uuid "5ed91108-f8f7-4c58-97d7-749135fa81eb")
 	)
 	(text "+5V, with a negative control that moves one to +5V and confirms it fires."
 		(at 180.34 181.61 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "7202a11a-3cdd-4bc7-a84f-e7a4e08323ae")
+		(uuid "5fc1d724-a035-4d58-8d98-a36b296b589a")
 	)
 	(text "HYSTERESIS IS MANDATORY, for two reasons (spec Sec.6.5): a photodiode crossing"
 		(at 180.34 170.18 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "5f366f20-725f-4387-9853-aefbf7ad5541")
+		(uuid "b252c3ed-a632-45ee-92d5-515f8ac79c6e")
 	)
 	(text "a bare threshold on a slow display transition emits a burst of edges; the"
 		(at 180.34 175.26000000000002 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "d31cc02c-ec9e-4df8-a68a-723712e03111")
+		(uuid "4e77df2d-3b31-47da-b5da-ebfd8f311059")
 	)
 	(text "accelerometer's own motion-energy signal is noisy and slowly varying, and"
 		(at 180.34 180.34 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "96908271-7ce6-445c-b9b7-87ebd8249a4a")
+		(uuid "86b39044-f836-4c5b-83bd-f1705ba99562")
 	)
 	(text "chatters across a bare threshold continuously."
 		(at 180.34 185.42000000000002 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9e8fdc97-f1df-4555-992e-e3b45379801e")
+		(uuid "4180993a-29e3-406e-a551-16f8d4307c7e")
 	)
 	(text ""
 		(at 180.34 190.5 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "1bb65ae2-14d5-42a3-8c42-6af02154c039")
+		(uuid "a874ffc5-8dc8-40fd-8a97-8529ea730429")
 	)
 	(text "A 1M feedback resistor alone, with '+' driven ONLY by the analog source, gives"
 		(at 180.34 195.58 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6e1ed712-f220-4a25-98fe-97b620252693")
+		(uuid "86bbd592-67ce-4bd7-8ddb-c78732540da7")
 	)
 	(text "hysteresis that rounds to zero: every Task 10a front end reaching this sheet is"
 		(at 180.34 200.66 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9ba73fce-2cef-4a9b-948a-9d57513e4906")
+		(uuid "cc98c1d4-ff03-431e-b4d1-ecc2a0385658")
 	)
 	(text "a comparatively hard, low-impedance node next to 1M (A_PD1/A_PD2 ~1.6k Thevenin"
 		(at 180.34 205.74 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "522b8df4-7eb5-46ca-bd48-53d2fa6f56ed")
+		(uuid "89f58159-4f3b-49cf-8fe4-b3548a79e4c4")
 	)
 	(text "through their own RC anti-alias filter; A_ACC near-zero, an INA105's own"
 		(at 180.34 210.82 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "cb9abdda-31d3-41de-bbf7-1b6aad24a899")
+		(uuid "4c601dd2-82ec-49ca-a703-e8dd78342322")
 	)
 	(text "SENSE=OUTPUT tie) -- the source dominates the node and the 1M feedback current"
 		(at 180.34 215.9 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3ab2282e-a5e8-4999-a169-6e6d29d83c85")
+		(uuid "22842307-ccfd-4455-ba66-c2dec1d7a729")
 	)
 	(text "has nowhere to make a real difference. So this sheet ALSO inserts a 10k series"
 		(at 180.34 220.98000000000002 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "915617d1-b5e0-4f65-865a-5116101750c0")
+		(uuid "8241b8fd-c50b-400f-a696-1d7553959fee")
 	)
 	(text "resistor between each POPULATED channel's own source and the '+' node, upstream"
 		(at 180.34 226.06 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a4d0e4d3-352f-41da-af0b-0ee474beab03")
+		(uuid "021a2c1a-5e6a-450b-86b0-6ecb2e8b6040")
 	)
 	(text "of the 1M feedback tie -- a real, deliberate divider between the source and the"
 		(at 180.34 231.14000000000001 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "508089b1-7b48-4b3c-b356-8c5ca41fc0ce")
+		(uuid "bc976377-0b31-46e3-bbc0-50ddd7813186")
 	)
 	(text "fed-back output swing, not named in the brief but necessary for 'hysteresis is"
 		(at 180.34 236.22000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "507d5818-f4ef-4c82-bb98-6369a632c52a")
+		(uuid "332d1fd6-e6a8-4b50-937a-974e8acc0829")
 	)
 	(text "mandatory' to be functionally true rather than topologically present only."
 		(at 180.34 241.3 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "bb528144-e8cc-4e90-a48c-154f23741c22")
+		(uuid "a0b46150-15a3-4e77-bc2c-8e28024c78d9")
 	)
 	(text ""
 		(at 180.34 246.38 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "7c55909f-5519-4616-b9b7-4794eef76fd4")
+		(uuid "ab503f3f-9653-4097-b999-5dddeef6481a")
 	)
 	(text "Math (comparator draws ~0 input current, so superposition applies): V+ ="
 		(at 180.34 251.46 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "71575033-2f21-4891-ab78-64e7a8715ae2")
+		(uuid "243c5067-fdb8-4e38-84b4-b296adbf3350")
 	)
 	(text "(V_signal*Rf + Vout*Rs)/(Rs+Rf). At the trip point V+ = V_DAC, so V_signal_trip"
 		(at 180.34 256.54 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "fd375fd6-a67e-4788-8eaa-ef5007bde478")
+		(uuid "5ad6d1ca-5d3d-4c42-a557-ef8b33f9e462")
 	)
 	(text "= V_DAC*(1+k) - Vout*k, k=Rs/Rf=10k/1M=0.01. Rising (Vout~0V): 1.01*V_DAC."
 		(at 180.34 261.62 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b311f72d-daae-483a-9b26-342272a2e6df")
+		(uuid "ad1902a1-fa23-4ce1-9bbb-107031d8dfcd")
 	)
 	(text "Falling (Vout~3.3V): 1.01*V_DAC - 33mV. Vout~0V holds ONLY because V- = AGND;"
 		(at 180.34 266.7 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9a3ce604-34b1-4b2b-9a2f-d5ad049fc487")
+		(uuid "86f84f61-9381-4b01-a02a-e96155b4093d")
 	)
 	(text "on a -12V V- the LOW level is ~-11.9V and every number here is wrong by 4x --"
 		(at 180.34 271.78 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "d4deffd8-05bd-4839-bc77-ed2b2883e88d")
+		(uuid "1501800a-e016-4d7b-8a56-4f95598f0149")
 	)
 	(text "see the supply-rail note (right-hand column). ~33mV hysteresis band (comfortably"
 		(at 180.34 276.86 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "670b6b69-bb99-4a23-bc45-b079bbd9af5a")
+		(uuid "31fbb116-e23f-4db6-849a-4b96600dff62")
 	)
 	(text "bench-measurable -- plan.md's own bring-up test 7), ~1% systematic gain error"
 		(at 180.34 281.94 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4f98ef19-ccae-42f5-bf58-05da70c643df")
+		(uuid "0fb2e379-90cb-4e6d-a801-57ddce70d539")
 	)
 	(text "(inside the SAME test's own 'tracks within 2%' half). k=0.01 is this sheet's"
 		(at 180.34 287.02 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "947c40e9-cd8f-4510-b6d1-373af30adaa5")
+		(uuid "4efe5a0d-edec-44fb-a3ee-de7bec81ad35")
 	)
 	(text "own choice, not fixed by the brief (which fixes only Rf=1M) -- a bigger series"
 		(at 180.34 292.1 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "60aa3abe-86cb-4186-83ab-1d10111173e7")
+		(uuid "39b49002-1c9b-4276-ad2d-a3c7a514be9f")
 	)
 	(text "resistor buys more hysteresis at the cost of more gain error against the"
 		(at 180.34 297.18 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9dbf9d5e-4cec-4817-93df-47034511a2ad")
+		(uuid "d0afffb9-f8fb-4de9-90cb-9c38b4e11498")
 	)
 	(text "DAC-commanded value; k=0.01 keeps both comfortably inside the bring-up budget."
 		(at 180.34 302.26 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "90217307-2a23-4661-a64c-9cfbf3141e40")
+		(uuid "ab3cbe50-130b-47ae-8c57-5b891b2c9075")
 	)
 	(text "THRESHOLDS ARE I2C-DAC-SET, NOT TRIMPOTS (spec Sec.6.5): the accelerometer"
 		(at 180.34 245.11 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ba907f11-9f76-4e94-a3b7-988847407917")
+		(uuid "aff90619-2e4d-44be-b48c-17ed6c3b92d7")
 	)
 	(text "threshold in particular is a behavioural parameter that gates task progression,"
 		(at 180.34 250.19000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4106cb5d-761f-476d-88ca-a0c75e21b5ba")
+		(uuid "10d877e6-6363-4c8f-8275-b16cb4263ec9")
 	)
 	(text "and an unrecorded task-gating parameter is a reproducibility hazard. One"
 		(at 180.34 255.27 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b7df12b2-dd3c-4eaa-bba6-bf5ec08e3fa4")
+		(uuid "7790d508-ac9a-404d-b45c-b487909a5c42")
 	)
 	(text "MCP4728 quad 12-bit DAC, VDD=+3V3, VSS=AGND -- NOT DGND: this keeps the"
 		(at 180.34 260.35 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "0d56adfa-c942-4433-9429-6946b6c6a47a")
+		(uuid "ccb72b29-362c-4ff4-8df4-429357041797")
 	)
 	(text "threshold in the SAME ground domain as the AGND-referenced signal it is"
 		(at 180.34 265.43 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4bdbe6e9-fad4-42a7-91d4-35cd648b03a8")
+		(uuid "14a7f8c1-3081-4e17-994f-62e1fd9602b5")
 	)
 	(text "compared against, so a DGND-AGND offset never leaks into the threshold (+3V3"
 		(at 180.34 270.51 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "42455eb8-626b-41ae-880f-f515b4107766")
+		(uuid "33466291-339e-410c-b669-e22170782948")
 	)
 	(text "itself is this project's own DGND-referenced logic rail, gen_breakout_power.py's"
 		(at 180.34 275.59000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "342ab786-0273-4d5f-a46f-feb28f6b8dbf")
+		(uuid "744c52cc-a1da-4666-a9ad-deabc8642132")
 	)
 	(text "own u1_map -- but a chip's own VDD SOURCE and its own GND REFERENCE are"
 		(at 180.34 280.67 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3e173d33-8ade-4205-8cbd-463c6c85c703")
+		(uuid "589b08fd-2848-43f2-b17a-bac695b80a6c")
 	)
 	(text "independent choices, and the DAC's own local return is what sets where its"
 		(at 180.34 285.75 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f239f8c8-6904-4807-afcb-62a664b172aa")
+		(uuid "d04cfc01-b4c1-469b-badb-342278ef1cd3")
 	)
 	(text "output voltage actually lands)."
 		(at 180.34 290.83000000000004 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "7ba2fb0f-06cb-4762-b786-4f156f14522a")
+		(uuid "0529ce15-1b47-483c-91a8-91efd9470e97")
 	)
 	(text ""
 		(at 180.34 295.91 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c7a347e5-6990-4d52-886d-8a40f30e82b9")
+		(uuid "65ef237b-75a4-4459-9974-48a53016f0ad")
 	)
 	(text "LDAC tied to AGND (permanently asserted -- immediate per-write update; no"
 		(at 180.34 300.99 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "914eca91-ca88-4477-8c60-02b74c60596b")
+		(uuid "366cac58-34da-49d5-9f32-3b94c7265a2d")
 	)
 	(text "synchronized multi-channel update is needed for a threshold that changes at"
 		(at 180.34 306.07 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6e5a638f-da8e-4966-9798-273fb058d8b1")
+		(uuid "a18331aa-1388-416b-b3b4-fd9a36e88899")
 	)
 	(text "configuration time, not in real time). RDY/BSY (EEPROM-write status) is"
 		(at 180.34 311.15000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "847a2d41-2dff-4c9e-93d4-91b6370893c2")
+		(uuid "c0bd711f-695f-4b82-ae64-9aa36d6fe587")
 	)
 	(text "genuinely unused here, no_connect."
 		(at 180.34 316.23 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "7fbae786-8876-4463-ab39-552497d6d7ca")
+		(uuid "df4c8830-a769-4db1-9508-c48095845987")
 	)
 	(text ""
 		(at 180.34 321.31 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f0e6ab7d-488b-48de-8b33-339d039a11bf")
+		(uuid "f09dc5a6-e7e3-4b5c-9b4e-d4773d103811")
 	)
 	(text "I2C address: 0x60, the factory default (address bits are EEPROM-programmable,"
 		(at 180.34 326.39 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "1c0ff8fd-d8c8-4f89-bc18-ed7cce2f40f8")
+		(uuid "b6047f98-0469-492f-b5d7-2251c6783ee2")
 	)
 	(text "not hardware-pin-set -- this part has no ADDR pins at all). Kept at default"
 		(at 180.34 331.47 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "be08e2ea-e02b-42b1-8a2d-3d88ede3cd9a")
+		(uuid "60671cc7-b446-4992-a153-0fc8990c0b99")
 	)
 	(text "because this design places only ONE MCP4728 on the bus -- no collision to"
 		(at 180.34 336.55 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "5d4ee9df-bf31-4f91-8db7-9354afc68a1f")
+		(uuid "56d598ac-3e08-403d-a3e5-c21b7be38ab7")
 	)
 	(text "avoid. Recorded here and in hardware/README.md for Task 12, which drives this"
 		(at 180.34 341.63 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b0debfee-a60a-4e5d-ab77-23c595e6a451")
+		(uuid "5f4c08e8-82c5-4444-9e4c-24b17edee75b")
 	)
 	(text "bus. I2C_SDA/I2C_SCL exposed as global labels; NO bus pull-ups placed on THIS"
 		(at 180.34 346.71000000000004 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a049db9c-c9b6-41b1-a2fc-2491ed700715")
+		(uuid "062af764-c958-47cc-9859-44644d45b1e9")
 	)
 	(text "sheet -- Task 12 owns the bus master and, with it, the one-set-of-pull-ups-"
 		(at 180.34 351.79 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "749db5fc-a72a-413c-bacb-c82896546e17")
+		(uuid "8ba869c5-13ad-4081-829a-33d1f0d5f6b7")
 	)
 	(text "per-bus sizing decision (plan.md's own control-usb-i2c step)."
 		(at 180.34 356.87 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "e8f2e3e9-56f9-4cb4-af1f-998f3fe76ec1")
+		(uuid "901651dd-2a15-4881-8e20-e909be319014")
 	)
 	(text ""
 		(at 180.34 361.95000000000005 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "dec7ee99-ea5f-4812-a47a-a1d032639675")
+		(uuid "075973d8-1c16-4cce-b187-f1f387fd0f42")
 	)
 	(text "VOUTA/B/C/D -> PD1/PD2/ACC/MISC1's own threshold, in that order -- this"
 		(at 180.34 367.03000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4d46ede2-a6d5-43e3-8c9a-f047bae2a672")
+		(uuid "ba4124fb-b1b9-41f2-800d-ee60f729e249")
 	)
 	(text "sheet's own declared, arbitrary-but-fixed channel assignment (no datasheet"
 		(at 180.34 372.11 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b75d67f3-e9b8-44b5-9f3d-dcd34d478778")
+		(uuid "06d0b754-7960-4e15-82b1-a61a87885f0f")
 	)
 	(text "fixes it). ONE DAC channel per comparator, symmetric threshold -- plan.md's"
 		(at 180.34 377.19000000000005 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "7726c6c9-6179-48ed-a89e-98dc9d61943b")
+		(uuid "0a4de286-0b70-4394-90f1-7f922f600b0f")
 	)
 	(text "own note that ASYMMETRIC make/break thresholds would cost a SECOND DAC channel"
 		(at 180.34 382.27 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "000a002d-f3c6-479d-a52e-a6004d21edf5")
+		(uuid "7ee07d46-089e-4062-81ab-ed0fea222de8")
 	)
 	(text "per comparator is not implemented here, exactly as the brief specifies."
 		(at 180.34 387.35 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3f282810-4981-44f3-97d8-20dd0d9f2459")
+		(uuid "702dcd9a-17c1-4225-acc5-96117e6d0085")
 	)
 	(text "FOURTH CHANNEL (A_MISC1): '+' reaches A_MISC1 through R190 (10k, POPULATED),"
 		(at 180.34 320.04 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b8d7c282-e3cd-43b3-80d8-d524a8200dbd")
+		(uuid "404a7516-4915-4aa5-95a8-b4e55e3c8334")
 	)
 	(text "'-' wired directly to the DAC's own VOUTD -- both real, permanent connections"
 		(at 180.34 325.12 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c4b14ed6-3717-4e6c-8012-9508df04552b")
+		(uuid "7964e7cd-fdd5-4389-a985-07a0a70aa221")
 	)
 	(text "regardless of what else here is populated (the LM339 and MCP4728 packages are"
 		(at 180.34 330.20000000000005 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "366f961e-391b-47d8-8e1b-a6cbb2002e05")
+		(uuid "bc47e53d-86cc-47a4-a9dc-8376170f7312")
 	)
 	(text "both already stuffed for the other 3 channels). Only the pull-up (10k) and the"
 		(at 180.34 335.28000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a832436c-a361-49ce-a9e9-d2be1e2b4792")
+		(uuid "8a6854a3-ebc9-4f27-b6b5-ada6f423951c")
 	)
 	(text "hysteresis feedback (1M) are DNP -- real land patterns on the PCB (populating"
 		(at 180.34 340.36 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "34a27394-e0c0-41f9-b3bf-fa6d3bcbef16")
+		(uuid "7daffd11-e5b8-42bf-be7b-a9032e0a972f")
 	)
 	(text "them later is an assembly step, not a respin), just not stuffed by default."
 		(at 180.34 345.44 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "38308bbb-252d-4ef2-9da5-d8f9ec9153ec")
+		(uuid "f79ec34d-1a0a-499a-af68-4d0937b1ff29")
 	)
 	(text ""
 		(at 180.34 350.52000000000004 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ce05fc3d-7bf7-4e69-8f8b-589f6c9256b0")
+		(uuid "7379aaf9-2208-4d03-a3f9-7220916ed75d")
 	)
 	(text "R190 IS POPULATED, UNLIKE THE PULL-UP/FEEDBACK, BECAUSE A_MISC1 IS LIVE: it is"
 		(at 180.34 355.6 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a5f9ae75-0c57-489a-ab81-c35454fd9c53")
+		(uuid "ea777926-8f19-491a-ad58-4850147d51fb")
 	)
 	(text "analog-frontend.kicad_sch's own INA105 (U28) output, permanently wired here and"
 		(at 180.34 360.68 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "400ee799-158f-432b-a123-8b1bd68662b3")
+		(uuid "2792bd51-0f74-4b04-8281-3b4b6cb55d9c")
 	)
 	(text "to every ADG1206 mux's own S14, whether or not this channel is ever used. With"
 		(at 180.34 365.76 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "adc6fda1-4f0f-45c3-b7c7-788ae058b0b5")
+		(uuid "662ad1e1-4a5f-407f-8278-03305c095f16")
 	)
 	(text "V- = AGND (see the supply-rail note, right-hand column), A_MISC1's negative"
 		(at 180.34 370.84000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "065d946b-f3be-4094-ab0c-34260d1115db")
+		(uuid "f392989b-e432-4323-bf00-1ae62cda7229")
 	)
 	(text "half sits outside the LM339's own input range on every assembled board -- R190"
 		(at 180.34 375.92 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "4b49acd3-3095-4d2a-98af-f3d6300375ef")
+		(uuid "2fa40896-b9da-47cb-a6ad-08c79399de4e")
 	)
 	(text "bounds the resulting fault current to ~0.43mA instead of leaving pin 9 a bare"
 		(at 180.34 381.0 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "823c3c1e-ff21-4c9c-9b8c-d5833d15ccb3")
+		(uuid "383900aa-8ed9-4959-98bf-bf7d53f8ffba")
 	)
 	(text "wire into the input protection diode. Matches R111/R114/R117 on channels 1-3"
 		(at 180.34 386.08000000000004 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "57246410-123f-4b42-aab2-fb82461140f1")
+		(uuid "8d6e8c46-3291-40ee-91de-bb1303cae25f")
 	)
 	(text "exactly (same value, same role); its own refdes is minted out of band (not"
 		(at 180.34 391.16 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ac9ac001-449f-4eb0-a5de-11a20804aa6a")
+		(uuid "db49b0e7-a0f4-43c3-8954-7ddc74ab16e9")
 	)
 	(text "sch.next_ref) specifically so it does not renumber opto-ni/opto-intan's own"
 		(at 180.34 396.24 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "94eda5bf-662b-4678-8204-dd11877743bc")
+		(uuid "b74493c5-e7fd-400c-b83c-5a4a60aedf68")
 	)
 	(text "already-committed resistors -- see CHANNEL4_SERIES_REF's own comment."
 		(at 180.34 401.32000000000005 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "2a5054c9-95e0-49bf-a446-3e59dd0285f9")
+		(uuid "eb3d4ea0-960f-4127-b164-0c26629a66e8")
 	)
 	(text ""
 		(at 180.34 406.40000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9366ee25-4914-47bb-8db9-ef92dca9d590")
+		(uuid "2e531656-8cf8-40dd-b4de-2e5501baa4d5")
 	)
 	(text "R190 does not by itself make this channel a working threshold comparator: the"
 		(at 180.34 411.48 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6fe4b71e-e6d1-433c-bf11-b006ef6c5f0e")
+		(uuid "4192a51a-38ed-4924-ab74-da4dc54890b3")
 	)
 	(text "DNP feedback and pull-up still need stuffing, AND (module docstring / note 6)"
 		(at 180.34 416.56 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "1136fbc2-5f65-4d78-b826-4272a7cd44a5")
+		(uuid "0f2e01d0-2736-44f1-9bf5-d3d87edc2cdc")
 	)
 	(text "an input offset/attenuation network ahead of pin 9 keeping A_MISC1 unipolar-"
 		(at 180.34 421.64 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "5bd7cf77-566d-4b7a-a4d1-d27ddcf4e6fb")
+		(uuid "141293ad-46b4-4341-8f53-70b457f4e0c1")
 	)
 	(text "positive at this part -- R190 protects the part from the live net that is"
 		(at 180.34 426.72 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "80fdf0c1-87f7-4913-a0c4-442ed48baac2")
+		(uuid "db13e092-c770-4db3-8379-8177c497dcf6")
 	)
 	(text "already there, it does not populate the channel."
 		(at 180.34 431.8 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "61b2ecea-ec9d-49ea-96e6-1003141d0700")
+		(uuid "22a944ee-0b0e-4629-9321-0349dcb3308e")
 	)
 	(text ""
 		(at 180.34 436.88 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "23b62f02-c4bf-4123-b8e9-31e00f91ec66")
+		(uuid "ec4d2748-e88b-44cc-8007-8da180bae8c5")
 	)
 	(text "PIN MAP VERIFICATION, both parts, pin-by-pin against a real, current datasheet"
 		(at 180.34 441.96000000000004 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6c8265e9-7584-4ef3-94fb-5ab1a72091a9")
+		(uuid "1fd2ecf6-e59d-409f-8e49-99e47ef81ee9")
 	)
 	(text "(TI SLCS006Z Table 5-1 for LM339; Microchip DS22187E page 2 for MCP4728), not"
 		(at 180.34 447.04 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "f47a33ba-ea97-4799-a5fe-d1bb117ee138")
+		(uuid "b65a8460-0668-4c69-8f3c-6526af8052c9")
 	)
 	(text "assumed from the stock KiCad symbol alone -- see this generator's own module"
 		(at 180.34 452.12 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "d62b0f6d-c086-4034-bc82-87d6250cbcb7")
+		(uuid "016365fe-7d57-4b2b-b454-dc8f263b7f88")
 	)
 	(text "docstring for the full account, including how TI's own comparator-N numbering"
 		(at 180.34 457.20000000000005 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "bfde2b28-02f5-4e7b-b33d-1e309b60167f")
+		(uuid "16ff49e9-9439-4892-90b1-fe240397d394")
 	)
 	(text "differs from (but electrically agrees with) KiCad's own unit index."
 		(at 180.34 462.28000000000003 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "2f3ba977-2dec-48d7-8469-71969db1ffef")
+		(uuid "5d658a59-0e37-4b6d-bacd-15b349244276")
 	)
 	(text "SUPPLY: +12V AND AGND. THIS PART DOES NOT USE -12V, AND MUST NOT."
 		(at 284.48 20.32 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3069bd6c-0653-41b5-bf46-976665352ee1")
+		(uuid "32ca68b8-0279-4533-bf78-618d650a3f73")
 	)
 	(text ""
 		(at 284.48 25.4 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "14c1a0c1-0dc5-4cbc-b3fb-dcc4439203e4")
+		(uuid "b123535d-f3c3-4bc4-b045-2b1305641ad3")
 	)
 	(text "LM339 pin 12 is labelled 'V-'/negative supply, but it is ALSO the common"
 		(at 284.48 30.48 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "89906c81-2070-4417-ade4-ead694e02b78")
+		(uuid "59ca6291-8dba-4d67-ba1e-e809f2408c3b")
 	)
 	(text "emitter of all four open-collector output transistors. Whatever pin 12 sits"
 		(at 284.48 35.56 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "8ee454e5-9b54-4019-b670-f72c6fd1fcbf")
+		(uuid "95977591-5fc7-4034-9e82-b11fba2bdcea")
 	)
 	(text "on IS this sheet's own output LOW level: on -12V an output LOW is V- +"
 		(at 284.48 40.64 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "641bf06a-53b0-422b-8a1a-a61aef88378b")
+		(uuid "ce42dd20-38f7-44bb-aa9d-38b07d895c40")
 	)
 	(text "V_CEsat ~ -11.9V, not 0V, and it genuinely settles there (a 10k pull-up to"
 		(at 284.48 45.72 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "17e01e7e-9dbe-4635-8fbb-5a5d012e965f")
+		(uuid "016a7ad5-ba54-4f6e-9be7-0b95037e79ea")
 	)
 	(text "+3V3 sources ~0.33mA against a ~16mA sink -- the transistor stays saturated)."
 		(at 284.48 50.8 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "ebf671b4-9177-4740-a675-7b19c753282c")
+		(uuid "26ce94e7-ad11-42ab-90a1-eb483f82784d")
 	)
 	(text ""
 		(at 284.48 55.88 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "087eaf16-008c-49e0-af07-3b7d8e79a455")
+		(uuid "77d0e7a6-3067-4e43-8556-5ab4d94b15b6")
 	)
 	(text "PD1_COMP/PD2_COMP/ACC_TRIG carry that level with NO series resistance and NO"
 		(at 284.48 60.96 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "23ed8f05-7056-4347-87de-1e6c30b9eb80")
+		(uuid "ab78445e-755e-49a3-aa53-edd67e8ac6ed")
 	)
 	(text "clamp anywhere: J7 pins 38/40/22 (GPIO20/21/25, pad absolute minimum -0.5V)"
 		(at 284.48 66.03999999999999 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b7877050-5d5b-48f7-8ac8-a253e0f28e66")
+		(uuid "8ee4aeb7-070f-4d9c-a638-329503ea82b0")
 	)
 	(text "and U11's SN74HCT541 inputs (likewise -0.5V) are both destroyed on first"
 		(at 284.48 71.12 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "9e6a8a35-3776-4a89-8005-47761d6b5a1c")
+		(uuid "e4d9947c-fe20-47d9-a05b-53393bbf79a1")
 	)
 	(text "power-up. The hysteresis math below also assumes a 0->3.3V output swing; on"
 		(at 284.48 76.2 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b2643cf0-2edb-4d7d-b5ec-af7f65866fcb")
+		(uuid "bf0b911f-c82d-4117-a8a2-7a53e7521e10")
 	)
 	(text "-12V the real swing is 15.2V -> ~150mV band and ~118mV threshold offset (12%"
 		(at 284.48 81.28 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "85cbff09-1d88-4794-905f-0d7f7ce295ab")
+		(uuid "f0e25a83-a363-4300-a977-e0541d480c95")
 	)
 	(text "at V_DAC = 1V, against a 2% bring-up acceptance criterion)."
 		(at 284.48 86.36000000000001 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "c1f9c78e-e6b2-4732-9c35-38bcfbf6fcf7")
+		(uuid "ad959ef7-39bc-45c4-835a-e421377bb5e9")
 	)
 	(text ""
 		(at 284.48 91.44 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "206c6e5a-bb18-4a16-b40d-9883587d76bb")
+		(uuid "68d4ceb3-cd7e-44ea-b268-5f8f47b58718")
 	)
 	(text "Nothing is lost by V- = AGND: the MCP4728 sits on +3V3 so every threshold is"
 		(at 284.48 96.52000000000001 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "85f01621-4973-4160-be2f-becd633cc0b2")
+		(uuid "b68f90c6-022b-409b-9307-168c2351f53a")
 	)
 	(text "0-3.3V, all three POPULATED channels' sources are AGND-referenced and"
 		(at 284.48 101.6 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "a702ea32-14ed-415e-b969-283b605142ef")
+		(uuid "e2ca605f-c743-4d80-bcc0-881186ae96e8")
 	)
 	(text "unipolar-positive, and V+ = +12V still puts the input common-mode ceiling"
 		(at 284.48 106.68 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "bfc02418-6018-4db7-982e-103c9c88ae09")
+		(uuid "427bd894-41b3-441c-9266-22efa3d9e305")
 	)
 	(text "(V+ - 1.5V = 10.5V) above anything Task 10a's front ends deliver."
 		(at 284.48 111.75999999999999 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "d690b3df-82ca-4b28-8506-3df7a8d0ba4a")
+		(uuid "fbde021f-e6e8-4e7c-a69d-f9e35372fda8")
 	)
 	(text ""
 		(at 284.48 116.84 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "5c1f1632-c35e-41d6-868d-4a40cd761843")
+		(uuid "95c1230f-b039-425b-9528-719ee2133da1")
 	)
 	(text "CAVEAT -- THE 4TH (DNP) CHANNEL, A_MISC1: A_MISC1 is the ONE +-5V-capable"
 		(at 284.48 121.91999999999999 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "8a9201b4-85ef-4277-bb63-39f5bb5f385a")
+		(uuid "d062d12b-ddab-49ca-8d38-5fe5fa3c652b")
 	)
 	(text "input reaching this sheet (spec Sec.6.1's board-wide +-5V analog convention),"
 		(at 284.48 127.0 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "59c7be1f-6324-4def-9785-7b077f4d0fb5")
+		(uuid "9b872dd8-8e1c-4224-9919-337666cc47a5")
 	)
 	(text "and it is this channel's own '+' source, permanently wired to pin 9 through"
 		(at 284.48 132.08 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3a2f5158-fe02-414f-9886-29f74e8d7623")
+		(uuid "9c5c8500-dca7-4648-8bd6-86f2c1bdc758")
 	)
 	(text "R190 (10k, POPULATED -- see the fourth-channel note, left column). With V- ="
 		(at 284.48 137.16 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "b948adeb-3b60-416a-9308-88c571345f50")
+		(uuid "55493139-3212-4664-a7eb-82b07a3892b2")
 	)
 	(text "AGND this channel cannot threshold the negative half of its input: the DAC"
 		(at 284.48 142.24 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "811aa57c-0783-4b89-8e74-ef7644195374")
+		(uuid "4b766a6c-5b56-46de-b009-421b23a2fece")
 	)
 	(text "cannot command a negative threshold, and A_MISC1 below AGND is outside the"
 		(at 284.48 147.32 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6aa96f4a-656b-4c41-9bf0-43199bfac816")
+		(uuid "2c80cab9-015b-45ed-8f5b-2ae23b467133")
 	)
 	(text "LM339's own input voltage range (TI SLCS006Z abs max -0.3V..+36V referred to"
 		(at 284.48 152.4 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "545377bd-6200-44de-a286-fae4ae7e63d7")
+		(uuid "8a0b0b84-73de-476c-a019-4b4a45e4f6af")
 	)
 	(text "V-, with a separate, explicitly-permitted 50mA input-current limit below"
 		(at 284.48 157.48 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "07babbfa-e150-4841-8798-6bda1e75eb99")
+		(uuid "5b1e9fe7-afd1-4bfa-83f4-d3e67d68a4f5")
 	)
 	(text "-0.3V that Task 10a's own current-limited INA105 output cannot exceed). R190"
 		(at 284.48 162.56 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "70d9848c-1629-45d1-8a18-33eda31ca03f")
+		(uuid "71b69b8c-3d9d-46bc-b4c0-b133426194d7")
 	)
 	(text "bounds the resulting fault current to ~0.43mA on every assembled board; it"
 		(at 284.48 167.64 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3be7b2b7-9f64-4d6c-b96d-c7c40fb31739")
+		(uuid "8129dfaa-aa5a-4ac5-9db2-457b03f0d72b")
 	)
 	(text "does not widen the LM339's own input range, which stays a real limit."
 		(at 284.48 172.72 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "6341a3cd-6ac1-4f3e-adcd-ed4ca9887d45")
+		(uuid "14e37868-245e-4dce-9b13-9ef50b4bded9")
 	)
 	(text ""
 		(at 284.48 177.79999999999998 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "5478a95a-fd6f-4f5c-b526-df7dcc47bdfc")
+		(uuid "2f8a29f6-2523-4f24-9ab1-efffdd9749fb")
 	)
 	(text "So POPULATING THIS CHANNEL IS NOT JUST STUFFING R120/R121. It also needs an"
 		(at 284.48 182.88 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3d238005-2cd1-40f0-bd1e-0456af63b637")
+		(uuid "e07b2714-7aa6-4dfc-803a-18bac8a174c4")
 	)
 	(text "input offset/attenuation network ahead of pin 9 that keeps A_MISC1"
 		(at 284.48 187.96 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "103da3d6-4186-42af-8e2b-12c91d9ed342")
+		(uuid "a56b76ce-b565-4894-bc67-1f03d1d59bca")
 	)
 	(text "unipolar-positive at this part. Channels 1-3 need nothing of the kind."
 		(at 284.48 193.04 0)
 		(effects (font (size 1.27 1.27)))
-		(uuid "3151287f-38af-42e4-a1e1-9403c2954a3f")
+		(uuid "7b2a7fda-b50c-4d1a-8cdd-9e2c14db0486")
 	)
 	(embedded_fonts no)
 )

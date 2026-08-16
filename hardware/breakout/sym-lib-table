@@ -17,5 +17,5 @@
 	(lib (name "Connector_Generic") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Connector_Generic.kicad_sym") (options "") (descr "Generic connectors, footprint assignment by user"))
 	(lib (name "Switch") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/Switch.kicad_sym") (options "") (descr "Switch symbols"))
 	(lib (name "power") (type "KiCad") (uri "${KICAD10_SYMBOL_DIR}/power.kicad_sym") (options "") (descr "Power symbols, special power flags"))
-	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.kicad_sym") (options "") (descr "wl-sync custom symbols: MDR68, mini-XLR TA4M/TA5M, M12A_5, ACCES I/O DB37, Raspberry Pi 5 GPIO header"))
+	(lib (name "wl-sync") (type "KiCad") (uri "${KIPRJMOD}/../lib/wl-sync.kicad_sym") (options "") (descr "wl-sync custom symbols: MDR68, mini-XLR TA4M/TA5M, dual right-angle isolated BNC, ACCES I/O DB37, Raspberry Pi 5 GPIO header"))
 )

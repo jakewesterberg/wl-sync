@@ -1045,147 +1045,6 @@
 		)
 		(embedded_fonts no)
 	)
-	(symbol "M12A_5"
-		(pin_names
-			(offset 1.016)
-			(hide yes)
-		)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(duplicate_pin_numbers_are_jumpers no)
-		(property "Reference" "J"
-			(at -1.27 8.89 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "M12A_5"
-			(at -1.27 -8.89 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" ""
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" "https://www.amphenolltw.com/product-info/Metric+Circular+Connector/M-Series.M12.ACode/M12A-05PFFP-SF8001.html"
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- confirmed active/current-production, 811 units in stock at DigiKey; see hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment (+12V/-12V/+5V/GND/shield) is made where this is placed."
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "ki_keywords" "connector M12 power inlet panel locking keyed A-coded"
-			(at 0 0 0)
-			(show_name no)
-			(do_not_autoplace no)
-			(hide yes)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(symbol "M12A_5_0_1"
-			(rectangle
-				(start -1.27 6.35)
-				(end 1.27 -6.35)
-				(stroke
-					(width 0.254)
-					(type default)
-				)
-				(fill
-					(type background)
-				)
-			)
-		)
-		(symbol "M12A_5_1_1"
-			(pin passive line
-				(at -5.08 5.08 0)
-				(length 3.81)
-				(name "1"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "1"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 2.54 0)
-				(length 3.81)
-				(name "2"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "2"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 0.0 0)
-				(length 3.81)
-				(name "3"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "3"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 -2.54 0)
-				(length 3.81)
-				(name "4"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "4"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-			(pin passive line
-				(at -5.08 -5.08 0)
-				(length 3.81)
-				(name "5"
-					(effects (font (size 1.27 1.27)))
-				)
-				(number "5"
-					(effects (font (size 1.27 1.27)))
-				)
-			)
-		)
-		(embedded_fonts no)
-	)
 	(symbol "ACCESIO_AO16_DB37M"
 		(pin_names
 			(offset 1.016)
@@ -3351,6 +3210,181 @@
 					(effects (font (size 1.27 1.27)))
 				)
 				(number "16"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(embedded_fonts no)
+	)
+	(symbol "BNC_Dual_RA_Isolated"
+		(pin_names
+			(offset 1.016)
+			(hide yes)
+		)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(duplicate_pin_numbers_are_jumpers no)
+		(property "Reference" "J"
+			(at -2.54 5.08 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "BNC_Dual_RA_Isolated"
+			(at -2.54 -7.62 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" "https://www.amphenolrf.com/en-us/part/031-6575/2397/"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Dual-port right-angle BNC jack, each shell independently isolated from the panel and from its neighbour (Amphenol RF 031-6575). Two units, one body: unit 1 = port A (pin 1 centre, pin 2 shell), unit 2 = port B (pin 3 centre, pin 4 shell). Signal-to-net assignment is made where this is placed, the same convention every other connector in this library uses. Replaces the panel-mount vertical BNC whose axis pointed at the chassis lid -- see parametric-audit.md finding F6."
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_keywords" "BNC coaxial dual right-angle isolated panel connector"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "ki_fp_filters" "BNC_Dual_RA_Isolated"
+			(at 0 0 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(hide yes)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(symbol "BNC_Dual_RA_Isolated_1_1"
+			(circle
+				(center 0 0)
+				(radius 2.54)
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(circle
+				(center 0 0)
+				(radius 0.508)
+				(stroke (width 0.254) (type default))
+				(fill (type outline))
+			)
+			(polyline
+				(pts (xy -2.54 0) (xy -0.508 0))
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(polyline
+				(pts (xy 0 -2.54) (xy 0 -1.27))
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(pin passive line
+				(at -5.08 0 0)
+				(length 3.81)
+				(name "A_In"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "1"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 0 -5.08 90)
+				(length 3.81)
+				(name "A_Ext"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "2"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+		)
+		(symbol "BNC_Dual_RA_Isolated_2_1"
+			(circle
+				(center 0 0)
+				(radius 2.54)
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(circle
+				(center 0 0)
+				(radius 0.508)
+				(stroke (width 0.254) (type default))
+				(fill (type outline))
+			)
+			(polyline
+				(pts (xy -2.54 0) (xy -0.508 0))
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(polyline
+				(pts (xy 0 -2.54) (xy 0 -1.27))
+				(stroke (width 0.254) (type default))
+				(fill (type none))
+			)
+			(pin passive line
+				(at -5.08 0 0)
+				(length 3.81)
+				(name "B_In"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "3"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
+			(pin passive line
+				(at 0 -5.08 90)
+				(length 3.81)
+				(name "B_Ext"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "4"
 					(effects (font (size 1.27 1.27)))
 				)
 			)

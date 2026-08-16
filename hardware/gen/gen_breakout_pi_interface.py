@@ -148,6 +148,7 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
+from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
 # find_max_refs/merge_max_refs are no longer imported: build()'s own ref_start is now
 # PINNED (panel-instrumentation task, 2026-08-15 -- see build()'s own docstring), not
 # re-derived live from POWER_SCH/TASKPC_SCH at generation time.
@@ -300,7 +301,18 @@ FOOTPRINT_PI_HDR = "Connector_PinHeader_2.54mm:PinHeader_2x20_P2.54mm_Vertical"
 # every connector in this project not yet locked to a specific ordered MPN -- see
 # hardware/README.md's own "Custom connector footprints" section) the exact manufacturer
 # part is a layout-stage/procurement decision this schematic-capture task does not make.
-FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"
+FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
+# Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
+# to the PCB -- a 9.65 mm barrel hole straight through the board. On a 430 x 240 mm board
+# lying flat in a 2U chassis those BNCs point at the lid, not at the panels all 31 are
+# supposed to emerge from. It also cost ~5,650 mm2 of pad and ~2,270 mm2 of removed copper
+# on EVERY layer, punched through a mixed-signal board carrying five ground domains.
+#
+# Now a right-angle DUAL jack with independently isolated shells (Amphenol RF 031-6575),
+# two ports per body. See hardware/gen/bnc_dual.py for the pairing and why no refdes moved,
+# and check_footprint_geometry.py for the assertions that keep the four signal pads
+# independent -- which is what the ten separately-routed per-connector shields depend on.
+
 # Panel-instrumentation task (2026-08-15) -- barcode heartbeat LED. Same 0603 HandSolder
 # LED footprint gen_breakout_power.py's own power-good LEDs use (FOOTPRINT_LED's own
 # comment there) -- both fp-lib-table (LED_SMD) and the Device:LED symbol are already
@@ -671,8 +683,9 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     # the split is structural rather than cosmetic.
     refs["cam_trig_bnc"] = []
     refs["cam_series_r"] = []
-    for idx, net in enumerate(["CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2",
-                               "CAM_TRIG_BEH3", "CAM_TRIG_BEH4"]):
+    cam_trig_nets = ["CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2",
+                     "CAM_TRIG_BEH3", "CAM_TRIG_BEH4"]
+    for idx, net in enumerate(cam_trig_nets):
         y = Y_BNC0 + idx * LOAD_DY
         desc = ("Eye camera trigger out (BNC)" if idx == 0
                 else f"Behavior camera trigger out {idx} (BNC)")
@@ -680,10 +693,42 @@ def _place_trigger_buffer_and_fanout(sch, refs):
             sch, "Device", "R", "R", CAM_SERIES_OHMS, X_CAM_SERIES, y,
             f"{net}_BUF", net, footprint=FOOTPRINT_R, ref=CAM_SERIES_REFS[net],
         ))
-        refs["cam_trig_bnc"].append(two_pin(
-            sch, "Connector", "Conn_Coaxial", "J", desc,
-            X_BNC, y, net, "DGND", footprint=FOOTPRINT_BNC,
-        ))
+        # FINDING F6: five camera triggers on three dual bodies. The fifth leaves one
+        # spare port, which is a real unwired BNC on the front panel -- see
+        # bnc_dual.py's own spare_port note.
+        bnc_ref, centre, shell = DualBncAllocator.for_sheet(sch).place_port(
+            sch, desc, X_BNC, y, footprint=FOOTPRINT_BNC,
+        )
+        sch.label(net, *pin_pos(X_BNC, y, centre))
+        sch.label("DGND", *pin_pos(X_BNC, y, shell))
+        refs["cam_trig_bnc"].append(bnc_ref)
+
+    # The 5th trigger leaves one port of its dual body unused. PLACE IT ANYWAY, wired
+    # shell-to-DGND with an explicit no-connect on the centre conductor, rather than leaving
+    # the unit unplaced. Three reasons, in increasing order of how much they matter:
+    #
+    #   - An unplaced unit is an ERC `missing_unit` warning, and this board's warning count
+    #     is a checked baseline (3 pre-existing isolated_pin_label notes, nothing else).
+    #   - Its two footprint pads would otherwise carry NO NET, which the audit tracks
+    #     board-wide ("only three pads carry no net") and which leaves a layout ambiguity.
+    #   - It is true. The connector is one physical part with two ports; the second port
+    #     exists on the front panel, its shell IS soldered to the board, and it is available
+    #     as a spare trigger output. Drawing it is the schematic agreeing with the panel.
+    #
+    # A named net on the centre conductor was the alternative and is worse: a single-node
+    # net trades the missing_unit warning for an isolated_pin_label one, which is exactly
+    # the class of warning already sitting on this board's two unpopulated opto spares.
+    spare_body = DualBncAllocator.for_sheet(sch).spare_port
+    if spare_body is not None:
+        y_spare = Y_BNC0 + len(cam_trig_nets) * LOAD_DY
+        _ref, spare_centre, spare_shell = DualBncAllocator.for_sheet(sch).place_port(
+            sch, "Spare panel BNC (2nd port of the 5th camera-trigger dual body)",
+            X_BNC, y_spare, footprint=FOOTPRINT_BNC, spare=True,
+        )
+        assert _ref == spare_body, f"spare port landed on {_ref}, expected {spare_body}"
+        sch.no_connect(*pin_pos(X_BNC, y_spare, spare_centre))
+        sch.label("DGND", *pin_pos(X_BNC, y_spare, spare_shell))
+        refs["cam_trig_bnc_spare"] = spare_body
 
     # U74: the three extra behaviour-trigger channels, all from the SAME CAM_TRIG_BEH_RAW
     # input channel 2 already takes. Five channels spare.

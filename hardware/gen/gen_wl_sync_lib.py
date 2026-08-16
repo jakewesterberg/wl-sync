@@ -426,19 +426,13 @@ SYM_TA5M = build_symbol(
 #    Generic pin-to-rail assignment, same convention as every other connector in this
 #    file (see module docstring) -- gen_breakout_power.py makes that assignment.
 # ---------------------------------------------------------------------------
-SYM_M12A_5 = build_symbol(
-    "M12A_5",
-    "J",
-    "M12A_5",
-    "5-position M12 connector, IEC 61076-2-101 A-coded (keyed -- cannot mate rotated), "
-    "screw-locking M12x1 coupling, panel mount (Amphenol LTW M12A-05PFFP-SF8001 -- "
-    "confirmed active/current-production, 811 units in stock at DigiKey; see "
-    "hardware/README.md) -- +12V/-12V/+5V supply inlet. Pin-to-rail assignment "
-    "(+12V/-12V/+5V/GND/shield) is made where this is placed.",
-    "connector M12 power inlet panel locking keyed A-coded",
-    "https://www.amphenolltw.com/product-info/Metric+Circular+Connector/M-Series.M12.ACode/M12A-05PFFP-SF8001.html",
-    [(str(n), str(n)) for n in range(1, 6)],
-)
+# RETIRED 2026-08-16 (ruling R1, audit step 5): SYM_M12A_5 is deleted, not merely unused.
+# The Phoenix 1551833 the design actually procures terminates in AWG 22-20 WIRE and mounts
+# through the panel -- it has no PCB tails, so neither a board-mount footprint nor a
+# board-mount symbol could ever have been right for it. The inlet is now a stock
+# Connector:Conn_01x05_Pin on a 2.54 mm header where those flying leads land; see
+# gen_breakout_power.py's own FOOTPRINT_INLET_HEADER comment and
+# gen_wl_sync_footprints.py's retired section 4. The implementation is in git history.
 
 # ---------------------------------------------------------------------------
 # 5. ACCES I/O USB-AO16-8A analog-output DAC -- mating DB37 MALE connector for the
@@ -913,37 +907,167 @@ SYM_ACSL6420 = build_ic_symbol(
     ACSL6420_PINS["left"], ACSL6420_PINS["right"],
 )
 
+def build_dual_coax_symbol(
+    symname: str,
+    value: str,
+    description: str,
+    keywords: str,
+    datasheet: str,
+    fp_filters: str = "",
+) -> str:
+    """A TWO-UNIT coaxial connector: one physical body, two independent ports.
+
+    The first multi-unit symbol in this library, and it is multi-unit for a structural
+    reason rather than a drafting one. Finding F6 replaces 31 single panel-mount BNCs with
+    16 dual right-angle bodies (Amphenol 031-6575). A dual is one purchased part, one
+    reference designator and one footprint, but two ports that are wired in two different
+    places on a sheet -- which is exactly what KiCad units are for.
+
+    EACH UNIT IS GEOMETRICALLY IDENTICAL TO STOCK Connector:Conn_Coaxial -- pin at
+    (-5.08, 0) rot 0 for the centre conductor, (0, -5.08) rot 90 for the shell, read
+    directly out of the stock symbol before writing this. That is deliberate: every
+    generator that places a BNC computes its label positions from `pin_pos()`, so keeping
+    the per-unit geometry identical means the 31 existing placements keep landing their
+    labels exactly where they already do, and this becomes a symbol swap rather than a
+    re-layout of five sheets.
+
+    Pin map, matching wl-sync.pretty/BNC_Dual_RA_Isolated.kicad_mod pad for pad:
+
+        unit 1 (port A)   pin 1 = centre conductor   pin 2 = shell
+        unit 2 (port B)   pin 3 = centre conductor   pin 4 = shell
+
+    All four are independent, because the 031-6575's shells are isolated from the panel AND
+    from each other. Ten channels on this board route a shield per connector; commoning the
+    shells would defeat that silently. See check_footprint_geometry.py's verify_bnc_dual().
+    """
+    units = [(1, "1", "2", "A"), (2, "3", "4", "B")]
+    header = (
+        f'(symbol "{symname}"\n'
+        f"\t\t(pin_names\n"
+        f"\t\t\t(offset 1.016)\n"
+        f"\t\t\t(hide yes)\n"
+        f"\t\t)\n"
+        f"\t\t(exclude_from_sim no)\n"
+        f"\t\t(in_bom yes)\n"
+        f"\t\t(on_board yes)\n"
+        f"\t\t(in_pos_files yes)\n"
+        f"\t\t(duplicate_pin_numbers_are_jumpers no)\n"
+        f'{_prop("Reference", "J", -2.54, 5.08, hide=False)}\n'
+        f'{_prop("Value", value, -2.54, -7.62, hide=False)}\n'
+        f'{_prop("Footprint", "", 0, 0)}\n'
+        f'{_prop("Datasheet", datasheet, 0, 0)}\n'
+        f'{_prop("Description", description, 0, 0)}\n'
+        f'{_prop("ki_keywords", keywords, 0, 0)}'
+    )
+    if fp_filters:
+        header += f'\n{_prop("ki_fp_filters", fp_filters, 0, 0)}'
+
+    blocks = []
+    for unit, centre_num, shell_num, port in units:
+        body = (
+            f"\t\t\t(circle\n"
+            f"\t\t\t\t(center 0 0)\n"
+            f"\t\t\t\t(radius 2.54)\n"
+            f"\t\t\t\t(stroke (width 0.254) (type default))\n"
+            f"\t\t\t\t(fill (type none))\n"
+            f"\t\t\t)\n"
+            f"\t\t\t(circle\n"
+            f"\t\t\t\t(center 0 0)\n"
+            f"\t\t\t\t(radius 0.508)\n"
+            f"\t\t\t\t(stroke (width 0.254) (type default))\n"
+            f"\t\t\t\t(fill (type outline))\n"
+            f"\t\t\t)\n"
+            f"\t\t\t(polyline\n"
+            f"\t\t\t\t(pts (xy -2.54 0) (xy -0.508 0))\n"
+            f"\t\t\t\t(stroke (width 0.254) (type default))\n"
+            f"\t\t\t\t(fill (type none))\n"
+            f"\t\t\t)\n"
+            f"\t\t\t(polyline\n"
+            f"\t\t\t\t(pts (xy 0 -2.54) (xy 0 -1.27))\n"
+            f"\t\t\t\t(stroke (width 0.254) (type default))\n"
+            f"\t\t\t\t(fill (type none))\n"
+            f"\t\t\t)"
+        )
+        pins = "\n".join([
+            _pin(centre_num, f"{port}_In", -5.08, 0, 0),
+            _pin(shell_num, f"{port}_Ext", 0, -5.08, 90),
+        ])
+        blocks.append(f'\t\t(symbol "{symname}_{unit}_1"\n{body}\n{pins}\n\t\t)')
+
+    return f"\t{header}\n" + "\n".join(blocks) + "\n\t\t(embedded_fonts no)\n\t)"
+
+
+SYM_BNC_DUAL = build_dual_coax_symbol(
+    "BNC_Dual_RA_Isolated",
+    "BNC_Dual_RA_Isolated",
+    "Dual-port right-angle BNC jack, each shell independently isolated from the panel and "
+    "from its neighbour (Amphenol RF 031-6575). Two units, one body: unit 1 = port A "
+    "(pin 1 centre, pin 2 shell), unit 2 = port B (pin 3 centre, pin 4 shell). "
+    "Signal-to-net assignment is made where this is placed, the same convention every "
+    "other connector in this library uses. Replaces the panel-mount vertical BNC whose "
+    "axis pointed at the chassis lid -- see parametric-audit.md finding F6.",
+    "BNC coaxial dual right-angle isolated panel connector",
+    "https://www.amphenolrf.com/en-us/part/031-6575/2397/",
+    fp_filters="BNC_Dual_RA_Isolated",
+)
+
+
 SYMBOLS = [
-    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_M12A_5, SYM_ACCESIO, SYM_PI5_HEADER,
+    SYM_MDR68, SYM_TA4M, SYM_TA5M, SYM_ACCESIO, SYM_PI5_HEADER,
     SYM_TPS7A4901, SYM_TPS7A3001, SYM_ADG1206YRUZ, SYM_ACSL6400, SYM_ACSL6420,
+    SYM_BNC_DUAL,
 ]
 _SYMBOL_NAMES = [
-    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M", "M12A_5",
+    "MDR68_Male", "MiniXLR_TA4M", "MiniXLR_TA5M",
     "ACCESIO_AO16_DB37M", "RaspberryPi5_GPIO_Header",
     "TPS7A4901", "TPS7A3001", "ADG1206YRUZ", "ACSL6400", "ACSL6420",
+    "BNC_Dual_RA_Isolated",
 ]
+# {name: pins per unit, in unit order}. Single-unit parts carry a one-entry list, so the
+# self-check below has one shape to reason about rather than two.
+#
+# M12A_5 IS GONE (ruling R1, audit step 5): the Phoenix 1551833 the design procures is a
+# panel-mount part with flying leads, so the board carries a plain 5-way header and neither
+# the custom symbol nor the custom footprint has anything left to describe. See
+# gen_wl_sync_footprints.py's retired section 4.
 _EXPECTED_PIN_COUNTS = {
-    "MDR68_Male": 68, "MiniXLR_TA4M": 4, "MiniXLR_TA5M": 5, "M12A_5": 5,
-    "ACCESIO_AO16_DB37M": 37, "RaspberryPi5_GPIO_Header": 40,
-    "TPS7A4901": 8, "TPS7A3001": 8, "ADG1206YRUZ": 28,
-    "ACSL6400": 16, "ACSL6420": 16,
+    "MDR68_Male": [68], "MiniXLR_TA4M": [4], "MiniXLR_TA5M": [5],
+    "ACCESIO_AO16_DB37M": [37], "RaspberryPi5_GPIO_Header": [40],
+    "TPS7A4901": [8], "TPS7A3001": [8], "ADG1206YRUZ": [28],
+    "ACSL6400": [16], "ACSL6420": [16],
+    "BNC_Dual_RA_Isolated": [2, 2],
 }
 
 
 def self_check() -> None:
     """Round-trip every symbol through kicad_sch.py's OWN parser (the same one
     sch.place() uses) before writing anything to disk -- catches a structural mistake
-    here, in seconds, rather than downstream as a silent constraint-1-style failure."""
+    here, in seconds, rather than downstream as a silent constraint-1-style failure.
+
+    Multi-unit aware as of audit step 5: pin numbers must form a contiguous 1..N run across
+    ALL units taken together, with no number appearing in two units. A dual connector whose
+    second unit repeated pins 1-2 would place two ports on one pair of pads -- exactly the
+    silent shell-commoning failure the dual BNC exists to avoid, one layer up."""
     for name, block in zip(_SYMBOL_NAMES, SYMBOLS):
         assert block.startswith(f'\t(symbol "{name}"'), f"{name}: malformed header"
-        pins = unit_pins(block, name, 1)
-        expected = _EXPECTED_PIN_COUNTS[name]
-        assert len(pins) == expected, (
-            f"{name}: unit_pins() found {len(pins)} pins, expected {expected}"
-        )
-        numbers = sorted(pins, key=int)
-        assert numbers == [str(i) for i in range(1, expected + 1)], (
-            f"{name}: pin numbers {numbers} are not a contiguous 1..{expected} run"
+        expected_per_unit = _EXPECTED_PIN_COUNTS[name]
+        seen: dict[str, int] = {}
+        for unit_index, expected in enumerate(expected_per_unit, start=1):
+            pins = unit_pins(block, name, unit_index)
+            assert len(pins) == expected, (
+                f"{name}: unit {unit_index} has {len(pins)} pins, expected {expected}"
+            )
+            for num in pins:
+                assert num not in seen, (
+                    f"{name}: pin {num!r} appears in unit {seen[num]} AND unit "
+                    f"{unit_index} -- two units sharing a pad"
+                )
+                seen[num] = unit_index
+        total = sum(expected_per_unit)
+        numbers = sorted(seen, key=int)
+        assert numbers == [str(i) for i in range(1, total + 1)], (
+            f"{name}: pin numbers {numbers} are not a contiguous 1..{total} run across "
+            f"{len(expected_per_unit)} unit(s)"
         )
 
 

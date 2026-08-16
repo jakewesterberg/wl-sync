@@ -147,6 +147,7 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
+from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
@@ -161,8 +162,17 @@ FOOTPRINT_R = "Resistor_SMD:R_0603_1608Metric"
 FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"
 FOOTPRINT_SOIC8 = "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"          # INA105KU
 FOOTPRINT_TSSOP28 = "Package_SO:TSSOP-28_4.4x9.7mm_P0.65mm"      # ADG1206YRUZ
-FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"  # same isolated BNC every
-# other panel BNC on this board uses (spec Sec.9.1's "Isolated BNCs throughout").
+FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
+# Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
+# to the PCB -- a 9.65 mm barrel hole straight through the board. On a 430 x 240 mm board
+# lying flat in a 2U chassis those BNCs point at the lid, not at the panels all 31 are
+# supposed to emerge from. It also cost ~5,650 mm2 of pad and ~2,270 mm2 of removed copper
+# on EVERY layer, punched through a mixed-signal board carrying five ground domains.
+#
+# Now a right-angle DUAL jack with independently isolated shells (Amphenol RF 031-6575),
+# two ports per body. See hardware/gen/bnc_dual.py for the pairing and why no refdes moved,
+# and check_footprint_geometry.py for the assertions that keep the four signal pads
+# independent -- which is what the ten separately-routed per-connector shields depend on.
 
 # ---------------------------------------------------------------------------
 # Layout grid -- 1.27mm (KiCad's schematic connection grid), same GRID() helper every
@@ -368,13 +378,11 @@ def mux_and_diffamp(sch, y, n):
     # --- 100R series -> BNC, shell to INTAN_GND ---
     final_net = f"INTAN_AO{n}"
     two_pin(sch, "Device", "R", "R", "100", X_R_OUT, y, buf_net, final_net, footprint=FOOTPRINT_R)
-    bnc_ref = sch.next_ref("J")
-    bpins = sch.place(
-        "Connector", "Conn_Coaxial", bnc_ref, f"Intan analog output {n} (BNC)",
-        X_BNC, y, footprint=FOOTPRINT_BNC,
+    bnc_ref, centre, shell = DualBncAllocator.for_sheet(sch).place_port(
+        sch, f"Intan analog output {n} (BNC)", X_BNC, y, footprint=FOOTPRINT_BNC,
     )
-    lbl(sch, X_BNC, y, bpins, "1", final_net)
-    lbl(sch, X_BNC, y, bpins, "2", "INTAN_GND")
+    sch.label(final_net, *pin_pos(X_BNC, y, centre))
+    sch.label("INTAN_GND", *pin_pos(X_BNC, y, shell))
 
     return mux_ref, da_ref, bnc_ref
 

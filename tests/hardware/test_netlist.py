@@ -2412,8 +2412,44 @@ PANEL_SERIES_MIN_OHM = 20.0
 PANEL_SERIES_MAX_OHM = 220.0
 
 
+# A dual BNC body's Value always begins with this marker -- written by
+# hardware/gen/bnc_dual.py's own place_port(), which composes both ports' descriptions into
+# one body-level value. See _panel_bnc_refs() for why the marker is what these checks key on.
+BNC_BODY_VALUE_MARKER = "Dual panel BNC:"
+
+# Centre-conductor pads of the dual BNC. Pads 2 and 4 are the two ports' own shells.
+BNC_CENTRE_PADS = ("1", "3")
+
+
 def _panel_bnc_refs(values) -> set[str]:
-    return {r for r, v in values.items() if r.startswith("J") and "(BNC)" in v}
+    """Every panel BNC BODY on the board.
+
+    Keys on the `Dual panel BNC:` value marker rather than on `"(BNC)" in v`, which is what
+    this did before finding F6 and which was wrong in both directions once the connectors
+    were repackaged. It matched J28/J30/J32 -- the /1//2 shunt HEADERS, whose descriptions
+    quote the BNC they belong to -- and it would have gone on matching a body whose value
+    happened to mention a BNC for any other reason. Harmless here only because those headers
+    never sit on a driver net.
+    """
+    return {
+        r for r, v in values.items()
+        if r.startswith("J") and v.startswith(BNC_BODY_VALUE_MARKER)
+    }
+
+
+def _panel_bnc_ports_on(nl, bncs) -> list[tuple[str, str]]:
+    """The panel BNC PORTS present on one net, as (reference, centre pad).
+
+    Ports, not bodies. Finding F6 put two ports in each connector, and every argument these
+    checks make is about cable runs: two coax runs leaving one body are still two loads on
+    the driver, and the F4 transmission-line arithmetic counts them as two. Counting distinct
+    references instead -- which is what this did before F6 -- would let a driver feed both
+    ports of one body and report a fan-out of 1.
+    """
+    return sorted({
+        (ref, pin) for ref, pin, _pf, _t in nl
+        if ref in bncs and pin in BNC_CENTRE_PADS
+    })
 
 
 def _check_panel_outputs_have_one_driver_and_series_r(nodes, values) -> None:
@@ -2423,7 +2459,7 @@ def _check_panel_outputs_have_one_driver_and_series_r(nodes, values) -> None:
 
     fanout, unterminated = [], []
     for name, nl in nodes.items():
-        bnc_here = sorted({ref for ref, _p, _pf, _t in nl if ref in bncs})
+        bnc_here = _panel_bnc_ports_on(nl, bncs)
         if not bnc_here:
             continue
         drivers = sorted({
@@ -2444,7 +2480,8 @@ def _check_panel_outputs_have_one_driver_and_series_r(nodes, values) -> None:
     assert not fanout, (
         f"{len(fanout)} logic output(s) drive more than one panel connector:\n  "
         + "\n  ".join(
-            f"{net}: {[f'{r}.{p}' for r, p in d]} drives {len(b)} BNCs {b}"
+            f"{net}: {[f'{r}.{p}' for r, p in d]} drives {len(b)} BNC ports "
+            f"{[f'{r}.{p}' for r, p in b]}"
             for net, d, b in fanout
         )
         + "\nFinding F4. N parallel coax runs are Z0/N of transmission line; four is "
@@ -2456,7 +2493,7 @@ def _check_panel_outputs_have_one_driver_and_series_r(nodes, values) -> None:
         f"{len(unterminated)} panel connector(s) sit on the SAME net as their logic "
         f"driver, so there is no series resistance between them:\n  "
         + "\n  ".join(
-            f"{net}: {[f'{r}.{p}' for r, p in d]} -> {b} directly"
+            f"{net}: {[f'{r}.{p}' for r, p in d]} -> {[f'{r}.{p}' for r, p in b]} directly"
             for net, d, b in unterminated
         )
         + "\nFinding M3. Every other panel connection on this board carries series "
@@ -2517,10 +2554,38 @@ def test_panel_outputs_fires_on_shared_driver(nodes, values):
     the connector now sits on -- a net with no driver on it is skipped by the check, so
     corrupting that one would have proved nothing."""
     corrupted = dict(nodes)
-    beh_bncs = sorted(r for r, v in values.items() if "Behavior camera trigger" in v)
-    assert len(beh_bncs) == 4, f"expected 4 behaviour-trigger BNCs, found {beh_bncs}"
+    bncs = _panel_bnc_refs(values)
+    # Found through the four CAM_TRIG_BEH* nets rather than by matching "Behavior camera
+    # trigger" in a Value. Finding F6 merged the four triggers onto three dual bodies and
+    # composed both ports' text into one body-level Value, so the old value-matching version
+    # returned 3 references for 4 triggers and this control stopped being able to build its
+    # corruption at all. A port is (reference, centre pad); the nets know which is which.
+    beh_ports = []
+    for i in (1, 2, 3, 4):
+        beh_ports += _panel_bnc_ports_on(nodes[f"CAM_TRIG_BEH{i}"], bncs)
+    beh_ports = sorted(set(beh_ports))
+    assert len(beh_ports) == 4, f"expected 4 behaviour-trigger BNC ports, found {beh_ports}"
     corrupted["CAM_TRIG_BEH1_BUF"] = (
-        list(nodes["CAM_TRIG_BEH1_BUF"]) + [(j, "1", "", "passive") for j in beh_bncs]
+        list(nodes["CAM_TRIG_BEH1_BUF"]) + [(r, p, "", "passive") for r, p in beh_ports]
+    )
+    with pytest.raises(AssertionError, match=r"more than one panel connector"):
+        _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)
+
+
+def test_panel_outputs_fanout_counts_ports_not_bodies(nodes, values):
+    """Both ports of ONE dual body on a single driver is still a fan-out of two.
+
+    New with finding F6, and the reason `_panel_bnc_ports_on()` exists. Two coax runs
+    leaving one connector load the driver exactly as two runs leaving two connectors do --
+    the F4 transmission-line arithmetic does not care that they share a shell. A version of
+    this check that counted references would report a fan-out of 1 here and stay silent.
+    """
+    corrupted = dict(nodes)
+    bncs = _panel_bnc_refs(values)
+    body = sorted(bncs)[0]
+    corrupted["CAM_TRIG_BEH1_BUF"] = (
+        list(nodes["CAM_TRIG_BEH1_BUF"])
+        + [(body, pad, "", "passive") for pad in BNC_CENTRE_PADS]
     )
     with pytest.raises(AssertionError, match=r"more than one panel connector"):
         _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)
@@ -2530,7 +2595,16 @@ def test_panel_outputs_fires_on_missing_series_resistance(nodes, values):
     """The M3 half, on its own: ONE connector moved onto its driver's net, so the fan-out
     assertion stays silent and only the missing-series-resistance one can fire."""
     corrupted = dict(nodes)
-    victim = next(r for r, v in values.items() if v == "Reward driver out (BNC)")
-    corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [(victim, "1", "", "passive")]
+    # Found through RWD_DLVR_BNC, the net the reward-driver connector actually sits on.
+    # This used to match the Value string "Reward driver out (BNC)" exactly; finding F6
+    # composed that description into a two-port body value, so the exact match stopped
+    # matching and `next()` raised StopIteration -- the lucky failure mode. The unlucky one
+    # is a control that silently stops corrupting anything, which has happened five times on
+    # this project.
+    bncs = _panel_bnc_refs(values)
+    ports = _panel_bnc_ports_on(nodes["RWD_DLVR_BNC"], bncs)
+    assert len(ports) == 1, f"expected exactly 1 BNC port on RWD_DLVR_BNC, found {ports}"
+    victim_ref, victim_pad = ports[0]
+    corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [(victim_ref, victim_pad, "", "passive")]
     with pytest.raises(AssertionError, match=r"no series resistance between them"):
         _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)

@@ -170,6 +170,7 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
+from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
@@ -303,11 +304,19 @@ FOOTPRINT_HDR1X02 = "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
 FOOTPRINT_SOIC16 = "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"  # Nexperia 74HCT123D -- JEDEC
 # MS-012 narrow-body SOIC-16, 1.27mm pitch, identical package class (just two more pins)
 # to every other SOIC part already on this board (FOOTPRINT_SOIC14).
-FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"  # same real stock
-# footprint pi-interface.kicad_sch's own 5 camera-trigger BNCs already use (that
-# generator's own FOOTPRINT_BNC comment: "Isolated BNCs throughout... each shell lands on
-# its own pad" -- spec Sec.9.1). Registered in fp-lib-table already (Task 9); no new
-# library entry needed here.
+FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
+# Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
+# to the PCB -- a 9.65 mm barrel hole straight through the board. On a 430 x 240 mm board
+# lying flat in a 2U chassis those BNCs point at the lid, not at the panels all 31 are
+# supposed to emerge from. It also cost ~5,650 mm2 of pad and ~2,270 mm2 of removed copper
+# on EVERY layer, punched through a mixed-signal board carrying five ground domains.
+#
+# Now a right-angle DUAL jack with independently isolated shells (Amphenol RF 031-6575),
+# two ports per body. See hardware/gen/bnc_dual.py for the pairing and why no refdes moved,
+# and check_footprint_geometry.py for the assertions that keep the four signal pads
+# independent -- which is what the ten separately-routed per-connector shields depend on.
+# Registered in fp-lib-table already; the wl-sync library entry the dual footprint lives in
+# was likewise already registered (Task 6), so no new library entry is needed here either.
 FOOTPRINT_PANEL_PUSHBUTTON = "Button_Switch_THT:SW_PUSH-12mm"  # generic 12mm panel/
 # chassis-mount momentary pushbutton -- a real stock KiCad footprint (2 electrical
 # terminals, each broken out to a redundant pair of pads for mechanical strength -- read
@@ -1487,16 +1496,44 @@ def _place_reward_or(sch, refs):
     x, y = pin_pos(X_RWD_BTN, Y_RWD_BTN, btn_pins["2"])
     sch.label("DGND", x, y)
 
-    jack_ref = sch.next_ref("J")
-    jack_pins = sch.place(
-        "Connector", "Conn_Coaxial", jack_ref,
+    # FINDING F6: BNCs become dual right-angle bodies (see bnc_dual.py). THIS SHEET IS THE
+    # ONE PLACE THE TWO PORTS OF A BODY MUST NOT BE PAIRED WITH EACH OTHER.
+    #
+    # Spec Sec.9.6 splits the reward group across BOTH faces on purpose: "The hardware
+    # connection follows the animal -- the driver output goes to the back, toward the booth.
+    # The human controls face the person operating the rig", so the remote jack sits on the
+    # FRONT beside the recording equipment and the driver output on the BACK. A dual body is
+    # one piece of plastic through one panel; two ports of it cannot be on two faces.
+    #
+    # So each reward BNC gets its OWN body, and each body's second port is left as a
+    # deliberate, wired spare. Cost: one extra connector against the 16 a pure per-sheet
+    # pairing would need. It buys keeping a spec decision that was made for real ergonomic
+    # reasons, and a labelled spare BNC on each face is useful rather than waste -- worth
+    # colour-coding along with the reward group itself (spec Sec.9.6's own note).
+    #
+    # Refdes are undisturbed either way: this sheet consumed J5 and J6 for its two BNCs
+    # before F6 and consumes exactly the same two now, one per body. The spare ports take no
+    # reference at all (bnc_dual.take_spare()).
+    bnc = DualBncAllocator.for_sheet(sch)
+    jack_ref, jack_centre, jack_shell = bnc.place_port(
+        sch,
         "Remote reward BNC (parallel to panel button; locking -- no TRS mating transient)",
         X_RWD_JACK, Y_RWD_JACK, footprint=FOOTPRINT_BNC,
     )
-    x, y = pin_pos(X_RWD_JACK, Y_RWD_JACK, jack_pins["1"])
+    x, y = pin_pos(X_RWD_JACK, Y_RWD_JACK, jack_centre)
     sch.label("RWD_BTN", x, y)
-    x, y = pin_pos(X_RWD_JACK, Y_RWD_JACK, jack_pins["2"])
+    x, y = pin_pos(X_RWD_JACK, Y_RWD_JACK, jack_shell)
     sch.label("DGND", x, y)
+
+    # Close J5's body on a spare FRONT-panel port, so the driver-out BNC below starts a new
+    # body rather than becoming this one's second port.
+    y_spare_jack = GRID(315 + 10)
+    _r, spare_centre, spare_shell = bnc.place_port(
+        sch, "Spare panel BNC (2nd port of the reward remote's dual body, FRONT face)",
+        X_RWD_JACK, y_spare_jack, footprint=FOOTPRINT_BNC, spare=True,
+    )
+    sch.no_connect(*pin_pos(X_RWD_JACK, y_spare_jack, spare_centre))
+    sch.label("DGND", *pin_pos(X_RWD_JACK, y_spare_jack, spare_shell))
 
     pullup_ref = two_pin(
         sch, "Device", "R", "R", "10k", X_RWD_PULLUP, Y_RWD_PULLUP, "+5V", "RWD_BTN",
@@ -1532,10 +1569,8 @@ def _place_reward_or(sch, refs):
         ic_ref="U69", r_ref="R191", c_ref="C149", cdec_ref="C150", refs=refs,
     )
 
-    bnc_ref = sch.next_ref("J")
-    bnc_pins = sch.place(
-        "Connector", "Conn_Coaxial", bnc_ref,
-        "Reward driver out (BNC)", X_RWD_BNC, Y_RWD_BNC, footprint=FOOTPRINT_BNC,
+    bnc_ref, bnc_centre, bnc_shell = DualBncAllocator.for_sheet(sch).place_port(
+        sch, "Reward driver out (BNC)", X_RWD_BNC, Y_RWD_BNC, footprint=FOOTPRINT_BNC,
     )
     # FINDING M3, 2026-08-16 -- series resistance between the driving gate and the panel.
     # J6 used to sit directly on RWD_DLVR, i.e. a 74HCT32 gate output wired straight onto a
@@ -1548,15 +1583,24 @@ def _place_reward_or(sch, refs):
     # not transmission-line matching. 100 ohm is this board's own established panel-series
     # value (the same figure every clamped input uses), and into a solenoid driver's own
     # high-impedance logic input it costs nothing. Refdes minted out of band.
-    x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_pins["1"])
+    x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_centre)
     sch.label("RWD_DLVR_BNC", x, y)
-    x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_pins["2"])
+    x, y = pin_pos(X_RWD_BNC, Y_RWD_BNC, bnc_shell)
     sch.label("DGND", x, y)
     rwd_series_ref = two_pin(
         sch, "Device", "R", "R", "100", GRID(X_RWD_BNC - 20.32), Y_RWD_BNC,
         "RWD_DLVR", "RWD_DLVR_BNC", footprint=FOOTPRINT_R, ref="R203",
     )
     refs["reward_bnc_series_r"] = rwd_series_ref
+
+    # Close the driver-out body on its own spare BACK-panel port, matching the remote's.
+    y_spare_bnc = GRID(295 + 10)
+    _r2, spare2_centre, spare2_shell = DualBncAllocator.for_sheet(sch).place_port(
+        sch, "Spare panel BNC (2nd port of the reward driver-out dual body, BACK face)",
+        X_RWD_BNC, y_spare_bnc, footprint=FOOTPRINT_BNC, spare=True,
+    )
+    sch.no_connect(*pin_pos(X_RWD_BNC, y_spare_bnc, spare2_centre))
+    sch.label("DGND", *pin_pos(X_RWD_BNC, y_spare_bnc, spare2_shell))
 
     refs["reward_btn_hdr"] = btn_ref
     refs["reward_jack_hdr"] = jack_ref

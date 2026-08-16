@@ -163,6 +163,7 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
+from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
 # The already-committed sibling sheet paths are no longer read: build()'s own
 # ref_start is PINNED (F1 task, 2026-08-16 -- see build()), not re-derived live
 # from them at generation time. Same treatment, and same reason, as
@@ -193,7 +194,17 @@ FOOTPRINT_DCDC_SIP6 = "Converter_DCDC:Converter_DCDC_TRACO_TMR-1-xxxx_Single_THT
 # already uses. NOT the same footprint as that TMA: the TMR 1 is SIP-6 on a different
 # pin pattern (2.54 / 5.08 / 2.54 / 2.54 mm), so they are not interchangeable in layout.
 FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"
-FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"
+FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
+# Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
+# to the PCB -- a 9.65 mm barrel hole straight through the board. On a 430 x 240 mm board
+# lying flat in a 2U chassis those BNCs point at the lid, not at the panels all 31 are
+# supposed to emerge from. It also cost ~5,650 mm2 of pad and ~2,270 mm2 of removed copper
+# on EVERY layer, punched through a mixed-signal board carrying five ground domains.
+#
+# Now a right-angle DUAL jack with independently isolated shells (Amphenol RF 031-6575),
+# two ports per body. See hardware/gen/bnc_dual.py for the pairing and why no refdes moved,
+# and check_footprint_geometry.py for the assertions that keep the four signal pads
+# independent -- which is what the ten separately-routed per-connector shields depend on.
 
 # ---------------------------------------------------------------------------
 # Layout grid -- 1.27mm (KiCad's schematic connection grid), same GRID() helper every
@@ -447,10 +458,11 @@ def place_bnc(sch, y, desc, center_net, refs, series_ref=None):
             sch, "Device", "R", "R", BNC_SERIES_OHMS, X_BNC_SERIES, y,
             center_net, bnc_net, footprint=FOOTPRINT_R, ref=series_ref,
         ))
-    ref = sch.next_ref("J")
-    pins = sch.place("Connector", "Conn_Coaxial", ref, desc, X_BNC, y, footprint=FOOTPRINT_BNC)
-    lbl(sch, X_BNC, y, pins, "1", bnc_net)
-    lbl(sch, X_BNC, y, pins, "2", "INTAN_GND")
+    ref, centre, shell = DualBncAllocator.for_sheet(sch).place_port(
+        sch, desc, X_BNC, y, footprint=FOOTPRINT_BNC
+    )
+    sch.label(bnc_net, *pin_pos(X_BNC, y, centre))
+    sch.label("INTAN_GND", *pin_pos(X_BNC, y, shell))
     refs.setdefault("bnc", []).append(ref)
     return ref
 

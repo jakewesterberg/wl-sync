@@ -83,6 +83,16 @@ from kicad_sch import (  # noqa: E402
     find_sheet_instance_path,
 )
 
+# FINDING F6 (2026-08-15): the panel BNCs are DUAL bodies -- Amphenol 031-6575, two
+# independently-isolated ports per connector. A port is therefore (reference, centre pad),
+# not a reference. This maps each centre-conductor pad to its OWN shell pad.
+#
+# Stated here rather than imported from hardware/gen/bnc_dual.py on purpose: a checker that
+# read the pad map out of the generator it is checking would confirm the generator against
+# its own claim. Same per-checker independence discipline every sheet contract in this
+# directory already follows.
+BNC_PORT_SHELL = {"1": "2", "3": "4"}
+
 DEFAULT_NET_PATH = Path("/tmp/breakout.net")
 DEFAULT_BREAKOUT_SCH = Path(__file__).resolve().parent.parent / "breakout" / "breakout.kicad_sch"
 DEFAULT_OPTO_INTAN_SCH = DEFAULT_BREAKOUT_SCH.parent / "sheets" / "opto-intan.kicad_sch"
@@ -435,14 +445,41 @@ def _check_all_bncs(nets: dict[str, list[Node]], values: dict[str, str]) -> tupl
             f"{net}: a BNC connector still sits on the DRIVER's own net -- it must sit on "
             f"{net}_BNC, behind the series resistor",
         )
+    all_bnc_ports = set()
     for net in expected_center_nets:
         check(net in nets, f"missing net: {net!r}")
         j_nodes = [n for n in nets[net] if n.ref.startswith("J")]
         check(len(j_nodes) == 1, f"{net}: expected exactly 1 BNC connector pin, found {j_nodes}")
-        check(any(n.ref == j_nodes[0].ref and n.pin == "2" for n in nets.get("INTAN_GND", [])), f"{j_nodes[0].ref} (on {net}): shell (pin 2) not found on INTAN_GND")
-        all_bnc_refs.add(j_nodes[0].ref)
-    check(len(all_bnc_refs) == 6, f"expected 6 DISTINCT BNC references, found {len(all_bnc_refs)}: {all_bnc_refs}")
-    return f"All 6 BNCs ({sorted(all_bnc_refs)}) confirmed: own distinct connector, shell on INTAN_GND, center on the right channel net.", all_bnc_refs
+        ref, centre_pin = j_nodes[0].ref, j_nodes[0].pin
+        check(
+            centre_pin in BNC_PORT_SHELL,
+            f"{net}: lands on {ref} pin {centre_pin}, which is not a centre-conductor pad "
+            f"({sorted(BNC_PORT_SHELL)}) -- a signal wired to a SHELL pad exports a clean "
+            f"netlist and a dead channel",
+        )
+        shell_pin = BNC_PORT_SHELL[centre_pin]
+        check(
+            any(n.ref == ref and n.pin == shell_pin for n in nets.get("INTAN_GND", [])),
+            f"{ref} port {centre_pin}/{shell_pin} (on {net}): this port's own shell is not on INTAN_GND",
+        )
+        all_bnc_refs.add(ref)
+        all_bnc_ports.add((ref, centre_pin))
+    # FINDING F6: 6 ports on 3 dual bodies. Counted as PORTS, because a dual body legitimately
+    # appears twice -- the pre-F6 version of this check counted distinct references and would
+    # now read 3 where the contract wants 6.
+    check(
+        len(all_bnc_ports) == 6,
+        f"expected 6 DISTINCT BNC ports, found {len(all_bnc_ports)}: {sorted(all_bnc_ports)}",
+    )
+    check(
+        len(all_bnc_refs) == 3,
+        f"expected 6 ports on 3 dual bodies (finding F6), found {len(all_bnc_refs)}: {sorted(all_bnc_refs)}",
+    )
+    return (
+        f"All 6 BNC PORTS on {len(all_bnc_refs)} dual bodies ({sorted(all_bnc_refs)}) "
+        f"confirmed: each port distinct, each port's own shell on INTAN_GND, centre on "
+        f"the right channel net."
+    ), all_bnc_refs
 
 
 def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, str], own_refs: set[str], barrier_refs: set[str]) -> str:
@@ -698,7 +735,9 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     bnc_ref_on_barcode = next(n.ref for n in good_nets["BARCODE_INTAN_BNC"] if n.ref.startswith("J"))
     shell_node = next(n for n in good_nets["INTAN_GND"] if n.ref == bnc_ref_on_barcode)
     no_shell["INTAN_GND"] = [n for n in no_shell["INTAN_GND"] if n != shell_node]
-    msg = _assert_fails(no_shell, good_values, "shell (pin 2) not found on INTAN_GND", f"{bnc_ref_on_barcode}'s own shell dropped from INTAN_GND")
+    # Asserts on "shell is not on INTAN_GND" -- the invariant part. The old text named
+    # "pin 2", which finding F6 turned into "pin 2 or pin 4 depending on which port".
+    msg = _assert_fails(no_shell, good_values, "shell is not on INTAN_GND", f"{bnc_ref_on_barcode}'s own shell dropped from INTAN_GND")
     results.append(f"BNC shell disconnected from INTAN_GND ({bnc_ref_on_barcode}, BARCODE_INTAN): caught -- {msg}")
 
     return results

@@ -211,54 +211,40 @@
     "FB1": "600R@100MHz",
     "FB2": "600R@100MHz",
     "FB3": "600R@100MHz",
-    "J1": "M12A_5",
+    "J1": "Supply inlet header (M12 panel connector flying leads)",
     "J2": "Connector 0 (analog + AISENSE, task PC NI)",
     "J3": "Connector 1 (digital, task PC NI)",
     "J4": "Manual reward button (panel, recessed)",
-    "J5": "Remote reward BNC (parallel to panel button; locking -- no TRS mating transient)",
-    "J6": "Reward driver out (BNC)",
+    "J5": "Dual panel BNC: Remote reward BNC (parallel to panel button; locking -- no TRS mating transient) | Spare panel BNC (2nd port of the reward remote's dual body, FRONT face)",
+    "J6": "Dual panel BNC: Reward driver out (BNC) | Spare panel BNC (2nd port of the reward driver-out dual body, BACK face)",
     "J7": "Sync-module 40-pin GPIO header (Raspberry Pi 5 / CM5 IO Board -- see module docstring)",
     "J8": "Barcode -> NI optocoupler (Task 11 placeholder)",
     "J9": "Barcode -> Intan optocoupler (Task 11 placeholder)",
     "J10": "Barcode spare 1",
     "J11": "Barcode spare 2",
     "J12": "Barcode spare 3",
-    "J13": "Eye camera trigger out (BNC)",
-    "J14": "Behavior camera trigger out 1 (BNC)",
-    "J15": "Behavior camera trigger out 2 (BNC)",
-    "J16": "Behavior camera trigger out 3 (BNC)",
-    "J17": "Behavior camera trigger out 4 (BNC)",
+    "J13": "Dual panel BNC: Eye camera trigger out (BNC) | Behavior camera trigger out 1 (BNC)",
+    "J15": "Dual panel BNC: Behavior camera trigger out 2 (BNC) | Behavior camera trigger out 3 (BNC)",
+    "J17": "Dual panel BNC: Behavior camera trigger out 4 (BNC) | Spare panel BNC (2nd port of the 5th camera-trigger dual body)",
     "J18": "Internal USB-A (sync-module port -> Task 12 USB-I2C bridge)",
     "J19": "ACCES I/O USB-AO16-8A mating DB37 -- six eye channels (spec Sec.3.2)",
-    "J20": "Photodiode 1 (passive, coax, photovoltaic mode)",
-    "J21": "Photodiode 2 (passive, coax, photovoltaic mode)",
-    "J22": "Microphone (battery-powered, in booth)",
-    "J23": "Ambient light sensor (battery-powered, in booth)",
-    "J24": "Accelerometer motion energy (battery-powered custom device)",
-    "J25": "Joystick X (battery-powered, in booth)",
-    "J26": "Joystick Y (battery-powered, in booth)",
-    "J27": "Misc analog input 1 (panel BNC, /1//2 selectable)",
+    "J20": "Dual panel BNC: Photodiode 1 (passive, coax, photovoltaic mode) | Photodiode 2 (passive, coax, photovoltaic mode)",
+    "J22": "Dual panel BNC: Microphone (battery-powered, in booth) | Ambient light sensor (battery-powered, in booth)",
+    "J24": "Dual panel BNC: Accelerometer motion energy (battery-powered custom device) | Joystick X (battery-powered, in booth)",
+    "J26": "Dual panel BNC: Joystick Y (battery-powered, in booth) | Misc analog input 1 (panel BNC, /1//2 selectable)",
     "J28": "Misc analog input 1 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
-    "J29": "Misc analog input 2 (panel BNC, /1//2 selectable)",
+    "J29": "Dual panel BNC: Misc analog input 2 (panel BNC, /1//2 selectable) | Misc analog input 3 (panel BNC, /1//2 selectable)",
     "J30": "Misc analog input 2 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
-    "J31": "Misc analog input 3 (panel BNC, /1//2 selectable)",
     "J32": "Misc analog input 3 (panel BNC, /1//2 selectable) -- /1//2 shunt header, BOTH legs (fix round 3, task-10b-report.md): column A (pins 1,3,5) = SIGNAL leg raw/div/mid, column B (pins 2,4,6) = SHIELD leg raw/div/mid -- confirmed 2.54mm-pitch adjacent pairs on the REAL PinHeader_2x03_P2.54mm_Vertical footprint (kicad-cli fp export svg + kicad_pcb.footprint_pads(), not just the schematic symbol -- fix round 2's Conn_02x03_Top_Bottom/row assignment assumed a pin adjacency this footprint does not actually have). Populate with ONE 2-GANG SHORTING BLOCK spanning both columns at the same row-pair -- pins 1-3 + 2-4 for x1 (direct), pins 3-5 + 4-6 for x2 (divider tap) -- NEVER two independent 1-gang shunts: that is the exact defect this header replaces (fix round 1 left it physically possible for the two legs' own jumpers to disagree; a mechanically-ganged 2-gang block makes disagreement physically impossible instead of merely documented against).",
     "J36": "Connector 0 (analog + AISENSE, recording NI)",
-    "J37": "Intan analog output 1 (BNC)",
-    "J38": "Intan analog output 2 (BNC)",
-    "J39": "Intan analog output 3 (BNC)",
-    "J40": "Intan analog output 4 (BNC)",
-    "J41": "Intan analog output 5 (BNC)",
-    "J42": "Intan analog output 6 (BNC)",
-    "J43": "Intan analog output 7 (BNC)",
-    "J44": "Intan analog output 8 (BNC)",
+    "J37": "Dual panel BNC: Intan analog output 1 (BNC) | Intan analog output 2 (BNC)",
+    "J39": "Dual panel BNC: Intan analog output 3 (BNC) | Intan analog output 4 (BNC)",
+    "J41": "Dual panel BNC: Intan analog output 5 (BNC) | Intan analog output 6 (BNC)",
+    "J43": "Dual panel BNC: Intan analog output 7 (BNC) | Intan analog output 8 (BNC)",
     "J45": "Connector 1 (digital, recording NI)",
-    "J46": "Intan opto out: EVT_STROBE_INTAN (BNC)",
-    "J47": "Intan opto out: BARCODE_INTAN (BNC)",
-    "J48": "Intan opto out: RWD_CMD_INTAN (BNC)",
-    "J49": "Intan opto out: RWD_DLVR_INTAN (BNC)",
-    "J50": "Intan opto out: STIM_TRIG_INTAN (BNC)",
-    "J51": "Intan RHS stim status in (BNC)",
+    "J46": "Dual panel BNC: Intan opto out: EVT_STROBE_INTAN (BNC) | Intan opto out: BARCODE_INTAN (BNC)",
+    "J48": "Dual panel BNC: Intan opto out: RWD_CMD_INTAN (BNC) | Intan opto out: RWD_DLVR_INTAN (BNC)",
+    "J50": "Dual panel BNC: Intan opto out: STIM_TRIG_INTAN (BNC) | Intan RHS stim status in (BNC)",
     "J52": "Chassis fan 1",
     "J53": "Chassis fan 2",
     "J54": "Chassis fan 3",
@@ -987,8 +973,8 @@
       ["C119", "2", "", "passive"],
       ["C120", "2", "", "passive"],
       ["D40", "1", "K_1", "passive"],
-      ["J1", "4", "4_4", "passive"],
-      ["J1", "5", "5_5", "passive"],
+      ["J1", "4", "Pin_4_4", "passive"],
+      ["J1", "5", "Pin_5_5", "passive"],
       ["J2", "62", "62_62", "passive"],
       ["J36", "62", "62_62", "passive"],
       ["NT1", "1", "1_1", "passive"],
@@ -1077,11 +1063,11 @@
       ["U33", "7", "", "output"]
     ],
     "A_ACC_RAW": [
-      ["J24", "1", "In_1", "passive"],
+      ["J24", "1", "A_In_1", "passive"],
       ["R54", "1", "", "passive"]
     ],
     "A_ACC_SHLD": [
-      ["J24", "2", "Ext_2", "passive"],
+      ["J24", "2", "A_Ext_2", "passive"],
       ["R55", "1", "", "passive"],
       ["U25", "2", "-_2", "passive"]
     ],
@@ -1113,11 +1099,11 @@
       ["U33", "2", "-_2", "input"]
     ],
     "A_AMB_RAW": [
-      ["J23", "1", "In_1", "passive"],
+      ["J22", "3", "B_In_3", "passive"],
       ["R52", "1", "", "passive"]
     ],
     "A_AMB_SHLD": [
-      ["J23", "2", "Ext_2", "passive"],
+      ["J22", "4", "B_Ext_4", "passive"],
       ["R53", "1", "", "passive"],
       ["U24", "2", "-_2", "passive"]
     ],
@@ -1376,11 +1362,11 @@
       ["U33", "9", "-_9", "input"]
     ],
     "A_JOY_X_RAW": [
-      ["J25", "1", "In_1", "passive"],
+      ["J24", "3", "B_In_3", "passive"],
       ["R56", "1", "", "passive"]
     ],
     "A_JOY_X_SHLD": [
-      ["J25", "2", "Ext_2", "passive"],
+      ["J24", "4", "B_Ext_4", "passive"],
       ["R57", "1", "", "passive"],
       ["U26", "2", "-_2", "passive"]
     ],
@@ -1422,11 +1408,11 @@
       ["U33", "14", "", "output"]
     ],
     "A_JOY_Y_RAW": [
-      ["J26", "1", "In_1", "passive"],
+      ["J26", "1", "A_In_1", "passive"],
       ["R58", "1", "", "passive"]
     ],
     "A_JOY_Y_SHLD": [
-      ["J26", "2", "Ext_2", "passive"],
+      ["J26", "2", "A_Ext_2", "passive"],
       ["R59", "1", "", "passive"],
       ["U27", "2", "-_2", "passive"]
     ],
@@ -1483,7 +1469,7 @@
       ["U34", "2", "-_2", "input"]
     ],
     "A_MIC_RAW": [
-      ["J22", "1", "In_1", "passive"],
+      ["J22", "1", "A_In_1", "passive"],
       ["R42", "1", "", "passive"]
     ],
     "A_MIC_S1": [
@@ -1503,7 +1489,7 @@
       ["U23", "5", "+_5", "input"]
     ],
     "A_MIC_SHLD": [
-      ["J22", "2", "Ext_2", "passive"],
+      ["J22", "2", "A_Ext_2", "passive"],
       ["R43", "1", "", "passive"],
       ["R46", "1", "", "passive"]
     ],
@@ -1575,11 +1561,11 @@
       ["U34", "7", "", "output"]
     ],
     "A_MISC1_RAW": [
-      ["J27", "1", "In_1", "passive"],
+      ["J26", "3", "B_In_3", "passive"],
       ["R60", "1", "", "passive"]
     ],
     "A_MISC1_SHLD": [
-      ["J27", "2", "Ext_2", "passive"],
+      ["J26", "4", "B_Ext_4", "passive"],
       ["J28", "2", "Pin_2_2", "passive"],
       ["R61", "1", "", "passive"],
       ["R64", "1", "", "passive"]
@@ -1641,11 +1627,11 @@
       ["U34", "9", "-_9", "input"]
     ],
     "A_MISC2_RAW": [
-      ["J29", "1", "In_1", "passive"],
+      ["J29", "1", "A_In_1", "passive"],
       ["R66", "1", "", "passive"]
     ],
     "A_MISC2_SHLD": [
-      ["J29", "2", "Ext_2", "passive"],
+      ["J29", "2", "A_Ext_2", "passive"],
       ["J30", "2", "Pin_2_2", "passive"],
       ["R67", "1", "", "passive"],
       ["R70", "1", "", "passive"]
@@ -1707,11 +1693,11 @@
       ["U34", "14", "", "output"]
     ],
     "A_MISC3_RAW": [
-      ["J31", "1", "In_1", "passive"],
+      ["J29", "3", "B_In_3", "passive"],
       ["R72", "1", "", "passive"]
     ],
     "A_MISC3_SHLD": [
-      ["J31", "2", "Ext_2", "passive"],
+      ["J29", "4", "B_Ext_4", "passive"],
       ["J32", "2", "Pin_2_2", "passive"],
       ["R73", "1", "", "passive"],
       ["R76", "1", "", "passive"]
@@ -1766,7 +1752,7 @@
       ["U52", "25", "S7_25", "bidirectional"]
     ],
     "A_PD1_RAW": [
-      ["J20", "1", "In_1", "passive"],
+      ["J20", "1", "A_In_1", "passive"],
       ["R34", "1", "", "passive"]
     ],
     "A_PD1_RAWOUT": [
@@ -1777,7 +1763,7 @@
       ["U22", "1", "", "output"]
     ],
     "A_PD1_SHLD": [
-      ["J20", "2", "Ext_2", "passive"],
+      ["J20", "2", "A_Ext_2", "passive"],
       ["R35", "1", "", "passive"],
       ["U22", "3", "+_3", "input"]
     ],
@@ -1813,7 +1799,7 @@
       ["U52", "26", "S8_26", "bidirectional"]
     ],
     "A_PD2_RAW": [
-      ["J21", "1", "In_1", "passive"],
+      ["J20", "3", "B_In_3", "passive"],
       ["R36", "1", "", "passive"]
     ],
     "A_PD2_RAWOUT": [
@@ -1824,7 +1810,7 @@
       ["U22", "7", "", "output"]
     ],
     "A_PD2_SHLD": [
-      ["J21", "2", "Ext_2", "passive"],
+      ["J20", "4", "B_Ext_4", "passive"],
       ["R37", "1", "", "passive"],
       ["U22", "5", "+_5", "input"]
     ],
@@ -1847,7 +1833,7 @@
       ["U64", "13", "VO2_13", "open_collector"]
     ],
     "BARCODE_INTAN_BNC": [
-      ["J47", "1", "In_1", "passive"],
+      ["J46", "3", "B_In_3", "passive"],
       ["R205", "2", "", "passive"]
     ],
     "BARCODE_INTAN_BUF": [
@@ -1886,7 +1872,7 @@
       ["U15", "9", "A7_9", "input"]
     ],
     "CAM_TRIG_BEH1": [
-      ["J14", "1", "In_1", "passive"],
+      ["J13", "3", "B_In_3", "passive"],
       ["R199", "2", "", "passive"]
     ],
     "CAM_TRIG_BEH1_BUF": [
@@ -1894,7 +1880,7 @@
       ["U15", "16", "Y2_16", "tri_state"]
     ],
     "CAM_TRIG_BEH2": [
-      ["J15", "1", "In_1", "passive"],
+      ["J15", "1", "A_In_1", "passive"],
       ["R200", "2", "", "passive"]
     ],
     "CAM_TRIG_BEH2_BUF": [
@@ -1902,7 +1888,7 @@
       ["U74", "18", "Y0_18", "tri_state"]
     ],
     "CAM_TRIG_BEH3": [
-      ["J16", "1", "In_1", "passive"],
+      ["J15", "3", "B_In_3", "passive"],
       ["R201", "2", "", "passive"]
     ],
     "CAM_TRIG_BEH3_BUF": [
@@ -1910,7 +1896,7 @@
       ["U74", "17", "Y1_17", "tri_state"]
     ],
     "CAM_TRIG_BEH4": [
-      ["J17", "1", "In_1", "passive"],
+      ["J17", "1", "A_In_1", "passive"],
       ["R202", "2", "", "passive"]
     ],
     "CAM_TRIG_BEH4_BUF": [
@@ -1925,7 +1911,7 @@
       ["U74", "4", "A2_4", "input"]
     ],
     "CAM_TRIG_EYE": [
-      ["J13", "1", "In_1", "passive"],
+      ["J13", "1", "A_In_1", "passive"],
       ["R198", "2", "", "passive"]
     ],
     "CAM_TRIG_EYE_BUF": [
@@ -2005,8 +1991,10 @@
       ["J3", "50", "50_50", "passive"],
       ["J3", "53", "53_53", "passive"],
       ["J4", "2", "2_2", "passive"],
-      ["J5", "2", "Ext_2", "passive"],
-      ["J6", "2", "Ext_2", "passive"],
+      ["J5", "2", "A_Ext_2", "passive"],
+      ["J5", "4", "B_Ext_4", "passive"],
+      ["J6", "2", "A_Ext_2", "passive"],
+      ["J6", "4", "B_Ext_4", "passive"],
       ["J7", "6", "GND_6", "passive"],
       ["J7", "9", "GND_9", "passive"],
       ["J7", "14", "GND_14", "passive"],
@@ -2020,11 +2008,12 @@
       ["J10", "2", "Pin_2_2", "passive"],
       ["J11", "2", "Pin_2_2", "passive"],
       ["J12", "2", "Pin_2_2", "passive"],
-      ["J13", "2", "Ext_2", "passive"],
-      ["J14", "2", "Ext_2", "passive"],
-      ["J15", "2", "Ext_2", "passive"],
-      ["J16", "2", "Ext_2", "passive"],
-      ["J17", "2", "Ext_2", "passive"],
+      ["J13", "2", "A_Ext_2", "passive"],
+      ["J13", "4", "B_Ext_4", "passive"],
+      ["J15", "2", "A_Ext_2", "passive"],
+      ["J15", "4", "B_Ext_4", "passive"],
+      ["J17", "2", "A_Ext_2", "passive"],
+      ["J17", "4", "B_Ext_4", "passive"],
       ["J18", "4", "Pin_4_4", "passive"],
       ["NT1", "2", "2_2", "passive"],
       ["NT2", "2", "2_2", "passive"],
@@ -2612,7 +2601,7 @@
       ["U64", "14", "VO1_14", "open_collector"]
     ],
     "EVT_STROBE_INTAN_BNC": [
-      ["J46", "1", "In_1", "passive"],
+      ["J46", "1", "A_In_1", "passive"],
       ["R204", "2", "", "passive"]
     ],
     "EVT_STROBE_INTAN_BUF": [
@@ -2686,7 +2675,7 @@
       ["U68", "13", "SDA_13", "bidirectional"]
     ],
     "INTAN_AO1": [
-      ["J37", "1", "In_1", "passive"],
+      ["J37", "1", "A_In_1", "passive"],
       ["R103", "2", "", "passive"]
     ],
     "INTAN_AO1_BUF": [
@@ -2695,7 +2684,7 @@
       ["U39", "6", "", "output"]
     ],
     "INTAN_AO2": [
-      ["J38", "1", "In_1", "passive"],
+      ["J37", "3", "B_In_3", "passive"],
       ["R104", "2", "", "passive"]
     ],
     "INTAN_AO2_BUF": [
@@ -2704,7 +2693,7 @@
       ["U41", "6", "", "output"]
     ],
     "INTAN_AO3": [
-      ["J39", "1", "In_1", "passive"],
+      ["J39", "1", "A_In_1", "passive"],
       ["R105", "2", "", "passive"]
     ],
     "INTAN_AO3_BUF": [
@@ -2713,7 +2702,7 @@
       ["U43", "6", "", "output"]
     ],
     "INTAN_AO4": [
-      ["J40", "1", "In_1", "passive"],
+      ["J39", "3", "B_In_3", "passive"],
       ["R106", "2", "", "passive"]
     ],
     "INTAN_AO4_BUF": [
@@ -2722,7 +2711,7 @@
       ["U45", "6", "", "output"]
     ],
     "INTAN_AO5": [
-      ["J41", "1", "In_1", "passive"],
+      ["J41", "1", "A_In_1", "passive"],
       ["R107", "2", "", "passive"]
     ],
     "INTAN_AO5_BUF": [
@@ -2731,7 +2720,7 @@
       ["U47", "6", "", "output"]
     ],
     "INTAN_AO6": [
-      ["J42", "1", "In_1", "passive"],
+      ["J41", "3", "B_In_3", "passive"],
       ["R108", "2", "", "passive"]
     ],
     "INTAN_AO6_BUF": [
@@ -2740,7 +2729,7 @@
       ["U49", "6", "", "output"]
     ],
     "INTAN_AO7": [
-      ["J43", "1", "In_1", "passive"],
+      ["J43", "1", "A_In_1", "passive"],
       ["R109", "2", "", "passive"]
     ],
     "INTAN_AO7_BUF": [
@@ -2749,7 +2738,7 @@
       ["U51", "6", "", "output"]
     ],
     "INTAN_AO8": [
-      ["J44", "1", "In_1", "passive"],
+      ["J43", "3", "B_In_3", "passive"],
       ["R110", "2", "", "passive"]
     ],
     "INTAN_AO8_BUF": [
@@ -2789,20 +2778,20 @@
       ["C142", "2", "", "passive"],
       ["C158", "2", "", "passive"],
       ["D39", "1", "A_1", "passive"],
-      ["J37", "2", "Ext_2", "passive"],
-      ["J38", "2", "Ext_2", "passive"],
-      ["J39", "2", "Ext_2", "passive"],
-      ["J40", "2", "Ext_2", "passive"],
-      ["J41", "2", "Ext_2", "passive"],
-      ["J42", "2", "Ext_2", "passive"],
-      ["J43", "2", "Ext_2", "passive"],
-      ["J44", "2", "Ext_2", "passive"],
-      ["J46", "2", "Ext_2", "passive"],
-      ["J47", "2", "Ext_2", "passive"],
-      ["J48", "2", "Ext_2", "passive"],
-      ["J49", "2", "Ext_2", "passive"],
-      ["J50", "2", "Ext_2", "passive"],
-      ["J51", "2", "Ext_2", "passive"],
+      ["J37", "2", "A_Ext_2", "passive"],
+      ["J37", "4", "B_Ext_4", "passive"],
+      ["J39", "2", "A_Ext_2", "passive"],
+      ["J39", "4", "B_Ext_4", "passive"],
+      ["J41", "2", "A_Ext_2", "passive"],
+      ["J41", "4", "B_Ext_4", "passive"],
+      ["J43", "2", "A_Ext_2", "passive"],
+      ["J43", "4", "B_Ext_4", "passive"],
+      ["J46", "2", "A_Ext_2", "passive"],
+      ["J46", "4", "B_Ext_4", "passive"],
+      ["J48", "2", "A_Ext_2", "passive"],
+      ["J48", "4", "B_Ext_4", "passive"],
+      ["J50", "2", "A_Ext_2", "passive"],
+      ["J50", "4", "B_Ext_4", "passive"],
       ["NT4", "2", "2_2", "passive"],
       ["R2", "2", "", "passive"],
       ["R4", "2", "", "passive"],
@@ -3095,7 +3084,7 @@
     ],
     "N12_RAW": [
       ["F3", "1", "", "passive"],
-      ["J1", "2", "2_2", "passive"]
+      ["J1", "2", "Pin_2_2", "passive"]
     ],
     "NI_5V": [
       ["C121", "1", "", "passive"],
@@ -3233,7 +3222,7 @@
     ],
     "P5_RAW": [
       ["F4", "1", "", "passive"],
-      ["J1", "3", "3_3", "passive"]
+      ["J1", "3", "Pin_3_3", "passive"]
     ],
     "P12_FUSED": [
       ["D1", "2", "A_2", "passive"],
@@ -3242,7 +3231,7 @@
     "P12_RAW": [
       ["F1", "1", "", "passive"],
       ["F2", "1", "", "passive"],
-      ["J1", "1", "1_1", "passive"]
+      ["J1", "1", "Pin_1_1", "passive"]
     ],
     "PD1_COMP": [
       ["J7", "38", "GPIO20_38", "passive"],
@@ -3329,7 +3318,7 @@
       ["R194", "2", "", "passive"]
     ],
     "RHS_STIM_BNC": [
-      ["J51", "1", "In_1", "passive"],
+      ["J50", "3", "B_In_3", "passive"],
       ["R187", "1", "", "passive"]
     ],
     "RHS_STIM_ISO_BUF": [
@@ -3375,7 +3364,7 @@
     "RWD_BTN": [
       ["C29", "1", "", "passive"],
       ["J4", "1", "1_1", "passive"],
-      ["J5", "1", "In_1", "passive"],
+      ["J5", "1", "A_In_1", "passive"],
       ["R24", "2", "", "passive"],
       ["U13", "1", "", "input"]
     ],
@@ -3412,7 +3401,7 @@
       ["U64", "12", "VO3_12", "open_collector"]
     ],
     "RWD_CMD_INTAN_BNC": [
-      ["J48", "1", "In_1", "passive"],
+      ["J48", "1", "A_In_1", "passive"],
       ["R206", "2", "", "passive"]
     ],
     "RWD_CMD_INTAN_BUF": [
@@ -3447,7 +3436,7 @@
       ["U72", "9", "A7_9", "input"]
     ],
     "RWD_DLVR_BNC": [
-      ["J6", "1", "In_1", "passive"],
+      ["J6", "1", "A_In_1", "passive"],
       ["R203", "2", "", "passive"]
     ],
     "RWD_DLVR_BUF": [
@@ -3461,7 +3450,7 @@
       ["U64", "11", "VO4_11", "open_collector"]
     ],
     "RWD_DLVR_INTAN_BNC": [
-      ["J49", "1", "In_1", "passive"],
+      ["J48", "3", "B_In_3", "passive"],
       ["R207", "2", "", "passive"]
     ],
     "RWD_DLVR_INTAN_BUF": [
@@ -3510,7 +3499,7 @@
       ["U65", "11", "VO1_11", "open_collector"]
     ],
     "STIM_TRIG_INTAN_BNC": [
-      ["J50", "1", "In_1", "passive"],
+      ["J50", "1", "A_In_1", "passive"],
       ["R208", "2", "", "passive"]
     ],
     "STIM_TRIG_INTAN_BUF": [
@@ -3860,6 +3849,12 @@
     "unconnected-(J3-Pad68)": [
       ["J3", "68", "68_68", "passive+no_connect"]
     ],
+    "unconnected-(J5B-B_In-Pad3)": [
+      ["J5", "3", "B_In_3", "passive+no_connect"]
+    ],
+    "unconnected-(J6B-B_In-Pad3)": [
+      ["J6", "3", "B_In_3", "passive+no_connect"]
+    ],
     "unconnected-(J7-3V3-Pad1)": [
       ["J7", "1", "3V3_1", "passive+no_connect"]
     ],
@@ -3877,6 +3872,9 @@
     ],
     "unconnected-(J7-GPIO27-Pad13)": [
       ["J7", "13", "GPIO27_13", "passive+no_connect"]
+    ],
+    "unconnected-(J17B-B_In-Pad3)": [
+      ["J17", "3", "B_In_3", "passive+no_connect"]
     ],
     "unconnected-(J19-A_IN0-Pad36)": [
       ["J19", "36", "A_IN0_36", "passive+no_connect"]

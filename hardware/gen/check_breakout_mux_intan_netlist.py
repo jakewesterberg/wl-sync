@@ -107,6 +107,16 @@ from kicad_sch import (  # noqa: E402
     find_sheet_instance_path,
 )
 
+# FINDING F6 (2026-08-15): the panel BNCs are DUAL bodies -- Amphenol 031-6575, two
+# independently-isolated ports per connector. A port is therefore (reference, centre pad),
+# not a reference. This maps each centre-conductor pad to its OWN shell pad.
+#
+# Stated here rather than imported from hardware/gen/bnc_dual.py on purpose: a checker that
+# read the pad map out of the generator it is checking would confirm the generator against
+# its own claim. Same per-checker independence discipline every sheet contract in this
+# directory already follows.
+BNC_PORT_SHELL = {"1": "2", "3": "4"}
+
 DEFAULT_NET_PATH = Path("/tmp/breakout.net")
 DEFAULT_BREAKOUT_SCH = Path(__file__).resolve().parent.parent / "breakout" / "breakout.kicad_sch"
 DEFAULT_MUX_INTAN_SCH = DEFAULT_BREAKOUT_SCH.parent / "sheets" / "mux-intan.kicad_sch"
@@ -506,7 +516,7 @@ def _check_isolation_pin_disjoint(
 def _check_intan_ao_reach_bnc(nets: dict[str, list[Node]]) -> str:
     """All 8 INTAN_AO* nets reach a real BNC connector pin, through the 100R series
     resistor bridging each amplifier's own internal *_BUF node to the final net."""
-    bnc_refs = []
+    bnc_ports = []
     for i in range(1, N_MUX + 1):
         buf_net = f"INTAN_AO{i}_BUF"
         final_net = f"INTAN_AO{i}"
@@ -514,24 +524,43 @@ def _check_intan_ao_reach_bnc(nets: dict[str, list[Node]]) -> str:
         # SERIES_R_VALUE is confirmed by check_component_values() below, not here --
         # duplicating a values-lookup in this net-topology-only helper would need
         # `values` threaded through where it isn't otherwise needed.
-        conn_refs = {n.ref for n in nets[final_net] if n.ref.startswith("J")}
+        conn_nodes = [n for n in nets[final_net] if n.ref.startswith("J")]
         check(
-            len(conn_refs) == 1,
-            f"{final_net}: expected exactly 1 BNC connector reference, found {conn_refs}",
+            len(conn_nodes) == 1,
+            f"{final_net}: expected exactly 1 BNC connector pin, found {conn_nodes}",
         )
-        bnc_ref = next(iter(conn_refs))
-        bnc_refs.append(bnc_ref)
+        bnc_ref, centre_pin = conn_nodes[0].ref, conn_nodes[0].pin
         check(
-            any(n.ref == bnc_ref and n.pin == "2" for n in nets.get("INTAN_GND", [])),
-            f"{bnc_ref} (Intan channel {i}'s own BNC): shell (pin 2) is not on INTAN_GND "
-            f"-- must never be AGND (spec Sec.5.5: Intan's shield IS its own return)",
+            centre_pin in BNC_PORT_SHELL,
+            f"{final_net}: lands on {bnc_ref} pin {centre_pin}, which is not a "
+            f"centre-conductor pad ({sorted(BNC_PORT_SHELL)}) -- a signal wired to a SHELL "
+            f"pad produces a perfectly clean netlist and a dead channel",
+        )
+        shell_pin = BNC_PORT_SHELL[centre_pin]
+        bnc_ports.append((bnc_ref, centre_pin))
+        check(
+            any(n.ref == bnc_ref and n.pin == shell_pin for n in nets.get("INTAN_GND", [])),
+            f"{bnc_ref} port {centre_pin}/{shell_pin} (Intan channel {i}): shell is not on "
+            f"INTAN_GND -- must never be AGND (spec Sec.5.5: Intan's shield IS its own return)",
         )
         check(
-            not any(n.ref == bnc_ref and n.pin == "2" for n in nets.get("AGND", [])),
-            f"{bnc_ref} (Intan channel {i}'s own BNC): shell (pin 2) is (also) on AGND",
+            not any(n.ref == bnc_ref and n.pin == shell_pin for n in nets.get("AGND", [])),
+            f"{bnc_ref} port {centre_pin}/{shell_pin} (Intan channel {i}): shell is (also) on AGND",
         )
-    check(len(set(bnc_refs)) == N_MUX, f"expected {N_MUX} DISTINCT BNC references, found {sorted(set(bnc_refs))}")
-    return f"All {N_MUX} INTAN_AO* nets reach their own distinct BNC ({bnc_refs}), shell to INTAN_GND, never AGND."
+    check(
+        len(set(bnc_ports)) == N_MUX,
+        f"expected {N_MUX} DISTINCT BNC ports, found {sorted(set(bnc_ports))}",
+    )
+    bodies = {ref for ref, _pin in bnc_ports}
+    check(
+        len(bodies) == N_MUX // 2,
+        f"expected {N_MUX} ports on {N_MUX // 2} dual bodies (finding F6), found "
+        f"{len(bodies)}: {sorted(bodies)}",
+    )
+    return (
+        f"All {N_MUX} INTAN_AO* nets reach their own distinct BNC PORT on {len(bodies)} "
+        f"dual bodies ({sorted(bodies)}), each port's own shell to INTAN_GND, never AGND."
+    )
 
 
 def _check_component_values(values: dict[str, str], mux_refs: list[str], diffamp_refs: list[str]) -> str:
@@ -698,7 +727,10 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     no_bnc = copy.deepcopy(good_nets)
     bnc_ref = next(n.ref for n in good_nets["INTAN_AO6"] if n.ref.startswith("J"))
     no_bnc["INTAN_AO6"] = [n for n in no_bnc["INTAN_AO6"] if n.ref != bnc_ref]
-    msg = _assert_fails(no_bnc, good_values, "expected exactly 1 BNC connector reference", f"INTAN_AO6's own BNC node ({bnc_ref}) removed")
+    # Asserts on "BNC connector pin", the INVARIANT part of the complaint, not on the count
+    # or the word "reference" -- finding F6 turned each reference into two ports and moved
+    # exactly the wording an earlier version of this control had pinned itself to.
+    msg = _assert_fails(no_bnc, good_values, "BNC connector pin", f"INTAN_AO6's own BNC node ({bnc_ref}) removed")
     results.append(f"Intan output channel 6 no longer reaching its own BNC ({bnc_ref}): caught -- {msg}")
 
     # (6) BNC shell bonded to AGND instead of/in addition to INTAN_GND.

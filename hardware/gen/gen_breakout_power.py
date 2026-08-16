@@ -118,13 +118,31 @@ FOOTPRINT_FERRITE = "Inductor_SMD:L_0805_2012Metric_Pad1.05x1.20mm_HandSolder"
 # for the one component on this whole board whose entire job is being visibly, individually
 # verifiable as either bridged or open.
 FOOTPRINT_NETTIE = "NetTie:NetTie-2_SMD_Pad2.0mm"
-FOOTPRINT_M12A5 = "wl-sync:M12A_5_Panel"  # hardware/README.md's own custom footprint --
-# a 5-position, IEC 61076-2-101 A-coded (keyed), screw-locking M12 connector (Amphenol
-# LTW M12A-05PFFP-SF8001), replacing the mini-DIN inlet at Task 7 fix round 2: the real
-# Same Sky MD-40SN/MD-50SN datasheet's own diagrams show a CLUSTERED contact layout, not
-# the even ring the mini-DIN footprints modelled, and that part is discontinued besides.
-# See task-7-report.md's "Fix round 2" and gen_wl_sync_lib.py's M12A_5 comment block for
-# the full selection rationale and sourcing.
+# INLET HEADER -- ruling R1 (parametric-audit.md), implemented 2026-08-15.
+#
+# This was `wl-sync:M12A_5_Panel`, a custom footprint modelling a board-mounted M12
+# receptacle. It is now a plain 5-way 2.54 mm header, and the custom footprint has been
+# DELETED, because the M12 part the design actually procures is the wrong shape for a
+# board-mount footprint of any dimensions:
+#
+#   Phoenix Contact SACC-DSI-MS-5CON-M12 SCO (order 1551833) terminates in WIRE, AWG 22-20
+#   (`m12_inlet.termination`), mounts through the PANEL with a flat nut, and is installed
+#   at 3-4 N.m (`m12_inlet.tightening_torque_nm`). It has no PCB tails at all.
+#
+# So the M12 is panel furniture with flying leads, and those leads land on the board here.
+# Modelling it as a board-mount part was not merely dimensionally wrong -- as built, every
+# cable insertion and every 2 N.m tightening loaded PCB pads directly, which is a
+# mechanical defect independent of any dimension. See parametric-audit.md's R1 entry.
+#
+# The M12 connector itself remains a purchased part and stays in the ORDER BOM; it simply
+# stops being a board component. Retiring it also retires one of the three custom
+# footprints, per the ruling.
+#
+# 2.54 mm header rather than a terminal block: this board already lands power on plain
+# 2.54 mm headers (J52-J55, the fan feeds, carry FAN_12V), the peak rail current here is
+# ~495 mA on +5V against a contact rating several times that, and the inlet is mated once
+# at assembly rather than repeatedly in service.
+FOOTPRINT_INLET_HEADER = "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical"
 FOOTPRINT_DCDC = "Converter_DCDC:Converter_DCDC_XP_POWER-IHxxxxD_THT"  # IH1215D's own stock Footprint property
 FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"  # LD1117S33TR -- identical to gen_mule.py's own usage
 # HVSSOP-8-1EP, generic (not TI's own DGN0008[B/D/G] mechanical-suffix-specific footprint
@@ -343,15 +361,21 @@ def _place_inlet(sch, refs):
     (three: +12V, -12V, +5V), bulk 10uF+100nF on each rail, and the single AGND/DGND
     star-point net tie.
 
-    Pin-to-rail assignment (hardware/lib/wl-sync.kicad_sym's own M12A_5 symbol is
-    deliberately generic -- "Pin-to-rail assignment... is made where this is placed",
-    per its Description property, same convention every connector in this file uses --
-    this is that assignment, made once, here, and unchanged in substance by fix round
-    2's connector swap): pin 1 = +12V (raw), pin 2 = -12V (raw), pin 3 = +5V (raw), pin
-    4 = GND, pin 5 = shield. Shield and GND both tie directly to AGND at this same inlet
-    point rather than getting their own nets -- a cable shield and the external
-    supply's own return terminated at the single-point star ground already established
-    here, not a second or third competing reference next to it.
+    Pin-to-rail assignment (the header symbol is deliberately generic -- the assignment is
+    made where it is placed, the same convention every connector in this file uses): pin
+    1 = +12V (raw), pin 2 = -12V (raw), pin 3 = +5V (raw), pin 4 = GND, pin 5 = a SECOND
+    GND. Both grounds tie directly to AGND at this same inlet point rather than getting
+    their own nets -- the external supply's own return terminated at the single-point star
+    ground already established here, not a second competing reference next to it.
+
+    PIN 5 IS A SECOND GROUND, NOT A SHIELD -- ruling R1. Spec Sec.9.1 asks for "+12 V,
+    -12 V, +5 V, GND, shield", and this pin used to be described as the shield. It is not,
+    and it should not be: the M12's own body is zinc die-cast, nickel-plated
+    (`m12_inlet.body_material`), so the threaded shell bonds the cable shield straight to
+    the panel and thence to chassis earth. Shield current therefore never enters signal
+    ground at all, which is strictly better than terminating it on a pin here, and pin 5
+    is free to halve the supply return resistance instead. The spec's five-conductor
+    intent is satisfied -- the fifth conductor is the shell.
 
     Reverse-polarity protection: ONE series Schottky per rail (SS14, 40V/1A), oriented so
     each rail's own NORMAL current direction forward-biases its diode and a wiring fault
@@ -391,17 +415,22 @@ def _place_inlet(sch, refs):
 
     +5V is budgeted for 400mA (fix round 1) -- see task-7-report.md: the brief's own
     28-channel worst-case draw is ~180-260mA, so this is comfortable headroom, under D3
-    (SS14, 1A-rated) and this connector's own 4A/contact rating (Amphenol LTW's own
-    M12A-05PFFP-SF8001 spec, fix round 2 -- more headroom than the mini-DIN's own
-    2A/contact this replaced) alike, with enough margin that a downstream digital
-    sheet's real load should not need to reopen this budget.
+    (SS14, 1A-rated) and the M12 inlet's own 4A/contact rating
+    (`m12_inlet.rated_current_a`) alike, with enough margin that a downstream digital
+    sheet's real load should not need to reopen this budget. Finding F1 has since raised
+    the real +5V draw to 392mA typ / 495mA max, which is why M7 moved F4 to a 1206L110-C
+    -- still inside both the 4A contact rating and the header's own.
     """
     refs["inlet_diode"] = []
     refs["inlet_cap"] = []
     refs["inlet_fuse"] = []
 
     j1_ref = sch.next_ref("J")
-    j1_pins = sch.place("wl-sync", "M12A_5", j1_ref, "M12A_5", X_J1, Y_J1, footprint=FOOTPRINT_M12A5)
+    j1_pins = sch.place(
+        "Connector", "Conn_01x05_Pin", j1_ref,
+        "Supply inlet header (M12 panel connector flying leads)",
+        X_J1, Y_J1, footprint=FOOTPRINT_INLET_HEADER,
+    )
     j1_map = {"1": "P12_RAW", "2": "N12_RAW", "3": "P5_RAW", "4": "AGND", "5": "AGND"}
     for num, net in j1_map.items():
         x, y = pin_pos(X_J1, Y_J1, j1_pins[num])
