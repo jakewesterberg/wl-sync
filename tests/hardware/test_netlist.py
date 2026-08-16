@@ -1047,19 +1047,119 @@ SUPPLY_TOL = 0.02
 R_LED_TOL = 0.01
 
 
-def _rail_series_drop_v(params: dict) -> dict[str, tuple[float, float]]:
+GROUND_NETS = {"AGND", "DGND", "NI_GND", "INTAN_GND", "FAN_RTN"}
+
+
+def _series_graph(nodes, values):
+    """(series edges, supply-inlet nets) for the board's power tree.
+
+    A SERIES element is a two-terminal part with both pins on non-ground nets -- a fuse or
+    a reverse-polarity diode. A decoupling capacitor has one pin on ground and is a SHUNT;
+    including it would bridge every rail to every other through the ground net and make
+    any walk over this graph meaningless.
+
+    The inlet is derived as the connector feeding two or more fuse input nets, rather than
+    named: `+12V` (every op-amp's V+) and `FAN_12V` (four 3-pin fan headers) both look like
+    "a net with a multi-pin part on it", and treating either as a supply source silently
+    makes the cut tests below unfailable.
+    """
+    two_pin = _two_terminal_passive_refs(nodes)
+    series = {
+        ref: nets for ref, nets in two_pin.items()
+        if len(nets) == 2 and not (nets & GROUND_NETS)
+    }
+    fuse_nets = {
+        name for name, nl in nodes.items()
+        for ref, _p, _pf, _t in nl
+        if ref.startswith("F") and not ref.startswith("FB") and values.get(ref) in POLYFUSE_PARAMS
+    }
+    conn_hits: dict[str, set[str]] = {}
+    for name in fuse_nets:
+        for ref, _p, _pf, _t in nodes[name]:
+            if ref.startswith("J"):
+                conn_hits.setdefault(ref, set()).add(name)
+    source_nets = {n for ref, hits in conn_hits.items() if len(hits) >= 2 for n in hits}
+    return series, source_nets
+
+
+def _reachable_from_source(series, source_nets, without=None) -> set[str]:
+    seen, frontier = set(source_nets), set(source_nets)
+    while frontier:
+        nxt = set()
+        for ref, nets in series.items():
+            if ref == without:
+                continue
+            if nets & frontier:
+                nxt |= nets - seen
+        seen |= nxt
+        frontier = nxt
+    return seen
+
+
+def _supply_series_parts(nodes, values, rail: str) -> set[str]:
+    """Every series part whose removal disconnects `rail` from the supply inlet -- i.e.
+    the parts genuinely carrying that rail's current, found by a cut test rather than by
+    following net names. Empty for a rail the inlet cannot reach at all (the isolated
+    domains), which is the correct answer for them."""
+    series, source_nets = _series_graph(nodes, values)
+    if not source_nets or rail not in _reachable_from_source(series, source_nets):
+        return set()
+    return {
+        ref for ref in series
+        if rail not in _reachable_from_source(series, source_nets, without=ref)
+    }
+
+
+def _rail_series_drop_v(params: dict, nodes=None, values=None) -> dict[str, tuple[float, float]]:
     """{rail: (typical, maximum) volts dropped between the rail's nominal voltage and an
     LED anode fed from it} -- computed from the pinned datasheet parameters of the parts
-    actually in the path, never written down as a literal."""
-    fuse_r = params["polyfuse_1206l050"]["r_min_ohm"]
-    fuse_drop = LED_RAIL_RATED_CURRENT_A * fuse_r
+    ACTUALLY IN THE PATH, found from the netlist, never written down as a literal and
+    never named.
+
+    Deriving the fuse rather than naming it is not fussiness. This function used to read
+    `polyfuse_1206l050` by name, and finding M7 then changed `F4` to a `1206L110-C` whose
+    R_min is 0.040 Ω instead of 0.150 Ω. A named lookup keeps returning the old part's
+    drop forever: silently pessimistic here, but the identical pattern pointed the other
+    way is how finding F1 happened in the first place -- a number that stayed true to a
+    part the board no longer had.
+
+    `nodes`/`values` are optional only so the pre-existing callers that pass just
+    `params` keep working; when they are supplied the path is derived, and when they are
+    not the conservative +5 V figures are used.
+    """
     diode = params["ss14"]
-    return {
-        "+5V": (diode["v_f_estimated_at_450ma_typ_v"] + fuse_drop,
-                diode["v_f_estimated_at_450ma_max_v"] + fuse_drop),
+
+    def drops_for(rail: str) -> tuple[float, float] | None:
+        if nodes is None or values is None:
+            return None
+        parts = _supply_series_parts(nodes, values, rail)
+        if not parts:
+            return None
+        fuse_r = sum(
+            params[POLYFUSE_PARAMS[values[ref]]]["r_min_ohm"]
+            for ref in parts if values.get(ref) in POLYFUSE_PARAMS
+        )
+        n_diodes = sum(1 for ref in parts if values.get(ref) == "SS14")
+        fuse_drop = LED_RAIL_RATED_CURRENT_A * fuse_r
+        return (n_diodes * diode["v_f_estimated_at_450ma_typ_v"] + fuse_drop,
+                n_diodes * diode["v_f_estimated_at_450ma_max_v"] + fuse_drop)
+
+    # Fallback figures, used only when the caller supplies no netlist: today's F4 plus D3.
+    fallback_fuse = LED_RAIL_RATED_CURRENT_A * params["polyfuse_1206l110"]["r_min_ohm"]
+    out = {
+        "+5V": (diode["v_f_estimated_at_450ma_typ_v"] + fallback_fuse,
+                diode["v_f_estimated_at_450ma_max_v"] + fallback_fuse),
+        # Both regulated locally, on the isolated side of the barrier, with nothing in
+        # series -- and structurally unreachable from the supply inlet, so the derivation
+        # below returns nothing for them and these zeros stand.
         "ISO_5V": (0.0, 0.0),
         "NI_5V": (0.0, 0.0),
     }
+    for rail in list(out):
+        derived = drops_for(rail)
+        if derived is not None:
+            out[rail] = derived
+    return out
 
 
 def _led_branches(nodes: dict[str, list[Node]], values: dict[str, str], two_pin) -> list[dict]:
@@ -1122,7 +1222,7 @@ def _led_current_bounds_ma(branch: dict, params: dict, drops: dict) -> tuple[flo
 
 def _check_led_current_clears_switching_floor(nodes, values, params) -> None:
     two_pin = _two_terminal_passive_refs(nodes)
-    drops = _rail_series_drop_v(params)
+    drops = _rail_series_drop_v(params, nodes, values)
     floor = params["acsl_6xx0"]["i_fh_recommended_min_ma"]
     branches = _led_branches(nodes, values, two_pin)
     assert branches, "no optocoupler LED branches found at all -- this check would pass vacuously"
@@ -1180,7 +1280,7 @@ def test_led_current_clears_switching_floor_fires_on_iso_rail_using_the_main_val
     than passing because 'it is the same part'."""
     iso = next(b for b in _led_branches(nodes, values, _two_terminal_passive_refs(nodes))
                if b["rail"] == "ISO_5V")
-    _, i_max_iso = _led_current_bounds_ma({**iso, "ohms": 249.0}, params, _rail_series_drop_v(params))
+    _, i_max_iso = _led_current_bounds_ma({**iso, "ohms": 249.0}, params, _rail_series_drop_v(params, nodes, values))
     assert i_max_iso > params["acsl_6xx0"]["i_f_abs_max_ma"], (
         f"a 249R resistor on ISO_5V gives {i_max_iso:.1f}mA best case, which must exceed "
         f"the part's absolute maximum for the two-value split to be load-bearing"
@@ -1192,7 +1292,7 @@ def test_led_current_clears_switching_floor_fires_on_iso_rail_using_the_main_val
 
 def _check_led_current_under_absolute_maximum(nodes, values, params) -> None:
     two_pin = _two_terminal_passive_refs(nodes)
-    drops = _rail_series_drop_v(params)
+    drops = _rail_series_drop_v(params, nodes, values)
     ceiling = params["acsl_6xx0"]["i_f_abs_max_ma"]
     branches = _led_branches(nodes, values, two_pin)
     assert branches, "no optocoupler LED branches found at all -- this check would pass vacuously"
@@ -1396,7 +1496,7 @@ def _check_package_ground_current(nodes, values, params) -> None:
     comfortably inside their own budget still add up to a package that is not.
     """
     two_pin = _two_terminal_passive_refs(nodes)
-    drops = _rail_series_drop_v(params)
+    drops = _rail_series_drop_v(params, nodes, values)
     counts = _parallel_driver_count(nodes, values)
     limit = params["sn74ahct541"]["i_gnd_abs_max_ma"]
 
@@ -1450,3 +1550,291 @@ def test_package_ground_current_fires_when_paralleling_is_removed(nodes, values,
                 seen.add(net)
     with pytest.raises(AssertionError, match=r"ground-pin absolute maximum"):
         _check_package_ground_current(corrupted, values, params)
+
+
+# ===========================================================================
+# 19-20: FUSES (findings F7 and M7, hardware/breakout/parametric-audit.md).
+#
+# Two questions no structural checker asks, and they fail in opposite directions:
+#
+#   19. SELECTIVITY. Two protective devices in series only "coordinate" if the upstream
+#       one holds more current than the downstream one trips at. Two IDENTICAL parts in
+#       series have NO selectivity, and the board shipped exactly that: `F1` (the fan
+#       feed) sat downstream of `F2` (main +12 V) at the same 0.5 A hold / 1.0 A trip, so
+#       a fan fault at 0.9 A is below `F1`'s trip and well over `F2`'s hold -- `F2` can
+#       trip first and kill the analog rails to protect the fans, inverting the entire
+#       purpose of giving the fans their own fuse.
+#
+#   20. CAPACITY. A fuse must hold the rail's real maximum load at the real ambient, not
+#       at the datasheet's 23 C. `F4` protects +5 V, which carries 495 mA maximum after
+#       finding F1 raised the optocoupler drive; a 1206L050 holds ~0.44 A derated. It
+#       trips in normal operation.
+#
+# Both read a VALUE and compare it against a DATASHEET LIMIT, like checks 15-18 above.
+# ===========================================================================
+
+# Which datasheet-params.toml section describes each polyfuse part number actually placed.
+# Keyed by the Value string so the netlist itself selects the limits -- a fuse whose value
+# is edited without a matching entry here fails loudly rather than being scored against
+# whatever part the previous value happened to be.
+POLYFUSE_PARAMS = {
+    "1206L050/15YR": "polyfuse_1206l050",
+    "1206L110-C": "polyfuse_1206l110",
+}
+
+# Ambient inside the sealed 2U chassis, in C. Spec §9.4 budgets 10-15 W of thermal load
+# and the audit's own thermal check measures under 3 C rise at 12 CFM, so 35 C is a
+# deliberately pessimistic operating ambient for a room-temperature rig room -- and PPTC
+# hold current derates steeply, so this is the number the capacity check turns on.
+FUSE_AMBIENT_C = 35.0
+
+# Per-rail load, mA (typical, maximum). NOT derivable from a netlist -- it is the sum of
+# every consumer's operating current, which no connectivity export carries -- so it is
+# declared here, in one reviewable place, rather than left scattered through prose.
+# Figures are finding M7's, recomputed there with every audit fix applied.
+# `_check_fuse_capacity` guards that every fused rail has an entry, and separately
+# cross-checks the +5 V figure against the LED current DERIVED from the netlist, so the
+# half of it that moves when someone edits a resistor cannot silently go stale.
+RAIL_LOAD_MA = {
+    "+5V": (392.0, 495.0),
+    "+12V": (97.0, 121.0),
+    "-12V": (54.0, 66.0),
+    "FAN_12V": (240.0, 240.0),
+}
+
+
+def _fuse_hold_at(params: dict, section: str, ambient_c: float) -> float:
+    """Hold current at `ambient_c`, linearly interpolated between the two bracketing
+    columns of the part's own Temperature Rerating table. Interpolated rather than
+    rounded to the nearest column because the derating is steep: 1206L050/15 falls from
+    0.50 A at 23 C to 0.42 A at 40 C, so picking the wrong column moves the answer by
+    nearly 20%."""
+    table = sorted((float(k), v) for k, v in params[section]["i_hold_vs_ambient_a"].items())
+    assert table, f"{section}: no i_hold_vs_ambient_a table"
+    if ambient_c <= table[0][0]:
+        return table[0][1]
+    for (t0, a0), (t1, a1) in zip(table, table[1:]):
+        if t0 <= ambient_c <= t1:
+            return a0 + (a1 - a0) * (ambient_c - t0) / (t1 - t0)
+    return table[-1][1]
+
+
+def _fuses(nodes, values) -> dict[str, dict]:
+    """{fuse ref: {"value", "section", "nets"}} for every polyfuse on the board."""
+    out = {}
+    for name, nl in nodes.items():
+        for ref, _pin, _pf, _pt in nl:
+            v = values.get(ref, "")
+            if not ref.startswith("F") or ref.startswith("FB") or v not in POLYFUSE_PARAMS:
+                continue
+            out.setdefault(ref, {"value": v, "section": POLYFUSE_PARAMS[v], "nets": set()})
+            out[ref]["nets"].add(name)
+    return out
+
+
+def _check_every_polyfuse_is_priced(nodes, values) -> None:
+    """A fuse whose Value has no entry in POLYFUSE_PARAMS would be silently skipped by
+    both checks below -- the vacuous-pass failure mode this project has hit three times."""
+    placed = {
+        ref: values.get(ref, "")
+        for nl in nodes.values() for ref, _p, _pf, _t in nl
+        if ref.startswith("F") and not ref.startswith("FB")
+    }
+    unpriced = {r: v for r, v in placed.items() if v not in POLYFUSE_PARAMS}
+    assert not unpriced, (
+        f"polyfuse(s) {unpriced} have no POLYFUSE_PARAMS entry -- add one pointing at "
+        f"their datasheet-params.toml section. Without it both fuse checks below skip "
+        f"them entirely and pass vacuously."
+    )
+
+
+def test_every_polyfuse_is_priced(nodes, values):
+    _check_every_polyfuse_is_priced(nodes, values)
+
+
+def test_every_polyfuse_is_priced_fires_on_unknown_part(nodes, values):
+    corrupted = dict(values) | {"F4": "SOME-OTHER-PPTC"}
+    with pytest.raises(AssertionError, match=r"F4"):
+        _check_every_polyfuse_is_priced(nodes, corrupted)
+
+
+# --- 19: series fuse coordination. -----------------------------------------------------
+
+
+def _check_series_fuse_coordination(nodes, values, params) -> None:
+    """Finding F7. For any two fuses in series, the UPSTREAM one's hold current must
+    exceed the DOWNSTREAM one's TRIP current -- otherwise a downstream fault can open the
+    upstream device first, and the fuse that was supposed to isolate one branch takes out
+    everything the upstream device protects.
+
+    "In series" is derived structurally, by a CUT TEST rather than by reachability: fuse A
+    is upstream of fuse B when removing A disconnects B from the supply inlet. That is the
+    exact meaning of "all of B's current flows through A", and it gets the DIRECTION right
+    for free -- removing the fan fuse does not disconnect the main rail, so the pair is
+    reported once, the right way round.
+
+    Direction matters more than it sounds. Plain reachability calls every fuse upstream of
+    every other, because the graph is undirected and each rail reaches every other rail
+    through the ground net via any two decoupling capacitors. Two guards handle that: only
+    SERIES elements are edges (a two-terminal part with BOTH pins on non-ground nets -- a
+    decoupling cap has one pin on ground and is a shunt, not a series element), and the cut
+    test supplies the direction the graph itself does not carry.
+
+    This is also where finding F7's own published fix went wrong. It names `P12_FUSED` as
+    "upstream of `F2`", but `P12_FUSED` is `F2`'s OUTPUT -- so tapping the fan there would
+    leave fan current still flowing through `F2` while removing the fan branch's
+    reverse-polarity protection. Reasoning from net NAMES rather than from topology is
+    exactly the error this check exists to make impossible.
+    """
+    fuses = _fuses(nodes, values)
+    assert fuses, "no polyfuses found at all -- this check would pass vacuously"
+    series, source_nets = _series_graph(nodes, values)
+    assert source_nets, (
+        "could not identify the supply inlet's own rails (a connector feeding two or more "
+        "fuse input nets) -- this check would pass vacuously"
+    )
+
+    bad = []
+    for a_ref, a in fuses.items():
+        without_a = _reachable_from_source(series, source_nets, without=a_ref)
+        for b_ref, b in fuses.items():
+            if b_ref == a_ref:
+                continue
+            # All of B's current flows through A iff removing A strands B entirely.
+            if b["nets"] & without_a:
+                continue
+            a_p, b_p = params[a["section"]], params[b["section"]]
+            if a_p["i_hold_a"] <= b_p["i_trip_a"]:
+                bad.append((a_ref, a["value"], a_p["i_hold_a"], b_ref, b["value"], b_p["i_trip_a"]))
+    bad = sorted(set(bad))
+    assert not bad, (
+        f"{len(bad)} fuse pair(s) in series have no selectivity -- the upstream device's "
+        f"hold current does not exceed the downstream device's trip current:\n  "
+        + "\n  ".join(
+            f"{au} ({av}, hold {ah} A) upstream of {bu} ({bv}, trip {bt} A)"
+            for au, av, ah, bu, bv, bt in bad
+        )
+        + "\nFinding F7: a fault below the DOWNSTREAM device's trip point but above the "
+        "UPSTREAM device's hold point opens the upstream one first, so the fuse that "
+        "exists to isolate one branch instead takes out everything upstream protects. On "
+        "this board that meant a fan fault killing the analog rails."
+    )
+
+
+def test_series_fuse_coordination(nodes, values, params):
+    _check_series_fuse_coordination(nodes, values, params)
+
+
+def test_series_fuse_coordination_fires_on_identical_parts_in_series(nodes, values, params):
+    """The defect verbatim: put the fan feed back downstream of the main +12 V fuse, two
+    identical 0.5 A/1.0 A parts in series. Fabricated by moving F1's input from its own
+    branch onto the main rail's output net."""
+    f1_in = next(n for n in nodes["P12_RAW"] if n[0] == "F1") if any(
+        n[0] == "F1" for n in nodes.get("P12_RAW", [])
+    ) else None
+    corrupted = dict(nodes)
+    if f1_in:  # post-fix board: move F1 back downstream of F2
+        corrupted["P12_RAW"] = [n for n in nodes["P12_RAW"] if n[0] != "F1"]
+        corrupted["+12V"] = list(nodes["+12V"]) + [f1_in]
+    with pytest.raises(AssertionError, match=r"no selectivity"):
+        _check_series_fuse_coordination(corrupted, values, params)
+
+
+# --- 20: fuse capacity against the real rail load at the real ambient. -----------------
+
+
+def _check_fuse_capacity(nodes, values, params) -> None:
+    """Finding M7. Each fuse's hold current, DERATED to the operating ambient, must cover
+    the maximum load of the rail it protects.
+
+    PPTC hold current is characterised at 23 C and falls steeply -- a 1206L050 holds
+    0.50 A at 23 C and 0.42 A at 40 C -- so checking against the headline number is
+    checking against a condition the board never operates in.
+    """
+    fuses = _fuses(nodes, values)
+    assert fuses, "no polyfuses found at all -- this check would pass vacuously"
+
+    # Which rail each fuse protects: the one of its two nets that a declared load names,
+    # directly or through the reverse-polarity diode that follows it.
+    two_pin = _two_terminal_passive_refs(nodes)
+    undersized, unpriced = [], []
+    for ref, f in fuses.items():
+        rails = set()
+        for net in f["nets"]:
+            if net in RAIL_LOAD_MA:
+                rails.add(net)
+            for other, othernets in two_pin.items():
+                if other != ref and net in othernets:
+                    rails |= {n for n in othernets if n in RAIL_LOAD_MA}
+        if not rails:
+            unpriced.append((ref, sorted(f["nets"])))
+            continue
+        hold_ma = _fuse_hold_at(params, f["section"], FUSE_AMBIENT_C) * 1000
+        for rail in sorted(rails):
+            _typ, mx = RAIL_LOAD_MA[rail]
+            if hold_ma < mx:
+                undersized.append((ref, f["value"], rail, round(hold_ma, 1), mx))
+
+    assert not unpriced, (
+        f"fuse(s) {unpriced} protect no rail named in RAIL_LOAD_MA -- add the rail and its "
+        f"load, or this fuse's sizing is never checked at all."
+    )
+    assert not undersized, (
+        f"{len(undersized)} fuse(s) cannot hold their rail's maximum load at "
+        f"{FUSE_AMBIENT_C} C:\n  "
+        + "\n  ".join(
+            f"{ref} ({val}) on {rail}: holds {hold} mA derated, rail draws up to {mx} mA"
+            for ref, val, rail, hold, mx in undersized
+        )
+        + "\nFinding M7. PPTC hold current is characterised at 23 C and derates steeply, "
+        "so a fuse chosen against the headline number is chosen against a condition the "
+        "board never operates in."
+    )
+
+
+def test_fuse_capacity(nodes, values, params):
+    _check_fuse_capacity(nodes, values, params)
+
+
+def test_fuse_capacity_fires_on_undersized_fuse(nodes, values, params):
+    """The defect verbatim: F4 back at 1206L050, whose ~0.44 A derated hold does not cover
+    the +5 V rail's 495 mA maximum."""
+    corrupted = dict(values) | {"F4": "1206L050/15YR"}
+    with pytest.raises(AssertionError, match=r"F4.*\+5V"):
+        _check_fuse_capacity(nodes, corrupted, params)
+
+
+def test_fuse_capacity_derates_rather_than_using_the_headline_rating(nodes, values, params):
+    """The derating is the whole point, asserted rather than assumed: a 1206L050 passes
+    against its 500 mA headline and fails against its ~440 mA figure at 35 C, and the
+    +5 V rail's 495 mA maximum sits between the two."""
+    at_23 = _fuse_hold_at(params, "polyfuse_1206l050", 23.0) * 1000
+    at_amb = _fuse_hold_at(params, "polyfuse_1206l050", FUSE_AMBIENT_C) * 1000
+    assert at_23 >= RAIL_LOAD_MA["+5V"][1], "headline rating should look adequate"
+    assert at_amb < RAIL_LOAD_MA["+5V"][1], "derated rating must not"
+
+
+def test_rail_load_table_matches_the_led_current_derived_from_the_netlist(nodes, values, params):
+    """Keeps the declared +5 V figure honest. The LED share of that rail IS derivable, so
+    it is derived here and compared against the declaration -- if someone edits a resistor
+    or adds a channel, the hand-written rail total is caught drifting instead of quietly
+    under-reporting what the fuse has to hold."""
+    two_pin = _two_terminal_passive_refs(nodes)
+    drops = _rail_series_drop_v(params, nodes, values)
+    led_max = sum(
+        _led_current_bounds_ma(b, params, drops)[1]
+        for b in _led_branches(nodes, values, two_pin)
+        if b["rail"] == "+5V"
+    )
+    declared_max = RAIL_LOAD_MA["+5V"][1]
+    assert led_max <= declared_max, (
+        f"+5 V LEDs alone draw up to {led_max:.0f} mA, but RAIL_LOAD_MA declares the whole "
+        f"rail at {declared_max} mA -- the declared total no longer covers its own LED "
+        f"share, so every fuse decision resting on it is stale."
+    )
+    assert led_max > 0.5 * declared_max, (
+        f"+5 V LEDs draw {led_max:.0f} mA of a declared {declared_max} mA. If the LED "
+        f"share has fallen below half the rail, RAIL_LOAD_MA was probably not updated "
+        f"alongside whatever change caused that -- re-derive it rather than loosening "
+        f"this bound."
+    )

@@ -223,7 +223,10 @@ SAT_DY = GRID(20.32)  # satellite vertical offset (row spacing for stacked satel
 # power.kicad_sch spans X -29.21..380.49, Y -8.89..326.39, so this whole block (X>=440)
 # sits well outside that bounding box on the same A2 sheet and cannot coordinate-collide
 # with anything placed above.
-X_FAN_FUSE, Y_FAN_RAIL = GRID(440), GRID(30.48)      # F1: +12V -> FAN_12V
+X_FAN_FUSE, Y_FAN_RAIL = GRID(440), GRID(30.48)      # F1: P12_RAW -> FAN_12V_RAW (F7)
+X_FAN_DIODE = GRID(457.2)                             # D44: FAN_12V_RAW -> FAN_12V (F7)
+# -- the fan branch's own reverse-polarity Schottky, needed once F1 taps upstream of D1.
+# Its own column between the fuse (440) and the bulk cap (475.56), clear of both.
 X_FAN_CAP_BULK = GRID(475.56)                         # FAN_12V/FAN_RTN bulk 10uF
 X_FAN_CAP_SMALL = GRID(490.8)                         # FAN_12V/FAN_RTN small 100nF
 X_FAN_TIE, Y_FAN_TIE = GRID(440), GRID(50.8)          # NT2: FAN_RTN <-> DGND
@@ -446,13 +449,32 @@ def _place_inlet(sch, refs):
     # exposed-pad regulators) -- so 1206L050/15YR is reused instead, at whatever margin
     # the ±12V rail's own real total turns out to need re-checking against a bench
     # measurement before this is treated as final.
-    for raw_net, fused_net, y_row, ref_name in (
-        ("P12_RAW", "P12_FUSED", Y_D_P12, "F2"),
-        ("N12_RAW", "N12_FUSED", Y_D_N12, "F3"),
-        ("P5_RAW", "P5_FUSED", Y_D_P5, "F4"),
+    # F4 IS NOT THE SAME PART AS F2/F3 -- finding M7, 2026-08-16. The +5 V rail carries
+    # 392 mA typical / 495 mA maximum once finding F1 raised the optocoupler drive from
+    # ~7.33 mA to ~12.65 mA per LED across 30 LEDs, and a 1206L050 holds only ~0.44 A at
+    # this chassis's 35 C ambient -- it would trip in NORMAL OPERATION, not on a fault.
+    # 1206L110-C holds 1.10 A at 23 C / ~0.97 A at 35 C, a 1.97x margin on the maximum.
+    #
+    # The audit left open whether a 1.1 A PPTC exists in 1206 at all, and whether the
+    # answer forced either a package exception (this board's THIRD, against a global limit
+    # of two) or splitting +5 V into two fused branches. It does exist, so neither is
+    # needed: 1206L110-C, same 1206 footprint, same hand-solderable family.
+    #
+    # ITS V_max IS 6 Vdc, NOT 15. In the 1206L series the elevated-voltage variants exist
+    # only at the two lowest hold currents, so every part at 0.75 A and above is a +5 V
+    # rail part only. That is exactly why F4 can move and F1/F2/F3 cannot -- see
+    # datasheet-params.toml's own [polyfuse_1206l110] and [polyfuse_1206l050] notes. Do
+    # not "tidy" this back into one shared value.
+    #
+    # Its lower R_min (0.040 vs 0.150 ohm) also cuts the series drop feeding the LEDs from
+    # ~0.074 V to ~0.020 V at 0.495 A, which improves finding F1's own worst-case margin.
+    for raw_net, fused_net, y_row, ref_name, fuse_mpn in (
+        ("P12_RAW", "P12_FUSED", Y_D_P12, "F2", "1206L050/15YR"),
+        ("N12_RAW", "N12_FUSED", Y_D_N12, "F3", "1206L050/15YR"),
+        ("P5_RAW", "P5_FUSED", Y_D_P5, "F4", "1206L110-C"),
     ):
         fpins = sch.place(
-            "Device", "Polyfuse", ref_name, "1206L050/15YR", X_FUSE_MAIN, y_row,
+            "Device", "Polyfuse", ref_name, fuse_mpn, X_FUSE_MAIN, y_row,
             footprint=FOOTPRINT_FUSE,
         )
         x, y = pin_pos(X_FUSE_MAIN, y_row, fpins["1"])
@@ -759,16 +781,65 @@ def _place_fan_headers(sch, refs):
     sch.ref_counters["C"] = 146  # whole-board max -- see docstring. Next two next_ref("C")
     # calls mint C147/C148, not a number some sibling already claimed.
 
-    # F1: polyfuse between the ALREADY reverse-polarity-protected +12V (not P12_RAW --
-    # D1 already guards against a miswired supply; the polyfuse's own job is fault
-    # current, not polarity) and the new FAN_12V rail. Value is the real, orderable,
-    # currently-stocked MPN (this file's own SS14/IH1215D/LD1117S33TR discipline, not a
-    # generic rating string) -- see hardware/procurement-check.md for the sourcing
-    # record and this function's own docstring for the hold-current derivation.
+    # F1: polyfuse feeding the FAN_12V rail, tapped from P12_RAW -- FINDING F7,
+    # 2026-08-16. It used to tap +12V, which is DOWNSTREAM of F2 (the main +12V fuse):
+    #
+    #     J1.1 -> P12_RAW -> [F2] -> P12_FUSED -> [D1] -> +12V -> [F1] -> FAN_12V
+    #
+    # so F1 and F2 were in SERIES at identical ratings (0.5 A hold / 1.0 A trip). Two
+    # identical parts in series have no selectivity at all: a fan fault at 0.9 A is below
+    # F1's trip but well over F2's hold, so F2 can open first and kill the analog rails to
+    # protect the fans -- inverting the entire purpose of giving the fans their own fuse.
+    # It also meant F2 carried main load PLUS fans (337-361 mA, not the ~100 mA the main
+    # rail alone draws).
+    #
+    # Tapping P12_RAW puts F1 and F2 on genuinely parallel branches off the inlet. F2 then
+    # carries 97-121 mA and a fan fault cannot reach the analog rail at all.
+    #
+    # NOTE THE AUDIT'S OWN F7 TEXT NAMES THE WRONG NODE. It says to tap "P12_FUSED ...
+    # upstream of F2", but P12_FUSED is F2's OUTPUT (see the chain above) -- tapping there
+    # would leave fan current still flowing through F2 AND strip the fan branch of D1's
+    # reverse-polarity protection, which is strictly worse than before. The handoff's own
+    # preferred option (tap P12_RAW, give the branch its own diode) is the correct one and
+    # is what is implemented here. tests/hardware/test_netlist.py's own fuse-coordination
+    # check derives series-ness from topology by a cut test precisely so a mistake of that
+    # shape cannot pass review again.
+    #
+    # D44: the fan branch's OWN reverse-polarity Schottky, which tapping upstream of D1
+    # makes necessary -- this function's docstring previously argued the fan branch needed
+    # no diode because "FAN_12V taps off +12V AFTER D1, so polarity is already handled",
+    # and that argument dies with the tap point. Same SS14 already used at D1/D2/D3, so no
+    # new part number; the fans' ~240 mA is far inside its 1 A rating.
+    #
+    # Value is the real, orderable, currently-stocked MPN (this file's own SS14/IH1215D/
+    # LD1117S33TR discipline, not a generic rating string) -- see
+    # hardware/procurement-check.md for the sourcing record and this function's own
+    # docstring for the hold-current derivation.
+    #
+    # F1 STAYS AT 0.50 A despite M7 recommending 0.75 A, and this is a parts-availability
+    # fact rather than a judgement call: in the 1206L series the elevated-voltage variants
+    # exist ONLY at the two lowest hold currents (1206L035/16 at 16 Vdc and 1206L050/15 at
+    # 15 Vdc). Every part at 0.75 A and above is rated 6 Vdc -- a +5 V rail only -- so
+    # 0.50 A is the largest 1206L hold current available to a 12 V rail at all. At 35 C
+    # that derates to ~0.44 A against the fans' 240 mA, a 1.83x margin, inside the 1.5-2x
+    # band this function's docstring already cites. See datasheet-params.toml's own
+    # [polyfuse_1206l050] note.
     refs["fan_fuse"] = two_pin(
         sch, "Device", "Polyfuse", "F", "1206L050/15YR",
-        X_FAN_FUSE, Y_FAN_RAIL, "+12V", "FAN_12V", footprint=FOOTPRINT_FUSE,
+        X_FAN_FUSE, Y_FAN_RAIL, "P12_RAW", "FAN_12V_RAW", footprint=FOOTPRINT_FUSE,
     )
+    fan_diode_pins = sch.place(
+        "Diode", "SS14", "D44", "SS14", X_FAN_DIODE, Y_FAN_RAIL,
+        footprint=FOOTPRINT_DIODE,
+    )
+    # Same pin convention as D1/D2/D3 above -- pin 2 is "A" (anode, raw/source side) and
+    # pin 1 is "K" (cathode, protected/load side), read from the symbol rather than
+    # assumed from pin order.
+    ax, ay = pin_pos(X_FAN_DIODE, Y_FAN_RAIL, fan_diode_pins["2"])  # A
+    sch.label("FAN_12V_RAW", ax, ay)
+    kx, ky = pin_pos(X_FAN_DIODE, Y_FAN_RAIL, fan_diode_pins["1"])  # K
+    sch.label("FAN_12V", kx, ky)
+    refs["fan_diode"] = "D44"
 
     # Local bulk capacitance on FAN_12V after the fuse -- the same 10uF+100nF pairing
     # this file already uses at every other rail entry point (_place_inlet()'s own

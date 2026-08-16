@@ -320,10 +320,60 @@ r_1max_ohm = 0.6                 # one hour after trip
 v_max_v = 15.0
 time_to_trip_s = 0.1
 temp_range_c = [-40.0, 85.0]
+# Hold current vs ambient, verbatim from the Temperature Rerating table's own
+# 1206L050/15 row. Interpolating gives ~0.44 A at 35 C, the figure the note below cites.
+i_hold_vs_ambient_a = { "-40" = 0.71, "-20" = 0.64, "0" = 0.57, "23" = 0.50, "40" = 0.42, "50" = 0.39, "60" = 0.35, "70" = 0.31, "85" = 0.25 }
 feeds = ["F1", "F7", "M7"]
 note = """Hold current derates with temperature (~0.44 A at 35 C). Series coordination
 requires the upstream device's hold current to exceed the downstream device's TRIP
-current -- two identical parts in series have no selectivity."""
+current -- two identical parts in series have no selectivity.
+
+THE /15 SUFFIX IS LOAD-BEARING. In the 1206L series the elevated-voltage variants exist
+ONLY at the two lowest hold currents: 1206L035/16 (16 Vdc) and 1206L050/15 (15 Vdc).
+Every part at 0.75 A and above -- 1206L075-C, 1206L100, 1206L110-C, 1206L150-C -- is
+rated 6 Vdc, which is a +5 V rail only. So 0.50 A is the LARGEST 1206L hold current
+available to a 12 V rail, and F1/F2/F3 cannot be upsized in this series at all. This is
+why M7's "0.75 A recommended" for the fan feed cannot be satisfied: 1206L075-C's 6 Vdc
+rating does not cover +12 V."""
+
+[polyfuse_1206l110]
+part = "1206L110-C"
+document = "Littelfuse 1206L series, Electronics Designers Guide"
+revised = "2006"
+retrieved = "2026-08-16"
+url = "https://www.farnell.com/datasheets/48531.pdf"
+
+i_hold_a = 1.10                  # at 23 C
+i_trip_a = 2.20
+i_max_fault_a = 100.0
+r_min_ohm = 0.040                # un-tripped
+r_typ_ohm = 0.110
+r_1max_ohm = 0.180               # one hour after trip
+v_max_v = 6.0                    # SEE NOTE -- +5 V rails only
+p_d_max_w = 0.8
+time_to_trip_s = 0.30            # at 8.00 A
+time_to_trip_test_a = 8.0
+temp_range_c = [-40.0, 85.0]
+i_hold_vs_ambient_a = { "-40" = 1.52, "-20" = 1.37, "0" = 1.25, "23" = 1.10, "40" = 0.92, "50" = 0.82, "60" = 0.75, "70" = 0.64, "85" = 0.52 }
+feeds = ["M7", "F1"]
+note = """F4's replacement (+5 V), per M7. The +5 V rail carries 392 mA typ / 495 mA max
+after finding F1 raised the optocoupler drive, and 1206L050's ~0.44 A derated hold does
+not cover it. Interpolating the table above gives ~0.97 A at 35 C -- 1.97x the rail's
+maximum.
+
+V_max IS 6 Vdc, NOT 15. This part has no elevated-voltage variant, so it suits the +5 V
+rail and NOTHING ELSE on this board. Do not reuse it on +12 V/-12 V; see
+[polyfuse_1206l050]'s own note for why the series offers no high-current 12 V option.
+
+R_min falls 0.150 -> 0.040 ohm, which also REDUCES the series drop feeding the
+optocoupler LEDs (~0.020 V instead of ~0.074 V at 0.495 A) -- so this change improves
+finding F1's own worst-case margin rather than eroding it.
+
+SOURCING CAVEAT: these figures are read from the 2006 Electronics Designers Guide
+revision, the one that was actually retrievable (Littelfuse's own asset URL returns 403).
+[polyfuse_1206l050] above cites a 2024 revision and gives r_1max = 0.6 ohm where this
+2006 document's 1206L050/15 row says 0.750 -- a real discrepancy in a value nothing here
+depends on. Re-read both rows against one revision before fab."""
 
 # ---------------------------------------------------------------------------
 # Sensors and instruments

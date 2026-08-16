@@ -93,7 +93,30 @@ against today's 5**. The driving buffers live on `taskpc-digital.kicad_sch` (`U8
 > during the panel-instrumentation task. Allocating four new packages must not disturb existing
 > references — check `build()`'s own baseline comment in each generator before minting refs.
 
-## 3. The fuse architecture — decided in principle, not implemented
+## 3. The fuse architecture — decided in principle, not implemented — **DONE 2026-08-16**
+
+> **Implemented, and the section below called it right on both counts.**
+>
+> - **The preferred option was the correct one.** Tapping the fan branch from `P12_RAW` with
+>   its own `SS14` (`D44`) is what shipped. Recording clearly, because it matters for anyone
+>   reading the two documents side by side: **`parametric-audit.md`'s own F7 "Fix" line is
+>   wrong** — it names `P12_FUSED` and calls it "upstream of `F2`", but `P12_FUSED` is `F2`'s
+>   *output*. Following it would have left fan current in `F2` while stripping the fan branch
+>   of reverse-polarity protection. This section's version is the one to trust.
+> - **The `F4` question resolved the easy way.** A 1.1 A PPTC *does* exist in 1206 —
+>   `1206L110-C` — so neither feared outcome materialised: no third package exception, no
+>   splitting `+5 V` into two fused branches. Its lower `R_min` also improves finding F1's LED
+>   margin as a side effect.
+>
+> **One thing this section did not anticipate, and it closes an option it left open.** The
+> 1206L series only offers elevated voltage ratings (15/16 V) on its two lowest hold currents;
+> everything at 0.75 A and above is 6 Vdc, i.e. `+5 V` only. So **`F1` cannot be taken to the
+> recommended 0.75 A** — 0.50 A is the largest 1206L hold current available to a 12 V rail at
+> all. It stays at 0.50 A (1.83× derated margin on the fans' 240 mA), and raising it means
+> leaving the series, which reopens the package-exception question. `F2`/`F3` are at the same
+> ceiling, which is worth knowing before anyone plans to upsize them either.
+>
+> The rest of this section is left as written, as the record of what was known going in.
 
 Finding F7 says `F1` (fan) sits downstream of `F2` (main +12 V) at **identical ratings**
 (0.5 A hold / 1.0 A trip), so there is no selective coordination — a fan fault at 0.9 A is
@@ -142,9 +165,10 @@ actual pattern (4 × Ø0.89 signal, 2 × Ø2.01 ground) and the Winchester famil
 
 Dependencies are real here — doing these out of order means redoing arithmetic.
 
-1. **Power chain** — fuse architecture and the fan tap. Everything downstream depends on the
-   rail drop. *(Though note: the LED resistor was checked against both fuse options and moves
-   only 0.2 mA, so F1 is not actually blocked on this.)*
+1. ~~**Power chain** — fuse architecture and the fan tap. Everything downstream depends on the
+   rail drop.~~ **DONE 2026-08-16** — F7 (fan tap from `P12_RAW` + `D44`) and M7 (`F4` →
+   `1206L110-C`). The parenthetical was right: F1 landed first and the fuse change moved its
+   worst-case LED current by +0.22 mA, in the helpful direction.
 2. ~~**F1 as one change** — two resistor values plus output paralleling across 9 packages.
    Largest single change in the audit.~~ **DONE 2026-08-16** — see §2 above. Note it landed
    *before* step 1 rather than after, which the parenthetical below already allowed for; the

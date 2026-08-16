@@ -259,7 +259,33 @@ punched through a mixed-signal board carrying five ground domains.
 
 **Fix:** a right-angle isolated part. See §3 for selection status.
 
-### F7 — The fan fuse is defeated by its own placement
+### F7 — The fan fuse is defeated by its own placement — **IMPLEMENTED 2026-08-16**
+
+> **Implemented, but NOT as this finding's own "Fix" line says.** That line is wrong and
+> was corrected during implementation.
+>
+> It says to tap `FAN_12V` from **`P12_FUSED`**, calling that node "upstream of `F2`". It is
+> not. The real chain is `J1.1 → P12_RAW → [F2] → P12_FUSED → [D1] → +12V`, so `P12_FUSED`
+> is `F2`'s **output**. Tapping there would have left fan current still flowing through
+> `F2` — fixing nothing — *and* stripped the fan branch of `D1`'s reverse-polarity
+> protection, which is strictly worse than the defect. The handoff's own preferred option
+> (tap `P12_RAW`, give the branch its own diode) is correct and is what shipped:
+>
+> ```
+> J1.1 → P12_RAW ─┬─ [F2] → P12_FUSED → [D1]  → +12V        (main)
+>                 └─ [F1] → FAN_12V_RAW → [D44] → FAN_12V    (fans)
+> ```
+>
+> Cost: one `SS14` (`D44`), already a qualified part on this board. `F2` now carries
+> 97–121 mA instead of 337–361 mA, and a fan fault cannot reach the analog rail at all.
+>
+> **The lesson is the reason the new checker works the way it does.** Reasoning from net
+> *names* is what produced the wrong fix; `tests/hardware/test_netlist.py`'s fuse-
+> coordination check derives series-ness from **topology**, by testing whether removing one
+> fuse disconnects another from the supply inlet. Plain reachability was tried first and
+> called every fuse upstream of every other — the rails are all joined through the ground
+> net by any two decoupling capacitors — so the check walks series elements only (both pins
+> off ground) and uses the cut test to supply the direction the graph does not carry.
 
 `F1` is fed from `+12V`, downstream of `F2`. Both are `1206L050` — 0.5 A hold, 1.0 A trip —
 **in series**. A fan fault drawing 0.9 A is below `F1`'s trip but well over `F2`'s hold, so
@@ -344,7 +370,41 @@ at intermediate levels** — the input stage sits in its linear region and draws
 The address lines rest at 3.3 V against a 12 V rail. Across eight muxes that is **~3.4 mA on
 +12 V**: affordable, but it belongs in the budget rather than being discovered on a meter.
 
-### M7 — Fuse sizing
+### M7 — Fuse sizing — **IMPLEMENTED 2026-08-16 (F4); F1 CANNOT be upsized**
+
+> **`F4` → `1206L110-C`.** The open question — *"A 1.1 A PPTC may not exist in 1206"* — is
+> answered: it does. `1206L110-C`, 1.10 A hold / 2.20 A trip, same 1206 footprint and the
+> same hand-solderable family. So neither escape route this finding worried about is
+> needed: **no third package exception, and no splitting `+5 V` into two fused branches.**
+>
+> Its `R_min` is also 0.040 Ω against `1206L050`'s 0.150 Ω, which *reduces* the series drop
+> feeding the optocoupler LEDs from ~0.074 V to ~0.020 V — so this change **improves**
+> finding F1's worst-case margin, from 8.61 mA to 8.83 mA.
+>
+> **`F1` cannot go to the recommended 0.75 A, and this is a parts fact rather than a
+> judgement.** In the 1206L series the elevated-voltage variants exist *only* at the two
+> lowest hold currents — `1206L035/16` (16 Vdc) and `1206L050/15` (15 Vdc). Every part at
+> 0.75 A and above, `1206L075-C` included, is rated **6 Vdc**, which is a `+5 V` rail only.
+> **0.50 A is therefore the largest 1206L hold current available to a 12 V rail at all**,
+> so `F1`/`F2`/`F3` are already at the series ceiling. `F1` stays at 0.50 A: ~0.44 A derated
+> at 35 °C against the fans' 240 mA is 1.83×, inside the 1.5–2× band PPTC guidance
+> recommends. Revisit only by leaving the 1206L series, which reopens the package-exception
+> question this finding was trying to avoid.
+>
+> Both facts are pinned in `hardware/datasheet-params.toml` (`[polyfuse_1206l110]`, and a
+> new note on `[polyfuse_1206l050]`), read from the Littelfuse 1206L datasheet directly.
+>
+> **Two checkers now enforce this** (each with a firing control): every fuse's hold current
+> **derated to 35 °C** must cover its rail's maximum load — checking against the 23 °C
+> headline is checking against a condition the board never operates in, and `F4` passed the
+> headline while failing the real one — and every fuse Value must have a pinned datasheet
+> section, so an unpriced part fails loudly instead of being skipped.
+>
+> **Sourcing caveat:** the `1206L110-C` figures come from the 2006 *Electronics Designers
+> Guide* revision, the one actually retrievable (Littelfuse's own asset URL returns 403).
+> That document also gives `1206L050/15`'s `R_1max` as 0.750 Ω where this file's existing
+> entry says 0.6 Ω — a real discrepancy in a value nothing currently depends on. Re-read
+> both rows against one revision before fab.
 
 With every fix applied:
 

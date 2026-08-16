@@ -105,15 +105,45 @@ paragraph below):
   `DGND` themselves are not given dedicated test points — already trivially probable at
   any of this sheet's own many ground pads.
 - **Main input fusing (`F2`/`F3`/`F4`, +12V/−12V/+5V):** "the fans already have a
-  polyfuse; these did not" (spec §9.8). Same real part as the fan feed's own `F1`
-  (Littelfuse `1206L050/15YR`, 500 mA hold / 1 A trip / 15 V max), placed upstream of
-  each rail's own existing reverse-polarity diode (`D1`/`D2`/`D3`) — their own raw-side
-  net renamed `*_FUSED` (e.g. `P12_RAW` → `F2` → `P12_FUSED` → `D1` → `+12V`), `D1`–`D3`
-  themselves keeping their existing references unchanged. **Sizing note, not fully
-  closed:** +5V's own 400 mA budget (spec §8.2) gives 1.25× hold margin — tighter than
-  this board's own usual 1.5–2× band, accepted here because a main-input fuse guards
-  against a gross fault (a miswired cable, a dead short), not a tightly-optimized
-  continuous budget. ±12V's own real total draw was **not** independently characterized
+  polyfuse; these did not" (spec §9.8). Placed upstream of each rail's own existing
+  reverse-polarity diode (`D1`/`D2`/`D3`) — their own raw-side net renamed `*_FUSED`
+  (e.g. `P12_RAW` → `F2` → `P12_FUSED` → `D1` → `+12V`), `D1`–`D3` themselves keeping
+  their existing references unchanged. `F2`/`F3` are Littelfuse `1206L050/15YR`
+  (500 mA hold / 1 A trip / **15 V** max), the same real part as the fan feed's `F1`.
+
+  **`F4` is a different part — finding M7, 2026-08-16.** The sizing note that used to
+  sit here called +5V's 1.25× hold margin "tighter than usual but accepted, because a
+  main-input fuse guards against a gross fault". That reasoning does not survive finding
+  F1: the +5 V rail now carries **392 mA typ / 495 mA max**, and a `1206L050` holds only
+  ~0.44 A at this chassis's 35 °C ambient. It would have tripped in **normal operation**,
+  not on a fault. `F4` is now **`1206L110-C`** — 1.10 A hold / 2.20 A trip, ~0.97 A
+  derated at 35 °C, a 1.97× margin.
+
+  **Its V_max is 6 Vdc, not 15, and that is not interchangeable.** In the 1206L series
+  the elevated-voltage variants exist only at the two lowest hold currents; everything at
+  0.75 A and above is a +5 V-rail part. So `F4` could move and `F1`/`F2`/`F3` cannot —
+  **0.50 A is the largest 1206L hold current available to a 12 V rail at all**, which is
+  also why M7's "0.75 A recommended" for the fan feed cannot be satisfied in this series.
+  Do not consolidate the two values back into one.
+
+- **The fan branch is parallel to the main +12 V branch, not downstream of it (finding
+  F7, 2026-08-16).** `F1` used to be fed from `+12V`, which put it in series with `F2` at
+  identical ratings — and two identical parts in series have no selectivity at all: a fan
+  fault at 0.9 A is below `F1`'s trip but over `F2`'s hold, so **`F2` could open first and
+  kill the analog rails to protect the fans.** The fan feed now taps `P12_RAW` directly,
+  with its own reverse-polarity Schottky (`D44`, `SS14`) since it no longer sits behind
+  `D1`:
+
+  ```
+  J1.1 → P12_RAW ─┬─ [F2] → P12_FUSED   → [D1]  → +12V      (main, 97–121 mA)
+                  └─ [F1] → FAN_12V_RAW → [D44] → FAN_12V   (fans, 240 mA)
+  ```
+
+  `tests/hardware/test_netlist.py` derives series-ness from **topology** — by testing
+  whether removing one fuse disconnects another from the supply inlet — rather than from
+  net names. That matters: the audit's own published fix for this named `P12_FUSED` as
+  "upstream of `F2`" when it is `F2`'s *output*, which would have fixed nothing and
+  removed the fan branch's reverse-polarity protection as well. ±12V's own real total draw was **not** independently characterized
   to the same precision (it sums a computed IH1215D input-current estimate, the fan
   feed, and an uncharacterized contribution from the ±12V-referenced op-amp stages on
   `analog-frontend.kicad_sch`/`analog-ni.kicad_sch`) — flagged explicitly for bench

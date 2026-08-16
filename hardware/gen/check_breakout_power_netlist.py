@@ -433,8 +433,19 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # node -- same "joined by reference at EXACTLY one component, and that component
     # contributes exactly one pin to each side" construction as every other bridging
     # check in this file (F1/FAN_12V above, the two net-tie checks). ---
-    main_fuse_specs = [("P12_RAW", "P12_FUSED", "F2"), ("N12_RAW", "N12_FUSED", "F3"), ("P5_RAW", "P5_FUSED", "F4")]
-    for raw_net, fused_net, expected_ref in main_fuse_specs:
+    # F4 IS DELIBERATELY A DIFFERENT PART -- finding M7, 2026-08-16. The +5 V rail
+    # carries 392/495 mA once finding F1 raised the optocoupler drive, and a 1206L050
+    # holds only ~0.44 A at this chassis's 35 C ambient: it would trip in NORMAL
+    # operation. 1206L110-C holds 1.10 A / ~0.97 A derated. Its V_max is 6 Vdc, not 15,
+    # which is exactly why it suits +5 V and CANNOT be reused on F2/F3 -- the expected
+    # value is therefore per-fuse here rather than one shared constant, so a future
+    # "tidy-up" back to a single value fails this check instead of passing it.
+    main_fuse_specs = [
+        ("P12_RAW", "P12_FUSED", "F2", "1206L050/15YR"),
+        ("N12_RAW", "N12_FUSED", "F3", "1206L050/15YR"),
+        ("P5_RAW", "P5_FUSED", "F4", "1206L110-C"),
+    ]
+    for raw_net, fused_net, expected_ref, expected_value in main_fuse_specs:
         check(
             _pins_on(nets, raw_net).isdisjoint(_pins_on(nets, fused_net)),
             f"{raw_net} and {fused_net} share a PIN directly -- they are not distinct nets (the fuse is bypassed)",
@@ -449,8 +460,8 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         check(fref == expected_ref, f"{raw_net}/{fused_net}'s own bridging fuse is {fref!r}, expected {expected_ref!r}")
         check(fref.startswith("F"), f"the {raw_net}/{fused_net} bridging component {fref!r} is not an F-prefixed fuse reference")
         check(
-            values.get(fref) == "1206L050/15YR",
-            f"{fref}: expected Value '1206L050/15YR' (main-input fuse), found {values.get(fref)!r}",
+            values.get(fref) == expected_value,
+            f"{fref}: expected Value {expected_value!r} (main-input fuse), found {values.get(fref)!r}",
         )
         raw_pins = [n.pin for n in nets[raw_net] if n.ref == fref]
         fused_pins = [n.pin for n in nets[fused_net] if n.ref == fref]
@@ -460,8 +471,9 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
             f"found {len(raw_pins)}/{len(fused_pins)}",
         )
     summary.append(
-        "Main input fusing confirmed: F2 (P12_RAW<->P12_FUSED), F3 (N12_RAW<->N12_FUSED), "
-        "F4 (P5_RAW<->P5_FUSED), each the sole bridge, each Value '1206L050/15YR'."
+        "Main input fusing confirmed: F2 (P12_RAW<->P12_FUSED, 1206L050/15YR), F3 "
+        "(N12_RAW<->N12_FUSED, 1206L050/15YR), F4 (P5_RAW<->P5_FUSED, 1206L110-C per "
+        "finding M7), each the sole bridge."
     )
 
     # --- Finding 1's own core claim, made executable: +5V ORIGINATES AT THE INLET, not
@@ -713,33 +725,81 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # providing NO overcurrent protection at all, or none at all separating it from
     # +12V -- the same "plausible but wrong" failure class the reverse-polarity-diode
     # checks above exist to catch, just for the fan feed's own protective element. ---
+    # FINDING F7, 2026-08-16 -- THE FAN BRANCH NOW TAPS P12_RAW, NOT +12V, so what this
+    # block asserts changed shape. The chain is:
+    #
+    #     J1.1 -> P12_RAW -+-> [F2] -> P12_FUSED -> [D1] -> +12V      (main)
+    #                      `-> [F1] -> FAN_12V_RAW -> [D44] -> FAN_12V  (fans)
+    #
+    # It used to be +12V -> [F1] -> FAN_12V, which put F1 in SERIES with F2 at identical
+    # ratings: a fan fault at 0.9 A is below F1's trip but over F2's hold, so F2 could
+    # open first and kill the analog rails to protect the fans. The assertion that FAN_12V
+    # reaches +12V through exactly one component is therefore now the OPPOSITE of correct
+    # -- the two must share no component at all.
     check(
         _pins_on(nets, "FAN_12V").isdisjoint(_pins_on(nets, "+12V")),
         "FAN_12V and +12V share a PIN directly -- they are not distinct nets",
     )
-    fan12v_bridging_refs = fan12v_refs & _refs_on(nets, "+12V")
+    stray = fan12v_refs & _refs_on(nets, "+12V")
     check(
-        len(fan12v_bridging_refs) == 1,
-        f"FAN_12V and +12V should be joined by reference at EXACTLY one component "
-        f"(F1, the polyfuse), found {len(fan12v_bridging_refs)}: {fan12v_bridging_refs}",
+        not stray,
+        f"FAN_12V and +12V are joined by component(s) {stray} -- finding F7 requires them "
+        f"to be PARALLEL branches off P12_RAW, sharing no series element, so that a fan "
+        f"fault cannot open the main +12 V fuse. Any shared component puts the two fuses "
+        f"back in series at identical ratings, which is no selectivity at all.",
     )
-    fuse_ref = next(iter(fan12v_bridging_refs))
-    check(fuse_ref.startswith("F"), f"the FAN_12V/+12V bridging component {fuse_ref!r} is not an F-prefixed fuse reference")
+    # Both branch fuses hang off the SAME inlet net -- the positive half of the same claim.
+    p12_raw_fuses = sorted({r for r in _refs_on(nets, "P12_RAW") if r.startswith("F") and not r.startswith("FB")})
+    check(
+        p12_raw_fuses == ["F1", "F2"],
+        f"P12_RAW should carry exactly the two parallel branch fuses F1 (fans) and F2 "
+        f"(main +12 V), found {p12_raw_fuses}",
+    )
+    # F1: P12_RAW <-> FAN_12V_RAW, sole bridge, correct part.
+    fan_fuse_bridging = _refs_on(nets, "P12_RAW") & _refs_on(nets, "FAN_12V_RAW")
+    check(
+        len(fan_fuse_bridging) == 1,
+        f"P12_RAW/FAN_12V_RAW should be joined at EXACTLY one component (F1, the fan-feed "
+        f"polyfuse), found {len(fan_fuse_bridging)}: {fan_fuse_bridging}",
+    )
+    fuse_ref = next(iter(fan_fuse_bridging))
+    check(fuse_ref == "F1", f"the P12_RAW/FAN_12V_RAW bridging component is {fuse_ref!r}, expected 'F1'")
     check(
         values.get(fuse_ref) == "1206L050/15YR",
         f"{fuse_ref}: expected Value '1206L050/15YR' (the fan-feed polyfuse), found "
-        f"{values.get(fuse_ref)!r}",
+        f"{values.get(fuse_ref)!r}. 0.50 A is the LARGEST 1206L hold current available to "
+        f"a 12 V rail -- every part at 0.75 A and above is rated 6 Vdc -- so finding M7's "
+        f"'0.75 A recommended' cannot be satisfied in this series and this value stands.",
     )
-    fuse_fan12v_pins = [n.pin for n in nets["FAN_12V"] if n.ref == fuse_ref]
-    fuse_12v_pins = [n.pin for n in nets["+12V"] if n.ref == fuse_ref]
+    # D44: FAN_12V_RAW <-> FAN_12V, the fan branch's OWN reverse-polarity Schottky, which
+    # tapping upstream of D1 makes necessary. Orientation checked, not assumed: anode on
+    # the raw side, cathode on the protected side, exactly like D1/D2/D3.
+    fan_diode_bridging = _refs_on(nets, "FAN_12V_RAW") & _refs_on(nets, "FAN_12V")
     check(
-        len(fuse_fan12v_pins) == 1 and len(fuse_12v_pins) == 1,
-        f"polyfuse {fuse_ref} should contribute exactly 1 pin to each of FAN_12V/+12V, "
-        f"found {len(fuse_fan12v_pins)}/{len(fuse_12v_pins)}",
+        len(fan_diode_bridging) == 1,
+        f"FAN_12V_RAW/FAN_12V should be joined at EXACTLY one component (D44, the fan "
+        f"branch's reverse-polarity Schottky), found {len(fan_diode_bridging)}: "
+        f"{fan_diode_bridging}",
+    )
+    fan_diode_ref = next(iter(fan_diode_bridging))
+    check(fan_diode_ref == "D44", f"the FAN_12V_RAW/FAN_12V bridging component is {fan_diode_ref!r}, expected 'D44'")
+    check(
+        values.get(fan_diode_ref) == "SS14",
+        f"{fan_diode_ref}: expected Value 'SS14' (same part as D1/D2/D3), found {values.get(fan_diode_ref)!r}",
+    )
+    anode_pins = [n.pin for n in nets["FAN_12V_RAW"] if n.ref == fan_diode_ref]
+    cathode_pins = [n.pin for n in nets["FAN_12V"] if n.ref == fan_diode_ref]
+    check(
+        anode_pins == ["2"] and cathode_pins == ["1"],
+        f"{fan_diode_ref} is oriented backwards: expected anode (pin 2) on FAN_12V_RAW and "
+        f"cathode (pin 1) on FAN_12V, found {anode_pins} / {cathode_pins}. Reversed, it "
+        f"blocks the fans entirely rather than protecting them.",
     )
     summary.append(
-        f"FAN_12V is distinct from +12V, joined at exactly one component ({fuse_ref}, "
-        f"the polyfuse -- value confirmed 1206L050/15YR)."
+        f"Fan branch confirmed PARALLEL to the main +12 V branch (finding F7): P12_RAW "
+        f"-[{fuse_ref}, 1206L050/15YR]-> FAN_12V_RAW -[{fan_diode_ref}, SS14, anode on the "
+        f"raw side]-> FAN_12V, sharing no component with +12V, and both branch fuses "
+        f"({p12_raw_fuses}) hanging off P12_RAW."
     )
 
     # --- FB-divider topology + values for the two adjustable isolated-supply
@@ -807,11 +867,15 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         "F1": "1206L050/15YR",  # the fan-feed polyfuse (spec Sec.9.5) -- Littelfuse
         # 1206L050/15YR, 500mA hold / 1A trip / 15V max; see gen_breakout_power.py's
         # own _place_fan_headers() docstring for the hold-current sizing derivation.
-        "F2": "1206L050/15YR", "F3": "1206L050/15YR", "F4": "1206L050/15YR",
+        "F2": "1206L050/15YR", "F3": "1206L050/15YR", "F4": "1206L110-C",
         # ^ main-input fuses (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item
-        # 5) -- the SAME real part as F1, reused rather than a fourth new fuse part
-        # number; see gen_breakout_power.py's own _place_inlet() docstring for the
-        # sizing rationale and the +-12V margin caveat.
+        # 5). F2/F3 are the SAME real part as F1. F4 is NOT, as of finding M7
+        # (2026-08-16): the +5 V rail carries 392/495 mA once finding F1 raised the
+        # optocoupler drive, and a 1206L050 holds only ~0.44 A at 35 C -- it would trip
+        # in normal operation. 1206L110-C holds 1.10 A / ~0.97 A derated. Its V_max is
+        # 6 Vdc rather than 15, which is why it fits +5 V and cannot be reused on the
+        # 12 V rails; see hardware/datasheet-params.toml. The values are listed per-fuse
+        # rather than shared so a future "tidy-up" back to one part fails this check.
         "D40": "LED", "D41": "LED", "D42": "LED",  # power-good LEDs (spec Sec.9.8 item 2)
     }
     for ref, expected in expected_values.items():
@@ -1038,14 +1102,30 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(fan12v_shorted, good_values, "FAN_12V and +12V share a PIN directly", "FAN_12V/+12V direct short")
     results.append(f"FAN_12V/+12V direct short (phantom shared pin): caught -- {msg}")
 
-    # Second FAN_12V/+12V bridge (e.g. a stray wire added around F1).
+    # ANY FAN_12V/+12V bridge -- finding F7 (2026-08-16). This control used to add a
+    # SECOND bridge around F1 and expect an "EXACTLY one component" complaint, because
+    # the fan branch legitimately hung off +12V through F1 alone. Since F7 the two are
+    # parallel branches off P12_RAW and must share NOTHING, so a single bridge is now
+    # the defect -- and it is the exact regression F7 exists to prevent: re-joining the
+    # fan feed to +12V puts F1 back in series with F2 at identical ratings.
     fan12v_double = copy.deepcopy(good_nets)
     extra5 = Node(ref="DBG92", pin="1", pinfunction="", pintype="passive")
     extra6 = Node(ref="DBG92", pin="2", pinfunction="", pintype="passive")
     fan12v_double["FAN_12V"] = fan12v_double["FAN_12V"] + [extra5]
     fan12v_double["+12V"] = fan12v_double["+12V"] + [extra6]
-    msg = _assert_fails(fan12v_double, good_values, "EXACTLY one component", "second FAN_12V/+12V bridge")
-    results.append(f"Second FAN_12V/+12V bridge (extra DBG92, bypassing F1): caught -- {msg}")
+    msg = _assert_fails(fan12v_double, good_values, "PARALLEL branches off P12_RAW", "FAN_12V/+12V rejoined")
+    results.append(f"Fan branch rejoined to +12V (extra DBG92 -- F1 back in series with F2, finding F7): caught -- {msg}")
+
+    # The fan branch's own reverse-polarity diode reversed. Tapping P12_RAW puts the fan
+    # feed upstream of D1, so D44 is the only thing protecting it -- and a backwards
+    # Schottky blocks the fans entirely rather than protecting them.
+    d44_reversed = copy.deepcopy(good_nets)
+    d44_raw = [n for n in d44_reversed["FAN_12V_RAW"] if n.ref == "D44"]
+    d44_out = [n for n in d44_reversed["FAN_12V"] if n.ref == "D44"]
+    d44_reversed["FAN_12V_RAW"] = [n for n in d44_reversed["FAN_12V_RAW"] if n.ref != "D44"] + d44_out
+    d44_reversed["FAN_12V"] = [n for n in d44_reversed["FAN_12V"] if n.ref != "D44"] + d44_raw
+    msg = _assert_fails(d44_reversed, good_values, "oriented backwards", "D44 reversed")
+    results.append(f"Fan reverse-polarity diode D44 reversed (blocks the fans entirely): caught -- {msg}")
 
     # Polyfuse value drift: F1's own Value edited/lost, topology unchanged -- exactly the
     # failure class the "right part in the right role" style check exists for.
@@ -1091,8 +1171,15 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # Main-input fuse value drift: F4's own Value edited/lost.
     f4_drifted = dict(good_values)
     f4_drifted["F4"] = "Polyfuse"
-    msg = _assert_fails(good_nets, f4_drifted, "expected Value '1206L050/15YR'", "F4 value drift")
-    results.append(f"F4 value drift (1206L050/15YR -> generic 'Polyfuse'): caught -- {msg}")
+    msg = _assert_fails(good_nets, f4_drifted, "expected Value '1206L110-C'", "F4 value drift")
+    results.append(f"F4 value drift (1206L110-C -> generic 'Polyfuse'): caught -- {msg}")
+
+    # F4 "tidied" back to F2/F3's part -- the specific regression finding M7 exists to
+    # prevent, and the one a single shared expected-value constant would have allowed.
+    f4_tidied = dict(good_values)
+    f4_tidied["F4"] = "1206L050/15YR"
+    msg = _assert_fails(good_nets, f4_tidied, "expected Value '1206L110-C'", "F4 reverted to the 12 V rails' part")
+    results.append(f"F4 reverted to F2/F3's 1206L050/15YR (undersized for +5 V, finding M7): caught -- {msg}")
 
     # Chassis earth stud: CHASSIS_GND shorted directly to DGND (simulating NT3 missing
     # and the stud wired straight to ground instead).
