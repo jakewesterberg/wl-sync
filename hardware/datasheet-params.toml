@@ -492,3 +492,64 @@ halving the horizontal span versus one row. At 16 mm centres adjacent mating plu
 touch -- normal for stacked duals, but plugs mate one at a time.
 
 Replaces BNC_PanelMountable_Vertical, whose axis is perpendicular to the board (F6)."""
+
+[tps7a4901_tps7a3001]
+part = "TPS7A4901DGNR (positive), TPS7A3001DGNR (negative)"
+document = "TI SBVS121E (TPS7A49), TI SBVS125D (TPS7A30)"
+revised = "2015-05 / 2015-06"
+retrieved = "2026-08-15"
+
+package = "DGN, 8-pin HVSSOP PowerPAD"
+pinout = "1 OUT, 2 FB, 3 NC, 4 GND, 5 EN, 6 NR/SS, 7 DNC, 8 IN"
+pinout_identical_both_parts = true
+v_in_min_v = 3.0
+v_in_max_v = 35.0
+i_out_max_ma = 150.0
+c_in_min_uf = 2.2
+c_out_min_uf = 2.2                # required for stability
+c_nr_max_nf = 10.0
+c_ff_max_nf = 10.0
+r2_lower_divider_max_kohm = 237.0
+v_ref_positive_v = 1.194
+dnc_handling = "do not route to any electrical net, not even GND or IN"
+nc_handling = "leave open or tie to GND"
+powerpad_handling = "leave open or tie to GND; solder to plane to enhance thermal performance"
+feeds = ["R3"]
+note = """TI designs these as a complementary pair with an IDENTICAL DGN pinout -- an
+audit suspicion that they had been copy-pasted in error was WRONG. Both verified against
+their own datasheets. The PowerPAD is pad 9 in the KiCad footprint and carries no net in
+the as-built design; permitted, but tying it to INTAN_GND is preferred and removes a
+layout ambiguity under a 0.65 mm-pitch part."""
+
+[tma_0505s]
+part = "TMA-0505S"
+document = "Traco TMA series"
+retrieved = "2026-08-15"
+status = "TODO -- not yet pinned to a primary document"
+power_w = 1.0
+v_in_v = 5.0
+v_out_v = 5.0
+i_out_ma = 200.0
+feeds = ["F5"]
+note = """Load-bearing: F5's fix is a SECOND instance of this part replacing the
+LD1117S50 on ISO_5V. Need isolation voltage, efficiency, minimum load and ripple pinned
+before that recommendation is final."""
+
+[bat54s]
+part = "BAT54S"
+document = "Diodes Inc. BAT54/A/C/S"
+retrieved = "2026-08-16"
+url = "https://www.diodes.com/assets/Datasheets/BAT54_A_C_S.pdf"
+
+configuration = "dual series Schottky, common cathode/anode"
+i_o_average_ma = 200.0           # average rectified output current
+i_frm_repetitive_peak_ma = 300.0
+i_fsm_surge_ma = 600.0           # t < 1.0 s
+feeds = ["M5"]
+note = """Confirms M5's clamp analysis. Digital inputs behind 100 ohm draw 186 mA on a
++/-24 V mis-plug -- inside the 200 mA average rating. Analog inputs behind 1 kohm draw
+35.6 mA on +/-48 V. Both survive.
+
+What the rating does NOT cover is the unpowered case: with the board off, a 12 V fault
+charges the dead +5 V rail through the clamp toward 11.6 V, past the AHCT541's 7 V VCC
+absolute maximum. The diode survives; the logic does not."""
