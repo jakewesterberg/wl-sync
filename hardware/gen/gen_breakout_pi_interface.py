@@ -52,8 +52,10 @@ Five things, matching the brief's own step numbering:
      `force_eeprom_read=0` in `config.txt` (a software-side setting this sheet can only
      document, not enforce).
 
-  3. Buffer the three signals this sheet PRODUCES (BARCODE_PI, CAM_TRIG_EYE,
-     CAM_TRIG_BEH) through one more SN74AHCT541PW on +5V (3 of 8 channels), and fan out:
+  3. Buffer the signals this sheet PRODUCES through one more SN74AHCT541PW on +5V, and
+     fan out. As of 2026-08-16 all of them carry the BARCODE: the five camera-facing
+     lines were CAM_TRIG_EYE/CAM_TRIG_BEH off GPIO18/19's hardware PWM, and became
+     CAM_SYNC_* off BARCODE_RAW once the cameras were settled as free-running.
      BARCODE_PI to 5 loads (2 placeholder positions for Task 11's not-yet-built NI/Intan
      optocouplers + 3 genuinely spare positions -- brief Step 3's own "three spare
      positions"), CAM_TRIG_EYE/CAM_TRIG_BEH to 5 real panel BNC positions (spec Sec.9.1:
@@ -196,8 +198,16 @@ GPIO_PIN_SPEC = tuple(
     + [
         (16, "direct", "EVT_STROBE_PI", "EVT_STROBE_PI", "Event strobe"),
         (17, "buffered_out", "BARCODE_RAW", "BARCODE_PI", "Barcode"),
-        (18, "buffered_out", "CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE", "ohDPI camera trigger (hardware PWM)"),
-        (19, "buffered_out", "CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH", "Behavior camera trigger (hardware PWM)"),
+        # GPIO18/19 WERE the ohDPI and behaviour camera triggers, on hardware PWM. The
+        # cameras free-run (2026-08-16 decision), so they do not need a trigger at all --
+        # they need a shared TIMEBASE they can record, which is what the barcode already
+        # is. The five camera-facing BNCs now carry BARCODE_RAW instead, taken off the
+        # same buffer bank, and these two pins are freed. See _place_trigger_buffer_and_
+        # fanout() for the wiring and hardware/breakout/camera-sync-change.md for the
+        # consequences -- including that this dissolves the constraint which forced the
+        # PIO capture window to start at GPIO0.
+        (18, "spare", None, None, "spare (was ohDPI camera trigger, hardware PWM)"),
+        (19, "spare", None, None, "spare (was behaviour camera trigger, hardware PWM)"),
         (20, "direct", "PD1_COMP", "PD1_COMP", "Photodiode 1 comparator"),
         (21, "direct", "PD2_COMP", "PD2_COMP", "Photodiode 2 comparator"),
         (22, "direct", "RWD_CMD", "RWD_CMD", "Reward commanded"),
@@ -272,7 +282,7 @@ BARCODE_HEARTBEAT_CHANNEL = 5
 
 # CONTRACT_NETS_PRODUCED -- task's own net contract, "Produces".
 CONTRACT_NETS_PRODUCED = [
-    "BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH", "BARCODE_BUF", "BARCODE_INTAN_BUF",
+    "BARCODE_PI", "CAM_SYNC_EYE", "CAM_SYNC_BEH1", "BARCODE_BUF", "BARCODE_INTAN_BUF",
 ]
 
 # ---------------------------------------------------------------------------
@@ -342,7 +352,7 @@ X_NOTE2, Y_NOTE2 = GRID(15), GRID(130)     # GPIO0/1 boot-contention note
 X_LVLSHIFT, Y_LVLSHIFT = GRID(15), GRID(180)   # RWD_DLVR level-shift SN74LVC541APW
 X_NOTE3, Y_NOTE3 = GRID(15), GRID(220)     # RWD_DLVR level-shift note
 
-X_TRIGBUF, Y_TRIGBUF = GRID(300), GRID(160)    # BARCODE/CAM_TRIG output SN74AHCT541PW
+X_TRIGBUF, Y_TRIGBUF = GRID(300), GRID(160)    # BARCODE/CAM_SYNC output SN74AHCT541PW
 X_BARCODE_LOADS, Y_BARCODE_LOADS0 = GRID(360), GRID(120)  # 5 barcode placeholder loads
 LOAD_DY = GRID(12.7)
 # ---------------------------------------------------------------------------
@@ -381,9 +391,9 @@ CAM_BEH_EXTRA_BUF_REF = "U74"
 CAM_BEH_EXTRA_BUF_CAP = "C157"
 # Out-of-band refdes for the six series resistors (5 here + J6's on taskpc-digital) --
 # this sheet's counters are pinned and its range fully spent.
-CAM_SERIES_REFS = {"CAM_TRIG_EYE": "R198", "CAM_TRIG_BEH1": "R199",
-                   "CAM_TRIG_BEH2": "R200", "CAM_TRIG_BEH3": "R201",
-                   "CAM_TRIG_BEH4": "R202"}
+CAM_SERIES_REFS = {"CAM_SYNC_EYE": "R198", "CAM_SYNC_BEH1": "R199",
+                   "CAM_SYNC_BEH2": "R200", "CAM_SYNC_BEH3": "R201",
+                   "CAM_SYNC_BEH4": "R202"}
 X_CAM_SERIES = GRID(330)                   # series-R column, between buffer and BNC
 X_TRIGBUF2, Y_TRIGBUF2 = GRID(300), GRID(300)  # U74, below the existing trigger buffer
 
@@ -612,18 +622,23 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     connector for a circuit that doesn't exist yet" precedent, reused rather than invented
     fresh (see that generator's own _place_reward_or() docstring).
 
-    CAM_TRIG_EYE/CAM_TRIG_BEH fan out to 5 REAL panel BNC positions (Connector:Conn_Coaxial
+    CAM_SYNC_* fan out to 5 REAL panel BNC positions (wl-sync:BNC_Dual_RA_Isolated
     -- a real, permanent part of this board's own panel inventory, not a stand-in for
     later circuitry): spec Sec.9.1's own connector budget, "Camera triggers | BNC | 5 (1
-    eye, 4 behavior)". All 4 behavior positions share the SAME CAM_TRIG_BEH net (spec
-    Sec.9.4: "only two hardware PWM pins survive the contiguous capture range", so every
-    behavior camera shares one trigger rate -- this is not 4 independently-triggerable
-    channels).
+    eye, 4 behavior)". All five now carry the SAME barcode, which is the point: they are
+    a shared timebase the camera rig records, not five independently-timed clocks. The old
+    justification for them sharing a rate -- "only two hardware PWM pins survive the
+    contiguous capture range" -- no longer applies, because no PWM pin is involved at all.
     """
     channels = {
         0: ("BARCODE_RAW", "BARCODE_PI"),
-        1: ("CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE_BUF"),  # M3: series R now follows
-        2: ("CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH1_BUF"),  # F4: was "CAM_TRIG_BEH", one net for 4 BNCs
+        # CAMERA SYNC, 2026-08-16: these two legs used to take CAM_TRIG_EYE_RAW and
+        # CAM_TRIG_BEH_RAW from GPIO18/19's hardware PWM. The cameras free-run, so they
+        # take BARCODE_RAW now -- the panel lines carry a timebase to be RECORDED, not a
+        # clock to be OBEYED. Same buffer, same series resistor, same BNC; only the input
+        # net moved, which is why this change costs no parts and no panel work.
+        1: ("BARCODE_RAW", "CAM_SYNC_EYE_BUF"),    # M3: series R now follows
+        2: ("BARCODE_RAW", "CAM_SYNC_BEH1_BUF"),   # F4: one buffer channel per BNC
     }
     # ONE OPTOCOUPLER LED PER DRIVER PIN -- see BARCODE_OPTO_LEGS.
     for local, in_net, out_net in BARCODE_OPTO_LEGS:
@@ -683,12 +698,12 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     # the split is structural rather than cosmetic.
     refs["cam_trig_bnc"] = []
     refs["cam_series_r"] = []
-    cam_trig_nets = ["CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2",
-                     "CAM_TRIG_BEH3", "CAM_TRIG_BEH4"]
-    for idx, net in enumerate(cam_trig_nets):
+    cam_sync_nets = ["CAM_SYNC_EYE", "CAM_SYNC_BEH1", "CAM_SYNC_BEH2",
+                     "CAM_SYNC_BEH3", "CAM_SYNC_BEH4"]
+    for idx, net in enumerate(cam_sync_nets):
         y = Y_BNC0 + idx * LOAD_DY
-        desc = ("Eye camera trigger out (BNC)" if idx == 0
-                else f"Behavior camera trigger out {idx} (BNC)")
+        desc = ("Eye camera sync/barcode out (BNC)" if idx == 0
+                else f"Behavior camera sync/barcode out {idx} (BNC)")
         refs["cam_series_r"].append(two_pin(
             sch, "Device", "R", "R", CAM_SERIES_OHMS, X_CAM_SERIES, y,
             f"{net}_BUF", net, footprint=FOOTPRINT_R, ref=CAM_SERIES_REFS[net],
@@ -720,9 +735,9 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     # the class of warning already sitting on this board's two unpopulated opto spares.
     spare_body = DualBncAllocator.for_sheet(sch).spare_port
     if spare_body is not None:
-        y_spare = Y_BNC0 + len(cam_trig_nets) * LOAD_DY
+        y_spare = Y_BNC0 + len(cam_sync_nets) * LOAD_DY
         _ref, spare_centre, spare_shell = DualBncAllocator.for_sheet(sch).place_port(
-            sch, "Spare panel BNC (2nd port of the 5th camera-trigger dual body)",
+            sch, "Spare panel BNC (2nd port of the 5th camera-sync dual body)",
             X_BNC, y_spare, footprint=FOOTPRINT_BNC, spare=True,
         )
         assert _ref == spare_body, f"spare port landed on {_ref}, expected {spare_body}"
@@ -730,11 +745,11 @@ def _place_trigger_buffer_and_fanout(sch, refs):
         sch.label("DGND", *pin_pos(X_BNC, y_spare, spare_shell))
         refs["cam_trig_bnc_spare"] = spare_body
 
-    # U74: the three extra behaviour-trigger channels, all from the SAME CAM_TRIG_BEH_RAW
+    # U74: the three extra behaviour camera-sync channels, all from the SAME BARCODE_RAW
     # input channel 2 already takes. Five channels spare.
     place_octal_buffer(
         sch, "74xx", "74AHCT541", "SN74AHCT541PW", X_TRIGBUF2, Y_TRIGBUF2, "+5V",
-        {i: ("CAM_TRIG_BEH_RAW", f"CAM_TRIG_BEH{i + 2}_BUF") for i in range(3)},
+        {i: ("BARCODE_RAW", f"CAM_SYNC_BEH{i + 2}_BUF") for i in range(3)},
         refs, "trigger_buf2", FOOTPRINT_TSSOP20,
         ref=CAM_BEH_EXTRA_BUF_REF, cap_ref=CAM_BEH_EXTRA_BUF_CAP,
     )

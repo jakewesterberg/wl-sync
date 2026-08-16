@@ -223,9 +223,9 @@
     "J10": "Barcode spare 1",
     "J11": "Barcode spare 2",
     "J12": "Barcode spare 3",
-    "J13": "Dual panel BNC: Eye camera trigger out (BNC) | Behavior camera trigger out 1 (BNC)",
-    "J15": "Dual panel BNC: Behavior camera trigger out 2 (BNC) | Behavior camera trigger out 3 (BNC)",
-    "J17": "Dual panel BNC: Behavior camera trigger out 4 (BNC) | Spare panel BNC (2nd port of the 5th camera-trigger dual body)",
+    "J13": "Dual panel BNC: Eye camera sync/barcode out (BNC) | Behavior camera sync/barcode out 1 (BNC)",
+    "J15": "Dual panel BNC: Behavior camera sync/barcode out 2 (BNC) | Behavior camera sync/barcode out 3 (BNC)",
+    "J17": "Dual panel BNC: Behavior camera sync/barcode out 4 (BNC) | Spare panel BNC (2nd port of the 5th camera-sync dual body)",
     "J18": "Internal USB-A (sync-module port -> Task 12 USB-I2C bridge)",
     "J19": "ACCES I/O USB-AO16-8A mating DB37 -- six eye channels (spec Sec.3.2)",
     "J20": "Dual panel BNC: Photodiode 1 (passive, coax, photovoltaic mode) | Photodiode 2 (passive, coax, photovoltaic mode)",
@@ -1865,62 +1865,56 @@
     "BARCODE_RAW": [
       ["J7", "11", "GPIO17_11", "passive"],
       ["U15", "2", "A0_2", "input"],
+      ["U15", "3", "A1_3", "input"],
+      ["U15", "4", "A2_4", "input"],
       ["U15", "5", "A3_5", "input"],
       ["U15", "6", "A4_6", "input"],
       ["U15", "7", "A5_7", "input"],
       ["U15", "8", "A6_8", "input"],
-      ["U15", "9", "A7_9", "input"]
-    ],
-    "CAM_TRIG_BEH1": [
-      ["J13", "3", "B_In_3", "passive"],
-      ["R199", "2", "", "passive"]
-    ],
-    "CAM_TRIG_BEH1_BUF": [
-      ["R199", "1", "", "passive"],
-      ["U15", "16", "Y2_16", "tri_state"]
-    ],
-    "CAM_TRIG_BEH2": [
-      ["J15", "1", "A_In_1", "passive"],
-      ["R200", "2", "", "passive"]
-    ],
-    "CAM_TRIG_BEH2_BUF": [
-      ["R200", "1", "", "passive"],
-      ["U74", "18", "Y0_18", "tri_state"]
-    ],
-    "CAM_TRIG_BEH3": [
-      ["J15", "3", "B_In_3", "passive"],
-      ["R201", "2", "", "passive"]
-    ],
-    "CAM_TRIG_BEH3_BUF": [
-      ["R201", "1", "", "passive"],
-      ["U74", "17", "Y1_17", "tri_state"]
-    ],
-    "CAM_TRIG_BEH4": [
-      ["J17", "1", "A_In_1", "passive"],
-      ["R202", "2", "", "passive"]
-    ],
-    "CAM_TRIG_BEH4_BUF": [
-      ["R202", "1", "", "passive"],
-      ["U74", "16", "Y2_16", "tri_state"]
-    ],
-    "CAM_TRIG_BEH_RAW": [
-      ["J7", "35", "GPIO19_35", "passive"],
-      ["U15", "4", "A2_4", "input"],
+      ["U15", "9", "A7_9", "input"],
       ["U74", "2", "A0_2", "input"],
       ["U74", "3", "A1_3", "input"],
       ["U74", "4", "A2_4", "input"]
     ],
-    "CAM_TRIG_EYE": [
+    "CAM_SYNC_BEH1": [
+      ["J13", "3", "B_In_3", "passive"],
+      ["R199", "2", "", "passive"]
+    ],
+    "CAM_SYNC_BEH1_BUF": [
+      ["R199", "1", "", "passive"],
+      ["U15", "16", "Y2_16", "tri_state"]
+    ],
+    "CAM_SYNC_BEH2": [
+      ["J15", "1", "A_In_1", "passive"],
+      ["R200", "2", "", "passive"]
+    ],
+    "CAM_SYNC_BEH2_BUF": [
+      ["R200", "1", "", "passive"],
+      ["U74", "18", "Y0_18", "tri_state"]
+    ],
+    "CAM_SYNC_BEH3": [
+      ["J15", "3", "B_In_3", "passive"],
+      ["R201", "2", "", "passive"]
+    ],
+    "CAM_SYNC_BEH3_BUF": [
+      ["R201", "1", "", "passive"],
+      ["U74", "17", "Y1_17", "tri_state"]
+    ],
+    "CAM_SYNC_BEH4": [
+      ["J17", "1", "A_In_1", "passive"],
+      ["R202", "2", "", "passive"]
+    ],
+    "CAM_SYNC_BEH4_BUF": [
+      ["R202", "1", "", "passive"],
+      ["U74", "16", "Y2_16", "tri_state"]
+    ],
+    "CAM_SYNC_EYE": [
       ["J13", "1", "A_In_1", "passive"],
       ["R198", "2", "", "passive"]
     ],
-    "CAM_TRIG_EYE_BUF": [
+    "CAM_SYNC_EYE_BUF": [
       ["R198", "1", "", "passive"],
       ["U15", "17", "Y1_17", "tri_state"]
-    ],
-    "CAM_TRIG_EYE_RAW": [
-      ["J7", "12", "GPIO18_12", "passive"],
-      ["U15", "3", "A1_3", "input"]
     ],
     "CHASSIS_GND": [
       ["J56", "1", "Pin_1_1", "passive"],
@@ -3866,6 +3860,12 @@
     ],
     "unconnected-(J7-5V-Pad4)": [
       ["J7", "4", "5V_4", "passive+no_connect"]
+    ],
+    "unconnected-(J7-GPIO18-Pad12)": [
+      ["J7", "12", "GPIO18_12", "passive+no_connect"]
+    ],
+    "unconnected-(J7-GPIO19-Pad35)": [
+      ["J7", "35", "GPIO19_35", "passive+no_connect"]
     ],
     "unconnected-(J7-GPIO26-Pad37)": [
       ["J7", "37", "GPIO26_37", "passive+no_connect"]

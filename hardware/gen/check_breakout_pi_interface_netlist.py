@@ -114,12 +114,18 @@ GPIO_NET_AT_PIN = {
     0: "GPIO0_HDR", 1: "GPIO1_HDR",
     **{i: f"EVT_D{i}_PI" for i in range(2, 16)},
     16: "EVT_STROBE_PI",
-    17: "BARCODE_RAW", 18: "CAM_TRIG_EYE_RAW", 19: "CAM_TRIG_BEH_RAW",
+    17: "BARCODE_RAW",
     20: "PD1_COMP", 21: "PD2_COMP", 22: "RWD_CMD", 23: "RWD_DLVR_PI",
     24: "STIM_TRIG", 25: "ACC_TRIG",
-    # 26, 27: spare, no net -- deliberately absent from this dict; SPARE_GPIOS below.
+    # 18, 19, 26, 27: spare, no net -- deliberately absent from this dict; SPARE_GPIOS.
 }
-SPARE_GPIOS = (26, 27)
+# CAMERA SYNC, 2026-08-16: 18 and 19 WERE the ohDPI and behaviour camera triggers, and
+# were the reason the PIO capture window had to start at GPIO0 (spec Sec.4: camera
+# triggers must land on a hardware PWM pin, and only a window starting at 0 leaves two
+# free). The cameras free-run, so they take the BARCODE on those same five panel BNCs
+# instead of a trigger, and both pins are now genuinely spare -- along with the constraint
+# they imposed. Four spare GPIOs, two of them PWM-capable.
+SPARE_GPIOS = (18, 19, 26, 27)
 assert set(GPIO_NET_AT_PIN) | set(SPARE_GPIOS) == set(range(28))
 
 # This task's own net contract ("consumes ... from Task 8" / "Produces").
@@ -128,11 +134,13 @@ CONSUMED_CONTRACT_NETS = [f"EVT_D{i}_PI" for i in range(16)] + [
 ]
 assert len(CONSUMED_CONTRACT_NETS) == 23
 PRODUCED_CONTRACT_NETS = [
-    # CAM_TRIG_BEH became CAM_TRIG_BEH1..4 at finding F4 (2026-08-16): the four
-    # behaviour-trigger BNCs no longer share one driver pin. They still share one
-    # trigger RATE, via the CAM_TRIG_BEH_RAW source -- spec Sec.9.4 is unchanged.
-    "BARCODE_PI", "CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2",
-    "CAM_TRIG_BEH3", "CAM_TRIG_BEH4",
+    # CAM_SYNC_BEH became CAM_SYNC_BEH1..4 at finding F4 (2026-08-16): the four
+    # behaviour BNCs no longer share one driver pin. They then became CAM_SYNC_* on
+    # 2026-08-16 when the cameras were settled as free-running: the panel lines carry the
+    # BARCODE, a timebase to be recorded, rather than a clock to be obeyed. All five now
+    # share one SOURCE (BARCODE_RAW) rather than one trigger rate.
+    "BARCODE_PI", "CAM_SYNC_EYE", "CAM_SYNC_BEH1", "CAM_SYNC_BEH2",
+    "CAM_SYNC_BEH3", "CAM_SYNC_BEH4",
     # The two dedicated optocoupler legs, added with the "one LED per driver pin"
     # fix -- see gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS.
     "BARCODE_BUF", "BARCODE_INTAN_BUF",
@@ -385,16 +393,16 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"lands on GPIO23's real physical pin."
     )
 
-    # --- Trigger buffer: BARCODE_RAW/CAM_TRIG_EYE_RAW/CAM_TRIG_BEH_RAW -> the SAME
-    # SN74AHCT541PW package's own 3 channels -> BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH. ---
+    # --- Trigger buffer: BARCODE_RAW/BARCODE_RAW/BARCODE_RAW -> the SAME
+    # SN74AHCT541PW package's own 3 channels -> BARCODE_PI/CAM_SYNC_EYE/CAM_SYNC_BEH. ---
     barcode_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_PI", "SN74AHCT541PW")
     # FINDINGS F4/M3, 2026-08-16: the buffer outputs are now `<net>_BUF`, one 47R series
     # resistor away from the connector, and the four behaviour triggers have FOUR drivers
     # instead of one. Channel 2 of this package keeps behaviour trigger 1; the other three
     # live on a second package (U74), which is why beh1 is walked here and the rest are
     # checked separately below.
-    eye_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_EYE_RAW", "CAM_TRIG_EYE_BUF", "SN74AHCT541PW")
-    beh_buf = _walk_buffered_channel(nets, values, "CAM_TRIG_BEH_RAW", "CAM_TRIG_BEH1_BUF", "SN74AHCT541PW")
+    eye_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "CAM_SYNC_EYE_BUF", "SN74AHCT541PW")
+    beh_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "CAM_SYNC_BEH1_BUF", "SN74AHCT541PW")
     # The two dedicated optocoupler legs -- BARCODE_RAW's own second and third buffered
     # copies (gen_breakout_pi_interface.py's own BARCODE_OPTO_LEGS). Walked exactly like
     # the three above, from the SAME input net and the SAME package, because that is the
@@ -408,7 +416,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     barcode_intan_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_INTAN_BUF", "SN74AHCT541PW", expect_drivers=2)
     check(
         barcode_buf == eye_buf == beh_buf == barcode_ni_buf == barcode_intan_buf,
-        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF should share "
+        f"BARCODE_PI/CAM_SYNC_EYE/CAM_SYNC_BEH/BARCODE_BUF/BARCODE_INTAN_BUF should share "
         f"the SAME physical SN74AHCT541PW package, found {barcode_buf}/{eye_buf}/{beh_buf}/"
         f"{barcode_ni_buf}/{barcode_intan_buf}",
     )
@@ -421,21 +429,21 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # that detectable now that the expected pins-per-net is no longer uniformly 1.
     barcode_out_pins = {
         out_net: sorted(int(n.pin) for n in nets[out_net] if n.ref == trig_buf and "tri_state" in n.pintype)
-        for out_net in ("BARCODE_PI", "CAM_TRIG_EYE_BUF", "CAM_TRIG_BEH1_BUF", "BARCODE_BUF", "BARCODE_INTAN_BUF")
+        for out_net in ("BARCODE_PI", "CAM_SYNC_EYE_BUF", "CAM_SYNC_BEH1_BUF", "BARCODE_BUF", "BARCODE_INTAN_BUF")
     }
     all_pins = [p for pins in barcode_out_pins.values() for p in pins]
     check(
         len(all_pins) == 7 and len(set(all_pins)) == 7,
         f"{trig_buf}: expected 7 DISTINCT output pins across "
-        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH (1 each) and BARCODE_BUF/"
+        f"BARCODE_PI/CAM_SYNC_EYE/CAM_SYNC_BEH (1 each) and BARCODE_BUF/"
         f"BARCODE_INTAN_BUF (2 each, F1's paralleled pairs), found {barcode_out_pins}",
     )
     on_5v = [n for n in nets.get("+5V", []) if n.ref == trig_buf]
     check(len(on_5v) == 1, f"{trig_buf} (trigger buffer): expected a pin on +5V, found {on_5v}")
     summary.append(
         f"Trigger buffer confirmed: {trig_buf} (SN74AHCT541PW, +5V) drives all five of "
-        f"BARCODE_RAW->BARCODE_PI, CAM_TRIG_EYE_RAW->CAM_TRIG_EYE, "
-        f"CAM_TRIG_BEH_RAW->CAM_TRIG_BEH, BARCODE_RAW->BARCODE_BUF and "
+        f"BARCODE_RAW->BARCODE_PI, BARCODE_RAW->CAM_SYNC_EYE, "
+        f"BARCODE_RAW->CAM_SYNC_BEH, BARCODE_RAW->BARCODE_BUF and "
         f"BARCODE_RAW->BARCODE_INTAN_BUF from the SAME package on 5 DISTINCT channels "
         f"{barcode_out_pins}, each pairing confirmed via the 74x541 family's fixed "
         f"Ai<->Yi=20."
@@ -460,7 +468,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         # what that control is for.
         hb_out_pin not in all_pins,
         f"{trig_buf}: BARCODE_HB's own output pin ({hb_out_pin}) collides with one of "
-        f"BARCODE_PI/CAM_TRIG_EYE/CAM_TRIG_BEH/BARCODE_BUF/BARCODE_INTAN_BUF's own pins "
+        f"BARCODE_PI/CAM_SYNC_EYE/CAM_SYNC_BEH/BARCODE_BUF/BARCODE_INTAN_BUF's own pins "
         f"({barcode_out_pins}) -- this would load the barcode net's own driver pin, "
         f"exactly what a dedicated leg exists to avoid",
     )
@@ -536,7 +544,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # connector per driver -- four BNCs on one output presented Z0/4 (~12.5 ohm) and drew
     # ~118 mA against the AHCT541's 25 mA per-output ABSOLUTE maximum, on every edge. ---
     cam_drivers, cam_series = {}, {}
-    for net in ("CAM_TRIG_EYE", "CAM_TRIG_BEH1", "CAM_TRIG_BEH2", "CAM_TRIG_BEH3", "CAM_TRIG_BEH4"):
+    for net in ("CAM_SYNC_EYE", "CAM_SYNC_BEH1", "CAM_SYNC_BEH2", "CAM_SYNC_BEH3", "CAM_SYNC_BEH4"):
         check(net in nets, f"missing camera-trigger net: {net!r}")
         loads = {n.ref for n in nets[net] if n.ref.startswith("J")}
         check(len(loads) == 1, f"{net}: expected exactly 1 BNC load, found {sorted(loads)}")
@@ -561,19 +569,19 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"{cam_drivers} -- finding F4 exists because four of them shared one",
     )
     beh_inputs = {
-        n.ref for net in ("CAM_TRIG_BEH1", "CAM_TRIG_BEH2", "CAM_TRIG_BEH3", "CAM_TRIG_BEH4")
-        for n in nets["CAM_TRIG_BEH_RAW"] if n.ref == cam_drivers[net][0]
+        n.ref for net in ("CAM_SYNC_BEH1", "CAM_SYNC_BEH2", "CAM_SYNC_BEH3", "CAM_SYNC_BEH4")
+        for n in nets["BARCODE_RAW"] if n.ref == cam_drivers[net][0]
     }
     check(
-        len(beh_inputs) == len({cam_drivers[f"CAM_TRIG_BEH{i}"][0] for i in range(1, 5)}),
-        "every behaviour-trigger driver must take its input from CAM_TRIG_BEH_RAW -- they "
+        len(beh_inputs) == len({cam_drivers[f"CAM_SYNC_BEH{i}"][0] for i in range(1, 5)}),
+        "every behaviour-trigger driver must take its input from BARCODE_RAW -- they "
         "still share one trigger RATE (spec Sec.9.4), only not one driver pin",
     )
     summary.append(
         f"Camera-trigger fan-out confirmed (findings F4/M3): 5 BNCs, each on its OWN "
         f"driver pin {sorted(cam_drivers.values())} behind its own 47R "
         f"{sorted(cam_series.values())}; all four behaviour triggers still share "
-        f"CAM_TRIG_BEH_RAW as their single source."
+        f"BARCODE_RAW as their single source."
     )
 
     # --- Internal USB header: 1x4, standard USB-A pin order (1=VBUS 2=D- 3=D+ 4=GND). ---
@@ -742,20 +750,26 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(mispowered, good_values, "has a pin on +5V", "RWD_DLVR level shifter also powered from +5V")
     results.append(f"RWD_DLVR level shifter ({lvl_ref}) mis-powered from +5V as well as +3V3: caught -- {msg}")
 
-    # Trigger buffer channel permutation: swap CAM_TRIG_EYE's and behaviour trigger 1's
-    # own buffer-output nodes (the SAME permutation class check_taskpc_digital_netlist.py's
-    # own self-tests exercise for its buffers). Operates on the `_BUF` nets, which is where
-    # the buffer outputs moved at findings F4/M3 -- on the post-resistor nets there is no
-    # tri_state pin to find, so this control would raise StopIteration rather than test
-    # anything.
-    swapped = copy.deepcopy(good_nets)
-    eye_idx = next(i for i, n in enumerate(swapped["CAM_TRIG_EYE_BUF"]) if "tri_state" in n.pintype)
-    beh_idx = next(i for i, n in enumerate(swapped["CAM_TRIG_BEH1_BUF"]) if "tri_state" in n.pintype)
-    swapped["CAM_TRIG_EYE_BUF"][eye_idx], swapped["CAM_TRIG_BEH1_BUF"][beh_idx] = (
-        swapped["CAM_TRIG_BEH1_BUF"][beh_idx], swapped["CAM_TRIG_EYE_BUF"][eye_idx],
-    )
-    msg = _assert_fails(swapped, good_values, "pairing", "CAM_TRIG_EYE/CAM_TRIG_BEH1 buffer-output swap")
-    results.append(f"Trigger-buffer channel permutation (CAM_TRIG_EYE/CAM_TRIG_BEH1 outputs swapped): caught -- {msg}")
+    # RETIRED 2026-08-16, and NOT replaced in kind, because the property it tested stopped
+    # existing rather than merely moving. It used to swap CAM_TRIG_EYE's and behaviour
+    # trigger 1's buffer-output nodes to catch a channel permutation. Both channels now
+    # take the SAME input (BARCODE_RAW), so swapping two buffer outputs that carry an
+    # identical signal is electrically a no-op -- there is no defect left to detect, and a
+    # control kept for appearance would pass vacuously, which is the exact failure mode
+    # this project has now hit six times.
+    #
+    # What IS still a real defect is finding F4's: two camera BNCs sharing one driver pin.
+    # 118 mA on every edge against a 25 mA per-output absolute maximum does not care
+    # whether the signal is a trigger or a barcode. So this control corrupts THAT instead.
+    shared = copy.deepcopy(good_nets)
+    eye_drv = next(n for n in shared["CAM_SYNC_EYE_BUF"] if "tri_state" in n.pintype)
+    beh_idx = next(i for i, n in enumerate(shared["CAM_SYNC_BEH1_BUF"]) if "tri_state" in n.pintype)
+    shared["CAM_SYNC_BEH1_BUF"][beh_idx] = eye_drv
+    # Caught by the package's DISTINCT-output-pins check, which sits earlier than the
+    # per-connector one and is the stronger guard for the same defect. Asserted on the
+    # invariant part of its complaint, not on the pin numbers it happens to quote.
+    msg = _assert_fails(shared, good_values, "DISTINCT output pins", "two camera BNCs sharing one driver pin")
+    results.append(f"Two camera-sync BNCs put back on one driver pin (finding F4's own defect): caught -- {msg}")
 
     # Barcode fan-out regression: drop one of the 7 loads (simulating an accidental
     # deletion of a placeholder position in a future edit).

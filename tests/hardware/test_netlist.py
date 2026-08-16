@@ -2380,7 +2380,7 @@ def test_comparator_pullup_rise_time_fires_on_overloading_the_comparator(nodes, 
 #
 # Two properties of the same wire, and the board violated both on the same six pins:
 #
-#   - HOW MANY panel connectors one logic output drives. `CAM_TRIG_BEH` drove FOUR BNCs
+#   - HOW MANY panel connectors one logic output drives. `CAM_SYNC_BEH` drove FOUR BNCs
 #     from a single SN74AHCT541 output: four parallel coax runs are ~12.5 ohm of
 #     transmission line, and the initial edge into that draws roughly 118 mA against the
 #     part's 25 mA per-output ABSOLUTE MAXIMUM. Short, but on every edge for the life of
@@ -2550,23 +2550,23 @@ def test_panel_outputs_fires_on_shared_driver(nodes, values):
     """The F4 defect verbatim: the four behaviour-trigger BNCs put back onto the single
     buffer output that used to drive them all.
 
-    Corrupts the net carrying the DRIVER (`CAM_TRIG_BEH1_BUF`), not the post-resistor net
+    Corrupts the net carrying the DRIVER (`CAM_SYNC_BEH1_BUF`), not the post-resistor net
     the connector now sits on -- a net with no driver on it is skipped by the check, so
     corrupting that one would have proved nothing."""
     corrupted = dict(nodes)
     bncs = _panel_bnc_refs(values)
-    # Found through the four CAM_TRIG_BEH* nets rather than by matching "Behavior camera
+    # Found through the four CAM_SYNC_BEH* nets rather than by matching "Behavior camera
     # trigger" in a Value. Finding F6 merged the four triggers onto three dual bodies and
     # composed both ports' text into one body-level Value, so the old value-matching version
     # returned 3 references for 4 triggers and this control stopped being able to build its
     # corruption at all. A port is (reference, centre pad); the nets know which is which.
     beh_ports = []
     for i in (1, 2, 3, 4):
-        beh_ports += _panel_bnc_ports_on(nodes[f"CAM_TRIG_BEH{i}"], bncs)
+        beh_ports += _panel_bnc_ports_on(nodes[f"CAM_SYNC_BEH{i}"], bncs)
     beh_ports = sorted(set(beh_ports))
     assert len(beh_ports) == 4, f"expected 4 behaviour-trigger BNC ports, found {beh_ports}"
-    corrupted["CAM_TRIG_BEH1_BUF"] = (
-        list(nodes["CAM_TRIG_BEH1_BUF"]) + [(r, p, "", "passive") for r, p in beh_ports]
+    corrupted["CAM_SYNC_BEH1_BUF"] = (
+        list(nodes["CAM_SYNC_BEH1_BUF"]) + [(r, p, "", "passive") for r, p in beh_ports]
     )
     with pytest.raises(AssertionError, match=r"more than one panel connector"):
         _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)
@@ -2583,8 +2583,8 @@ def test_panel_outputs_fanout_counts_ports_not_bodies(nodes, values):
     corrupted = dict(nodes)
     bncs = _panel_bnc_refs(values)
     body = sorted(bncs)[0]
-    corrupted["CAM_TRIG_BEH1_BUF"] = (
-        list(nodes["CAM_TRIG_BEH1_BUF"])
+    corrupted["CAM_SYNC_BEH1_BUF"] = (
+        list(nodes["CAM_SYNC_BEH1_BUF"])
         + [(body, pad, "", "passive") for pad in BNC_CENTRE_PADS]
     )
     with pytest.raises(AssertionError, match=r"more than one panel connector"):
