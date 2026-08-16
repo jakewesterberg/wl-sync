@@ -203,8 +203,18 @@ Dependencies are real here — doing these out of order means redoing arithmetic
 
 ## 5a. Findings implemented outside the numbered order
 
-F4 and M3 were taken after step 4 rather than waiting for step 5, because F1 had already
-provisioned for F4 and both are electrical rather than mechanical. Done 2026-08-16.
+F4, M3 and F2 were taken after step 4 rather than waiting for step 5 — all electrical, and
+each adjacent to work already done. Done 2026-08-16. **Every electrical finding in the audit
+is now closed; only the connector/footprint work (step 5) and its checkers remain.**
+
+**F2's fix retires the CONFIG4 dependency rather than recording it.** This document and the
+finding both said to record "CONFIG4 UP" as a configuration the design depends on and no
+checker can see. It turned out not to be necessary: buffering the Intan output with an
+AHCT-family part gives TTL thresholds independent of its own supply, so the board reads
+either output level correctly. CONFIG4 UP is still worth setting and is noted in
+`hardware/README.md`, but as a rig-configuration preference, not a correctness dependency.
+Worth remembering when a finding says "record this and move on" — sometimes the fix that
+was already being made removes the need.
 
 **M3's count was wrong and its own new checker found that.** It names six bare panel
 outputs; there were eleven. The five digital Intan output BNCs sat directly on the

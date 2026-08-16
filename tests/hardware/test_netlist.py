@@ -1193,9 +1193,27 @@ def _led_branches(nodes: dict[str, list[Node]], values: dict[str, str], two_pin)
                 ohms = _parse_ohms(values.get(r_ref, ""))
                 if rail is None or not ohms:
                     continue
+                # SERIES RESISTANCE ON THE CATHODE SIDE COUNTS TOO -- finding F2.
+                # The LED's current is set by everything in the loop, not just the anode
+                # resistor, and this board has one channel (the inbound stim input) whose
+                # 100R panel-protection resistor sits INSIDE the current path rather than
+                # beside it. Counting only the anode resistor reported 8.75 mA on that
+                # branch where the truth is 6.57 mA -- i.e. it declared a starved channel
+                # healthy, which is precisely the failure mode check 15 exists to prevent.
+                #
+                # Derived, not special-cased: a resistor on the cathode net whose OTHER
+                # terminal is not a rail is in the loop. A pull-up returns to a rail and is
+                # not; a driver output is not a two-terminal part at all. Every ordinary
+                # channel yields 0 here, which is the correct answer for them.
+                cathode_r = sum(
+                    o for r2 in {rr for rr, _p2, _pf2, _t2 in nl} & set(two_pin)
+                    if r2.startswith("R") and not (two_pin[r2] & set(RAIL_VOLTS))
+                    and (o := _parse_ohms(values.get(r2, "")))
+                )
                 out.append({
                     "cathode_net": name, "opto": ref, "pin": pin,
                     "rail": rail, "r_ref": r_ref, "ohms": ohms,
+                    "cathode_ohms": cathode_r, "total_ohms": ohms + cathode_r,
                 })
     return out
 
@@ -1212,15 +1230,16 @@ def _led_current_bounds_ma(branch: dict, params: dict, drops: dict) -> tuple[flo
     acsl, drv = params["acsl_6xx0"], params["sn74ahct541"]
     nominal = RAIL_VOLTS[branch["rail"]]
     drop_typ, drop_max = drops[branch["rail"]]
+    r_total = branch.get("total_ohms", branch["ohms"])
     i_min = (
         (nominal * (1 - SUPPLY_TOL) - drop_max - acsl["v_f_max_v"] - drv["v_ol_max_v"])
-        / (branch["ohms"] * (1 + R_LED_TOL))
+        / (r_total * (1 + R_LED_TOL))
     ) * 1000
     # Best case: the driver is barely conducting, so V_OL falls toward zero rather than
     # its rated value at full I_OL -- not a tolerance that can be stacked favourably here.
     i_max = (
         (nominal * (1 + SUPPLY_TOL) - drop_typ - acsl["v_f_min_v"])
-        / (branch["ohms"] * (1 - R_LED_TOL))
+        / (r_total * (1 - R_LED_TOL))
     ) * 1000
     return i_min, i_max
 
@@ -1252,7 +1271,10 @@ def _check_led_current_clears_switching_floor(nodes, values, params) -> None:
         f"{params['acsl_6xx0']['i_fh_min_ma']}mA):\n  "
         + "\n  ".join(
             f"{b['cathode_net']}: LED {b['opto']}.{b['pin']} via {b['r_ref']}={b['ohms']:.0f}R "
-            f"from {b['rail']}: {ma}mA worst case"
+            f"from {b['rail']}"
+            + (f" (+{b['cathode_ohms']:.0f}R in the cathode path, {b['total_ohms']:.0f}R total)"
+               if b.get("cathode_ohms") else "")
+            + f": {ma}mA worst case"
             for b, ma in starved
         )
         + "\nThis is the OTHER HALF of check 14 above. That check verifies current does "
@@ -1283,9 +1305,13 @@ def test_led_current_clears_switching_floor_fires_on_iso_rail_using_the_main_val
     the check is genuinely rail-aware -- it moves an ISO_5V branch's resistor to the +5V
     value, which is a real over-drive on that rail, and must be caught by check 16 rather
     than passing because 'it is the same part'."""
+    # A branch with NOTHING extra in the cathode path, so this control isolates the rail
+    # difference it exists to test. The inbound stim channel carries 100R of panel
+    # protection inside its own loop (finding F2), which would confound the comparison.
     iso = next(b for b in _led_branches(nodes, values, _two_terminal_passive_refs(nodes))
-               if b["rail"] == "ISO_5V")
-    _, i_max_iso = _led_current_bounds_ma({**iso, "ohms": 249.0}, params, _rail_series_drop_v(params, nodes, values))
+               if b["rail"] == "ISO_5V" and not b["cathode_ohms"])
+    _, i_max_iso = _led_current_bounds_ma({**iso, "ohms": 249.0, "total_ohms": 249.0}, params,
+                                          _rail_series_drop_v(params, nodes, values))
     assert i_max_iso > params["acsl_6xx0"]["i_f_abs_max_ma"], (
         f"a 249R resistor on ISO_5V gives {i_max_iso:.1f}mA best case, which must exceed "
         f"the part's absolute maximum for the two-value split to be load-bearing"

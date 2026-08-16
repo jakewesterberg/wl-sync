@@ -137,7 +137,16 @@ OUTBOUND_CHANNELS = [
     ("RWD_DLVR_INTAN_BUF", "RWD_DLVR_INTAN"),
 ]
 STIM_TRIG_CHANNEL = ("STIM_TRIG_INTAN_BUF", "STIM_TRIG_INTAN")
-RHS_STIM_CHANNEL = ("RHS_STIM_RAW", "RHS_STIM_OUT")
+# FINDING F2, 2026-08-16 -- the inbound channel's LED is driven by a LOCAL BUFFER on
+# ISO_5V (U75), not by Intan's own output pin through the 100R panel resistor. That
+# resistor used to sit INSIDE the LED loop, making it 401R and the current 6.57 mA
+# against a 7.0 mA switching minimum; it now does protection only. The buffer's TTL
+# thresholds also retire the design's dependence on Intan's undocumented CONFIG4 switch
+# position, which selected 3.3 V or 5.0 V outputs and silently broke the off-state at
+# 3.3 V. See gen_breakout_opto_intan.py's own RHS_STIM_BUF_REF for the full account.
+RHS_STIM_BUF_NET = "RHS_STIM_ISO_BUF"
+RHS_STIM_BUF_VALUE = "SN74AHCT541PW"
+RHS_STIM_CHANNEL = (RHS_STIM_BUF_NET, "RHS_STIM_OUT")
 
 ALL_SOURCE_NETS = {c[0] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[0]}  # DGND-side sources
 ALL_OUTBOUND_FINAL = {c[1] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[1]}  # INTAN-side finals
@@ -147,7 +156,7 @@ ISOLATED_RAILS = {"ISO_5V", "INTAN_GND"}
 # RHS_STIM_OUT is the DGND-side (non-isolated) name for the inbound channel's own output
 # -- NOT part of the isolated net set. RHS_STIM_RAW is the Intan-side (isolated) name for
 # its own source, upstream of the LED.
-ISOLATED_NETS = ISOLATED_RAILS | ALL_OUTBOUND_FINAL | {"RHS_STIM_RAW"}
+ISOLATED_NETS = ISOLATED_RAILS | ALL_OUTBOUND_FINAL | {"RHS_STIM_RAW", RHS_STIM_BUF_NET}
 NON_ISOLATED_NETS = NON_ISOLATED_RAILS | ALL_SOURCE_NETS | {"RHS_STIM_OUT"}
 
 
@@ -315,6 +324,42 @@ def _check_rhs_stim_input_protection(nets: dict[str, list[Node]], values: dict[s
 
     bnc_nodes = [n for n in nets["RHS_STIM_BNC"] if n.ref.startswith("J")]
     check(len(bnc_nodes) == 1, f"RHS_STIM_BNC: expected exactly 1 BNC connector pin, found {bnc_nodes}")
+
+    # FINDING F2: the protected node feeds a LOCAL BUFFER, and NOT the LED directly. This
+    # is the assertion that keeps the 100R doing protection only -- if the LED cathode ever
+    # lands back on RHS_STIM_RAW, that resistor is inside the current loop again and the
+    # channel is back to 6.57 mA against a 7.0 mA switching minimum.
+    # Identified by RAIL, not by value: eleven SN74AHCT541PW sit on this board and only
+    # this one is powered from ISO_5V. That is also the property worth asserting -- a
+    # buffer for an isolated-domain signal that ended up on +5V would straddle the barrier.
+    buf_candidates = sorted({
+        n.ref for n in nets.get("ISO_5V", [])
+        if values.get(n.ref) == RHS_STIM_BUF_VALUE
+    })
+    check(
+        len(buf_candidates) == 1,
+        f"expected exactly 1 {RHS_STIM_BUF_VALUE} powered from ISO_5V (the inbound stim "
+        f"buffer, finding F2), found {buf_candidates}",
+    )
+    buf_ref = buf_candidates[0]
+    buf_inputs = [n.pin for n in nets["RHS_STIM_RAW"] if n.ref == buf_ref]
+    check(
+        len(buf_inputs) == 2,
+        f"RHS_STIM_RAW: expected exactly 2 {buf_ref} input pins (finding F1's paralleled "
+        f"pair -- at 301R this LED draws ~10.5 mA, over one output's 7.5 mA budget), "
+        f"found {buf_inputs}",
+    )
+    check(
+        not [n for n in nets["RHS_STIM_RAW"] if values.get(n.ref, "").startswith("ACSL-")],
+        "RHS_STIM_RAW: an optocoupler LED cathode sits on the PROTECTED node again -- it "
+        "must sit on the buffer's output, or the 100R panel resistor is back inside the "
+        "LED's own current loop (finding F2)",
+    )
+    check(
+        not [n for n in nets.get("DGND", []) if n.ref == buf_ref],
+        f"{buf_ref} (inbound stim buffer) has a pin on DGND -- every one of its unused "
+        f"inputs and its own ground must reference INTAN_GND, this domain's own ground",
+    )
     return f"RHS_STIM_OUT's own inbound protection: BNC -[100R {r_ref}]-> RHS_STIM_RAW -[BAT54S {d_ref} clamp to ISO_5V/INTAN_GND].", {r_ref, d_ref}
 
 

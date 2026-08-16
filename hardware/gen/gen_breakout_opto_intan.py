@@ -182,6 +182,9 @@ FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"
 FOOTPRINT_C_BULK = "Capacitor_SMD:C_1206_3216Metric"
 FOOTPRINT_ACSL = "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"
 FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"
+FOOTPRINT_TSSOP20 = "Package_SO:Texas_PW0020A_TSSOP-20_4.4x6.5mm_P0.65mm"  # U75, the
+# inbound stim buffer (finding F2) -- the SAME real stock footprint every other
+# SN74AHCT541PW on this board already uses.
 FOOTPRINT_NETTIE = "NetTie:NetTie-2_SMD_Pad2.0mm"  # NT4 (finding F5) -- the SAME
 # 2.0mm-pad variant power.kicad_sch already uses for NT1/NT2/NT3.
 FOOTPRINT_DCDC_SIP6 = "Converter_DCDC:Converter_DCDC_TRACO_TMR-1-xxxx_Single_THT"  # TMR
@@ -310,7 +313,40 @@ assert all(src.endswith("_INTAN_BUF") for src, _final in OUTBOUND_CHANNELS + [ST
     "every outbound LED on this sheet must be driven by its OWN _INTAN_BUF leg, never by "
     "a net shared with opto-ni.kicad_sch's own LED for the same signal"
 )
-RHS_STIM_CHANNEL = ("RHS_STIM_RAW", "RHS_STIM_OUT")  # inbound: source=Intan-side, final=DGND-side
+# FINDING F2, 2026-08-16 -- the inbound channel's LED is driven by a LOCAL BUFFER, not
+# by Intan's own output pin.
+#
+# TWO DEFECTS IN ONE WIRE. First, the 100R panel-protection resistor sat INSIDE the LED
+# current path (ISO_5V -> 301R -> LED -> 100R -> Intan's output), so the loop was 401R,
+# not 301R: 6.57 mA worst case against the ACSL-6xx0's 7.0 mA I_FH minimum. The channel
+# was not guaranteed to switch, and it was the ONLY channel on the board whose protection
+# resistor did double duty as a current-setting one.
+#
+# Second, and worse, it depended on a physical switch nobody documented. The Intan
+# Stim/Recording Controller's CONFIG4 selects whether its digital outputs are 3.3 V or
+# 5.0 V. With CONFIG4 DOWN the LED anode sits at ISO_5V while its cathode rests at 3.3 V,
+# leaking roughly 1.3 mA against a 250 uA I_FL limit -- the channel may never turn cleanly
+# OFF. So the as-built design was correct only for one undocumented switch position, and
+# silently wrong for the other.
+#
+# THE BUFFER FIXES BOTH AND RETIRES THE DEPENDENCY. An SN74AHCT541PW on ISO_5V has TTL
+# thresholds (V_IH 2.0 V) that are independent of its own supply, so it reads a 3.3 V OR a
+# 5.0 V input as a valid HIGH -- CONFIG4 stops mattering to the board. Its output then
+# drives the LED rail-to-rail from ISO_5V, so the off-state is a clean 0 V across the LED
+# rather than a 1.7 V leak, and the 100R + BAT54S revert to doing protection ONLY. The
+# design also stops depending on an output drive capability the Intan guide never
+# specifies at all.
+#
+# CONFIG4 IS STILL WORTH RECORDING, but as a rig-configuration note rather than a
+# correctness dependency -- see the on-sheet text and hardware/README.md.
+#
+# Refdes minted out of band: this sheet's counters are pinned and its range fully spent.
+RHS_STIM_BUF_REF = "U75"
+RHS_STIM_BUF_CAP = "C158"
+RHS_STIM_BUF_NET = "RHS_STIM_ISO_BUF"   # buffer output -> LED cathode
+X_STIMBUF, Y_STIMBUF = GRID(300), GRID(120)
+
+RHS_STIM_CHANNEL = (RHS_STIM_BUF_NET, "RHS_STIM_OUT")  # inbound: source=the LOCAL BUFFER
 
 
 # ---------------------------------------------------------------------------
@@ -505,13 +541,56 @@ def place_package_b(sch, refs):
 
 
 def place_rhs_stim_input(sch, refs):
-    """RHS_STIM_OUT's own inbound BNC + 100R series + BAT54S clamp to ISO_5V/INTAN_GND
-    -- see module docstring, RHS_STIM_OUT'S OWN INBOUND INPUT PROTECTION."""
+    """RHS_STIM_OUT's own inbound BNC + 100R series + BAT54S clamp to ISO_5V/INTAN_GND,
+    then a LOCAL BUFFER driving the LED -- see module docstring and RHS_STIM_BUF_REF for
+    finding F2's full account.
+
+    The 100R and the BAT54S now do protection ONLY. Before F2 that resistor sat inside the
+    LED's own current loop, which is what took the branch to 401R and 6.57 mA -- below the
+    ACSL-6xx0's 7.0 mA switching minimum.
+    """
     bnc_ref = place_bnc(sch, GRID(Y_BNC0 + 5 * LOAD_DY), "Intan RHS stim status in (BNC)", "RHS_STIM_BNC", refs)
     r_ref = two_pin(sch, "Device", "R", "R", "100", X_CLAMP, Y_CLAMP, "RHS_STIM_BNC", "RHS_STIM_RAW", footprint=FOOTPRINT_R)
     d_ref = bidirectional_clamp(sch, X_CLAMP + GRID(20.32), Y_CLAMP, "RHS_STIM_RAW", "ISO_5V", "INTAN_GND")
     refs["rhs_stim_series_r"] = r_ref
     refs["rhs_stim_clamp_d"] = d_ref
+
+    # The buffer itself. One channel used; the other seven are the isolated domain's ONLY
+    # spare logic, which it previously had none of. Every unused input is tied to
+    # INTAN_GND -- this domain's own ground, NOT DGND, which is the whole point of the
+    # barrier and the one thing a copy-paste from the DGND-side buffer helpers would get
+    # wrong. Unused outputs are no-connected, never left floating.
+    pins = sch.place(
+        "74xx", "74AHCT541", RHS_STIM_BUF_REF, "SN74AHCT541PW", X_STIMBUF, Y_STIMBUF,
+        footprint=FOOTPRINT_TSSOP20,
+        extra_props={"Description": "8-bit buffer/line driver, 3-state outputs"},
+    )
+    # TWO channels in parallel, from tied inputs -- finding F1's rule, which applies to
+    # this LED the moment F2 makes it buffer-driven for the first time. At 301R it draws
+    # ~10.5 mA, over one AHCT541 output's 7.5 mA budget, exactly as every other LED on
+    # this board does. Caught by the F1 checkers rather than reasoned about in advance:
+    # they failed the moment this buffer appeared, which is the behaviour they exist for.
+    for i in range(8):
+        a_pin, y_pin = str(2 + i), str(18 - i)
+        ax, ay = pin_pos(X_STIMBUF, Y_STIMBUF, pins[a_pin])
+        yx, yy = pin_pos(X_STIMBUF, Y_STIMBUF, pins[y_pin])
+        if i < 2:
+            sch.label("RHS_STIM_RAW", ax, ay)
+            sch.label(RHS_STIM_BUF_NET, yx, yy)
+        else:
+            sch.label("INTAN_GND", ax, ay)
+            sch.no_connect(yx, yy)
+    for oe_pin in ("1", "19"):
+        px, py = pin_pos(X_STIMBUF, Y_STIMBUF, pins[oe_pin])
+        sch.label("INTAN_GND", px, py)  # active-low OE, permanently enabled
+    gx, gy = pin_pos(X_STIMBUF, Y_STIMBUF, pins["10"])
+    sch.label("INTAN_GND", gx, gy)
+    vx, vy = pin_pos(X_STIMBUF, Y_STIMBUF, pins["20"])
+    sch.label("ISO_5V", vx, vy)
+    cap = two_pin(sch, "Device", "C", "C", "100nF", X_STIMBUF - DECOUPLE_DX, Y_STIMBUF,
+                  "ISO_5V", "INTAN_GND", footprint=FOOTPRINT_C_SMALL, ref=RHS_STIM_BUF_CAP)
+    refs["rhs_stim_buf"] = RHS_STIM_BUF_REF
+    refs["rhs_stim_buf_cap"] = cap
 
 
 def place_iso_5v_supply(sch, refs):

@@ -846,6 +846,27 @@ two independent figures). Total across both opto sheets: 7×`ACSL-6400` + 1×`AC
 `ISO_P12`/`ISO_N12` themselves are ±12 V, too high for the ACSL-6400/6420 family's own
 5.5 V absolute maximum VDD.
 
+**Finding F2 (2026-08-16): the inbound stim channel is buffered locally.** `RHS_STIM_OUT`
+used to put its 100 Ω panel-protection resistor *inside* the LED's current loop
+(`ISO_5V` → 301 Ω → LED → 100 Ω → Intan's output), making the branch 401 Ω and 6.57 mA
+against the ACSL-6xx0's 7.0 mA switching minimum — the only channel on the board whose
+protection resistor did double duty as a current-setting one. Worse, it depended on a
+physical switch nobody had documented: the Intan Stim/Recording Controller's **CONFIG4**
+selects 3.3 V or 5.0 V digital outputs, and with it *down* the LED anode sits at `ISO_5V`
+while its cathode rests at 3.3 V, leaking ~1.3 mA against a 250 µA I_FL limit — the channel
+may never turn cleanly off.
+
+A local `SN74AHCT541PW` (`U75`) on `ISO_5V`/`INTAN_GND` now drives the LED, and the 100 Ω
+plus `BAT54S` do protection only. **This retires the CONFIG4 dependency rather than just
+documenting it:** an AHCT part's TTL thresholds (V_IH 2.0 V) are independent of its supply,
+so the buffer accepts either output level as a valid HIGH, and its own rail-to-rail output
+gives the LED a clean 0 V off-state either way.
+
+> **Rig configuration, still worth setting: CONFIG4 UP.** It no longer changes whether the
+> board works, but it keeps the Intan side at the same 5 V logic level as everything else
+> and removes a variable from bring-up. Record it beside `RewardPolarity` HIGH — both are
+> settings on external equipment that this board depends on nothing enforcing.
+
 **Finding F5 (2026-08-16) replaced that LDO with a `TMR 1-0511` isolated DC/DC, fed from
 `+5V`/`DGND`.** A linear regulator passes its output current straight to its input, so the
 whole 63–91 mA ISO_5V digital branch was being drawn *through* the isolated ±12 V module:

@@ -157,7 +157,35 @@ headroom on both bounds. *Not taken at implementation — 249 Ω clears both bou
 > itself rather than by their generator, so they reformat wholesale even when nothing electrical
 > changes; the netlist is the only signal that carries meaning here.
 
-### F2 — The inbound stim channel is under-driven, and depends on an undocumented switch
+### F2 — The inbound stim channel is under-driven, and depends on an undocumented switch — **IMPLEMENTED 2026-08-16**
+
+> A local `SN74AHCT541PW` (`U75`) on `ISO_5V`, referenced `INTAN_GND`, now drives the LED.
+> `RHS_STIM_BNC` → 100 Ω → `RHS_STIM_RAW` (clamped) → buffer → `RHS_STIM_ISO_BUF` → LED
+> cathode. The 100 Ω and the `BAT54S` do protection **only**; they are out of the current
+> loop. The branch went from **401 Ω / 6.57 mA** to **301 Ω / 8.75–12.92 mA**, identical to
+> the spare channel beside it.
+>
+> **The CONFIG4 dependency is retired, not merely recorded.** An AHCT part's TTL thresholds
+> (V_IH 2.0 V) are independent of its own supply, so the buffer reads a 3.3 V *or* a 5.0 V
+> input as a valid HIGH — whichever way that switch is set. Its output then drives the LED
+> rail-to-rail from `ISO_5V`, so the off-state is a clean 0 V across the LED instead of the
+> ~1.3 mA leak against a 250 µA I_FL limit that CONFIG4-down produced. The design also stops
+> depending on an output drive capability the Intan guide never specifies. **CONFIG4 UP is
+> still worth setting and is recorded in `hardware/README.md` — but it is now a rig-
+> configuration note rather than a correctness dependency.**
+>
+> **Two checkers found this, one of them by being wrong first.** Check 15 (F1's lower bound)
+> had been reporting this branch as healthy at 8.75 mA, because it counted only the ANODE
+> resistor — it did not know that this one channel had 100 Ω on the cathode side too. That
+> is the same class of error as F1 itself: a number that was right about the model and wrong
+> about the board. The check now derives the whole loop (a resistor on the cathode net whose
+> other terminal is not a rail is in the path), which yields 0 for every ordinary channel and
+> 100 Ω here.
+>
+> Then, once the LED became buffer-driven for the first time, **F1's own checkers failed** —
+> a single output driving a 10.5 mA LED against a 7.5 mA budget. So this channel is
+> paralleled like every other: two of `U75`'s channels from tied inputs, 5.23 mA per pin.
+> Six channels remain spare, which is the isolated domain's first spare logic.
 
 `RHS_STIM_OUT` puts its 100 Ω input resistor **inside** the LED current path:
 `ISO_5V` → 430 Ω → LED → 100 Ω → Intan's output.
