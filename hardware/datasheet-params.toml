@@ -561,6 +561,82 @@ touch -- normal for stacked duals, but plugs mate one at a time.
 
 Replaces BNC_PanelMountable_Vertical, whose axis is perpendicular to the board (F6)."""
 
+[sn74lvc541a]
+part = "SN74LVC541APW"
+document = "TI SCAS298O"
+revised = "2026-06"
+retrieved = "2026-08-16"
+url = "https://www.ti.com/lit/ds/symlink/sn74lvc541a.pdf"
+
+vcc_min_v = 1.65
+vcc_max_v = 3.6
+vcc_abs_max_v = 6.5
+v_ih_min_v = 2.0               # VCC 2.7-3.6 V
+v_il_max_v = 0.8               # VCC 2.7-3.6 V -- SEE NOTE, this is the binding number
+v_i_max_v = 5.5                # inputs accept 5.5 V on a 3.3 V rail: 5 V tolerant
+v_i_abs_max_v = 6.5
+i_oh_recommended_ma = -24.0    # at VCC 3 V
+i_ol_recommended_ma = 24.0     # at VCC 3 V
+i_o_abs_max_ma = 50.0
+i_supply_abs_max_ma = 100.0    # continuous through VCC or GND
+i_ik_input_clamp_ma = -50.0
+t_a_range_c = [-40.0, 125.0]
+off_state = "Ioff supports live insertion, partial-power-down and back-drive protection"
+feeds = ["camera-sync frame-time inputs"]
+note = """This is the part spec Sec.7.1's global rule names for EVERY inbound signal
+("74LVC541A on 3.3V for inbound, 74HCT541 on 5V for outbound. Never one part for both"),
+and it was the one part in that rule not pinned to a primary document until 2026-08-16.
+
+V_IL MAX IS 0.8 V, AND THAT IS WHY IT WAS PINNED. A FLIR camera's opto-isolated strobe
+output cannot drive this input directly: its best published low is 0.87 V
+(see [flir_bfs_gpio]), which MISSES by 70 mV. The failure is silent -- the buffer simply
+may never see a valid low, on a signal that looks perfectly correct on a scope.
+
+The 5.5 V input rating is what lets a 3.3 V-powered part receive 5 V logic safely, which
+is the whole reason the inbound/outbound split works."""
+
+[flir_bfs_gpio]
+part = "Teledyne FLIR Blackfly S USB3 (BFS-U3) GPIO"
+document = "FLIR BFS-U3 Installation, GPIO Electrical Characteristics"
+retrieved = "2026-08-16"
+url = "https://softwareservices.flir.com/BFS-U3-200S6/latest/Family/ElectricalGPIO.htm"
+
+opto_out_type = "open collector -- REQUIRES an external pull-up"
+opto_out_v_max_v = 24.0
+opto_out_i_max_ma = 25.0
+opto_in_v_range_v = [0.0, 30.0]
+# (Vext, Rext_ohm, V_low, V_high, I_mA) verbatim from the manufacturer's own table.
+opto_out_table = [
+    [3.3, 200.0, 1.46, 3.3, 9.1],
+    [5.0, 1000.0, 0.87, 5.0, 4.2],
+    [12.0, 2000.0, 1.13, 12.0, 5.6],
+    [12.0, 2400.0, 0.95, 12.0, 4.7],
+    [24.0, 4700.0, 0.95, 24.0, 5.0],
+    [30.0, 4700.0, 0.88, 30.0, 6.3],
+]
+opto_out_v_low_best_v = 0.87    # 5 V / 1.0 kohm -- the lowest FLIR publishes anywhere
+sync_topology = "primary/secondary: primary pin 4 (opto out) -> each secondary pin 2 (opto in), pin 5 opto-ground common"
+feeds = ["camera-sync frame-time inputs"]
+note = """Pinned 2026-08-16 for the free-running-camera change. Two facts drive the design.
+
+ONE STROBE PER GROUP IS SUFFICIENT, and for a structural reason rather than an assumption:
+in FLIR's multi-camera scheme the primary's strobe is what DRIVES the secondaries' trigger
+inputs, so it does not merely represent the group's exposure, it defines it.
+
+A STIFFER PULL-UP MAKES V_LOW WORSE, NOT BETTER. The table is not monotonic but its trend
+is clear at the ends: 9.1 mA gives 1.46 V while 4.2 mA gives 0.87 V. So the intuitive fix
+-- pull harder to get a cleaner low -- is exactly backwards, and 3.3 V/200 ohm is the worst
+row in the table. FLIR publishes nothing below 4.2 mA, so a lower-current operating point
+is an EXTRAPOLATION, not a datasheet value, and this file does not hold those.
+
+0.87 V IS ABOVE EVERY TTL/LVC LOW-LEVEL INPUT THRESHOLD ON THIS BOARD (0.8 V max -- see
+[sn74lvc541a] and [sn74ahct541]), so the strobe cannot land on a buffer input. It needs a
+comparator with a chosen threshold, which is also the only option here whose margin is a
+design choice rather than a datasheet coincidence.
+
+FLIR's own opto-isolation means the camera side is ALREADY galvanically separated; pin 5
+is the isolated emitter return. A second optocoupler on this board would be redundant."""
+
 [tps7a4901_tps7a3001]
 part = "TPS7A4901DGNR (positive), TPS7A3001DGNR (negative)"
 document = "TI SBVS121E (TPS7A49), TI SBVS125D (TPS7A30)"
