@@ -616,6 +616,7 @@ opto_out_table = [
 ]
 opto_out_v_low_best_v = 0.87    # 5 V / 1.0 kohm -- the lowest FLIR publishes anywhere
 sync_topology = "primary/secondary: primary pin 4 (opto out) -> each secondary pin 2 (opto in), pin 5 opto-ground common"
+applies_to_both_camera_groups = true   # see note -- ohDPI is a FLIR BFS rig too
 feeds = ["camera-sync frame-time inputs"]
 note = """Pinned 2026-08-16 for the free-running-camera change. Two facts drive the design.
 
@@ -635,7 +636,19 @@ comparator with a chosen threshold, which is also the only option here whose mar
 design choice rather than a datasheet coincidence.
 
 FLIR's own opto-isolation means the camera side is ALREADY galvanically separated; pin 5
-is the isolated emitter return. A second optocoupler on this board would be redundant."""
+is the isolated emitter return. A second optocoupler on this board would be redundant.
+
+THIS ENTRY COVERS BOTH CAMERA GROUPS, which was not obvious and is worth recording. The
+eye tracker is OpenIrisDPI (Ressmeyer et al., a dual-Purkinje plugin for the OpenIris
+framework), and OpenIris drives FLIR cameras through the Spinnaker SDK -- its reference
+binocular build is two Blackfly S USB3 cameras at 720x540 and up to 500 fps, which is
+exactly the 500 Hz spec Sec.6 already assumes for the eye channels. So the ohDPI strobe and
+the behaviour-camera strobe are the SAME electrical interface, and one design serves both.
+
+BFS also exposes a NON-isolated line at 3.3 V, which would avoid the threshold problem
+entirely. It is not used here: taking it would tie this board's ground to the camera PC's,
+and that is the ground loop ruling R2 was careful about for the eye-tracker D-sub -- the
+camera rig is mains-powered equipment beside a Faraday-cage booth."""
 
 [tps7a4901_tps7a3001]
 part = "TPS7A4901DGNR (positive), TPS7A3001DGNR (negative)"
