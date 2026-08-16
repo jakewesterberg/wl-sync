@@ -52,8 +52,18 @@ part:
 ## What genuinely is not known, and how it is handled instead
 
 One thing. **The MDR68's tail-row-to-contact-number map.** The drawing gives the geometry —
-four staggered rows at 1.905 mm — but not which contact numbers land in which row. Getting it
-wrong scrambles 68 signals on a board that passes ERC and every test.
+four staggered rows at 1.905 mm — but not which contact numbers land in which row.
+
+> **Corrected 2026-08-16.** This first read *"getting it wrong scrambles 68 signals on a board
+> that passes ERC and every test."* That overstates it, and the correction matters because it
+> changes what kind of check is needed. All four candidates produce **different hole
+> patterns**, not merely different numbering — the four tail rows carry X phases (0,1,0,1),
+> (1,0,1,0), (0,1,1,0) and (1,0,0,1) on the 1.27 mm mating grid, all distinct. A pin would
+> have to move 1.27 mm laterally *and* 1.905 mm in depth to seat in the wrong one, far beyond
+> any contact compliance. **A wrong choice is caught when the connector will not seat** — a
+> respin, expensive, but not silent. And the answer is visible in any drawing, 3D model or
+> photograph showing the hole pattern, which is a far lower bar than a manufacturer
+> confirmation.
 
 It is a smaller unknown than it first looks. The tails run straight back from the mating
 contacts, so **each contact's X position is fixed by its mating position**; the stagger only

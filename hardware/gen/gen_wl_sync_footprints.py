@@ -255,10 +255,20 @@ def self_check(modname: str, text: str, expected_numbered_pads: int) -> None:
 # 1. MDR68_Male_RightAngle
 # ---------------------------------------------------------------------------
 # WHICH CONTACT NUMBERS LAND IN WHICH TAIL ROW. This is the one thing MH drawing rev 3.0
-# does NOT state, and getting it wrong scrambles 68 signals on a board that would still pass
-# ERC, every netlist checker and all 120 tests. It is therefore isolated here as a single
-# named constant, with every candidate written out, so switching is a one-line edit and a
-# regenerate rather than an archaeology exercise.
+# does NOT state. It is isolated here as a single named constant, with every candidate
+# written out, so switching is a one-line edit and a regenerate rather than an archaeology
+# exercise.
+#
+# CORRECTED 2026-08-16: this was first written as "scrambles 68 signals on a board that
+# passes ERC and every test", which overstates it. All four candidate arrangements produce
+# DIFFERENT HOLE PATTERNS, not merely different numbering -- the four tail rows carry X phases
+# (0,1,0,1), (1,0,1,0), (0,1,1,0) and (1,0,0,1) on the 1.27 mm mating grid, and all four are
+# distinct. A pin would have to move 1.27 mm laterally AND 1.905 mm in depth to seat in the
+# wrong one, which is far beyond any contact compliance. So a wrong choice is caught when the
+# connector will not physically seat -- a respin, which is expensive, but NOT the silent
+# data-corruption hazard it was described as. It also means the answer is visible in any
+# drawing, 3D model or photograph that shows the hole pattern, which is a much lower bar than
+# a manufacturer confirmation.
 #
 # The unknown is smaller than it looks. A right-angle contact runs straight back from its
 # mating position, so each contact's X is FIXED by the mating interface (2 rows x 34 at

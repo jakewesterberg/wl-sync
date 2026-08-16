@@ -206,8 +206,13 @@ document is not confirmation.
 
 - [ ] **The MDR68 tail-row-to-contact-number map — the one genuine unknown left, and the only
   unrecoverable one.** MH rev 3.0 gives the tail *geometry* but not which contact numbers
-  land in which of the four staggered rows. Wrong, it scrambles 68 signals on a board that
-  passes ERC and every test. It is smaller than it sounds: the tails run straight back from
+  land in which of the four staggered rows.
+
+  **The consequence is a fit failure, not silent data corruption** (corrected 2026-08-16 —
+  this item first claimed the latter). All four candidates produce different *hole patterns*,
+  so a wrong choice means the connector will not physically seat: a respin, expensive, caught
+  at assembly rather than in an experiment. It is smaller than it sounds in the other sense
+  too: the tails run straight back from
   the mating contacts, so each contact's X is fixed and only depth is redistributed — **four**
   candidate arrangements, not twenty-four, all written out beside `MDR68_TAIL_ORDER` in
   `hardware/gen/gen_wl_sync_footprints.py`. The footprint's own `descr` carries

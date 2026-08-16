@@ -671,7 +671,10 @@ primary drawings rather than from corroborated distributor figures. What is left
 
 1. **The MDR68's tail-row-to-contact-number map** — the one genuine unknown left on either
    footprint, and the only one whose being wrong is unrecoverable after fab: it would
-   scramble 68 signals on a board that passes ERC and every test. MH drawing rev 3.0 gives
+   fail to seat -- all four candidates produce different HOLE PATTERNS, not merely different
+   numbering, so a wrong choice costs a respin caught at assembly rather than corrupted data
+   caught in an experiment (corrected 2026-08-16; this first said "scramble 68 signals on a
+   board that passes ERC and every test", which overstated it). MH drawing rev 3.0 gives
    the tail *geometry* (four staggered rows at 1.905 mm) but not which contact numbers land
    in which row. It is a smaller unknown than it sounds — the tails run straight back from
    the mating contacts, so each contact's X is fixed and only the depth is redistributed,
