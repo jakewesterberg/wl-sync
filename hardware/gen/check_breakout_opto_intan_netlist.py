@@ -94,7 +94,12 @@ OPTO_INTAN_SHEETFILE = "sheets/opto-intan.kicad_sch"
 # ---------------------------------------------------------------------------
 ACSL6400_VALUE = "ACSL-6400-00TE"
 ACSL6420_VALUE = "ACSL-6420-00TE"
-LDO_VALUE = "LD1117S50TR_SOT223"
+ISO5V_SUPPLY_VALUE = "TMR 1-0511"  # FINDING F5, 2026-08-16 -- was LD1117S50TR_SOT223,
+# a linear regulator off ISO_P12, which drew this sheet's whole 63-96 mA digital branch
+# THROUGH the isolated +-12 V module and left it at 114-170% of its 66 mA per-rail
+# rating. The TMR 1-0511 is an isolated DC/DC fed from +5V/DGND instead, so that load
+# never touches ISO_P12. Regulated, unlike the TMA-0505S the audit originally named --
+# see gen_breakout_opto_intan.py's own place_iso_5v_supply() for why that matters.
 BAT54S_VALUE = "BAT54S"
 
 ACSL6400_CH_PINS = {
@@ -313,16 +318,51 @@ def _check_rhs_stim_input_protection(nets: dict[str, list[Node]], values: dict[s
     return f"RHS_STIM_OUT's own inbound protection: BNC -[100R {r_ref}]-> RHS_STIM_RAW -[BAT54S {d_ref} clamp to ISO_5V/INTAN_GND].", {r_ref, d_ref}
 
 
-def _check_iso5v_ldo(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
-    """ISO_5V's own source: LD1117S50TR_SOT223, VI=ISO_P12, GND=INTAN_GND, VO=ISO_5V
-    (module docstring, POWER) -- this value string IS unique project-wide (Task 7's own
-    +3V3 stage uses the 33-fixed sibling, LD1117S33TR_SOT223, a different Value).
+def _check_iso5v_supply(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
+    """ISO_5V's own source: a TMR 1-0511 isolated DC/DC -- primary on +5V/DGND, secondary
+    on ISO_5V/INTAN_GND (module docstring, POWER; finding F5). Pin map verified against
+    the datasheet's own Pinout table: 1 = -Vin, 2 = +Vin, 4 = +Vout, 6 = -Vout.
+
+    THE INPUT SIDE IS THE POINT OF THIS CHECK, not decoration. The defect F5 fixed was
+    invisible to every structural checker precisely because the old LDO's topology was
+    perfectly correct -- VI on ISO_P12, GND on INTAN_GND, VO on ISO_5V, all as designed.
+    What was wrong was WHICH RAIL its input current came from, which no connectivity
+    assertion asks. So this check asserts the primary is on the NON-isolated side and
+    explicitly that neither input pin has drifted back onto an isolated 12 V rail.
     Returns (summary, own_refs)."""
-    ref = _single_ref(values, LDO_VALUE)
-    check(any(n.ref == ref and n.pin == "3" for n in nets.get("ISO_P12", [])), f"{ref} pin 3 (VI) not found on ISO_P12")
-    check(any(n.ref == ref and n.pin == "1" for n in nets.get("INTAN_GND", [])), f"{ref} pin 1 (GND) not found on INTAN_GND")
-    check(any(n.ref == ref and n.pin == "2" for n in nets.get("ISO_5V", [])), f"{ref} pin 2 (VO) not found on ISO_5V")
-    return f"ISO_5V's own source ({ref}, {LDO_VALUE!r}): VI on ISO_P12, GND on INTAN_GND, VO on ISO_5V.", {ref}
+    ref = _single_ref(values, ISO5V_SUPPLY_VALUE)
+    check(any(n.ref == ref and n.pin == "2" for n in nets.get("+5V", [])), f"{ref} pin 2 (+Vin) not found on +5V")
+    check(any(n.ref == ref and n.pin == "1" for n in nets.get("DGND", [])), f"{ref} pin 1 (-Vin) not found on DGND")
+    check(any(n.ref == ref and n.pin == "4" for n in nets.get("ISO_5V", [])), f"{ref} pin 4 (+Vout) not found on ISO_5V")
+    check(any(n.ref == ref and n.pin == "6" for n in nets.get("ISO_5V_RTN", [])), f"{ref} pin 6 (-Vout) not found on ISO_5V_RTN")
+    # NT4: ISO_5V_RTN joined to INTAN_GND at exactly one NetTie_2. The converter's
+    # secondary return is deliberately NOT merged straight into INTAN_GND -- two isolated
+    # secondaries' power_output pins on one net is a real ERC pin_to_pin error, and the
+    # board's own answer to that (NT1/NT2/NT3) is an explicit single-point tie. It also
+    # keeps this switcher's return current off the INA105s' reference by construction.
+    tie = ({n.ref for n in nets.get("ISO_5V_RTN", [])}
+           & {n.ref for n in nets.get("INTAN_GND", [])})
+    check(
+        tie == {"NT4"},
+        f"ISO_5V_RTN and INTAN_GND should be joined by EXACTLY the net tie NT4, found "
+        f"{tie or 'nothing'} -- if they are merged directly the switcher's return runs "
+        f"through the Intan analog reference wherever the plane happens to connect",
+    )
+    for iso_rail in ("ISO_P12", "ISO_N12"):
+        on_iso = [n.pin for n in nets.get(iso_rail, []) if n.ref == ref]
+        check(
+            not on_iso,
+            f"{ref} has pin(s) {on_iso} on {iso_rail} -- ISO_5V's supply must draw its "
+            f"input current from the NON-isolated side. Drawing it from an isolated rail "
+            f"is finding F5's original defect: the IH1215D is rated 66 mA per rail and "
+            f"this branch is 63-96 mA.",
+        )
+    return (
+        f"ISO_5V's own source ({ref}, {ISO5V_SUPPLY_VALUE!r}, isolated DC/DC): +Vin on "
+        f"+5V, -Vin on DGND, +Vout on ISO_5V, -Vout on INTAN_GND -- and no pin on "
+        f"ISO_P12/ISO_N12, so its input current does not load the isolated module.",
+        {ref},
+    )
 
 
 def _check_all_bncs(nets: dict[str, list[Node]], values: dict[str, str]) -> tuple[str, set[str]]:
@@ -471,18 +511,30 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     summary.append(a_summary)
     b_summary, pkg_b_ref, b_refs = _check_package_b(nets, values)
     summary.append(b_summary)
-    ldo_summary, ldo_refs = _check_iso5v_ldo(nets, values)
-    summary.append(ldo_summary)
+    supply_summary, supply_refs = _check_iso5v_supply(nets, values)
+    summary.append(supply_summary)
     rhs_summary, rhs_refs = _check_rhs_stim_input_protection(nets, values)
     summary.append(rhs_summary)
     bnc_summary, bnc_refs = _check_all_bncs(nets, values)
     summary.append(bnc_summary)
 
     pkg_a_ref = next(r for r in a_refs if values.get(r) == ACSL6400_VALUE)
-    own_refs = a_refs | b_refs | ldo_refs | rhs_refs | bnc_refs
-    summary.append(_check_domain_pin_disjoint(nets, values, own_refs, {pkg_a_ref, pkg_b_ref}))
+    own_refs = a_refs | b_refs | supply_refs | rhs_refs | bnc_refs
+    # THREE straddling references now, not two -- finding F5. The ISO_5V supply used
+    # to be an LDO living wholly inside the Intan domain (ISO_P12 in, ISO_5V out, all
+    # INTAN_GND-referenced); the TMR 1-0511 that replaced it is an isolated DC/DC whose
+    # primary sits on +5V/DGND, so it crosses the barrier BY DESIGN exactly as the two
+    # ACSL packages and Task 7's own IH1215D do. Listing it explicitly keeps this an
+    # EXACT set comparison: an unexpected straddler is still a failure, and a missing
+    # expected one is too.
+    iso5v_supply_ref = next(iter(supply_refs))
+    summary.append(_check_domain_pin_disjoint(
+        nets, values, own_refs, {pkg_a_ref, pkg_b_ref, iso5v_supply_ref}))
 
-    for rail in ("+5V", "DGND", "ISO_5V", "INTAN_GND", "ISO_P12"):
+    # ISO_P12 deliberately NOT listed any more (finding F5): this sheet no longer
+    # consumes it at all, which is the whole point of the change. Asserting its presence
+    # here would pass on a board-wide net this sheet has nothing to do with.
+    for rail in ("+5V", "DGND", "ISO_5V", "INTAN_GND"):
         check(rail in nets, f"missing consumed/produced rail: {rail!r}")
     return summary
 

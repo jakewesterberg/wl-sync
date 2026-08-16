@@ -212,7 +212,45 @@ one output drives multiple BNCs. It is a single site, not a pattern.
 impedance near the 50 Ω line. This folds into F1's respreading, which already adds spare
 channels.
 
-### F5 — The isolated supply is over its per-rail rating
+### F5 — The isolated supply is over its per-rail rating — **IMPLEMENTED 2026-08-16, on a different part**
+
+> **The diagnosis was right and the named part was wrong.** Re-derived from the netlist after
+> F1, `ISO_P12` carried **114 % typ / 170 % max** of the `IH1215D`'s 66 mA rating — worse than
+> the figures below, because F1 raised the two inbound LEDs from 7.33 mA to ~10.5 mA each. The
+> fix shipped, and `ISO_P12` now carries **12–16 mA (18–24 %)**, matching `ISO_N12` exactly.
+>
+> **`TMA-0505S` was evaluated and rejected.** The handoff required pinning it before this
+> recommendation could be final, and pinning it is what killed it: **the TMA series is
+> unregulated.** ISO_5V sits at 31–46 % of its rating, and an unregulated module's output rises
+> at light load — this very finding records the `IH1215D` doing +10 % at ~20 %. At +10 %,
+> ISO_5V reaches **5.50 V, exactly the ACSL-6xx0's VDD absolute maximum with zero headroom**,
+> and it would drive F1's freshly-sized 301 Ω resistors to **14.3 mA against a 15 mA absolute
+> maximum**. Fixing F5 that way would have broken F1.
+>
+> **Shipped instead: `TMR 1-0511`** — Traco's regulated 1 W sibling. ±1 % set accuracy, 0.2 %
+> line, 0.5 % load, so ISO_5V stays 5.0 V and both problems vanish. Also 1500 VDC isolation
+> rather than 1000, no minimum load, 76 % efficient rather than 71 %. Cost: **one new part
+> number** — the only one the audit implementation has added. Pin map verified against the
+> datasheet's own Pinout table, not taken from the KiCad symbol.
+>
+> **It is a second on-board switcher, and that is the honest cost.** Spec §8 permitted exactly
+> one; it now records two, with the reasoning. Mitigations built in: the rail powers only
+> optocoupler output stages, its primary sits on `+5V`/`DGND` rather than the analog
+> `+12V`/`AGND`, and its secondary return is a separate net (`ISO_5V_RTN`) joined to
+> `INTAN_GND` at a single net tie (`NT4`) — the same idiom `FAN_RTN` uses. That last one was
+> forced by ERC (two `power_output` pins on one net) and is the better answer anyway: the
+> switching return reaches the Intan reference at a controlled point instead of across a plane.
+>
+> **Cost side, tracked in the spec:** the ISO_5V branch moved onto `+5V`, which gains 83/120 mA
+> of converter input current. `+5V` is now 475/615 mA against `F4`'s ~0.97 A derated hold —
+> 1.58×, so M7's fuse still holds it, but §8.2's budget rose 600 → 700 mA.
+>
+> **A new checker enforces both halves** (with a firing control): each isolated rail's load
+> against the 66 mA rating, and the **balance** between the pair — because cross-regulation is
+> only characterised with the lighter rail at 25–100 %, so both rails can be individually
+> within rating while the pair is outside the conditions its specs were measured under. Where
+> the ISO_5V load *lands* is derived, not declared: the check finds what feeds ISO_5V and asks
+> which side of the barrier it draws from.
 
 `IH1215D` is **±15 V at ±66 mA**, unregulated, 82% efficient (XP Power IH series datasheet).
 `INA105` I_Q is **±1.5 mA typ, ±2 mA max** (SBOS145B).

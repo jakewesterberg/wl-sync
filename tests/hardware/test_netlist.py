@@ -461,7 +461,8 @@ def test_aisense_tied_to_agnd_on_every_ni_connector_fires_on_dropped_tie(nodes, 
 
 # --- 10: both isolated domains pin-disjoint from every non-isolated rail. --------------
 
-ISOLATED_RAILS = {"NI_5V", "NI_GND", "ISO_P12", "ISO_N12", "INTAN_GND", "ISO_5V"}
+ISOLATED_RAILS = {"NI_5V", "NI_GND", "ISO_P12", "ISO_N12", "INTAN_GND", "ISO_5V",
+                  "ISO_5V_RTN"}  # ISO_5V_RTN added at finding F5 -- see RAIL_VOLTS.
 NON_ISOLATED_RAILS = {"+12V", "-12V", "+5V", "+3V3", "AGND", "DGND"}
 
 
@@ -577,6 +578,10 @@ RAIL_VOLTS = {
     "AGND": 0.0, "DGND": 0.0,
     "NI_5V": 5.0, "NI_5V_FB_RAW": 5.0, "NI_GND": 0.0,
     "ISO_5V": 5.0, "INTAN_GND": 0.0,
+    # ISO_5V_RTN: the F5 converter's own secondary return, joined to INTAN_GND at NT4
+    # rather than merged into it, so the switcher's return current reaches the Intan
+    # reference through one controlled tie. Same net at 0 V for every purpose here.
+    "ISO_5V_RTN": 0.0,
     "ISO_P12": 12.0, "ISO_N12": -12.0,
     "ISO_P15_RAW": 15.0, "ISO_P15_FILT": 15.0,
     "ISO_N15_RAW": -15.0, "ISO_N15_FILT": -15.0,
@@ -1047,7 +1052,7 @@ SUPPLY_TOL = 0.02
 R_LED_TOL = 0.01
 
 
-GROUND_NETS = {"AGND", "DGND", "NI_GND", "INTAN_GND", "FAN_RTN"}
+GROUND_NETS = {"AGND", "DGND", "NI_GND", "INTAN_GND", "FAN_RTN", "ISO_5V_RTN"}
 
 
 def _series_graph(nodes, values):
@@ -1596,7 +1601,12 @@ FUSE_AMBIENT_C = 35.0
 # cross-checks the +5 V figure against the LED current DERIVED from the netlist, so the
 # half of it that moves when someone edits a resistor cannot silently go stale.
 RAIL_LOAD_MA = {
-    "+5V": (392.0, 495.0),
+    # +5V: 392/495 mA of on-board load (M7), PLUS the input current of finding F5's
+    # TMR 1-0511, which moved the ISO_5V branch onto this rail from ISO_P12. At 76%
+    # efficiency its 63/91 mA output costs 83/120 mA in -- so the rail total is 475/615 mA.
+    # That is the whole cost side of F5's trade, and it lands on the rail M7 had just
+    # fused: F4's 1206L110 holds ~973 mA derated, so 615 mA still clears by 1.58x.
+    "+5V": (475.0, 615.0),
     "+12V": (97.0, 121.0),
     "-12V": (54.0, 66.0),
     "FAN_12V": (240.0, 240.0),
@@ -1804,14 +1814,32 @@ def test_fuse_capacity_fires_on_undersized_fuse(nodes, values, params):
         _check_fuse_capacity(nodes, corrupted, params)
 
 
-def test_fuse_capacity_derates_rather_than_using_the_headline_rating(nodes, values, params):
-    """The derating is the whole point, asserted rather than assumed: a 1206L050 passes
-    against its 500 mA headline and fails against its ~440 mA figure at 35 C, and the
-    +5 V rail's 495 mA maximum sits between the two."""
+def test_fuse_capacity_derates_rather_than_using_the_headline_rating(params):
+    """The derating is the whole point, asserted rather than assumed.
+
+    Stated as a property of the PART, not against `RAIL_LOAD_MA["+5V"]`. It was written
+    the other way first -- "the headline accepts the rail's 495 mA and the derated figure
+    rejects it" -- which was true and stopped being true the moment finding F5 moved the
+    ISO_5V branch onto this rail and took it to 615 mA. A demonstration pinned to a number
+    that legitimately moves is a demonstration that breaks for the wrong reason.
+
+    The historical fact it was capturing is worth keeping in prose: when M7 was
+    implemented the +5 V rail was 495 mA, which sat between the 1206L050's 500 mA headline
+    and its ~443 mA figure at 35 C -- accepted by the first, rejected by the second. That
+    gap is exactly why F4 had to change part, and the assertions below hold it open.
+    """
     at_23 = _fuse_hold_at(params, "polyfuse_1206l050", 23.0) * 1000
     at_amb = _fuse_hold_at(params, "polyfuse_1206l050", FUSE_AMBIENT_C) * 1000
-    assert at_23 >= RAIL_LOAD_MA["+5V"][1], "headline rating should look adequate"
-    assert at_amb < RAIL_LOAD_MA["+5V"][1], "derated rating must not"
+    assert at_amb < at_23 * 0.95, (
+        f"derating at {FUSE_AMBIENT_C} C ({at_amb:.0f} mA) is within 5% of the 23 C "
+        f"headline ({at_23:.0f} mA) -- if that ever became true, checking against the "
+        f"headline would be harmless and this whole check would be pointless"
+    )
+    midpoint = (at_23 + at_amb) / 2
+    assert at_amb < midpoint < at_23, (
+        "there must exist a load the headline rating accepts and the derated rating "
+        "rejects -- that band is the entire failure mode finding M7 caught"
+    )
 
 
 def test_rail_load_table_matches_the_led_current_derived_from_the_netlist(nodes, values, params):
@@ -1838,3 +1866,174 @@ def test_rail_load_table_matches_the_led_current_derived_from_the_netlist(nodes,
         f"alongside whatever change caused that -- re-derive it rather than loosening "
         f"this bound."
     )
+
+
+# ===========================================================================
+# 21: ISOLATED SUPPLY LOADING AND BALANCE (finding F5).
+#
+# The isolated +/-12 V module is an IH1215D: 66 mA per rail, UNREGULATED. Two things
+# about it are checkable and neither was:
+#
+#   - Its per-rail load against that 66 mA. `ISO_P12` carried 114-162% of it, because the
+#     linear regulator making `ISO_5V` drew that whole digital branch THROUGH the isolated
+#     module. A linear regulator passes its output current straight to its input, so the
+#     load simply appears one rail upstream -- which is exactly the kind of hop a
+#     per-sheet, per-net checker cannot see.
+#
+#   - The BALANCE between the two rails. Cross-regulation on an unregulated dual module is
+#     only characterised when the lighter rail carries 25-100% of rating
+#     (`ih_series.cross_regulation_valid_range_pct`); at 162% on one rail and 24% on the
+#     other, the datasheet's +/-5% cross-regulation figure does not describe this board at
+#     all. Every rail can be individually "within rating" and the pair still be outside
+#     the conditions its specs were measured under.
+#
+# WHERE ISO_5V'S LOAD LANDS IS DERIVED, NOT DECLARED. The check finds what feeds `ISO_5V`
+# and asks which side of the barrier it draws from: a linear regulator bridging
+# `ISO_P12 -> ISO_5V` puts the load on the isolated module, an isolated converter with its
+# primary on `+5V` does not. That single structural question is the whole of finding F5,
+# so the check turns on it rather than on a hand-maintained number.
+# ===========================================================================
+
+ISO_SUPPLY_RATED_MA = 66.0  # IH1215D per rail -- cross-checked against params below.
+
+
+def _iso_5v_load_ma(nodes, values, params) -> tuple[float, float]:
+    """(typical, maximum) mA drawn from ISO_5V, derived from the netlist.
+
+    Three consumers, each counted structurally: the optocoupler detector stages whose VDD
+    sits on ISO_5V (I_DDL, the LED-on case, which is the worst one), the pull-ups bridging
+    ISO_5V to a channel's output net, and any LED anode fed from ISO_5V.
+    """
+    acsl = params["acsl_6xx0"]
+    two_pin = _two_terminal_passive_refs(nodes)
+    iso_refs = {r for r, _p, _pf, _t in nodes.get("ISO_5V", [])}
+
+    # Detector channels on ISO_5V: a VO pin whose own package has VDD on ISO_5V. Counted
+    # per CHANNEL, not per package -- the ACSL-6420 straddles the barrier by design, with
+    # only two of its four channels' detectors on this rail.
+    # `VO\d+_` -- a NUMBERED channel output, not a bare "VO". Found the hard way: the
+    # LD1117S50 regulator's own output pin is `VO_2`, so a plain startswith("VO") counted
+    # the supply itself as a seventh detector channel drawing 10.5 mA from the rail it
+    # produces.
+    vo_re = re.compile(r"^VO\d+_")
+    chans = 0
+    for _name, nl in nodes.items():
+        for ref, _pin, pf, _pt in nl:
+            if not vo_re.match(pf or "") or ref not in iso_refs:
+                continue
+            # This VO belongs to ISO_5V's side only if its own pull-up returns to ISO_5V.
+            # That is what separates the ACSL-6420's two ISO_5V-side channels from its two
+            # +5V-side ones -- the package straddles the barrier by design.
+            pu = {r for r, _p, _pf2, _t2 in nl} & set(two_pin)
+            if any("ISO_5V" in two_pin[r] for r in pu):
+                chans += 1
+
+    pullup_ma = sum(
+        (RAIL_VOLTS["ISO_5V"] - DRIVER_VOL_V) / ohms * 1000
+        for r in iso_refs & set(two_pin)
+        if (ohms := _parse_ohms(values.get(r, ""))) and ohms > 1000
+    )
+    drops = _rail_series_drop_v(params, nodes, values)
+    led_ma = sum(
+        _led_current_bounds_ma(b, params, drops)[1]
+        for b in _led_branches(nodes, values, two_pin) if b["rail"] == "ISO_5V"
+    )
+    return (chans * acsl["i_ddl_typ_ma"] + pullup_ma + led_ma,
+            chans * acsl["i_ddl_max_ma"] + pullup_ma + led_ma)
+
+
+def _iso_5v_drawn_from(nodes, values) -> str | None:
+    """Which rail ISO_5V's supply draws its input current from.
+
+    A LINEAR regulator passes output current to its input, so its input rail carries the
+    ISO_5V load. An ISOLATED converter's primary is a different net on the other side of
+    the barrier, and the isolated module never sees that current. Distinguished by whether
+    the part feeding ISO_5V also has a pin on an isolated 12 V rail.
+    """
+    # The SUPPLY is the part with a power_out pin on ISO_5V -- not merely any part
+    # connected to it. Found the hard way: both ACSL optocouplers have pins on ISO_5V AND
+    # on +5V (they straddle the barrier by design), so "first U-ref touching a candidate
+    # rail" returned +5V from an optocoupler and silently declared the load already moved.
+    sources = [
+        r for r, _p, _pf, pt in nodes.get("ISO_5V", [])
+        if r.startswith("U") and "power_out" in pt
+    ]
+    if len(sources) != 1:
+        return None
+    nets_of = _part_nets(nodes).get(sources[0], set())
+    for candidate in ("ISO_P12", "ISO_N12", "+5V", "+12V"):
+        if candidate in nets_of:
+            return candidate
+    return None
+
+
+def _check_isolated_supply_loading(nodes, values, params) -> None:
+    ih = params["ih_series"]
+    assert ih["i_out_per_rail_ma"] == ISO_SUPPLY_RATED_MA, (
+        f"IH1215D per-rail rating moved to {ih['i_out_per_rail_ma']} mA in "
+        f"datasheet-params.toml but this check still uses {ISO_SUPPLY_RATED_MA}"
+    )
+    ina = params["ina105"]
+    n_ina = len({
+        r for r, _p, _pf, _t in nodes.get("ISO_P12", [])
+        if values.get(r, "").startswith("INA105")
+    })
+    assert n_ina, "no INA105 found on ISO_P12 -- this check would pass vacuously"
+
+    iso5v_typ, iso5v_max = _iso_5v_load_ma(nodes, values, params)
+    source = _iso_5v_drawn_from(nodes, values)
+    assert source, "could not determine what supplies ISO_5V -- this check would pass vacuously"
+    passes_through = source in ("ISO_P12", "ISO_N12")
+
+    p12 = (n_ina * ina["i_q_typ_ma"] + (iso5v_typ if passes_through else 0.0),
+           n_ina * ina["i_q_max_ma"] + (iso5v_max if passes_through else 0.0))
+    n12 = (n_ina * ina["i_q_typ_ma"], n_ina * ina["i_q_max_ma"])
+
+    over = [
+        (rail, round(mx, 1))
+        for rail, (_t, mx) in (("ISO_P12", p12), ("ISO_N12", n12))
+        if mx > ISO_SUPPLY_RATED_MA
+    ]
+    assert not over, (
+        f"isolated rail(s) over the IH1215D's {ISO_SUPPLY_RATED_MA} mA per-rail rating: "
+        + "; ".join(f"{r} at {ma} mA ({ma / ISO_SUPPLY_RATED_MA:.0%})" for r, ma in over)
+        + f"\nISO_5V draws {iso5v_max:.0f} mA max and is supplied from {source!r}"
+        + (", a LINEAR regulator -- so that entire digital branch is drawn THROUGH the "
+           "isolated module. Finding F5: supply ISO_5V across the barrier from +5V "
+           "instead, and the isolated module carries only the INA105 analog load."
+           if passes_through else ".")
+    )
+
+    # Balance: cross-regulation is only characterised over this range on the LIGHTER rail.
+    lo, hi = min(p12[1], n12[1]), max(p12[1], n12[1])
+    assert hi <= 2.0 * lo, (
+        f"the isolated module's two rails are unbalanced {hi:.0f} mA vs {lo:.0f} mA "
+        f"({hi / max(lo, 1e-9):.1f}:1). It is UNREGULATED, and its cross-regulation figure "
+        f"({ih['cross_regulation_pct']}%) is characterised only with the lighter rail at "
+        f"{ih['cross_regulation_valid_range_pct'][0]}-"
+        f"{ih['cross_regulation_valid_range_pct'][1]}% of rating -- so at this imbalance "
+        f"the datasheet does not describe this board. This is a PAIRWISE property: both "
+        f"rails can be individually within rating and still be outside the conditions "
+        f"their specs were measured under."
+    )
+
+
+def test_isolated_supply_loading(nodes, values, params):
+    _check_isolated_supply_loading(nodes, values, params)
+
+
+def test_isolated_supply_loading_fires_when_iso_5v_is_drawn_through_the_module(nodes, values, params):
+    """The defect verbatim: ISO_5V supplied by a linear regulator off ISO_P12, so the
+    whole digital branch is drawn through the isolated module's positive rail."""
+    ldo = "UDBG96"
+    corrupted_values = dict(values) | {ldo: "LD1117S50TR_SOT223"}
+    corrupted = dict(nodes)
+    # Swap whatever currently sources ISO_5V for a linear regulator fed from ISO_P12.
+    # Identified by pintype rather than by refdes so this control keeps testing the
+    # property rather than a particular part number.
+    corrupted["ISO_5V"] = [
+        n for n in nodes["ISO_5V"] if not (n[0].startswith("U") and "power_out" in n[3])
+    ] + [(ldo, "2", "VO_2", "power_out")]
+    corrupted["ISO_P12"] = list(nodes.get("ISO_P12", [])) + [(ldo, "3", "VI_3", "power_in")]
+    with pytest.raises(AssertionError, match=r"LINEAR regulator"):
+        _check_isolated_supply_loading(corrupted, corrupted_values, params)

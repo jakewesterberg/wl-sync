@@ -180,8 +180,14 @@ Dependencies are real here — doing these out of order means redoing arithmetic
    Largest single change in the audit.~~ **DONE 2026-08-16** — see §2 above. Note it landed
    *before* step 1 rather than after, which the parenthetical below already allowed for; the
    fuse choice moves LED current by ~0.2 mA and 249 Ω clears both bounds either way.
-3. **Isolated domain** — `LD1117S50` → second `TMA-0505S` (F5). Pin `tma_0505s` in
-   `datasheet-params.toml` first; it is the one entry still outstanding.
+3. ~~**Isolated domain** — `LD1117S50` → second `TMA-0505S` (F5). Pin `tma_0505s` in
+   `datasheet-params.toml` first; it is the one entry still outstanding.~~ **DONE
+   2026-08-16 — and the instruction to pin the part first is what saved it.** Pinning
+   `tma_0505s` revealed the TMA series is **unregulated**, which would have driven ISO_5V to
+   the ACSL's 5.5 V VDD absolute maximum and broken F1's freshly-sized 301 Ω resistors. The
+   fix shipped on a **`TMR 1-0511`** (regulated, 1500 VDC, no minimum load) instead — one new
+   part number. See `parametric-audit.md`'s F5 entry. This step is the clearest vindication of
+   the "pin it before you trust it" rule in this file.
 4. **Analog corrections** — TIA `R38` 1 MΩ → 180 kΩ and `C48` 3.3 pF → 22 pF (F3, M1), mux
    retap to `A_PD1_NI_BUF`/`A_PD2_NI_BUF` (M2, free), DAC to internal reference gain 1 (D1),
    comparator pull-ups 10 kΩ → 2.2 kΩ (M4).

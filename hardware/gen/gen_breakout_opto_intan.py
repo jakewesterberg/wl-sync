@@ -182,6 +182,13 @@ FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"
 FOOTPRINT_C_BULK = "Capacitor_SMD:C_1206_3216Metric"
 FOOTPRINT_ACSL = "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm"
 FOOTPRINT_SOT223 = "Package_TO_SOT_SMD:SOT-223-3_TabPin2"
+FOOTPRINT_NETTIE = "NetTie:NetTie-2_SMD_Pad2.0mm"  # NT4 (finding F5) -- the SAME
+# 2.0mm-pad variant power.kicad_sch already uses for NT1/NT2/NT3.
+FOOTPRINT_DCDC_SIP6 = "Converter_DCDC:Converter_DCDC_TRACO_TMR-1-xxxx_Single_THT"  # TMR
+# 1-0511 (finding F5) -- real stock KiCad footprint for Traco's own SIP-6 outline,
+# 17.0 x 11.0 mm, through-hole and hand-solderable like the TMA the NI-side fallback
+# already uses. NOT the same footprint as that TMA: the TMR 1 is SIP-6 on a different
+# pin pattern (2.54 / 5.08 / 2.54 / 2.54 mm), so they are not interchangeable in layout.
 FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"
 FOOTPRINT_BNC = "Connector_Coaxial:BNC_PanelMountable_Vertical"
 
@@ -317,8 +324,11 @@ def lbl(sch, x, y, pins, pin_num, net):
     sch.label(net, px, py)
 
 
-def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", dnp=False):
-    ref = sch.next_ref(ref_prefix)
+def two_pin(sch, libname, symname, ref_prefix, value, x, y, net1, net2, footprint="", dnp=False, ref=None):
+    # `ref`, when given, is an EXPLICIT out-of-band refdes used instead of next_ref() --
+    # this sheet's counters are pinned and fully spent, so an ordinary mint would collide
+    # with a sibling. Same mechanism as U69/U70-U73 elsewhere on this board.
+    ref = ref or sch.next_ref(ref_prefix)
     pins = sch.place(libname, symname, ref, value, x, y, footprint=footprint, dnp=dnp)
     lbl(sch, x, y, pins, "1", net1)
     lbl(sch, x, y, pins, "2", net2)
@@ -468,22 +478,111 @@ def place_rhs_stim_input(sch, refs):
     refs["rhs_stim_clamp_d"] = d_ref
 
 
-def place_iso_5v_ldo(sch, refs):
-    """ISO_5V: LD1117S50TR_SOT223 regulating ISO_P12 down to 5V, referenced INTAN_GND --
-    see module docstring, POWER. Pin map (VI=3, GND=1, VO=2) confirmed directly against
-    the raw Regulator_Linear.kicad_sym text via kicad_sch.py's own extract_symbol()/
-    unit_pins() -- IDENTICAL to LD1117S33TR_SOT223's own pin map (gen_breakout_power.py's
-    own u1_map), same SOT-223 sub-family, same physical pin function regardless of the
-    fixed output voltage variant."""
+def place_iso_5v_supply(sch, refs):
+    """ISO_5V: a TMR 1-0511 isolated DC/DC, 5 V in from +5V/DGND, 5 V out referenced
+    INTAN_GND -- FINDING F5, 2026-08-16. This replaced an LD1117S50TR_SOT223 that
+    regulated ISO_P12 down to 5 V.
+
+    WHY THE LDO HAD TO GO. A linear regulator passes its output current straight to its
+    input, so the whole ISO_5V digital branch -- 63 mA typ / 91-96 mA max of detector
+    supply, pull-ups and inbound LEDs -- was drawn THROUGH the isolated +-12 V module.
+    The IH1215D is rated 66 mA per rail, so ISO_P12 sat at 114-170% of rating while
+    ISO_N12 carried only the 12-16 mA of INA105 quiescent current. Two separate defects
+    in one: an over-rating, and an imbalance so large that the module's own +-5%
+    cross-regulation figure -- characterised only with the lighter rail at 25-100% -- did
+    not describe this board at all. Afterwards both rails carry 12-16 mA and match.
+
+    It also retires 0.37-0.58 W of LDO dissipation inside a sealed 2U chassis.
+
+    WHY *THIS* PART, NOT THE TMA-0505S THE AUDIT NAMED. The audit picked the TMA because
+    it is already on this board (U62, the DNP NI-side fallback) and so costs no new part
+    number. Pinning it -- which the handoff required before that recommendation could be
+    final -- is what ruled it out: THE TMA SERIES IS UNREGULATED. ISO_5V would sit at
+    31-46% of its rating, and an unregulated module's output rises at light load (the
+    audit records the IH1215D itself doing +10% at ~20%). At +10% ISO_5V reaches 5.50 V,
+    EXACTLY the ACSL-6xx0's VDD absolute maximum with zero headroom, and it would drive
+    the 301 ohm ISO_5V LED resistors finding F1 had just sized for a +-2% rail to 14.3 mA
+    against a 15 mA absolute maximum. Fixing one finding would have broken another.
+
+    TMR 1-0511 is fully regulated: +-1% set accuracy, 0.2% line, 0.5% load. ISO_5V stays
+    5.0 V, so both of those problems disappear. It also isolates to 1500 VDC rather than
+    1000, needs no minimum load, and is more efficient (76% vs 71%). Cost: one new part
+    number. See datasheet-params.toml's own [tmr_1_0511].
+
+    IT IS A SWITCHER, AND THAT IS THE HONEST COST. Spec Sec.8 permits exactly one
+    on-board switcher (the IH1215D) and this is a second, so it is recorded rather than
+    absorbed. What makes it acceptable: the rail it creates powers ONLY optocoupler
+    output stages, never analog; the Intan-domain INA105s keep their ferrite pi filter
+    and both low-noise LDOs, and -- the actual improvement -- they stop sharing ISO_P12
+    with a 57+ mA digital branch; and its primary sits on +5V/DGND, the digital ground
+    already switching 30 optocoupler LEDs, not on the analog +12V/AGND. What remains, and
+    belongs to layout rather than to schematic capture: its secondary return shares
+    INTAN_GND with those INA105s across 50 pF of barrier capacitance, it is PFM so the
+    switching spectrum spreads with load rather than sitting at one filterable tone, and
+    its 80 mAp-p reflected ripple goes back into +5V (Traco claim EN 55032 class A only
+    WITH an external filter).
+
+    PIN MAP VERIFIED pin-by-pin against the datasheet's own Pinout table (TMR 1 series,
+    rev. 2019-10-07, p.4): 1 = -Vin (GND), 2 = +Vin (Vcc), 4 = +Vout, 5 = no pin,
+    6 = -Vout. The stock KiCad symbol agrees; both were checked, neither assumed.
+
+    REFDES: the converter reuses the LDO's own reference, so no refdes moves. Its two new
+    INPUT capacitors are minted OUT OF BAND (C155/C156) -- this sheet's C counter is
+    pinned and its range is fully spent, so an ordinary next_ref() would collide with
+    control-usb-i2c.kicad_sch. Same mechanism as U69/U70-U73 elsewhere on this board.
+    """
     ref = sch.next_ref("U")
-    pins = sch.place("Regulator_Linear", "LD1117S50TR_SOT223", ref, "LD1117S50TR_SOT223", X_LDO, Y_LDO, footprint=FOOTPRINT_SOT223)
-    lbl(sch, X_LDO, Y_LDO, pins, "3", "ISO_P12")
-    lbl(sch, X_LDO, Y_LDO, pins, "1", "INTAN_GND")
-    lbl(sch, X_LDO, Y_LDO, pins, "2", "ISO_5V")
-    c1 = two_pin(sch, "Device", "C", "C", "100nF", X_LDO, Y_LDO + GRID(15.24), "ISO_5V", "INTAN_GND", footprint=FOOTPRINT_C_SMALL)
-    c2 = two_pin(sch, "Device", "C", "C", "10uF", X_LDO + GRID(15.24), Y_LDO + GRID(15.24), "ISO_5V", "INTAN_GND", footprint=FOOTPRINT_C_BULK)
-    refs["iso5v_ldo"] = ref
+    pins = sch.place(
+        "Converter_DCDC_Isolated", "TMR_1-0511", ref, "TMR 1-0511", X_LDO, Y_LDO,
+        footprint=FOOTPRINT_DCDC_SIP6,
+    )
+    lbl(sch, X_LDO, Y_LDO, pins, "2", "+5V")         # +Vin (Vcc), non-isolated side
+    lbl(sch, X_LDO, Y_LDO, pins, "1", "DGND")        # -Vin (GND), non-isolated side
+    lbl(sch, X_LDO, Y_LDO, pins, "4", "ISO_5V")      # +Vout, Intan side
+    lbl(sch, X_LDO, Y_LDO, pins, "6", "ISO_5V_RTN")  # -Vout, Intan side -- see NT4 below
+
+    # NT4: the converter's own secondary return joined to INTAN_GND at EXACTLY ONE
+    # POINT, the same NetTie_2 idiom power.kicad_sch already uses three times (NT1
+    # AGND<->DGND, NT2 FAN_RTN<->DGND, NT3 CHASSIS_GND<->DGND).
+    #
+    # ERC FORCED THE QUESTION AND THE ANSWER IMPROVES THE DESIGN. Wiring -Vout straight
+    # to INTAN_GND put TWO power_output pins on that net -- this converter's and the
+    # IH1215D's own 0V -- which kicad-cli sch erc reports as a real `pin_to_pin` error
+    # ("Pins of type Power output and Power output are connected"). Tying two isolated
+    # secondaries' RETURNS together is correct and necessary (the Intan domain needs one
+    # reference, or its +-12V analog and its 5V digital would float apart), so the fix is
+    # not to change the topology but to make the join explicit -- which is precisely what
+    # this board already decided for FAN_RTN: gen_breakout_power.py's own
+    # _place_fan_headers() keeps FAN_RTN a distinct net "so ERC still treats them as
+    # distinct everywhere else on the board, and a future plane-split mistake between
+    # them is a rule violation for a checker to catch, not noise buried in a recording".
+    #
+    # It also directly answers this part's own residual noise concern. A switching
+    # converter's return current is the half that actually radiates; forcing it to reach
+    # INTAN_GND through one controlled tie instead of anywhere across a plane keeps it out
+    # of the eight INA105s' own reference by construction rather than by layout luck.
+    nt = sch.place("Device", "NetTie_2", "NT4", "NetTie_2", X_LDO + GRID(60.96), Y_LDO, footprint=FOOTPRINT_NETTIE)
+    nx, ny = pin_pos(X_LDO + GRID(60.96), Y_LDO, nt["1"])
+    sch.label("ISO_5V_RTN", nx, ny)
+    nx, ny = pin_pos(X_LDO + GRID(60.96), Y_LDO, nt["2"])
+    sch.label("INTAN_GND", nx, ny)
+    refs["iso5v_nettie"] = "NT4"
+
+    # Output decoupling -- unchanged from the LDO block in value, and still correct (10uF
+    # is far inside the converter's own 1680uF maximum capacitive load), but returned to
+    # ISO_5V_RTN rather than INTAN_GND so the converter's own HF loop closes locally,
+    # at the part, instead of through NT4.
+    c1 = two_pin(sch, "Device", "C", "C", "100nF", X_LDO, Y_LDO + GRID(15.24), "ISO_5V", "ISO_5V_RTN", footprint=FOOTPRINT_C_SMALL)
+    c2 = two_pin(sch, "Device", "C", "C", "10uF", X_LDO + GRID(15.24), Y_LDO + GRID(15.24), "ISO_5V", "ISO_5V_RTN", footprint=FOOTPRINT_C_BULK)
+    # INPUT decoupling -- NEW, and not optional. A linear regulator draws smooth input
+    # current; this part draws it in 220 kHz pulses and pushes 80 mAp-p of reflected
+    # ripple back into +5V. Local bulk plus HF bypass on the primary side is the minimum
+    # the datasheet's own external-filter note implies.
+    c3 = two_pin(sch, "Device", "C", "C", "10uF", X_LDO + GRID(30.48), Y_LDO + GRID(15.24), "+5V", "DGND", footprint=FOOTPRINT_C_BULK, ref="C155")
+    c4 = two_pin(sch, "Device", "C", "C", "100nF", X_LDO + GRID(45.72), Y_LDO + GRID(15.24), "+5V", "DGND", footprint=FOOTPRINT_C_SMALL, ref="C156")
+    refs["iso5v_supply"] = ref
     refs["iso5v_cap"] = [c1, c2]
+    refs["iso5v_input_cap"] = [c3, c4]
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +610,7 @@ def build() -> tuple[Sch, dict]:
     sch = Sch(project="breakout", instance_path_prefix=instance_path, ref_start=ref_start)
     refs: dict = {}
 
-    place_iso_5v_ldo(sch, refs)
+    place_iso_5v_supply(sch, refs)
     place_package_a(sch, refs)
     place_package_b(sch, refs)
     place_rhs_stim_input(sch, refs)

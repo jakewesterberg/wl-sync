@@ -593,15 +593,91 @@ layout ambiguity under a 0.65 mm-pitch part."""
 part = "TMA-0505S"
 document = "Traco TMA series"
 retrieved = "2026-08-15"
-status = "TODO -- not yet pinned to a primary document"
+status = "distributor data only -- NOT pinned to a primary document (Traco's own URLs 403)"
 power_w = 1.0
 v_in_v = 5.0
 v_out_v = 5.0
 i_out_ma = 200.0
+regulation = "UNREGULATED"
+feeds = []
+note = """EVALUATED FOR F5 AND REJECTED, 2026-08-16. This part is still on the board as
+U62, the DNP NI-side fallback, and that role is unaffected -- but it is NOT what replaced
+the LD1117S50 on ISO_5V. See [tmr_1_0511], which did.
+
+The audit named this part for F5 because it was already on the board ("no new part
+number"). Pinning it, as the handoff required before that recommendation could be
+final, is what killed it: THE TMA SERIES IS UNREGULATED. ISO_5V would sit at 31-46% of
+this part's rating, and an unregulated module's output rises at light load -- the audit
+itself records the IH1215D doing +10% at ~20%. At +10% ISO_5V reaches 5.50 V, which is
+EXACTLY the ACSL-6xx0's VDD absolute maximum (see [acsl_6xx0].vdd_max_v) with zero
+headroom, and it would push the 301 ohm ISO_5V LED resistors finding F1 had just sized
+for a +/-2% rail to 14.3 mA against a 15 mA absolute maximum.
+
+The values above remain distributor-sourced and unverified. They are kept only because
+U62 exists; nothing depends on them, which is why `feeds` is now empty. Pin them
+properly before that fallback is ever populated."""
+
+[tmr_1_0511]
+part = "TMR 1-0511"
+document = "Traco TMR 1 series, 1 Watt"
+revised = "2019-10-07"
+retrieved = "2026-08-16"
+url = "https://www.tracopower.com/sites/default/files/products/datasheets/tmr1_datasheet.pdf"
+
+regulation = "fully regulated"
+power_w = 1.0
+v_in_nom_v = 5.0
+v_in_range_v = [4.5, 9.0]
+v_out_v = 5.0
+i_out_max_ma = 200.0
+efficiency_pct = 76.0             # typ, at full load
+i_in_no_load_ma = 40.0            # 5 Vin models
+setpoint_accuracy_pct = 1.0       # "Voltage Set Accuracy +/-1% max"
+line_regulation_pct = 0.2         # Vmin-Vmax, single output
+load_regulation_pct = 0.5         # 10-90% load, single output
+min_load_pct = 0.0                # "Minimum Load: Not required"
+ripple_noise_mv_pp = 110.0        # 20 MHz bandwidth
+reflected_ripple_ma_pp = 80.0     # 5 Vin models -- injected back into the INPUT rail
+recommended_input_fuse_ma = 500.0 # slow blow, 5 Vin models
+switching_khz = 220.0             # typ, PFM -- frequency VARIES with load
+isolation_vdc = 1500.0
+isolation_test_vac_60s = 1061.0
+isolation_capacitance_pf = 50.0
+isolation_resistance_mohm = 1000.0
+c_load_max_uf = 1680.0            # 5 Vout models
+short_circuit = "continuous, automatic recovery"
+overload = "foldback"
+temp_range_c = [-40.0, 95.0]
+derating_pct_per_k_above_85c = 5.0
+package = "SIP-6, through-hole"
+mtbf_h = 2800000.0
+pinout = "1 = -Vin (GND), 2 = +Vin (Vcc), 4 = +Vout, 5 = no pin, 6 = -Vout"
 feeds = ["F5"]
-note = """Load-bearing: F5's fix is a SECOND instance of this part replacing the
-LD1117S50 on ISO_5V. Need isolation voltage, efficiency, minimum load and ripple pinned
-before that recommendation is final."""
+note = """F5's actual fix: replaces the LD1117S50 as the source of ISO_5V, moving that
+whole 63-91 mA digital branch OFF ISO_P12 (which it was overloading to 114-162% of the
+IH1215D's 66 mA per-rail rating) and onto +5V through a galvanic barrier.
+
+CHOSEN OVER THE AUDIT'S NAMED TMA-0505S BECAUSE IT IS REGULATED. +/-1% set accuracy and
+0.5% load regulation keep ISO_5V at 5.0 V, so the ACSL-6xx0's 5.5 V VDD absolute maximum
+keeps real headroom and finding F1's 301 ohm ISO_5V resistors -- sized against a +/-2%
+rail -- remain valid. It also improves isolation (1500 VDC vs 1000), needs no minimum
+load, and is more efficient (76% vs 71%). Cost: one new part number.
+
+PINOUT VERIFIED pin-by-pin against the datasheet's own Pinout table (p.4), not assumed
+from the KiCad symbol -- they agree.
+
+IT IS A SWITCHER, AND THAT IS THE REAL TRADE. Spec Sec.8 rejects on-board switchers and
+permits exactly one (the IH1215D); this is a second. Two mitigations and one residual:
+the rail it creates powers ONLY optocoupler output stages, never analog, and the
+Intan-domain INA105s keep their ferrite pi filter and both low-noise LDOs -- indeed they
+stop sharing a rail with a 57+ mA digital branch, which is a noise IMPROVEMENT. Its
+primary sits on +5V/DGND (the digital ground, already switching 30 optocoupler LEDs),
+not on the analog +12V/AGND. The residual is that its secondary return shares INTAN_GND
+with those INA105s, coupled across 50 pF of barrier capacitance, and that it is PFM --
+switching frequency varies with load, so the spectrum spreads rather than sitting at a
+filterable tone. Reflected ripple is 80 mAp-p back into +5V, and EN 55032 class A is
+claimed only WITH AN EXTERNAL FILTER. Treat input filtering and the INTAN_GND return
+path as layout-stage requirements, not optional."""
 
 [bat54s]
 part = "BAT54S"

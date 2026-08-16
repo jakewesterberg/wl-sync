@@ -469,8 +469,33 @@ board's intended decade of service.
 
 ## 8. Power
 
-**No on-board switching regulators**, with one unavoidable exception. Rejecting digital
-isolators for their RF carrier and then adding a switcher to the same board would be incoherent.
+**No on-board switching regulators**, with ~~one unavoidable exception~~ **two, as of
+2026-08-16**. Rejecting digital isolators for their RF carrier and then adding a switcher to
+the same board would be incoherent.
+
+**The second exception, recorded rather than absorbed.** Finding F5 replaced the linear
+regulator that made `ISO_5V` with an isolated DC/DC (`TMR 1-0511`), because the linear part
+drew that whole 63–91 mA digital branch *through* the isolated ±12 V module and left it at
+114–170 % of its 66 mA per-rail rating. There was no linear way out: the load had to leave
+`ISO_P12`, and crossing the barrier means a converter.
+
+What keeps it coherent with the decision above:
+
+- The rail it creates powers **only optocoupler output stages** — never an analog stage.
+- Its primary sits on **`+5V`/`DGND`**, the digital ground already switching 30 optocoupler
+  LEDs, not on the analog `+12V`/`AGND`.
+- Its secondary return is a **separate net (`ISO_5V_RTN`) joined to `INTAN_GND` at one net
+  tie (`NT4`)**, the same idiom `FAN_RTN` already uses — so the switching return current
+  reaches the Intan reference at a controlled point rather than wherever a plane happens to
+  connect.
+- It is a **net noise improvement** for the analog side: the eight Intan-domain `INA105`
+  difference amplifiers previously shared `ISO_P12` with a 57 mA digital branch and now do
+  not, while keeping their ferrite pi filter and both low-noise LDOs.
+
+What remains, and belongs to layout: 50 pF of barrier capacitance couples primary switching
+edges toward `INTAN_GND`; the part is PFM, so its spectrum spreads with load rather than
+sitting at one filterable tone; and it reflects 80 mAp-p back into `+5V`, for which Traco
+claim EN 55032 class A **only with an external filter**.
 
 | Rail | Source |
 |---|---|
@@ -504,12 +529,18 @@ series drops in front of it. The real drive, set by clearing that 8 mA floor onc
 | 12.65 mA nominal (249 Ω on `+5V`) | ~367 mA |
 | **13.90 mA at the max-current corner** | **~403 mA** |
 
-**Budget: 600 mA.** Raised from the 400 mA this section previously carried, which the LEDs
-alone now exceed. With the logic and regulator branch on top, the rail carries **392 mA
-typical / 495 mA maximum** (762 mA if the NI-fallback `TMA-0505S` is ever populated) — see
-finding M7. Two consequences follow, both tracked there rather than here: `F4` must rise from
-0.5 A to **≥1.1 A**, and the external supply's own +5 V output must be rated **≥0.8 A** (the
-audit's 0.5 A figure sits exactly at the computed maximum, which is not a margin).
+**Budget: 700 mA.** Raised from the 400 mA this section previously carried, which the LEDs
+alone now exceed. With the logic and regulator branch on top the rail carries **392 mA
+typical / 495 mA maximum** (finding M7) — and **finding F5 then added the ISO_5V branch to
+this rail**, because the isolated 5 V supply moved from a linear regulator off `ISO_P12` to
+an isolated DC/DC fed from here. At 76 % efficiency its 63/91 mA output costs **83/120 mA**
+in, so the rail total is **475 mA typical / 615 mA maximum**. That is the cost side of F5's
+trade, and it is why this budget moved twice.
+
+Two consequences follow, both tracked in the audit rather than here: `F4` rose from 0.5 A to
+**1.1 A** (`1206L110-C`, which holds ~0.97 A derated at 35 °C — 1.58× the 615 mA), and the
+external supply's own +5 V output must be rated **≥0.8 A** (the audit's 0.5 A figure sat
+exactly at the then-computed maximum, which is not a margin; 0.8 A gives 1.3× on 615 mA).
 
 **The +5 V output must be specified at ±2 %.** This is a requirement, not an observation. The
 optocoupler window is 8–15 mA — a 1.88:1 ratio — and every tolerance in the chain (supply,

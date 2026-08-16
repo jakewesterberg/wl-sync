@@ -247,7 +247,7 @@ RAIL_BYPASS_EXPECTED = {
                                    # moved from this pair to +12V/AGND (33/33 -> 34/32).
                                    # See gen_breakout_comparators.py's own "THE SECOND
                                    # DESTROY-HARDWARE CONSTRAINT".
-    ("+5V", "DGND"): 15,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 17,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
                                    # (Task 9); + 1 from opto-intan.kicad_sch's own
@@ -264,7 +264,15 @@ RAIL_BYPASS_EXPECTED = {
                                    # SN74AHCT541PW packages (U70-U73, taskpc-digital.
                                    # kicad_sch -- the second buffer output of every
                                    # optocoupler LED pair), by that same one-decoupler-
-                                   # per-IC discipline. 11 -> 15.
+                                   # per-IC discipline. 11 -> 15;
+                                   # + 2 (C155-C156) from finding F5's own
+                                   # TMR 1-0511 INPUT decoupling on
+                                   # opto-intan.kicad_sch. Unlike the LDO it
+                                   # replaced, that part draws its input
+                                   # current in 220 kHz pulses and reflects
+                                   # 80 mAp-p back into +5V, so local bulk +
+                                   # HF bypass on its primary is required,
+                                   # not stylistic. 15 -> 17.
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk
@@ -652,16 +660,27 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # anywhere on the board -- a future edit that adds an unaccounted-for net tie
     # (accidentally or otherwise) is caught here even though each individual "exactly one
     # bridging reference" check above only looks at its own net pair in isolation. ---
+    # FOUR as of finding F5 (2026-08-16), not three. NT4 lives on opto-intan.kicad_sch and
+    # joins ISO_5V_RTN to INTAN_GND -- the F5 isolated converter's own secondary return,
+    # tied at one point rather than merged, for the same reason NT2 keeps FAN_RTN distinct
+    # from DGND. It is named here rather than pattern-matched so this stays an EXACT set
+    # comparison: a genuinely stray FIFTH tie is still caught, and a missing known one too.
+    ISO5V_RTN_TIE = "NT4"
     nettie_refs = {n.ref for name in nets for n in nets[name] if n.ref.startswith("NT")}
+    expected_ties = {bridge_ref, fan_bridge_ref, chassis_bridge_ref, ISO5V_RTN_TIE}
     check(
-        nettie_refs == {bridge_ref, fan_bridge_ref, chassis_bridge_ref},
+        nettie_refs == expected_ties,
         f"unexpected NetTie_2 reference(s) somewhere on the board -- expected exactly "
-        f"the three known net ties {{{bridge_ref!r}, {fan_bridge_ref!r}, "
-        f"{chassis_bridge_ref!r}}} (AGND/DGND star point, FAN_RTN/DGND, CHASSIS_GND/"
-        f"DGND), found {nettie_refs} -- either a stray/unaccounted net tie exists, or "
-        f"one of the three known ones is missing",
+        f"the four known net ties {sorted(expected_ties)} (AGND/DGND star point, "
+        f"FAN_RTN/DGND, CHASSIS_GND/DGND, ISO_5V_RTN/INTAN_GND), found "
+        f"{sorted(nettie_refs)} -- either a stray/unaccounted net tie exists, or one of "
+        f"the four known ones is missing",
     )
-    summary.append(f"Exactly three net ties on the whole board, nothing else: {nettie_refs}.")
+    check(
+        _refs_on(nets, "ISO_5V_RTN") & _refs_on(nets, "INTAN_GND") == {ISO5V_RTN_TIE},
+        f"{ISO5V_RTN_TIE} should be the sole join between ISO_5V_RTN and INTAN_GND",
+    )
+    summary.append(f"Exactly four net ties on the whole board, nothing else: {sorted(nettie_refs)}.")
 
     # --- POWER-GOOD LEDS (panel-instrumentation task, 2026-08-15, spec Sec.9.8 item 2):
     # one per rail (+12V, -12V, +5V) -- "a failed one is otherwise invisible until the

@@ -824,10 +824,33 @@ two independent figures). Total across both opto sheets: 7×`ACSL-6400` + 1×`AC
 **eight quad packages, 30 channels** — the corrected count; the plan's own text still reads
 28/6-packages, stale since before the two photodiode-comparator NI channels propagated.
 
-**The Intan-side output stage runs from a new `ISO_5V` rail**, an `LD1117S50TR_SOT223`
-LDO regulating `ISO_P12` down to 5 V, referenced to `INTAN_GND` — `ISO_P12`/`ISO_N12`
-themselves are ±12 V, too high for the ACSL-6400/6420 family's own 5.5 V absolute maximum
-VDD. `RHS_STIM_OUT`'s own inbound path gets the same series-resistor-plus-clamp input
+**The Intan-side output stage runs from a new `ISO_5V` rail.** It began as an
+`LD1117S50TR_SOT223` LDO regulating `ISO_P12` down to 5 V, referenced to `INTAN_GND` —
+`ISO_P12`/`ISO_N12` themselves are ±12 V, too high for the ACSL-6400/6420 family's own
+5.5 V absolute maximum VDD.
+
+**Finding F5 (2026-08-16) replaced that LDO with a `TMR 1-0511` isolated DC/DC, fed from
+`+5V`/`DGND`.** A linear regulator passes its output current straight to its input, so the
+whole 63–91 mA ISO_5V digital branch was being drawn *through* the isolated ±12 V module:
+`ISO_P12` sat at **114–170 %** of the `IH1215D`'s 66 mA per-rail rating while `ISO_N12`
+carried only 12–16 mA. Two defects at once — an over-rating, and an imbalance large enough
+that the module's own ±5 % cross-regulation figure, characterised only with the lighter
+rail at 25–100 %, did not describe this board. Both rails now carry 12–16 mA and match, and
+0.37–0.58 W of LDO dissipation leaves a sealed chassis.
+
+**Not the `TMA-0505S` the audit named.** That part is already on the board (`U62`, the DNP
+NI-side fallback) so it looked free — but the TMA series is **unregulated**, and at
+ISO_5V's 31–46 % load its output would rise toward **5.50 V, exactly the ACSL's VDD
+absolute maximum**, while driving finding F1's 301 Ω resistors to 14.3 mA against a 15 mA
+absolute maximum. Fixing F5 that way would have broken F1. The `TMR 1-0511` is fully
+regulated (±1 % set, 0.5 % load), isolates to 1500 VDC, and needs no minimum load.
+
+**It is a second on-board switcher** — spec §8 permitted one, and now records two with the
+reasoning. Its secondary return is a separate net, `ISO_5V_RTN`, joined to `INTAN_GND` at a
+single net tie (`NT4`), the same idiom `FAN_RTN` uses. ERC forced that (two `power_output`
+pins on one net is a real `pin_to_pin` error) and it is the better answer regardless: the
+switching return reaches the Intan reference at one controlled point rather than across a
+plane shared with eight `INA105` difference amplifiers. `RHS_STIM_OUT`'s own inbound path gets the same series-resistor-plus-clamp input
 protection every other panel input on this board carries, since it is a signal entering
 from off-board Intan equipment via its own BNC — its assumed logic sense (active-HIGH,
 TTL/CMOS-compatible) is flagged on-sheet as an assumption needing bench confirmation
@@ -848,7 +871,9 @@ budget. A from-scratch `ISO_5V`/`ISO_P12` budget check (not assumed to inherit o
 own numbers) found ~34–49 mA of headroom either way against the shared `TPS7A4901`'s
 150 mA cap (also feeding `mux-intan.kicad_sch`'s own 8 `INA105KU` difference amplifiers) —
 see `.superpowers/sdd/2026-08-13-breakout-pcb/task-11-report.md`'s own "Fix round 2"
-section for the full numeric derivation.
+section for the full numeric derivation. **That budget was retired by finding F5**: the
+pull-ups still cost what they cost, but `ISO_5V` no longer draws through `ISO_P12` at all,
+so the marginal-cost argument now applies to a rail fed straight from `+5V`.
 
 **Domain-disjointness verification is scoped to each sheet's own components, not a
 project-wide rail scan** — found necessary, not stylistic: `check_breakout_opto_intan_
