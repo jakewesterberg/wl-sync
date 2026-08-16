@@ -30,6 +30,16 @@ survived: half the constraint was tested and half was not.
 
 Section 5 proposes the checkers that close the rest of the gap.
 
+> **Status, 2026-08-16: every ELECTRICAL finding below is implemented.** F1, F2, F3, F4,
+> F5, F7, M1, M2, M3, M4, M7 and D1 each carry an IMPLEMENTED block recording what shipped
+> and, where it differed, why — the implementation corrected this document five times, and
+> those corrections are marked in place rather than silently applied. What remains is the
+> mechanical work: **F6, D3 and the footprint/panel rebuild**, handed off in
+> `connector-handoff.md`.
+>
+> Verification baseline: 12/12 sheet checkers, 120 tests, ERC 0 errors / 3 pre-existing
+> warnings, BOM cross-checked against the netlist by `tests/hardware/test_bom_matches_netlist.py`.
+
 Severity keys: **F** = would prevent correct operation. **M** = marginal or robustness.
 **D** = documentation error. **R** = needs a human ruling.
 

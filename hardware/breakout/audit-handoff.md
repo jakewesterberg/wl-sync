@@ -198,7 +198,8 @@ Dependencies are real here — doing these out of order means redoing arithmetic
    generators that were still armed.
 5. **Connectors** — rebuild the MDR68 footprint from the MH drawing (current one has a 0.5 mm
    drill against a required 0.85 mm), delete `M12A_5_Panel` and replace with a 5-way header,
-   build the BNC footprint, redraw the panel elevations.
+   build the BNC footprint, redraw the panel elevations. **This is all that remains, and it
+   has its own handoff: `connector-handoff.md`.**
 6. **Parametric checkers** — every limit they need is already in `datasheet-params.toml`.
 
 ## 5a. Findings implemented outside the numbered order
