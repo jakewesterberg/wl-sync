@@ -115,3 +115,133 @@ def test_bom_check_fires_on_a_missing_part(netlist_values):
     victim = next(r for r in sorted(bom) if r.startswith("U"))
     del bom[victim]
     assert sorted(set(board) - set(bom)) == [victim]
+
+
+# ---------------------------------------------------------------------------
+# Sourcing columns (added 2026-08-16)
+#
+# WHY THIS EXISTS, SEPARATELY FROM THE Reference/Value COMPARISON ABOVE. That comparison
+# reads two columns and ignores the other three. `breakout-bom.csv` is documented as the
+# literal, unedited `kicad-cli sch export bom` output -- and it is not: 18 rows carry
+# hand-added MPN/Manufacturer/Qty that the raw export emits BLANK.
+#
+# So the file looks regenerable and is not. Re-running the documented command wipes all 18
+# rows silently, and every check in this repo still passes: the References and Values are
+# untouched, so the comparison above says nothing, and no ERC or netlist checker reads a BOM
+# at all. That happened on 2026-08-16 while regenerating for the frame-time inputs, and was
+# caught by eye during diff review rather than by anything automatic -- which is precisely
+# the "discipline that works until the person doing it stops" this module's own docstring
+# opens by naming. The cost of missing it is ordering 17 panel connectors with no part
+# number.
+#
+# The BNC rule is DERIVED, not a pinned list of references, so a future dual-BNC body
+# inherits the requirement instead of quietly becoming an 18th exception.
+# ---------------------------------------------------------------------------
+RAW_BOM = HW / "breakout-bom.csv"
+ORDER_BOM = HW / "breakout-bom-order.csv"
+
+BNC_DUAL_FOOTPRINT = "wl-sync:BNC_Dual_RA_Isolated"
+BNC_DUAL_SOURCING = ("031-6575", "Amphenol RF", "1")
+
+# The one row whose sourcing data no footprint rule implies -- the supply inlet header,
+# which is a generic part deliberately not locked to an MPN. Pinned by reference because it
+# genuinely is a one-off, not because the rule was too hard to write.
+ONE_OFF_SOURCING = {
+    "J1": ("GENERIC - not a locked MPN", "Sullins/TE/Molex/Amphenol/Wurth", "1"),
+}
+
+# Backstop: the total number of rows carrying ANY sourcing data. Catches a row losing its
+# data even if some future rule change stops covering it. If you ADD sourcing data to a new
+# row, bump this deliberately -- same pinned-baseline idiom as check_breakout_power_netlist
+# .py's own RAIL_BYPASS_EXPECTED and this board's own ERC warning count.
+SOURCED_ROW_COUNT = 18
+
+
+def _sourcing(row: dict[str, str]) -> tuple[str, str, str]:
+    return (row["MPN"].strip(), row["Manufacturer"].strip(), row["Qty"].strip())
+
+
+@pytest.fixture(scope="module")
+def raw_bom_rows() -> list[dict[str, str]]:
+    with RAW_BOM.open() as fh:
+        return list(csv.DictReader(fh))
+
+
+def test_bnc_bodies_keep_their_sourcing_columns(raw_bom_rows):
+    bnc_rows = [r for r in raw_bom_rows if r["Footprint"] == BNC_DUAL_FOOTPRINT]
+    assert bnc_rows, (
+        f"{RAW_BOM.name}: no rows with footprint {BNC_DUAL_FOOTPRINT!r} -- either the panel "
+        f"connectors were removed from the board or this test's own rule has gone stale, "
+        f"and either way it is no longer checking anything"
+    )
+    blanked = {r["Reference"]: _sourcing(r) for r in bnc_rows if _sourcing(r) != BNC_DUAL_SOURCING}
+    assert not blanked, (
+        f"{RAW_BOM.name}: {len(blanked)} dual-BNC row(s) do not carry the expected "
+        f"MPN/Manufacturer/Qty {BNC_DUAL_SOURCING}: {blanked}. `kicad-cli sch export bom` "
+        f"emits these three columns BLANK, so this is what a wholesale re-export looks "
+        f"like. Restore them, or edit the Reference/Value cells in place instead of "
+        f"re-exporting -- see hardware/README.md, 'BOM and procurement'."
+    )
+
+
+def test_one_off_sourcing_rows_survive(raw_bom_rows):
+    by_ref = {r["Reference"]: r for r in raw_bom_rows}
+    wrong = {
+        ref: _sourcing(by_ref[ref])
+        for ref, expected in ONE_OFF_SOURCING.items()
+        if ref in by_ref and _sourcing(by_ref[ref]) != expected
+    }
+    missing = sorted(set(ONE_OFF_SOURCING) - set(by_ref))
+    assert not missing, f"{RAW_BOM.name}: expected sourcing row(s) {missing} are absent entirely"
+    assert not wrong, (
+        f"{RAW_BOM.name}: {len(wrong)} hand-sourced row(s) lost or changed their "
+        f"MPN/Manufacturer/Qty: {wrong} (expected {ONE_OFF_SOURCING}) -- the signature of a "
+        f"wholesale re-export"
+    )
+
+
+def test_sourced_row_count_is_pinned(raw_bom_rows):
+    sourced = [r["Reference"] for r in raw_bom_rows if any(_sourcing(r))]
+    assert len(sourced) == SOURCED_ROW_COUNT, (
+        f"{RAW_BOM.name}: {len(sourced)} row(s) carry sourcing data, expected "
+        f"{SOURCED_ROW_COUNT}: {sorted(sourced)}. FEWER means a re-export or an edit blanked "
+        f"them -- restore before committing. MORE means sourcing data was added, which is "
+        f"fine: bump SOURCED_ROW_COUNT deliberately, in the same commit."
+    )
+
+
+def test_order_bom_rows_all_carry_an_order_code():
+    """`breakout-bom-order.csv` is the file you actually purchase from, and unlike the raw
+    BOM no part of it is machine-generated. A row with no Order Code is a part nobody can
+    buy -- the same class of defect, one file over."""
+    with ORDER_BOM.open() as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows, f"{ORDER_BOM.name} is empty"
+    blank = sorted(r["Reference"][:40] for r in rows if not r["Order Code"].strip())
+    assert not blank, (
+        f"{ORDER_BOM.name}: {len(blank)} row(s) have no Order Code: {blank} -- this is the "
+        f"file procurement buys from, so a blank cell is an unorderable part"
+    )
+
+
+def test_sourcing_check_fires_on_a_wholesale_re_export(raw_bom_rows):
+    """Negative control, and it reproduces the exact 2026-08-16 near-miss rather than an
+    invented one: `kicad-cli sch export bom` blanks MPN/Manufacturer/Qty on every row.
+    Built by corrupting the parsed form, not the committed file."""
+    reexported = [{**r, "MPN": "", "Manufacturer": "", "Qty": ""} for r in raw_bom_rows]
+
+    # Every check above must fire on it, or it is guarding nothing.
+    bnc_blanked = [
+        r for r in reexported
+        if r["Footprint"] == BNC_DUAL_FOOTPRINT and _sourcing(r) != BNC_DUAL_SOURCING
+    ]
+    assert len(bnc_blanked) == 17, f"expected all 17 dual-BNC rows blanked, got {len(bnc_blanked)}"
+
+    by_ref = {r["Reference"]: r for r in reexported}
+    assert all(_sourcing(by_ref[ref]) != exp for ref, exp in ONE_OFF_SOURCING.items())
+    assert len([r for r in reexported if any(_sourcing(r))]) == 0 != SOURCED_ROW_COUNT
+
+    # And the Reference/Value comparison must NOT fire -- that is the whole problem: the
+    # existing test stays green through a re-export, which is why these exist.
+    assert [r["Reference"] for r in reexported] == [r["Reference"] for r in raw_bom_rows]
+    assert [r["Value"] for r in reexported] == [r["Value"] for r in raw_bom_rows]
