@@ -18,14 +18,7 @@ from collections.abc import Iterable, Sequence
 from wl_sync.backend import SyncBackend
 from wl_sync.barcode import encode
 from wl_sync.log import TICK_WRAP_US, CodeWord, Edge, Record
-
-# Camera frame-time inputs, one exposure strobe per camera group (spec §4; hardware in
-# hardware/breakout/frame-time-inputs.md). Named rather than written as bare pin numbers at
-# the call site, because a literal 26 survives a board change silently.
-#
-# These pins were spare until 2026-08-16. They are inputs, not outputs: the cameras
-# free-run, so this box no longer triggers them and instead records when they exposed.
-FRAME_TIME_GPIO = {"cam_frame_eye": 26, "cam_frame_beh": 27}
+from wl_sync.pins import FRAME_TIME_GPIO
 
 _FALLING = 0
 
