@@ -21,8 +21,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 BARCODE_EPOCH = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
-CHECKPOINT_INTERVAL_S = 60
-_MAX_BARCODE = (1 << 32) - 1
+
+# How far the checkpoint may legitimately lead the wall clock before the clock is
+# distrusted. NOT a write cadence: it was `CHECKPOINT_INTERVAL_S` until 2026-08-17,
+# when the checkpoint became the exact last-emitted value written every second, and
+# nothing schedules writes any more. Its only remaining job is evaluate_clock's
+# tolerance for ordinary small backwards corrections -- an NTP step, typically -- which
+# are not worth an operator's attention. Renamed so nobody reads a cadence into it.
+CLOCK_TRUST_TOLERANCE_S = 60
+
+# Public because wl_sync.cli's degraded resume path needs the ceiling too: a corrupt
+# maximal checkpoint plus a dead RTC would otherwise produce 2**32, which
+# barcode.encode rejects -- the crash loop this whole degradation exists to prevent.
+MAX_BARCODE = (1 << 32) - 1
 
 
 def value_from_clock(now: datetime.datetime) -> int:
@@ -32,7 +43,7 @@ def value_from_clock(now: datetime.datetime) -> int:
     seconds = int((now - BARCODE_EPOCH).total_seconds())
     if seconds < 0:
         raise ValueError(f"clock reads before the barcode epoch: {now.isoformat()}")
-    if seconds > _MAX_BARCODE:
+    if seconds > MAX_BARCODE:
         raise ValueError(f"barcode value out of 32-bit range: {seconds}")
     return seconds
 
@@ -41,23 +52,31 @@ def next_value(now: datetime.datetime, checkpoint: int | None) -> int:
     """The value to resume at, clamped so it can never repeat or go backwards.
 
     The clamp is `checkpoint + 1` -- exactly enough to guarantee monotonicity, no more.
-    The staleness margin that used to live here (`+ CHECKPOINT_INTERVAL_S`) has moved to
-    the PERIODIC mid-run checkpoint write instead (wl_sync.cli.run): that write is the
-    only one that can be stale, because up to one interval of barcodes may have been
-    emitted after it was last read back. A clean close checkpoints the exact
-    last-emitted value, which carries no staleness at all, so applying the interval
-    margin unconditionally here used to inflate every ordinary restart's reported gap by
-    a whole checkpoint interval even when the restart followed within seconds.
+    NO STALENESS MARGIN IS APPLIED ANYWHERE, at either end. The checkpoint is the exact
+    last-emitted value, rewritten every second (wl_sync.cli.run), so there is nothing to
+    compensate for: `checkpoint + 1` is the first value provably never used.
 
-    When the clamp binds it still lands strictly ahead of the checkpoint, so a gap is
-    OVER-stated rather than under-stated -- landing behind would claim coverage the box
-    did not have, which is the failure that matters.
+    Two earlier designs both put a margin somewhere and both were wrong, in the same
+    direction and for the same reason -- a margin the restart cannot verify becomes a
+    ratchet under Restart=always. Adding `+ CHECKPOINT_INTERVAL_S` HERE inflated every
+    ordinary restart's reported gap by a whole interval even when the restart followed
+    within seconds. Moving it into a periodic high-water WRITE fixed that but let a
+    crash loop compound it instead: each run left a mark ahead of what it had emitted
+    and the next run resumed past that mark, so 25 crash restarts over 75 s of real time
+    put the counter 1449 s ahead of the wall clock -- destroying the premise that a
+    barcode IS seconds since 2020. Writing the exact value every second removes the
+    margin rather than relocating it, and no ratchet is possible without one.
+
+    When the clamp binds it lands strictly ahead of the checkpoint, so no value is ever
+    re-issued however broken the clock is. It binds only when the clock has stopped
+    moving forwards; on a healthy clock the clock value dominates and a restart resumes
+    exactly where wall time says it should.
     """
     from_clock = value_from_clock(now)
     if checkpoint is None:
         return from_clock
     value = max(from_clock, checkpoint + 1)
-    if value > _MAX_BARCODE:
+    if value > MAX_BARCODE:
         raise ValueError(f"barcode value out of 32-bit range: {value}")
     return value
 
@@ -72,7 +91,7 @@ def read_checkpoint(path: Path) -> int | None:
     """
     try:
         value = int(path.read_text().strip())
-        if value < 0 or value > _MAX_BARCODE:
+        if value < 0 or value > MAX_BARCODE:
             return None
         return value
     except (OSError, ValueError):
@@ -100,25 +119,30 @@ def evaluate_clock(
 
     TWO DIFFERENT QUESTIONS ARE ASKED OF THE SAME NUMBER, and they need different
     tolerances. `next_value`'s clamp asks "could this value have been used already?" --
-    uniqueness, where `checkpoint + 1` with no slack is exactly right and any slack is
-    an inflated gap. This asks "is the wall clock telling the truth?" -- and here the
-    checkpoint is DELIBERATELY a future value, `value + CHECKPOINT_INTERVAL_S` written
-    ahead of what the run had emitted. Testing `value_from_clock(now) <= checkpoint`
-    therefore stopped being a clock test and became a "did we crash recently" test: a
-    healthy clock and a crash 70 s into a run reported clock_behind_checkpoint, which
-    sends an operator to check a CR2032 over a crashing process (deploy/README.md) and
-    makes wl-preproc distrust gap arithmetic at exactly the boundaries where it matters.
-    One whole interval of tolerance is the most a correctly-written checkpoint can be
-    ahead of a truthful clock, so anything beyond it is the clock's fault.
+    uniqueness, where `checkpoint + 1` with no slack is exactly right and any slack
+    becomes a ratchet. This asks "is the wall clock telling the truth?", where a little
+    slack is the whole point.
 
-    EQUALITY IS THE HEALTHY BOUNDARY, which is why the test is `<` and not `<=`. The
-    periodic write stores `value + CHECKPOINT_INTERVAL_S` at an instant when the clock
-    read `value`, so a checkpoint exactly one interval ahead is what a perfectly
-    truthful clock looks like immediately after one -- a restart landing in the same
-    second as the last periodic write. Flagging it would reintroduce, in a one-second
-    slice, the precise false positive this tolerance exists to remove. Distrust begins
-    only once the checkpoint leads by MORE than an interval, which no correctly-written
-    checkpoint can do ahead of a clock that is telling the truth.
+    The checkpoint is the exact last-emitted value, so on a clock that only moves
+    forwards it can never lead the clock at all: the box counted that value at a moment
+    that has already passed. Any lead therefore means the clock came back to a reading
+    the box has already been past. `CLOCK_TRUST_TOLERANCE_S` is how much of that is
+    ordinary -- a small NTP correction, which happens on healthy machines and is not
+    worth sending anyone to check a CR2032 (deploy/README.md). A bare
+    `value_from_clock(now) <= checkpoint` was not a clock test at all while the
+    checkpoint was a deliberate future value: a healthy clock and a crash 70 s into a
+    run reported clock_behind_checkpoint, exactly where wl-preproc most needs to believe
+    gap arithmetic.
+
+    `<`, NOT `<=`, so a tolerance of N tolerates a discrepancy of N. `<=` would make
+    `CLOCK_TRUST_TOLERANCE_S = 60` mean "59 s is fine, 60 s is not", which is not what
+    the constant says.
+
+    THE COST, STATED: a backwards jump smaller than the tolerance is not flagged, and
+    the clamp will then hold the counter still across it, so a gap can be UNDER-stated
+    by up to the tolerance without a mark. That is the deliberate price of not crying
+    wolf on ordinary NTP corrections; uniqueness is unaffected, because the clamp still
+    guarantees it. Spec Sec.7 records this.
 
     `ntp_synchronized=None` means "could not tell" -- timedatectl absent, as on a
     laptop or in a container -- and is NOT treated as untrusted. Crying wolf on every
@@ -128,7 +152,7 @@ def evaluate_clock(
     reasons = []
     if (
         checkpoint is not None
-        and value_from_clock(now) + CHECKPOINT_INTERVAL_S < checkpoint
+        and value_from_clock(now) + CLOCK_TRUST_TOLERANCE_S < checkpoint
     ):
         reasons.append("clock_behind_checkpoint")
     if ntp_synchronized is False:

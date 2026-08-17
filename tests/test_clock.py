@@ -4,7 +4,7 @@ import pytest
 
 from wl_sync.clock import (
     BARCODE_EPOCH,
-    CHECKPOINT_INTERVAL_S,
+    CLOCK_TRUST_TOLERANCE_S,
     ClockTrust,
     evaluate_clock,
     next_value,
@@ -111,52 +111,48 @@ def test_clock_behind_checkpoint_is_untrusted():
     assert "behind_checkpoint" in trust.reason
 
 
-def test_an_ordinary_crash_restart_on_a_perfect_clock_is_still_trusted():
-    """The periodic checkpoint is DELIBERATELY a future value, so a bare
-    `value <= checkpoint` test stopped being a clock test and became a 'did we crash
-    recently' test. Reproduced: healthy clock, crash 70 s into a run, restart 1 s
-    later. That flag sends an operator to check a CR2032 (deploy/README.md) over a
-    crashing process, and makes wl-preproc distrust gap arithmetic at precisely the
-    boundaries where it matters most."""
+def test_a_crash_restart_on_a_healthy_clock_is_trusted():
+    """The checkpoint is the exact last-emitted value, so on a clock that only moves
+    forwards it can never lead the clock at all -- the box counted that value at a
+    moment that has already passed. A crash restart therefore says nothing about the
+    clock, which is the whole point: deploy/README.md tells the operator this flag
+    usually means a missing CR2032, so a crashing process must not send anyone to check
+    a battery."""
     now = at(2026, 8, 16, 12, 0)
-    # The run reached value+70 and its last periodic write stored value+70-10+60.
-    crashed_at = value_from_clock(now) - 1
-    checkpoint = crashed_at + CHECKPOINT_INTERVAL_S
-    assert evaluate_clock(now, checkpoint, ntp_synchronized=True).trusted is True
+    last_emitted = value_from_clock(now) - 1  # crashed a second ago
+    assert evaluate_clock(now, last_emitted, ntp_synchronized=True).trusted is True
 
 
-def test_exactly_one_interval_ahead_is_the_healthy_boundary():
-    """The periodic write stores value + CHECKPOINT_INTERVAL_S at an instant when the
-    clock read value, so a checkpoint exactly one interval ahead is what a PERFECTLY
-    TRUTHFUL clock looks like immediately after one -- a restart landing in the same
-    second as the last periodic write. Flagging it (`<=`) would reintroduce, in a
-    one-second slice, the exact false positive this tolerance exists to remove.
-    Distrust begins only once the checkpoint leads by MORE than an interval."""
+def test_a_backwards_correction_is_tolerated_up_to_the_tolerance():
+    """What the tolerance is FOR, now that the checkpoint carries no margin of its own.
+    A checkpoint leading the clock means the clock came back to a reading the box has
+    already been past -- ordinarily a small NTP step on a healthy machine. It is flagged
+    only once the lead exceeds CLOCK_TRUST_TOLERANCE_S."""
     now = at(2026, 8, 16, 12, 0)
-    boundary = value_from_clock(now) + CHECKPOINT_INTERVAL_S
-    assert evaluate_clock(now, boundary, ntp_synchronized=True).trusted is True
+    boundary = value_from_clock(now) + CLOCK_TRUST_TOLERANCE_S
     assert evaluate_clock(now, boundary - 1, ntp_synchronized=True).trusted is True
+    assert evaluate_clock(now, boundary, ntp_synchronized=True).trusted is True
     assert evaluate_clock(now, boundary + 1, ntp_synchronized=True).trusted is False
 
 
-def test_a_healthy_periodic_high_water_mark_is_never_flagged():
-    """The empirical reproduction, written as a test so it cannot come back. A clock at
-    209120400 with a just-written healthy checkpoint of 209120460 reported
-    clock_behind_checkpoint, sending an operator to check a CR2032 over a clock that was
-    telling the truth."""
+def test_the_tolerance_tolerates_its_own_value():
+    """`<`, not `<=`: a tolerance of N must tolerate a discrepancy of N, or the constant
+    does not mean what it says. Kept as the literal numbers from the empirical
+    reproduction that forced the fix -- clock 209120400 against checkpoint 209120460 was
+    reported untrusted -- so the false positive cannot come back whatever the surrounding
+    design does next."""
     now = BARCODE_EPOCH + datetime.timedelta(seconds=209_120_400)
-    trust = evaluate_clock(
-        now, checkpoint=209_120_460, ntp_synchronized=True
-    )
+    trust = evaluate_clock(now, checkpoint=209_120_460, ntp_synchronized=True)
     assert trust == ClockTrust(trusted=True, reason="")
 
 
-def test_the_uniqueness_clamp_keeps_the_tolerance_the_trust_test_gained():
-    """Two questions, one number. Trust gets a whole interval of slack; uniqueness gets
-    none, because any slack there is a gap inflated for every restart. Asserted at the
-    MOST tolerant checkpoint trust accepts, where the two answers differ most."""
+def test_the_uniqueness_clamp_keeps_none_of_the_slack_trust_gets():
+    """Two questions, one number. Trust tolerates a lead of a whole
+    CLOCK_TRUST_TOLERANCE_S; uniqueness tolerates none, because any slack there ratchets
+    under Restart=always. Asserted at the most tolerant checkpoint trust accepts, where
+    the two answers differ most."""
     now = at(2026, 8, 16, 12, 0)
-    most_tolerated = value_from_clock(now) + CHECKPOINT_INTERVAL_S
+    most_tolerated = value_from_clock(now) + CLOCK_TRUST_TOLERANCE_S
     assert evaluate_clock(now, most_tolerated, ntp_synchronized=True).trusted is True
     assert next_value(now, most_tolerated) == most_tolerated + 1
 
@@ -184,10 +180,10 @@ def test_reasons_accumulate():
 
 def test_value_from_clock_raises_at_32bit_ceiling():
     """The epoch has an end: around year 2156. A time that far out must raise."""
-    from wl_sync.clock import _MAX_BARCODE
+    from wl_sync.clock import MAX_BARCODE
 
-    # Compute a datetime that would produce a value > _MAX_BARCODE
-    seconds_over = _MAX_BARCODE + 1
+    # Compute a datetime that would produce a value > MAX_BARCODE
+    seconds_over = MAX_BARCODE + 1
     far_future = BARCODE_EPOCH + datetime.timedelta(seconds=seconds_over)
     with pytest.raises(ValueError, match="32-bit range"):
         value_from_clock(far_future)
@@ -195,19 +191,19 @@ def test_value_from_clock_raises_at_32bit_ceiling():
 
 def test_read_checkpoint_returns_none_for_out_of_range_value(tmp_path):
     """An out-of-range checkpoint is corrupt by definition and must degrade."""
-    from wl_sync.clock import _MAX_BARCODE
+    from wl_sync.clock import MAX_BARCODE
 
     path = tmp_path / "checkpoint"
-    path.write_text(f"{_MAX_BARCODE + 1000}\n")
+    path.write_text(f"{MAX_BARCODE + 1000}\n")
     assert read_checkpoint(path) is None
 
 
 def test_next_value_raises_when_clamp_exceeds_ceiling():
     """When the clamp would exceed the ceiling, it must raise rather than propagate the error."""
-    from wl_sync.clock import _MAX_BARCODE
+    from wl_sync.clock import MAX_BARCODE
 
     now = at(2026, 8, 16, 12, 0)
     # A checkpoint already at the ceiling: checkpoint + 1 overflows it.
-    stale_checkpoint = _MAX_BARCODE
+    stale_checkpoint = MAX_BARCODE
     with pytest.raises(ValueError, match="32-bit range"):
         next_value(now, checkpoint=stale_checkpoint)

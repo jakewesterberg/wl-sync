@@ -20,7 +20,7 @@ from pathlib import Path
 from wl_sync.backend import FakeBackend
 from wl_sync.clock import (
     BARCODE_EPOCH,
-    CHECKPOINT_INTERVAL_S,
+    MAX_BARCODE,
     ClockTrust,
     evaluate_clock,
     next_value,
@@ -121,9 +121,20 @@ def _resume(
             started.date(),
         )
 
+    reasons = ["clock_before_epoch"]
     first_value = 0 if checkpoint is None else checkpoint + 1
+    if first_value > MAX_BARCODE:
+        # A checkpoint sitting exactly at the ceiling -- corruption that still parses,
+        # or the year 2156 -- makes `checkpoint + 1` equal 2**32, which barcode.encode
+        # rejects. Raising here would be the C2 crash loop again in a new guise, so the
+        # exhausted checkpoint is treated as no checkpoint: start at the epoch and say
+        # so. Uniqueness is already unrecoverable once the space is spent; recording
+        # under a loud marker beats not recording. read_checkpoint already degrades
+        # anything ABOVE the ceiling to None, so this is the one remaining value.
+        reasons.append("checkpoint_exhausted")
+        first_value = 0
     day_date = (BARCODE_EPOCH + datetime.timedelta(seconds=first_value)).date()
-    return first_value, ClockTrust(False, "clock_before_epoch"), day_date
+    return first_value, ClockTrust(False, ",".join(reasons)), day_date
 
 
 def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
@@ -190,14 +201,6 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
         except ValueError:
             pass  # not the main thread, e.g. under a test runner
 
-    # Cover the values this run is about to emit BEFORE emitting any of them. Without
-    # this, a crash inside the first interval left the previous run's exact-value
-    # checkpoint on disk, and the restart's `checkpoint + 1` re-issued every barcode
-    # this run had already used. The clean close below overwrites it with the exact
-    # last value, so an ordinary restart still inflates nothing.
-    write_checkpoint(checkpoint_path, first_value + CHECKPOINT_INTERVAL_S)
-    checkpointed_at = first_value
-
     elapsed = 0.0
     while not stopping.set and (duration_s is None or elapsed < duration_s):
         # Sampled BEFORE emitting: a frame takes 200 ms (barcode.FRAME_US) and the
@@ -207,26 +210,26 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
         # E and W ticks it exists to align by 2^32 us at every 71.6-minute wrap.
         tick = backend.now_us()
         value = generator.emit_frame()
+
+        # THE EXACT VALUE, EVERY SECOND. No high-water mark, no interval: "the
+        # checkpoint is never behind the last value emitted" stops being an argument
+        # about the loop's period and becomes `checkpoint == last emitted`, true by
+        # construction. Two earlier designs carried a margin instead and both ratcheted
+        # -- most recently a startup high-water write that a crash loop compounded, 25
+        # restarts over 75 s leaving the counter 1449 s ahead of a perfectly healthy
+        # clock. A margin the restart cannot verify is a ratchet; the fix is to have no
+        # margin, not a better one. write_checkpoint is atomic (temp + rename), and at
+        # ~30 bytes/s this is ~2.6 MB/day on the NVMe spec Sec.4.1 chose explicitly.
+        #
+        # Written BEFORE the record, not after. The value is already on the wire once
+        # emit_frame() returns, so the dangerous ordering is "recorded but not marked
+        # used" -- a crash there could let a stalled clock re-issue it. This ordering
+        # leaves only "marked used but not recorded", which costs at most the one
+        # second of records the fsync window already bounds.
+        write_checkpoint(checkpoint_path, value)
+
         recorder.record_barcode(tick, value)
         writer.flush()
-        if value - checkpointed_at >= CHECKPOINT_INTERVAL_S:
-            # A high-water mark, and TRIGGERED ON VALUE RATHER THAN ITERATION COUNT.
-            # Counting iterations was wrong: one iteration is a 1 s sleep PLUS a 200 ms
-            # frame plus an fsync, so 60 iterations span appreciably more than 60 s and
-            # the emitted value outran the mark by roughly the accumulated overhead --
-            # a crash in that window resumed at checkpoint + 1 and re-issued barcode
-            # values already used, which is the one thing the clamp exists to prevent.
-            # Triggering on value makes "the checkpoint is never behind the last value
-            # emitted" true by construction, whatever the loop's real period is.
-            #
-            # The residual exposure is the microseconds between emitting a frame and
-            # writing this: to matter, the clock would have to jump forwards by more
-            # than the remaining margin, crash instantly, and then read BACKWARDS on
-            # restart -- and a forward-jumped clock re-read after a restart dominates
-            # the clamp anyway. Carrying the staleness margin here rather than in
-            # next_value() is what keeps an ordinary restart from inflating the gap.
-            write_checkpoint(checkpoint_path, value + CHECKPOINT_INTERVAL_S)
-            checkpointed_at = value
         tick_fn(1.0)
         elapsed += 1.0
 

@@ -102,15 +102,27 @@ that a dying process had to manage to update.
 { "day": "2026-08-16",
   "segments": [
     {"file": "seg-000.log", "barcode_first": 1000, "barcode_last": 4200,
-     "clock_trusted": true, "closed": "crash"},
+     "clock_trusted": true, "clock_reason": "", "closed": "crash"},
     {"file": "seg-001.log", "barcode_first": 4700, "barcode_last": 9000,
-     "clock_trusted": true, "closed": "clean"}],
+     "clock_trusted": false, "clock_reason": "ntp_unsynchronized", "closed": "clean"}],
   "gaps": [ {"after": 4200, "before": 4700, "seconds": 500} ] }
 ```
 
 `gaps` answers requirement §1.2 directly: trials landing between barcodes 4200 and 4700 are
-**real but unwitnessed**. `closed` distinguishes an outage from a clean stop, and is derived
-from whether the segment has a trailer — never from the crashed process's cooperation.
+**real but unwitnessed**.
+
+`clock_reason` sits beside `clock_trusted` here as well as in the segment header, because §7
+requires the machine-readable reason in **both** and this file is what an operator opens
+first. It is `""` on a trusted segment.
+
+`closed` has **three** values, not two. `"clean"` and `"crash"` are derived from whether the
+segment has a trailer — never from the crashed process's cooperation. `"unreadable"` is the
+third: the segment could not be parsed at all (permissions, or media corruption surfacing as
+a `UnicodeDecodeError`). It is a separate value because "we could not read this" and "this
+process died" are different facts and only one says anything about the run. An unreadable
+segment reports no barcodes, so the day's gap arithmetic carries the last witnessed value
+across it — an outage, which is what it is. One bad file must never cost the box the rest of
+the day, since the manifest is rebuilt before every run records anything.
 
 ## 4. The barcode counter is a clock
 
@@ -139,44 +151,52 @@ persistent state this design keeps. This guarantees the counter is unique and in
 **however broken the clock is**. When the clock is healthy `value_from_clock` always dominates
 and the clamp never binds.
 
-**The staleness margin lives in the WRITE, not the read** — corrected 2026-08-17 after the
-first version was measured on the real binary. The periodic checkpoint stores a *high-water
-mark*, `value + checkpoint_interval`. The **clean-close** checkpoint instead stores the exact
-last barcode.
+**The checkpoint is the exact last-emitted value, rewritten every second** — settled
+2026-08-17, after two attempts at a staleness margin both failed on the real binary. The run
+loop writes `value` immediately after emitting it, at the same 1 Hz cadence the segment
+`fsync` already runs at. The clean close writes the same thing. There is no margin, no
+interval, and no high-water mark anywhere.
 
-**The periodic write is triggered on VALUE, not on iteration count** — corrected again
-2026-08-17, because the first statement of this proof was false. It read: "at most one barcode
-per second is emitted before the next periodic write, so that provably covers everything the
-run can emit in the window." That holds only if one loop iteration takes exactly one second,
-and it does not: an iteration is `sleep(1.0)` **plus** the 200 ms frame emission plus an
-`fsync`. Sixty iterations therefore span appreciably more than sixty seconds, the emitted value
-outruns a mark written every sixtieth iteration by roughly `checkpoint_interval × (period −
-1 s)`, and a crash inside that window resumes at `checkpoint + 1` and **re-issues barcode
-values already used** — the one thing §4's clamp exists to prevent. `build_manifest` cannot
-detect it either: `first − last` is then negative, fails the `> 1` test, and no gap is reported.
+*Why it is written this way rather than periodically.* The property that matters — the
+checkpoint is never behind the last value emitted — stops being an **argument** and becomes an
+**identity**: `checkpoint == last emitted`, true by construction, independent of how long a
+loop iteration takes or where a crash lands. `write_checkpoint` is atomic (temp file plus
+rename), and at ~30 bytes/s the cost is ~2.6 MB/day on the NVMe §4.1 chose explicitly. A crash
+loses at most one second of staleness, the same bound the segment already accepts.
 
-The correct rule needs no assumption about the loop's period. Write whenever
-`value − last_checkpointed_value ≥ checkpoint_interval`, storing `value + checkpoint_interval`.
-"The checkpoint is never behind the last value emitted" is then true **by construction**.
+*The two failed attempts, recorded because they failed the same way.* **A margin the restart
+cannot verify becomes a ratchet under `Restart=always`.**
 
-A run also writes one such high-water mark **at startup**, before its first frame. Without it
-the invariant is false for the first interval of every run: a crash there leaves the *previous*
-run's exact-value checkpoint on disk, and the restart's `checkpoint + 1` re-issues everything
-this run had already emitted. The clean close still overwrites it with the exact last value, so
-an ordinary clean restart inflates by zero — the property below is unaffected.
+- **`+ checkpoint_interval + 1` at read time.** The clamp then bound on *every* restart inside
+  an interval, including clean ones where the exact last barcode was already on disk. Two real
+  runs 5 s apart reported a 61 s gap, and ten restarts over ten seconds left the counter 600 s
+  ahead of the wall clock.
+- **A high-water mark at write time**, `value + checkpoint_interval`, written periodically and
+  once at startup. The startup write was added to close a genuine hole — without it the
+  invariant was false for a run's first interval — but it made every run leave a mark ahead of
+  what it had actually emitted, and the next restart resumed past that mark. Measured: **25
+  crash restarts over 75 s of real time on a perfectly healthy clock left the counter 1449 s
+  ahead of wall time**, with spurious `clock_trusted: false` from the third restart. One crash
+  costs one interval and looks survivable; the compounding only appears under a loop.
 
-The first version applied `+ checkpoint_interval + 1` at read time instead, and that was wrong
-in a way only running it showed: the clamp then bound on *every* restart inside an interval,
-including clean ones where the exact last barcode was already on disk. Two real runs 5 s apart
-reported a 61 s gap, and ten restarts over ten seconds left the counter 600 s ahead of the wall
-clock — under `Restart=always` the counter runs away from real time without bound, which
-destroys the premise that a barcode *is* seconds since 2020.
+Both destroy the same premise — that a barcode *is* seconds since 2020 — and both were
+invisible to probes that closed cleanly, because only a genuine crash leaves the margin
+behind. Storing the exact value removes the margin rather than relocating it, and **no ratchet
+is possible without one**.
 
-The **over-states, never under-states** property is deliberate and survives the correction, now
-carried by the high-water write: a clean restart inflates by zero, and only a genuine crash can
-leave the resumed counter up to 60 s ahead of truth. An over-stated gap marks slightly more
-trials unwitnessed than strictly were, which is conservative. An under-stated gap would claim
-coverage the box did not have, which is the failure that matters.
+*What this costs, and what it buys.* The earlier design claimed an **over-states, never
+under-states** property, carried by the margin: a crash could leave the resumed counter up to
+`checkpoint_interval` ahead of truth, over-stating a gap, which is conservative. That property
+is gone with the margin — and is no longer needed. On a healthy clock the restart resumes at
+`value_from_clock`, which *is* truth, so the gap is neither inflated nor deflated. The margin
+was only ever compensating for the checkpoint's own staleness, and the checkpoint is no longer
+stale.
+
+On a **broken** clock the clamp holds the counter at `checkpoint + 1` and a gap can be
+under-stated — but that was true of every version of this design, is what `clock_trusted:
+false` exists to mark, and is bounded by §7's tolerance. §4's actual guarantee is unchanged and
+is the one the rig owner asked for: *a bad clock degrades the precision of gap length, never
+the integrity of the alignment key.*
 
 The clamp is what makes the following true, and it was a question the rig owner raised
 directly: **a bad clock degrades the precision of gap length, never the integrity of the
@@ -254,6 +274,30 @@ would stop the first device of the day over a $0.30 battery. Degradation is expl
 `clock_trusted: false` plus a machine-readable `clock_reason` in both the segment header and
 the manifest, so `wl-preproc` can distrust gap arithmetic across that boundary specifically
 while still using every barcode normally.
+
+*"Records anyway" means what it says, including at startup.* A pre-epoch reading — a dead or
+missing CR2032 typically reads 2000-01-01, a Pi with no RTC and no network reads 1970 — is a
+**degradation, not an error**. The box resumes from `checkpoint + 1` if a checkpoint exists and
+from the epoch otherwise, flags `clock_before_epoch`, and derives its day directory from the
+resumed *barcode value* rather than from the bogus reading, so a restart on a dead battery
+rejoins the day it was already writing to instead of minting an orphan directory per boot.
+Refusing to start is the one response this section rules out, and under `Restart=always` it is
+an unbounded crash loop recording nothing.
+
+*"Time moved backwards" carries a tolerance.* A backwards movement smaller than
+`CLOCK_TRUST_TOLERANCE_S` (60 s) does **not** set the flag. The checkpoint is the exact
+last-emitted value, so any lead it has over the wall clock means the clock has come back to a
+reading the box was already past — but small NTP corrections do that on healthy machines, and
+flagging them would send an operator to check a coin cell over a working clock. The comparison
+is strict (`value_from_clock(now) + tolerance < checkpoint`), so a tolerance of N tolerates a
+discrepancy of exactly N.
+
+The price, stated because it is a real weakening of this section: a backwards jump inside the
+tolerance goes unmarked, and the clamp will hold the counter still across it, so a gap can be
+**under-stated by up to the tolerance without a mark**. Uniqueness is unaffected — the clamp
+still guarantees it. This is a deliberate trade against alarm fatigue: a flag that fires on
+every ordinary NTP correction, or on every crash restart, is a flag nobody reads on the one
+box where it means something.
 
 **There is no panel indicator available for this.** The heartbeat LED is a buffered leg off
 `BARCODE_RAW` itself, so it blinks with the barcode waveform; software could only change its

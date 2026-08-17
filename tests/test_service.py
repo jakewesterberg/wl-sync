@@ -1,6 +1,6 @@
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import IDLE_MIN_US, decode_edges
-from wl_sync.log import CodeWord, Edge, TICK_WRAP_US
+from wl_sync.log import BarcodeEmitted, CodeWord, Edge, TICK_WRAP_US
 from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
 
 BARCODE_PIN = 17
@@ -115,6 +115,59 @@ def test_edge_path_wraps_without_disturbing_the_word_path():
     backend.inject_word(1_000, 0x0001)
     ticks = {type(r).__name__: r.tick_us for r in recorder.records()}
     assert ticks["CodeWord"] == 1_000
+
+
+def test_record_barcode_writes_a_barcode_record():
+    """Breakage 5: record_barcode had no unit test at all -- its only coverage was
+    end-to-end through run(), so nothing pinned its own behaviour."""
+    backend = FakeBackend()
+    sink = _CollectingSink()
+    Recorder(backend, sink=sink).record_barcode(1_000, 212_000_000)
+    assert sink.written == [BarcodeEmitted(tick_us=1_000, value=212_000_000)]
+
+
+def test_barcode_unwrapping_is_independent_of_the_edge_and_word_paths():
+    """The reason barcodes go through Recorder at all. Three paths, three unwrappers: a
+    wrap on ANY path must not shift the others, and a barcode arriving after a wrapped
+    edge must not inherit that edge's 2^32 offset. A shared counter would also read the
+    ordinary interleaving between paths as a wraparound."""
+    backend = FakeBackend()
+    sink = _CollectingSink()
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    recorder.capture_edges([REWARD_PIN])
+
+    recorder.record_barcode(1_000_000, 500)
+    backend.inject_edge(REWARD_PIN, 1, TICK_WRAP_US - 200)  # edge path wraps...
+    backend.inject_edge(REWARD_PIN, 0, 200)
+    backend.inject_word(5_000, 0x0001)
+    recorder.record_barcode(2_000_000, 501)  # ...barcode path must not inherit it
+
+    ticks = {}
+    for record in sink.written:
+        ticks.setdefault(type(record).__name__, []).append(record.tick_us)
+    assert ticks["BarcodeEmitted"] == [1_000_000, 2_000_000]
+    assert ticks["CodeWord"] == [5_000]
+    assert ticks["Edge"] == [TICK_WRAP_US - 200, TICK_WRAP_US + 200]
+
+
+def test_the_barcode_path_wraps_on_its_own():
+    """The converse: the barcode path must unwrap itself, or a day-long run's B ticks
+    fall 2^32 us behind the E and W ticks they exist to align every 71.6 minutes."""
+    backend = FakeBackend()
+    sink = _CollectingSink()
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_edges([REWARD_PIN])
+
+    recorder.record_barcode(TICK_WRAP_US - 500, 500)
+    recorder.record_barcode(500, 501)  # raw counter wrapped
+    backend.inject_edge(REWARD_PIN, 1, 1_000)  # edge path is untouched by that wrap
+
+    assert [r.tick_us for r in sink.written] == [
+        TICK_WRAP_US - 500,
+        TICK_WRAP_US + 500,
+        1_000,
+    ]
 
 
 def test_recorder_ignores_unregistered_pins():

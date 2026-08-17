@@ -8,8 +8,14 @@ import pytest
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import FRAME_US
 from wl_sync.cli import CHECKPOINT_NAME, day_directory, main, probe_boot_id, run
-from wl_sync.clock import read_checkpoint, value_from_clock
+from wl_sync.clock import (
+    MAX_BARCODE,
+    read_checkpoint,
+    value_from_clock,
+    write_checkpoint,
+)
 from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, Edge, read_log
+from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import segment_name
 
@@ -78,11 +84,11 @@ def test_a_restart_adds_a_segment_and_records_the_gap(tmp_path):
 
 
 def test_a_quick_clean_restart_does_not_inflate_the_gap(tmp_path):
-    """Task 8 review, Finding 1: next_value used to add CHECKPOINT_INTERVAL_S + 1 to
+    """Task 8 review, Finding 1: next_value used to add a whole checkpoint interval to
     EVERY checkpoint, including the exact barcode a clean close had just written -- so
     an ordinary restart seconds later was misreported as a ~61 s gap regardless of how
-    little real time had actually passed. The margin now lives only in the periodic
-    mid-run checkpoint, so a clean restart's gap must track the real elapsed time."""
+    little real time had actually passed. No margin is applied anywhere now, so a
+    restart's gap must track the real elapsed time."""
     base = datetime.datetime(2026, 8, 16, 9, 0, 0, tzinfo=UTC)
     first = iter([base, base, base, base])
     run(tmp_path, FakeBackend(), lambda: next(first), 2, lambda _s: None)
@@ -207,6 +213,30 @@ def test_a_dead_coin_cell_resumes_from_the_checkpoint_and_rejoins_that_day(tmp_p
     assert manifest["segments"][1]["barcode_first"] > manifest["segments"][0]["barcode_last"]
 
 
+def test_a_maximal_checkpoint_on_a_dead_clock_does_not_crash_loop(tmp_path):
+    """Breakage 4. The degraded path resumes at `checkpoint + 1` with no ceiling check,
+    so a checkpoint sitting exactly at MAX_BARCODE -- corruption that still parses, or
+    the year 2156 -- yields 2**32, which barcode.encode rejects. That is the C2 crash
+    loop again in a new guise: the box refuses to start, on a dead battery, forever.
+    read_checkpoint already degrades anything ABOVE the ceiling to None, so the ceiling
+    itself is the one value that reaches this code."""
+    write_checkpoint(tmp_path / CHECKPOINT_NAME, MAX_BARCODE)
+
+    day = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(datetime.datetime(2000, 1, 1, tzinfo=UTC)),
+        duration_s=2,
+        tick_fn=lambda _s: None,
+    )
+    header, records = read_log(day / segment_name(0))
+    assert header.clock_trusted is False
+    assert header.clock_reason == "clock_before_epoch,checkpoint_exhausted"
+    # Started over at the epoch rather than raising. Uniqueness is already unrecoverable
+    # once the 32-bit space is spent; recording under a loud marker beats not recording.
+    assert [r.value for r in records if isinstance(r, BarcodeEmitted)] == [0, 1]
+
+
 def test_only_a_pre_epoch_reading_degrades(tmp_path):
     """The degradation is deliberately narrow. A naive datetime silently means "local
     time" and would shift every barcode -- that is a caller bug, not a dead battery, and
@@ -222,21 +252,24 @@ def test_only_a_pre_epoch_reading_degrades(tmp_path):
         )
 
 
-def test_the_checkpoint_is_never_behind_the_values_already_emitted(tmp_path):
-    """THE invariant the high-water checkpoint exists to hold, checked at every point
-    in a long run rather than at one convenient moment.
+def test_the_checkpoint_equals_the_last_value_emitted(tmp_path):
+    """THE invariant, and it is now an EQUALITY rather than a bound -- checked after
+    every iteration of a long run rather than at one convenient moment.
 
-    The old code counted LOOP ITERATIONS, but an iteration is a 1 s sleep plus a 200 ms
-    frame plus an fsync, so 60 iterations span well over 60 s and the emitted value
-    outran the mark. A crash in that window, restarting on a stalled clock, resumed at
-    checkpoint + 1 and re-issued barcode values already used -- two moments carrying one
-    identity. build_manifest cannot see it either: first - last goes negative, fails the
-    `> 1` test, and no gap is reported. Nothing in the suite caught it, which is why
-    this test asserts the invariant continuously.
+    Two earlier designs asserted only `checkpoint >= last emitted`, which is a claim
+    about the loop's period and is exactly as strong as the argument behind it. Both
+    arguments were wrong. Counting loop ITERATIONS was wrong because an iteration is a
+    1 s sleep plus a 200 ms frame plus an fsync, so the emitted value outran a mark
+    written every sixtieth one. Writing a high-water mark was wrong because the excess
+    ratchets across restarts (see the crash-loop test below). Storing the exact value
+    every second makes the invariant exact and leaves nothing to argue about.
+
+    Two seconds of wall clock per iteration, because a loop period over 1 s is what made
+    an iteration count and a value count diverge in the first place.
     """
     checkpoint_path = tmp_path / CHECKPOINT_NAME
     segment = tmp_path / "2026-08-16_01" / segment_name(0)
-    breaches = []
+    mismatches = []
 
     def last_emitted():
         values = [
@@ -249,11 +282,9 @@ def test_the_checkpoint_is_never_behind_the_values_already_emitted(tmp_path):
     def tick_fn(_seconds):
         emitted = last_emitted()
         on_disk = read_checkpoint(checkpoint_path)
-        if emitted is not None and (on_disk is None or on_disk < emitted):
-            breaches.append((emitted, on_disk))
+        if on_disk != emitted:
+            mismatches.append((emitted, on_disk))
 
-    # Two seconds of wall clock per iteration: the loop's real period exceeds 1 s, which
-    # is exactly what makes an iteration count and a value count diverge.
     run(
         out=tmp_path,
         backend=FakeBackend(),
@@ -261,12 +292,56 @@ def test_the_checkpoint_is_never_behind_the_values_already_emitted(tmp_path):
         duration_s=130,
         tick_fn=tick_fn,
     )
-    assert breaches == [], (
-        f"checkpoint fell behind the emitted value {len(breaches)} times; "
-        f"first breach: emitted={breaches[0][0]} checkpoint={breaches[0][1]}"
-        if breaches
-        else ""
+    assert not mismatches, (
+        f"checkpoint disagreed with the last emitted value {len(mismatches)} times; "
+        f"first: emitted={mismatches[0][0]} checkpoint={mismatches[0][1]}"
     )
+
+
+def test_a_crash_loop_never_ratchets_the_counter_ahead_of_the_clock(tmp_path, caplog):
+    """THE REGRESSION THIS DESIGN EXISTS TO PREVENT, and it only shows under a LOOP.
+
+    A startup high-water write left every run's mark a whole 60 s interval ahead of what
+    it had actually emitted. One crash costs one interval and looks survivable; the next
+    restart resumes past that mark and leaves its own, so under Restart=always it
+    compounds without bound. Measured before the fix: 25 crash restarts over 75 s of real
+    time on a PERFECT clock put the counter 1449 s ahead of wall time, with 24 spurious
+    "wall clock is not moving forwards" warnings and clock_trusted: false from the third
+    restart onwards. That is precisely the runaway spec Sec.4 records as fatal -- it
+    destroys the premise that a barcode IS seconds since 2020 -- and it contradicts
+    deploy/README.md's promise that an ordinary crash restart does not set the flag.
+
+    All three symptoms are asserted, because all three were user-visible.
+    """
+    base = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    restarts, seconds_per_run = 25, 3
+
+    with caplog.at_level(logging.WARNING, logger="wl_sync.cli"):
+        for restart in range(restarts):
+            started = base + datetime.timedelta(seconds=restart * seconds_per_run)
+            with pytest.raises(_Crash):
+                run(
+                    tmp_path,
+                    FakeBackend(),
+                    _clock_from(started),
+                    None,
+                    _crash_after(seconds_per_run),
+                )
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+    wall_now = base + datetime.timedelta(seconds=restarts * seconds_per_run)
+    checkpoint = read_checkpoint(tmp_path / CHECKPOINT_NAME)
+    drift = checkpoint - value_from_clock(wall_now)
+    assert drift <= 0, f"counter ran {drift} s ahead of a perfectly healthy wall clock"
+
+    # Rebuilt here rather than read from disk: run() writes the manifest at its START,
+    # so the file left behind is missing the final crashed segment. This is what restart
+    # 26 would see.
+    manifest = build_manifest(day_directory(tmp_path, base.date()))
+    assert len(manifest["segments"]) == restarts
+    untrusted = [s["file"] for s in manifest["segments"] if not s["clock_trusted"]]
+    assert untrusted == [], f"a healthy clock was distrusted in {untrusted}"
+    assert warnings == [], f"{len(warnings)} spurious clock warnings on a healthy clock"
 
 
 class _Crash(Exception):

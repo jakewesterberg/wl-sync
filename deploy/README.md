@@ -29,7 +29,8 @@ unreliable. The manifest carries `clock_reason` next to it, which says which:
 | `clock_reason` | what it means |
 |---|---|
 | `clock_before_epoch` | the clock reads before 2020 — a dead or missing CR2032 on the CM5 IO Board, or a Pi with no RTC and no network. The box records anyway, resuming from the checkpoint; see `hardware/assembly-checklist.md` |
-| `clock_behind_checkpoint` | the clock is more than one checkpoint interval behind where this box had already counted to. It moved backwards or stalled |
+| `clock_behind_checkpoint` | the clock is more than 60 s behind where this box had already counted to. It moved backwards or stalled by more than an ordinary NTP correction |
+| `checkpoint_exhausted` | the saved counter sits at the 32-bit ceiling — corruption, or the year 2156. Seen only alongside `clock_before_epoch`; the box restarts from the epoch rather than refusing to start |
 | `ntp_unsynchronized` | `timedatectl` reports NTP has never synced |
 | `unreadable_header` / `unreadable_segment` | the segment itself could not be read — media or permissions, not the clock. `closed: "unreadable"` marks the same thing |
 
