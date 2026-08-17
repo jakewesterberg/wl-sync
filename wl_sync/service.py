@@ -17,7 +17,7 @@ from collections.abc import Iterable, Sequence
 
 from wl_sync.backend import SyncBackend
 from wl_sync.barcode import encode
-from wl_sync.log import TICK_WRAP_US, CodeWord, Edge, Record
+from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord, Edge, Record
 from wl_sync.pins import FRAME_TIME_GPIO
 
 _FALLING = 0
@@ -51,12 +51,12 @@ class BarcodeGenerator:
 class _TickUnwrapper:
     """Undoes 32-bit tick wraparound for one delivery path.
 
-    One per path, never shared. The two capture paths — the PIO FIFO and edge
-    capture — deliver independently, so a word can arrive after an edge that
-    precedes it in time. A shared counter would read that ordinary interleaving
-    as a wraparound and jump every subsequent record forward by 4295 seconds.
-    Each path is individually ordered, which is what makes per-path state
-    correct.
+    One per path, never shared. The three paths — the PIO FIFO, edge capture, and
+    this box's own barcode emission — deliver independently, so a word can arrive
+    after an edge that precedes it in time. A shared counter would read that
+    ordinary interleaving as a wraparound and jump every subsequent record forward
+    by 4295 seconds. Each path is individually ordered, which is what makes
+    per-path state correct.
     """
 
     def __init__(self) -> None:
@@ -82,13 +82,22 @@ class _MemorySink:
 
 
 class Recorder:
-    """Collects strobed code words and individual edges onto one unwrapped clock.
+    """Collects strobed code words, individual edges and this box's own barcodes onto
+    one unwrapped clock.
+
+    THREE delivery paths, each with its own `_TickUnwrapper`: code words, edges, and
+    the barcodes this box emits. Barcodes go through here rather than straight to the
+    sink for one reason -- an un-unwrapped `B` tick is on a DIFFERENT TIMEBASE from the
+    `E` and `W` ticks it exists to align, and diverges from them by k*2^32 us after the
+    first wrap, i.e. after 71.6 minutes of a day-long run. A per-path unwrapper is
+    correct here for the same reason it is correct for the other two, and safe at 1 Hz
+    because one second is four orders of magnitude below the wrap period.
 
     `sink` takes each record as it arrives. The default accumulates in memory and
     `records()` returns them tick-sorted. A streaming sink (`SegmentWriter`) receives
-    them in ARRIVAL order instead, because the two capture paths deliver independently
-    and a stream cannot be globally sorted -- the segment header declares
-    `ordering="per-path"` and the reader merges.
+    them in ARRIVAL order instead, because the paths deliver independently and a stream
+    cannot be globally sorted -- the segment header declares `ordering="per-path"` and
+    the reader merges.
     """
 
     def __init__(self, backend: SyncBackend, sink=None) -> None:
@@ -97,6 +106,7 @@ class Recorder:
         self._sink = self._memory if sink is None else sink
         self._unwrap_words = _TickUnwrapper()
         self._unwrap_edges = _TickUnwrapper()
+        self._unwrap_barcodes = _TickUnwrapper()
 
     def capture_codes(self, data_base: int, data_count: int, strobe_pin: int) -> None:
         self._backend.start_strobed_capture(
@@ -112,6 +122,18 @@ class Recorder:
     def _on_edge(self, gpio: int, level: int, tick: int) -> None:
         self._sink.write(
             Edge(tick_us=self._unwrap_edges(tick), gpio=gpio, level=level)
+        )
+
+    def record_barcode(self, tick: int, value: int) -> None:
+        """Record a barcode this box emitted, unwrapping its tick like any other path.
+
+        `tick` is the RAW backend counter sampled immediately BEFORE the frame is
+        emitted, so the recorded tick marks the frame's lead rising edge rather than
+        its end 200 ms later. The emit loop calls this instead of writing to the sink
+        itself, so `B` ticks land on the same unwrapped timebase as `E` and `W`.
+        """
+        self._sink.write(
+            BarcodeEmitted(tick_us=self._unwrap_barcodes(tick), value=value)
         )
 
     def records(self) -> list[Record]:

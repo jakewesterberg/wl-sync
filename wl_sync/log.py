@@ -45,11 +45,12 @@ class SyncBoxLogHeader(BaseModel):
     written_at: datetime.datetime
     gpio_map: dict[str, int]
     segment_index: int = 0
-    # Records reach disk in ARRIVAL order, and the two capture paths deliver
-    # independently, so the file is ordered WITHIN each path and not across them. A
-    # reader merges. Declared rather than faked: a reorder buffer would invent a tuning
-    # parameter and still need a late-arrival escape hatch, for a property the reader
-    # recovers for free.
+    # Records reach disk in ARRIVAL order, and the THREE capture paths -- edges (E),
+    # strobed code words (W) and this box's own barcodes (B) -- deliver independently,
+    # so the file is ordered WITHIN each path and not across them. A reader does a
+    # three-way merge. Declared rather than faked: a reorder buffer would invent a
+    # tuning parameter and still need a late-arrival escape hatch, for a property the
+    # reader recovers for free.
     ordering: str = "per-path"
     clock_trusted: bool = True
     clock_reason: str = ""
@@ -88,6 +89,14 @@ class BarcodeEmitted:
     The box hands every other device this value as the alignment key; until 2026-08-16
     it kept no copy of its own, so its log could not be aligned against the devices it
     was synchronising. One record per second, ~86 KB/day against a ~1 GB day.
+
+    `tick_us` is UNWRAPPED, exactly like `Edge` and `CodeWord` -- these records go
+    through `Recorder` on their own capture path, so all three share one timebase
+    across RP1's 71.6-minute counter wrap. It is sampled BEFORE the frame is emitted,
+    because a frame takes 200 ms (`barcode.FRAME_US`) and every receiving device
+    reports `Barcode.start_us`, the lead rising edge. Reading the counter after
+    emission would put this box's own alignment record 200 ms behind every device it
+    is aligning.
     """
 
     tick_us: int

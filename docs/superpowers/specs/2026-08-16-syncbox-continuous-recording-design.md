@@ -141,9 +141,29 @@ and the clamp never binds.
 
 **The staleness margin lives in the WRITE, not the read** — corrected 2026-08-17 after the
 first version was measured on the real binary. The periodic checkpoint stores a *high-water
-mark*, `value + checkpoint_interval`: at most one barcode per second is emitted before the next
-periodic write, so that provably covers everything the run can emit in the window. The
-**clean-close** checkpoint instead stores the exact last barcode.
+mark*, `value + checkpoint_interval`. The **clean-close** checkpoint instead stores the exact
+last barcode.
+
+**The periodic write is triggered on VALUE, not on iteration count** — corrected again
+2026-08-17, because the first statement of this proof was false. It read: "at most one barcode
+per second is emitted before the next periodic write, so that provably covers everything the
+run can emit in the window." That holds only if one loop iteration takes exactly one second,
+and it does not: an iteration is `sleep(1.0)` **plus** the 200 ms frame emission plus an
+`fsync`. Sixty iterations therefore span appreciably more than sixty seconds, the emitted value
+outruns a mark written every sixtieth iteration by roughly `checkpoint_interval × (period −
+1 s)`, and a crash inside that window resumes at `checkpoint + 1` and **re-issues barcode
+values already used** — the one thing §4's clamp exists to prevent. `build_manifest` cannot
+detect it either: `first − last` is then negative, fails the `> 1` test, and no gap is reported.
+
+The correct rule needs no assumption about the loop's period. Write whenever
+`value − last_checkpointed_value ≥ checkpoint_interval`, storing `value + checkpoint_interval`.
+"The checkpoint is never behind the last value emitted" is then true **by construction**.
+
+A run also writes one such high-water mark **at startup**, before its first frame. Without it
+the invariant is false for the first interval of every run: a crash there leaves the *previous*
+run's exact-value checkpoint on disk, and the restart's `checkpoint + 1` re-issues everything
+this run had already emitted. The clean close still overwrites it with the exact last value, so
+an ordinary clean restart inflates by zero — the property below is unaffected.
 
 The first version applied `+ checkpoint_interval + 1` at read time instead, and that was wrong
 in a way only running it showed: the clamp then bound on *every* restart inside an interval,
