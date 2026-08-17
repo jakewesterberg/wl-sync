@@ -4,11 +4,14 @@ One JSON header line, then one CSV line per record, type-tagged:
 
     E,tick_us,gpio,level     a transition on a single line
     W,tick_us,word           a 16-bit event code word latched on a strobe edge
+    B,tick_us,value          a barcode frame this box emitted
 
-Two record types because the RP1 PIO captures them differently: a strobed
+Three record types because the RP1 PIO captures them differently: a strobed
 parallel word arrives as one FIFO entry, while reward, lick and loopback lines
 arrive as individual transitions. Flattening them into one shape would throw
-away that distinction and force the reader to reconstruct it.
+away that distinction and force the reader to reconstruct it. Barcode records
+are emitted once per second by this box and recorded by every other device for
+clock alignment.
 
 Plain text so it is readable with standard tools on a rig PC at 8am, which is
 when it matters.
@@ -69,7 +72,20 @@ class CodeWord:
     word: int
 
 
-Record = Edge | CodeWord
+@dataclass(frozen=True, slots=True)
+class BarcodeEmitted:
+    """A barcode frame this box emitted, with the tick of its LEAD rising edge.
+
+    The box hands every other device this value as the alignment key; until 2026-08-16
+    it kept no copy of its own, so its log could not be aligned against the devices it
+    was synchronising. One record per second, ~86 KB/day against a ~1 GB day.
+    """
+
+    tick_us: int
+    value: int
+
+
+Record = Edge | CodeWord | BarcodeEmitted
 
 
 def unwrap_ticks(raw: Sequence[int]) -> list[int]:
@@ -91,6 +107,8 @@ def write_log(path: Path, header: SyncBoxLogHeader, records: Iterable[Record]) -
         for record in records:
             if isinstance(record, Edge):
                 handle.write(f"E,{record.tick_us},{record.gpio},{record.level}\n")
+            elif isinstance(record, BarcodeEmitted):
+                handle.write(f"B,{record.tick_us},{record.value}\n")
             else:
                 handle.write(f"W,{record.tick_us},{record.word}\n")
 
@@ -107,6 +125,9 @@ def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
             if kind == "E":
                 tick, gpio, level = (int(field) for field in fields)
                 records.append(Edge(tick_us=tick, gpio=gpio, level=level))
+            elif kind == "B":
+                tick, value = (int(field) for field in fields)
+                records.append(BarcodeEmitted(tick_us=tick, value=value))
             elif kind == "W":
                 tick, word = (int(field) for field in fields)
                 records.append(CodeWord(tick_us=tick, word=word))

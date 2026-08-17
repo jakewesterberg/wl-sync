@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from wl_sync.log import (
     TICK_WRAP_US,
+    BarcodeEmitted,
     CodeWord,
     Edge,
     SyncBoxLogHeader,
@@ -86,6 +87,25 @@ def test_header_rejects_malformed_session_id():
     payload["session_id"] = "March the 14th"
     with pytest.raises(ValidationError):
         SyncBoxLogHeader.model_validate(payload)
+
+
+def test_barcode_records_round_trip(tmp_path):
+    path = tmp_path / "syncbox.log"
+    records = [
+        BarcodeEmitted(tick_us=1_000, value=212_000_000),
+        Edge(tick_us=1_500, gpio=26, level=0),
+        BarcodeEmitted(tick_us=1_001_000, value=212_000_001),
+    ]
+    write_log(path, HEADER, records)
+    _, read_back = read_log(path)
+    assert read_back == records
+
+
+def test_barcode_record_line_format(tmp_path):
+    """The on-disk shape is a downstream contract, so pin the literal line."""
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [BarcodeEmitted(tick_us=1_000, value=212_000_000)])
+    assert path.read_text().splitlines()[1] == "B,1000,212000000"
 
 
 def test_unknown_record_type_raises(tmp_path):
