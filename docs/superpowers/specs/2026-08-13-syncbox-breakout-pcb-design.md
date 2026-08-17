@@ -31,7 +31,7 @@ signal nobody recorded a decision about.
 | # | Decision | Rationale |
 |---|---|---|
 | 1 | One board, two rigs, fully populated | Rigs are identical; a depopulation strategy would be insurance against variability that does not exist |
-| 2 | Sync-box board inside the same enclosure | Frees GPIO0/1 — no HAT is fitted, so nothing supplies an ID EEPROM — which is what makes the contiguous capture range and two hardware-PWM triggers coexist |
+| 2 | Sync-box board inside the same enclosure | Frees GPIO0/1 — no HAT is fitted, so nothing supplies an ID EEPROM — which is what lets the contiguous capture range start at 0. (It originally read "…and two hardware-PWM triggers coexist"; the cameras free-run as of 2026-08-16, so there are no triggers to coexist with. The capture range still starts at 0 — see §4) |
 | 2a | **CM5 Lite 4 GB, no wireless (`CM5004000`) + official CM5 IO Board**, not a Pi 5 | Onboard M.2 removes the PCIe flex cable, which is a mechanical failure mode in a rack chassis that gets slid in and out while carrying the boot device. Production committed to ≥ Jan 2036. **Conditional on floorplan — see §9.4** |
 | 3 | **Optocouplers** on digital, **not** capacitive/magnetic digital isolators | Digital isolators transmit by modulating an RF carrier — a deliberate RF source beside headstages. Optocouplers have no carrier. Speed is irrelevant at this timing budget |
 | 4 | **Difference amplifiers** on analog, not isolation amplifiers | 33 analog stages cannot be galvanically isolated affordably, and isolation amplifiers degrade the signals most needing fidelity |
@@ -60,8 +60,10 @@ signal nobody recorded a decision about.
 | Event code data ×16 | Task PC | — | ✓ | ✓ | — | |
 | Event strobe | Task PC | — | ✓ | ✓ | ✓ | |
 | Barcode | Pi | — | — | ✓ | ✓ | |
-| ohDPI camera trigger | Pi | — | — | — | — | eye cameras |
-| Behavior camera trigger | Pi | — | — | — | — | behavior cameras ×≤4 |
+| ohDPI camera **sync** (barcode) | Pi | — | — | — | — | eye cameras — a timebase to record, not a trigger (2026-08-16) |
+| Behavior camera **sync** (barcode) | Pi | — | — | — | — | behavior cameras ×≤4 — ditto |
+| ohDPI camera **frame time** | eye cameras | — | ✓ | — | — | ExposureActive strobe in, GPIO26 |
+| Behavior camera **frame time** | behavior cameras | — | ✓ | — | — | ExposureActive strobe in, GPIO27 |
 | Photodiode 1 comparator | Board | ✓ | ✓ | ✓ | — | decouples NI onset timing from scan rate |
 | Photodiode 2 comparator | Board | ✓ | ✓ | ✓ | — | same |
 | Accelerometer motion trigger | Board | ✓ | ✓ | — | — | gates task progression |
@@ -170,7 +172,7 @@ were freed and two were spent:
   was **not** moved off GPIO0 despite that change dissolving the constraint which forced it
   (every 17-wide window that keeps both PWM pins free contains GPIO0 and/or GPIO1, so moving
   it costs a spare rather than freeing one).
-- **26/27 became the frame-time inputs.** Free-running cameras also made §12 item 1's
+- **26/27 became the frame-time inputs.** Free-running cameras also made §11 item 1's
   justification for dropping exposure-active returns false in both halves, so one exposure
   strobe per camera group now returns on a spare back-panel BNC. It needs a comparator rather
   than this board's usual `74LVC541A` inbound buffer: the FLIR strobe's best published low is
@@ -185,6 +187,15 @@ window inside GPIO2–27 contains 12 and 13, and only the window starting at 2 l
 PWM pin free — insufficient for two triggers. Starting at 0 consumes 12 and 13 while leaving 18
 and 19 free. This is available only because the Pi is a separate board inside the enclosure
 rather than a HAT, so GPIO0/1 are not holding an ID EEPROM.
+
+> **That justification expired on 2026-08-16, and the window stays at 0–16 anyway.** The
+> cameras free-run, so no line needs a PWM pin and the argument above no longer binds. The
+> window was re-examined and deliberately not moved: a 17-wide window that avoids both 18
+> and 19 must start at 0 or 1, and both contain GPIO0 and/or GPIO1 — so moving to GPIO2–18
+> would *cost* a spare pin rather than free one, while re-mapping 17 event lines across two
+> sheets. What moving would genuinely buy is deleting the `force_eeprom_read=0` dependency
+> below; that was judged not worth the churn. Full arithmetic in
+> `hardware/breakout/camera-sync-change.md` §2.
 
 **Boot contention, and it must be designed for.** The Pi probes GPIO0/1 as I²C at boot looking
 for a HAT ID. A buffer driving those pins contends with that probe. Mitigation: series
@@ -221,7 +232,7 @@ a rack for a decade, is a mechanical failure mode worth designing out.
 Pi 5 from NVMe; an eMMC variant would need `rpiboot` over USB for every reimage, which is a
 worse morning for whoever maintains the rig.
 
-**Throughput is not why.** The Pi logs its own camera-trigger edges at 500 Hz, a photodiode flip
+**Throughput is not why.** The Pi logs camera frame-time edges at ~500 Hz, a photodiode flip
 patch at the display refresh rate, a barcode frame per second and a handful of behavioural
 lines — roughly 2,000 edges/s, about **40 KB/s, or ~1 GB for an eight-hour session.** An SD card
 would keep up without noticing, and capacity is a non-issue since sessions transfer to the NAS
@@ -625,7 +636,8 @@ Every panel input carries series resistance and clamp diodes.
 | Recording NI | 68-pin MDR, male | 2 (analog+AISENSE / digital) |
 | Task PC NI | 68-pin MDR, male | 2 (analog+AISENSE / digital) |
 | Misc analog in | BNC | 3 |
-| Camera triggers | BNC | 5 (1 eye, 4 behavior) |
+| Camera **sync/barcode** out | BNC | 5 (1 eye, 4 behavior) — carry `BARCODE_RAW`, not a trigger (2026-08-16) |
+| Camera **frame time** in | BNC | 2 (1 eye, 1 behavior) — one ExposureActive strobe per camera group, on the two spare back-face ports J17B/J6B (2026-08-16) |
 | Reward driver out | BNC | 1 |
 | Display sync in | BNC | 1, unpopulated |
 | Photodiodes ×2, ambient, accelerometer, joystick X/Y, microphone | **BNC** | 7 |
@@ -695,7 +707,7 @@ the same rate and the fastest channel sets it. Per-channel requirements:
 
 | Channel(s) | Real bandwidth | Adequate rate |
 |---|---|---|
-| Eye X/Y, pupil (6) | 500 Hz — camera frame rate, via a DAC updating at 4 kHz | ~2 kHz |
+| Eye X/Y, pupil (6) | 500 Hz — **the camera's own** frame rate (this box no longer sets it; see §4), via a DAC updating at 4 kHz | ~2 kHz — **holds only while the camera is ≤ ~500 fps**; see §12 item 10 |
 | Ambient light (1) | near-DC | ~100 Hz |
 | Accelerometer (1) | motion-energy envelope | ~1 kHz |
 | Joystick X/Y (2) | behavioural | ~1 kHz |
@@ -763,12 +775,13 @@ recessed button also earns its keep on the front, which is where people stand an
 The front's spare width is what makes the fans possible: splitting its connectors into two rows on
 the left frees a **170 × 82 mm full-height strip** on the right.
 
-**31 BNC positions**, all populated. Display sync is **dropped entirely** (§12 item 12), and the
+**33 BNC positions** (31 until the frame-time inputs took two spares on 2026-08-16), all populated. Display sync is **dropped entirely** (§12 item 12), and the
 3.5 mm TRS leaves the design with it — the reward remote became a BNC, which was its last use.
 
 > **Colour-code the reward group.** With every position now an identical BNC, isolated connectors
 > with coloured insulators cost nothing and make a mis-plug visible rather than something found in
-> the data. Worth doing for the camera triggers too.
+> the data. Worth doing for the camera group too — and note the two frame-time BNCs are
+> INPUTS sitting among camera outputs, which is exactly the mis-plug worth colouring against.
 
 ### 9.7 Airflow — diagonal, filtered, slightly positive
 
@@ -948,7 +961,7 @@ rather than a gap, stated rather than made silently.
 
 | # | Was | Now | Why |
 |---|---|---|---|
-| 1 | Camera exposure-active returns are Pi inputs | Dropped | The spec names this as its own escape hatch when Pi inputs run short. Safe: the Pi triggers the cameras so frame times are known by construction, and the trigger-count-versus-frames check still runs off the camera sidecar |
+| 1 | Camera exposure-active returns are Pi inputs | ~~Dropped~~ → **reversal WITHDRAWN 2026-08-16; `wl-preproc`'s original stands.** Exposure-active returns are Pi inputs again, on GPIO26/27 | The justification for dropping it was *"the Pi triggers the cameras so frame times are known by construction, and the trigger-count-versus-frames check still runs off the camera sidecar."* Free-running cameras made **both halves false**: the box does not know frame times, and there are no triggers to count frames against. So the amendment's own premise disappeared and the `wl-preproc` spec was right. One ExposureActive strobe per camera group now returns through a comparator — the FLIR strobe's 0.87 V low misses a `74LVC541A`'s 0.8 V V_IL by 70 mV, silently, so it cannot use this board's usual inbound buffer. See `hardware/breakout/frame-time-inputs.md`. **This does not replace the camera logger**; frame times still also reach analysis as data, barcode-aligned, and the two are independent |
 | 2 | Stim triggers go to NI and RHS only, never the Pi | Stim trigger also reaches the Pi | The Pi defines session time, so stim lands in the master timebase directly instead of being aligned into it. Reversal 1 freed the pins |
 | 3 | A `74HCT541` handles both directions in one part | Two families, one per direction | True going up, unsafe going down. See §7.1 |
 | 4 | Optoisolators on ephys-bound lines (board is digital fan-out) | Optocouplers on digital, difference amplifiers on analog | The board became mixed-signal. Isolating 17 digital lines while 30-plus analog lines tie the same grounds is ceremony, not protection |
@@ -973,5 +986,6 @@ cross-correlation per session, which is a better reason to keep the channels tha
 | 5 | ~~Accelerometer output range~~ **Closed 2026-08-15 by `wl-shook` §3's output contract.** 0–5.000 V single-ended on BNC, non-inverted, with a **0.250 V resting pedestal** so 0 V means the device is absent rather than still — the NI record proves liveness sample by sample. Floating, battery-only, no rig supply, which is exactly what the differential receive assumes. Inside this board's ±5 V convention, so **the input stage is a unity buffer with nothing to derive and the board is correct as built.** No scaling network, no respin | ~~Schematic~~ |
 | 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
 | 7 | ~~Whether the misc analog ports need to be outputs as well as inputs~~ **Closed by construction — they are inputs only.** Each misc BNC runs one way: clamp → /1÷/2 divider → INA105 `+` input → `A_MISCn` → the NI and task-PC buffers. There is no drive-back path from the board to the connector anywhere on the analog front end, so an output misc port would be a respin | ~~Schematic~~ |
-| 8 | Behavior camera count (≤4 budgeted); all share one trigger rate, since only two hardware PWM pins survive the contiguous capture range | Layout |
+| 8 | Behavior camera count (≤4 budgeted). **The rate constraint is void as of 2026-08-16**: the cameras free-run, so this box sets no rate at all and the surviving-PWM-pin argument constrains nothing. Each camera's *own* rate is now independent, and its exposure is recovered from the frame-time input (§4, GPIO26/27) rather than assumed from a trigger | Layout |
 | 9 | Whether asymmetric comparator make/break thresholds are wanted. **Cost restated (2026-08-15): a second MCP4728 package, not a second channel each.** All four channels of the one DAC are allocated — VOUTA/B/C/D to PD1/PD2/ACC/MISC1 — so there is no spare channel to take the second threshold of any comparator. This is a new I²C device (the part has no address pins; its 3 address bits are EEPROM-programmed, factory default 0x60, so a second one must be reprogrammed before it can share the bus), plus its decoupling and board area | Schematic |
+| 10 | **Eye-channel bandwidth now depends on a rate this box does not set.** §6's ~2 kHz adequate rate was derived from a 500 Hz camera frame rate back when the Pi *set* that rate by trigger. The cameras free-run as of 2026-08-16, so 500 fps is a property of the camera configuration, not of this design. At 500 fps the figure is comfortable (4x oversampling); at 1000 fps it is exactly Nyquist and the anti-alias sizing on the eye channels would need revisiting. **Needs the actual configured frame rate of the ohDPI rig to close** — it is a number to look up, not a decision to make. Note the external DAC's own 4 kHz update also caps the delivered bandwidth at 2 kHz regardless, so the exposure is bounded either way | Bring-up |

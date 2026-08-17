@@ -2,8 +2,14 @@
 
 Decided 2026-08-16, in design phase, before layout. Implements the gap
 `camera-sync-change.md` §3 opened: with the cameras free-running, **the box no longer knows
-frame times**, and spec §12 item 1's justification for dropping exposure-active returns
+frame times**, and spec **§11 item 1**'s justification for dropping exposure-active returns
 ("the Pi triggers the cameras so frame times are known by construction") is void.
+
+§11 is "Reversals and amendments" — changes this design makes to the `wl-preproc` spec. Item 1
+dropped exposure-active returns as Pi inputs; since its premise has disappeared, that reversal
+is **withdrawn** rather than reworded, and `wl-preproc`'s original intent stands. (Both this
+file and `camera-sync-change.md` cited it as *§12* item 1 until 2026-08-16; §12 item 1 is the
+closed +5 V current-budget item.)
 
 Two panel inputs bring one exposure strobe per camera group back to the Pi, timestamped in
 the same PIO/event stream as everything else. Frame times still also reach analysis as data
@@ -37,8 +43,9 @@ BNC ──[100R]──┬──────────────────�
 
 - **Connectors:** spare ports **J6B** (`taskpc-digital`) and **J17B** (`pi-interface`), both
   back face. Both holes are already machined — `panel-elevations.md` counts 34 BNC holes,
-  31 used, 3 spare, and already instructs that all three be machined. **No new panel holes,
-  no new connector bodies.**
+  34 BNC holes and already instructed that every one be machined, including what were then
+  three spare ports. Taking two of those three leaves 33 used and 1 spare (front-face J5B).
+  **No new panel holes, no new connector bodies.**
 - **GPIO:** **26** (eye/ohDPI), **27** (behaviour) — the last two non-PWM spares.
 - **Threshold:** 2.50 V, one 10k/10k divider off +5V shared by both channels.
 
@@ -143,12 +150,17 @@ datasheet coincidence.
 
 ## 8. What this changes elsewhere
 
-| Document | Change |
-|---|---|
-| Spec §4 GPIO map | 26, 27 → frame-time inputs (were spare). Spares drop to 2 (18, 19, both PWM-capable) |
-| Spec §12 item 1 | Restate: frame times return in hardware on GPIO26/27, *and* reach analysis as data via the camera logger aligned by barcode |
-| Spec §9.1 panel inventory | Two of the three spare BNC ports are now used |
-| `camera-sync-change.md` §3 | Its "if frame times are ever wanted in hardware, GPIO26/27 are free" is now taken |
+All applied 2026-08-16 except the last row.
+
+| Document | Change | State |
+|---|---|---|
+| Spec §4 GPIO map | 26, 27 → frame-time inputs (were spare). Spares drop to 2 (18, 19, both PWM-capable) | ✅ |
+| Spec **§11** item 1 | Reversal **withdrawn**: exposure-active returns are Pi inputs again, on GPIO26/27 — *and* frame times still reach analysis as data via the camera logger, barcode-aligned. The two are independent | ✅ |
+| Spec §9.1 panel inventory | New "Camera frame time in | BNC | 2" row; the camera-trigger row becomes sync/barcode out | ✅ |
+| Spec §6 + §12 open item 10 | The eye channels' 500 Hz is the **camera's** rate now. §6's ~2 kHz adequate rate was derived from it and holds only while the camera is ≤ ~500 fps — tracked as an open item needing the ohDPI rig's configured frame rate | ✅ |
+| `panel-elevations.md` | Back face gains 2 ports (16 → 18) and loses both its spare ports; total used 31 → 33, spare 3 → 1. **The machining note said to label all three spare holes "spare"** — two of them are now live inputs, so it now carries a per-port label table | ✅ |
+| `camera-sync-change.md` §3 | Its "if frame times are ever wanted in hardware, GPIO26/27 are free" is now taken | ✅ |
+| `wl_sync` | Read GPIO26/27 and **timestamp the FALLING edge** (§6). Retire `backend.py`'s `start_pwm()`, whose docstring still calls it "the camera trigger" | ⏳ not yet done |
 
 ## 9. Layout note
 

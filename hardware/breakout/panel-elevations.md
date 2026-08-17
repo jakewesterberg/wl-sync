@@ -21,8 +21,8 @@ face; the task PC and the Faraday-cage booth are both reached from the rack's ba
 | Face | BNC ports | BNC bodies | Other |
 |---|---|---|---|
 | **Front** (rack-facing) | 14 Intan + 1 reward remote = **15** | **8** (1 spare port) | 2× MDR68 recording NI · recessed reward button · 2× 60 mm intake |
-| **Back** | 15 rig + 1 reward driver out = **16** | **9** (2 spare ports) | 2× MDR68 task PC · DB37 eye tracker · M12 supply inlet · CM5 cutouts |
-| | **31** | **17** | |
+| **Back** | 15 rig + 1 reward driver out + 2 camera frame-time in = **18** | **9** (0 spare ports) | 2× MDR68 task PC · DB37 eye tracker · M12 supply inlet · CM5 cutouts |
+| | **33** | **17** | |
 
 Bodies per sheet, and which face each lands on:
 
@@ -131,7 +131,7 @@ their thread engagement is not load-bearing.
 
 | Feature | Size | Count | Source |
 |---|---|---|---|
-| BNC port hole | Ø **12.83** mm | 34 (31 used, 3 spare) | `bnc_dual_isolated.panel_hole_dia_mm` |
+| BNC port hole | Ø **12.83** mm | 34 (33 used, 1 spare) | `bnc_dual_isolated.panel_hole_dia_mm` |
 | BNC vertical pitch within a body | **16.00** mm | — | `.panel_hole_pitch_mm` |
 | BNC column pitch | **18.0** mm | — | this document §2 |
 | M12 inlet hole | Ø **13.5** mm + Ø1.2 mm anti-rotation pin at 45° | 1 | `m12_inlet.panel_hole_dia_mm` |
@@ -140,10 +140,22 @@ their thread engagement is not load-bearing.
 | Reward button | Ø ~12 mm, recessed bezel | 1 | spec §3.1 / §9.8 |
 | Panel material | **3.0 mm** aluminium | both faces | `d3-panel-thickness.md` |
 
-**Machine the three spare BNC holes.** They are real ports on real connectors that will be
-fitted; leaving them undrilled would mean a body pressed against blank panel. Label them as
-spares — and colour-code the reward group while doing it, which spec §9.6 already asks for and
-which matters more now that the reward remote sits among fourteen identical Intan BNCs.
+**Machine all 34 BNC holes.** They are real ports on real connectors that will be fitted;
+leaving one undrilled would mean a body pressed against blank panel.
+
+**Updated 2026-08-16 — only ONE is a spare now, and it is on the FRONT.** The two BACK-face
+spares were taken by the camera frame-time inputs (`frame-time-inputs.md`): J17B is the
+eye/ohDPI strobe and J6B the behaviour strobe. Labelling those two "spare" would put a wrong
+label on a live input, so:
+
+| Port | Face | Label |
+|---|---|---|
+| J5B | front | **spare** |
+| J17B | back | **CAM FRAME EYE** (or equivalent — one exposure strobe per camera group) |
+| J6B | back | **CAM FRAME BEH** |
+
+Colour-code the reward group while doing it, which spec §9.6 already asks for and which
+matters more now that the reward remote sits among fourteen identical Intan BNCs.
 
 ---
 

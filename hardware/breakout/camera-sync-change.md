@@ -70,11 +70,16 @@ expired, whichever way the window lands.
 
 ## 3. What this change does NOT solve
 
-**Frame times are no longer known by construction.** Spec §12 item 1 dropped camera
+**Frame times are no longer known by construction.** Spec **§11 item 1** — "Reversals and
+amendments", *not* §12, which this file mis-cited until 2026-08-16 — dropped camera
 exposure-active returns as Pi inputs, and the stated justification was *"the Pi triggers the
 cameras so frame times are known by construction, and the trigger-count-versus-frames check
 still runs off the camera sidecar."* Free-running cameras make both halves false: the box
 does not know frame times, and there are no triggers to count frames against.
+
+That §11 row is a **reversal of the `wl-preproc` spec**, which had exposure-active returns as
+Pi inputs all along. Since its premise disappeared, the reversal has now been withdrawn
+rather than reworded — see §3 below and `frame-time-inputs.md`.
 
 The intended replacement, per the rig design being sketched (FLIR USB cameras with a DIO
 data logger alongside, custom software):
@@ -100,18 +105,20 @@ This does not replace the logger path above; it adds a hardware timestamp alongs
 
 ## 4. Plan and spec changes this implies
 
-Not yet applied — these are decisions, listed for review:
+**Applied 2026-08-16**, except the two rows marked otherwise:
 
-| Document | Change |
-|---|---|
-| Spec §4 GPIO map | 18, 19 → spare (were ohDPI / behaviour camera trigger). Note 4 spares, 2 PWM-capable |
-| Spec §4 capture-window rationale | The PWM constraint expired; either re-justify GPIO0–16 on other grounds, or record it as now-optional (see §2) |
-| Spec §9.1 panel inventory | "Camera triggers | BNC | 5" → camera **sync/barcode** lines |
-| Spec §9.4 | "only two hardware PWM pins survive the contiguous capture range" no longer constrains anything |
-| Spec §12 item 1 | Its justification is void. Restate: frame times come from the camera logger, aligned by barcode |
-| Spec §6 | Eye channels at "500 Hz — camera frame rate" is now the **camera's** rate, not one this box sets |
-| Task 15 panel drawings | BNC labels: "CAM TRIG" → "CAM SYNC" |
-| `wl_sync` | Stop driving hardware PWM on 18/19. `backend.py`'s PWM entry point becomes unused |
+| Document | Change | State |
+|---|---|---|
+| Spec §2 item 2 | "…and two hardware-PWM triggers coexist" — there are no triggers to coexist with | ✅ applied |
+| Spec §4 GPIO map | 18, 19 → spare (were ohDPI / behaviour camera trigger); 26, 27 → frame-time inputs. Two spares, both PWM-capable | ✅ applied |
+| Spec §4 capture-window rationale | The PWM constraint expired; recorded as expired, with the arithmetic showing the window still should not move (§2) | ✅ applied |
+| Spec §4 throughput note | "The Pi logs its own camera-trigger edges at 500 Hz" — it now logs frame-time edges it *receives*, at the same rate by coincidence | ✅ applied |
+| Spec §9.1 panel inventory | "Camera triggers | BNC | 5" → camera **sync/barcode** out, plus a new frame-time **in** row | ✅ applied |
+| Spec §12 item 8 | "only two hardware PWM pins survive the contiguous capture range" no longer constrains anything | ✅ applied |
+| Spec **§11** item 1 | *Mis-cited as §12 item 1 in this file until 2026-08-16.* Not merely a justification to restate: it is a **reversal of the `wl-preproc` spec**, and the reversal is now **withdrawn** — exposure-active returns are Pi inputs again | ✅ applied |
+| Spec §6 | Eye channels at "500 Hz — camera frame rate" is now the **camera's** rate, not one this box sets. Consequence tracked as spec §12 open item 10: the ~2 kHz adequate-rate figure holds only while the camera is ≤ ~500 fps | ✅ applied |
+| Task 15 panel drawings | BNC labels: "CAM TRIG" → "CAM SYNC", plus two new frame-time labels | ⏳ **deferred** — Task 15 has not produced panel drawings yet; nothing exists to edit |
+| `wl_sync` | Stop driving hardware PWM on 18/19. `backend.py`'s `start_pwm()` entry point (docstring: *"the camera trigger"*) becomes unused. Add GPIO26/27 frame-time capture — **timestamp the FALLING edge**, see `frame-time-inputs.md` §6 | ⏳ **deferred** — software, not yet done |
 
 ## 5. Verification
 
