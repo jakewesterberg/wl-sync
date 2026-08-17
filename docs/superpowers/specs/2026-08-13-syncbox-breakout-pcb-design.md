@@ -100,10 +100,12 @@ delivered reward would otherwise become a silent confound.
 
 | Signal | Ch | Source | Task PC | NI (rec) | Intan |
 |---|---|---|---|---|---|
-| Eye X/Y, both eyes | 4 | ACCESIO USB-AO16-8A | ✓ | ✓ | mux |
-| Eye pupil, both eyes | 2 | ACCESIO USB-AO16-8A | — | ✓ | mux |
+| Eye X/Y, both eyes | 4 | ACCESIO USB-AO16-8**A**/8**E** — see note | ✓ | ✓ | mux |
+| Eye pupil, both eyes | 2 | ACCESIO USB-AO16-8**A**/8**E** — see note | — | ✓ | mux |
 | Photodiode ×2 | 2 | **passive diode**, coax | — | ✓ | mux |
 | Ambient light | 1 | battery-powered, in booth | — | ✓ | mux |
+
+> **`-8A` vs `-8E`, checked 2026-08-16: pin-compatible here, so the board is correct either way.** This design named the **`-8A`** throughout (symbol, BOM, footprint provenance), but the OpenIrisDPI wiki specifies the **`-8E`** for the ohDPI build. Both are real models in one family and share the manual, the J1 DB37F analog connector and the DAC0–15/AGND scheme; per ACCES I/O's own family list the *only* difference is that the `-8A` adds **2 analog inputs** (`A_IN0`/`A_IN1`) which the `-8E` lacks. Those land on J1 pins 36/37, which this board leaves **no-connect** — so nothing changes in copper. Worth recording because the mating-connector part name in the BOM will not match the module a reviewer finds on the rig.
 | Accelerometer motion energy | 1 | battery-powered custom device | — | ✓ | mux |
 | Joystick X/Y | 2 | battery-powered, in booth | ✓ | ✓ | mux |
 | Microphone | 1 | battery-powered, in booth | — | ✓ | mux |
@@ -707,7 +709,7 @@ the same rate and the fastest channel sets it. Per-channel requirements:
 
 | Channel(s) | Real bandwidth | Adequate rate |
 |---|---|---|
-| Eye X/Y, pupil (6) | 500 Hz — **the camera's own** frame rate (this box no longer sets it; see §4), via a DAC updating at 4 kHz | ~2 kHz — **holds only while the camera is ≤ ~500 fps**; see §12 item 10 |
+| Eye X/Y, pupil (6) | 500 Hz — **the camera's own** frame rate (this box no longer sets it; see §4), via a DAC updating at 4 kHz | ~2 kHz — set by the **DAC's** 4 kHz conversion rate, which caps delivered bandwidth at 2 kHz whatever the camera does; §12 item 10 |
 | Ambient light (1) | near-DC | ~100 Hz |
 | Accelerometer (1) | motion-energy envelope | ~1 kHz |
 | Joystick X/Y (2) | behavioural | ~1 kHz |
@@ -988,4 +990,4 @@ cross-correlation per session, which is a better reason to keep the channels tha
 | 7 | ~~Whether the misc analog ports need to be outputs as well as inputs~~ **Closed by construction — they are inputs only.** Each misc BNC runs one way: clamp → /1÷/2 divider → INA105 `+` input → `A_MISCn` → the NI and task-PC buffers. There is no drive-back path from the board to the connector anywhere on the analog front end, so an output misc port would be a respin | ~~Schematic~~ |
 | 8 | Behavior camera count (≤4 budgeted). **The rate constraint is void as of 2026-08-16**: the cameras free-run, so this box sets no rate at all and the surviving-PWM-pin argument constrains nothing. Each camera's *own* rate is now independent, and its exposure is recovered from the frame-time input (§4, GPIO26/27) rather than assumed from a trigger | Layout |
 | 9 | Whether asymmetric comparator make/break thresholds are wanted. **Cost restated (2026-08-15): a second MCP4728 package, not a second channel each.** All four channels of the one DAC are allocated — VOUTA/B/C/D to PD1/PD2/ACC/MISC1 — so there is no spare channel to take the second threshold of any comparator. This is a new I²C device (the part has no address pins; its 3 address bits are EEPROM-programmed, factory default 0x60, so a second one must be reprogrammed before it can share the bus), plus its decoupling and board area | Schematic |
-| 10 | **Eye-channel bandwidth now depends on a rate this box does not set.** §6's ~2 kHz adequate rate was derived from a 500 Hz camera frame rate back when the Pi *set* that rate by trigger. The cameras free-run as of 2026-08-16, so 500 fps is a property of the camera configuration, not of this design. At 500 fps the figure is comfortable (4x oversampling); at 1000 fps it is exactly Nyquist and the anti-alias sizing on the eye channels would need revisiting. **Needs the actual configured frame rate of the ohDPI rig to close** — it is a number to look up, not a decision to make. Note the external DAC's own 4 kHz update also caps the delivered bandwidth at 2 kHz regardless, so the exposure is bounded either way | Bring-up |
+| 10 | ~~Eye-channel bandwidth depends on a rate this box no longer sets~~ **Closed 2026-08-16 — §6's ~2 kHz stands, and the binding limit is the DAC, not the camera.** Raised because the cameras free-run now, so 500 fps became a property of rig configuration rather than of this design. Looked up: OpenIrisDPI states it *"is capable of tracking the first and fourth Purkinje reflections at **500 Hz** running on modern CPUs"* — 500 Hz is the algorithm's CPU-bound design point, not an arbitrary setting, so the rig is not about to be reconfigured well above it. More decisively, the eye data reaches this board **only through the ACCESIO DAC**, whose conversion rate is **4 kHz, all channels simultaneous** (8 µs typical settling). That caps the delivered analog bandwidth at 2 kHz *whatever* the camera does, so no camera reconfiguration can invalidate the ~2 kHz figure — it was matched to the DAC all along. No anti-alias change needed | ~~Bring-up~~ |
