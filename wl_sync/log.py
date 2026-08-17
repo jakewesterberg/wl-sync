@@ -131,6 +131,11 @@ def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
             elif kind == "W":
                 tick, word = (int(field) for field in fields)
                 records.append(CodeWord(tick_us=tick, word=word))
+            elif kind == "T":
+                # Segment trailer (wl_sync.segment): metadata about how the segment
+                # closed, not a record. Skipped so the canonical reader accepts a
+                # cleanly-closed segment; wl_sync.manifest reads the trailer itself.
+                continue
             else:
                 raise ValueError(f"unknown log record type: {kind!r}")
     return header, records

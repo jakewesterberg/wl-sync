@@ -92,3 +92,31 @@ def test_segment_index_of_non_segment_name():
     assert segment_index_of(Path("seg-001")) is None
     assert segment_index_of(Path("seg-abc.log")) is None
     assert segment_index_of(Path("foo.log")) is None
+
+
+def test_trailer_with_no_barcodes(tmp_path):
+    """A segment closed having received no BarcodeEmitted records encodes absent span as empty fields."""
+    path = tmp_path / segment_name(0)
+    writer = SegmentWriter(path, HEADER)
+    writer.write(Edge(tick_us=1_000, gpio=26, level=1))
+    writer.write(Edge(tick_us=2_000, gpio=26, level=0))
+    writer.close(CLOSED_AT)
+    assert path.read_text().splitlines()[-1] == (
+        f"T,{CLOSED_AT.isoformat()},,,2"
+    )
+
+
+def test_read_log_skips_trailer_on_closed_segment(tmp_path):
+    """read_log round-trips a cleanly-closed segment, returning only records (not trailer)."""
+    path = tmp_path / segment_name(0)
+    writer = SegmentWriter(path, HEADER)
+    writer.write(BarcodeEmitted(tick_us=1_000, value=500))
+    writer.write(Edge(tick_us=1_500, gpio=26, level=0))
+    writer.write(BarcodeEmitted(tick_us=2_000, value=501))
+    writer.close(CLOSED_AT)
+    _, records = read_log(path)
+    assert records == [
+        BarcodeEmitted(tick_us=1_000, value=500),
+        Edge(tick_us=1_500, gpio=26, level=0),
+        BarcodeEmitted(tick_us=2_000, value=501),
+    ]

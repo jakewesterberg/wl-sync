@@ -85,10 +85,15 @@ class SegmentWriter:
         os.fsync(self._handle.fileno())
 
     def close(self, closed_at: datetime.datetime) -> None:
-        """Close the segment cleanly, writing a trailer that proves it was not a crash."""
+        """Close the segment cleanly, writing a trailer that proves it was not a crash.
+
+        The trailer's format is: T,<isoformat>,<first_barcode>,<last_barcode>,<count>
+        The barcode span fields are empty strings when the segment carried no barcodes.
+        """
+        first = "" if self.barcode_first is None else self.barcode_first
+        last = "" if self.barcode_last is None else self.barcode_last
         self._handle.write(
-            f"T,{closed_at.isoformat()},{self.barcode_first},"
-            f"{self.barcode_last},{self.record_count}\n"
+            f"T,{closed_at.isoformat()},{first},{last},{self.record_count}\n"
         )
         self.flush()
         self._handle.close()
