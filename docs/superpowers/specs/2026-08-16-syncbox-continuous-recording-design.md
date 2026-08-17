@@ -131,19 +131,32 @@ it is "seconds since 2020". `BarcodeGenerator`'s docstring needs rewriting and i
 
 **Monotonicity clamp.**
 
-    next = max(value_from_clock, checkpoint + checkpoint_interval + 1)
+    next = max(value_from_clock, checkpoint + 1)
 
-with `checkpoint` written every 60 s to `<out>/.wl-sync-barcode-checkpoint`. It lives at the
-**`--out` root, not inside a day directory**, because it must survive across days; it is the
-one piece of genuinely persistent state this design keeps. This guarantees the counter is
-unique and increasing **however broken the clock is**. When the clock is healthy
-`value_from_clock` always dominates and the clamp never binds.
+with `checkpoint` at `<out>/.wl-sync-barcode-checkpoint`. It lives at the **`--out` root, not
+inside a day directory**, because it must survive across days; it is the one piece of genuinely
+persistent state this design keeps. This guarantees the counter is unique and increasing
+**however broken the clock is**. When the clock is healthy `value_from_clock` always dominates
+and the clamp never binds.
 
-The `+ checkpoint_interval` term means that when the clamp *does* bind, it **over-states the
-gap, never under-states it** — the resumed counter may sit up to 60 s ahead of truth. That
-asymmetry is deliberate: an over-stated gap marks slightly more trials as unwitnessed than
-strictly were, which is conservative. An under-stated gap would claim coverage the box did not
-have, which is the failure that matters.
+**The staleness margin lives in the WRITE, not the read** — corrected 2026-08-17 after the
+first version was measured on the real binary. The periodic checkpoint stores a *high-water
+mark*, `value + checkpoint_interval`: at most one barcode per second is emitted before the next
+periodic write, so that provably covers everything the run can emit in the window. The
+**clean-close** checkpoint instead stores the exact last barcode.
+
+The first version applied `+ checkpoint_interval + 1` at read time instead, and that was wrong
+in a way only running it showed: the clamp then bound on *every* restart inside an interval,
+including clean ones where the exact last barcode was already on disk. Two real runs 5 s apart
+reported a 61 s gap, and ten restarts over ten seconds left the counter 600 s ahead of the wall
+clock — under `Restart=always` the counter runs away from real time without bound, which
+destroys the premise that a barcode *is* seconds since 2020.
+
+The **over-states, never under-states** property is deliberate and survives the correction, now
+carried by the high-water write: a clean restart inflates by zero, and only a genuine crash can
+leave the resumed counter up to 60 s ahead of truth. An over-stated gap marks slightly more
+trials unwitnessed than strictly were, which is conservative. An under-stated gap would claim
+coverage the box did not have, which is the failure that matters.
 
 The clamp is what makes the following true, and it was a question the rig owner raised
 directly: **a bad clock degrades the precision of gap length, never the integrity of the
