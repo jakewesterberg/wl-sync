@@ -40,19 +40,26 @@ def value_from_clock(now: datetime.datetime) -> int:
 def next_value(now: datetime.datetime, checkpoint: int | None) -> int:
     """The value to resume at, clamped so it can never repeat or go backwards.
 
-    `+ CHECKPOINT_INTERVAL_S + 1` because the checkpoint is only a periodic lower
-    bound -- up to one interval of barcodes may have been emitted after it was
-    written. Landing ahead of them OVER-states the gap, which marks slightly more
-    trials unwitnessed than strictly were. Landing behind would claim coverage the
-    box did not have, which is the failure that matters.
+    The clamp is `checkpoint + 1` -- exactly enough to guarantee monotonicity, no more.
+    The staleness margin that used to live here (`+ CHECKPOINT_INTERVAL_S`) has moved to
+    the PERIODIC mid-run checkpoint write instead (wl_sync.cli.run): that write is the
+    only one that can be stale, because up to one interval of barcodes may have been
+    emitted after it was last read back. A clean close checkpoints the exact
+    last-emitted value, which carries no staleness at all, so applying the interval
+    margin unconditionally here used to inflate every ordinary restart's reported gap by
+    a whole checkpoint interval even when the restart followed within seconds.
+
+    When the clamp binds it still lands strictly ahead of the checkpoint, so a gap is
+    OVER-stated rather than under-stated -- landing behind would claim coverage the box
+    did not have, which is the failure that matters.
     """
     from_clock = value_from_clock(now)
     if checkpoint is None:
         return from_clock
-    result = max(from_clock, checkpoint + CHECKPOINT_INTERVAL_S + 1)
-    if result > _MAX_BARCODE:
-        raise ValueError(f"barcode value out of 32-bit range: {result}")
-    return result
+    value = max(from_clock, checkpoint + 1)
+    if value > _MAX_BARCODE:
+        raise ValueError(f"barcode value out of 32-bit range: {value}")
+    return value
 
 
 def read_checkpoint(path: Path) -> int | None:

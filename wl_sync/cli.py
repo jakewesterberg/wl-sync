@@ -62,6 +62,20 @@ def probe_ntp_synchronized() -> bool | None:
     return completed.stdout.strip() == "yes"
 
 
+def probe_boot_id() -> str:
+    """The OS boot session's id, or "" where the platform does not expose one.
+
+    Distinguishes "the process restarted" from "the machine rebooted" -- under
+    Restart=always those look identical from a timestamp, and telling them apart is the
+    first question a crash loop raises. Empty means "could not tell", the same honest
+    non-answer probe_ntp_synchronized() gives.
+    """
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return ""
+
+
 def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
     """Record until `duration_s` elapses or a termination signal arrives.
 
@@ -86,7 +100,7 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
         schema_version=1,
         session_id=day.name,
         rig=out.name,
-        boot_id=f"{started.timestamp():.0f}",
+        boot_id=probe_boot_id(),
         written_at=started,
         gpio_map=GPIO_MAP,
         segment_index=index,
@@ -117,7 +131,12 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
         writer.flush()
         since_checkpoint += 1
         if since_checkpoint >= CHECKPOINT_INTERVAL_S:
-            write_checkpoint(checkpoint_path, value)
+            # A high-water mark, not the current value: at most one barcode per second is
+            # emitted before the next checkpoint fires, so value + CHECKPOINT_INTERVAL_S
+            # provably covers everything this run can emit in that window. Carrying the
+            # staleness margin HERE rather than in next_value() is what keeps an ordinary
+            # restart from inflating the gap by a whole interval.
+            write_checkpoint(checkpoint_path, value + CHECKPOINT_INTERVAL_S)
             since_checkpoint = 0
         tick_fn(1.0)
         elapsed += 1.0

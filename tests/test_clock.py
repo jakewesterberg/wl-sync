@@ -4,7 +4,6 @@ import pytest
 
 from wl_sync.clock import (
     BARCODE_EPOCH,
-    CHECKPOINT_INTERVAL_S,
     ClockTrust,
     evaluate_clock,
     next_value,
@@ -50,10 +49,12 @@ def test_healthy_clock_ignores_the_checkpoint():
 
 
 def test_clamp_binds_when_the_clock_goes_backwards():
-    """The whole point: a backwards clock must never re-issue a used value."""
+    """The whole point: a backwards clock must never re-issue a used value. The clamp
+    is checkpoint + 1 -- exactly enough for monotonicity, no staleness margin (that
+    margin now lives only in the periodic checkpoint write, wl_sync.cli.run)."""
     now = at(2026, 8, 16, 12, 0)
     stale = value_from_clock(now) + 10_000
-    assert next_value(now, checkpoint=stale) == stale + CHECKPOINT_INTERVAL_S + 1
+    assert next_value(now, checkpoint=stale) == stale + 1
 
 
 def test_clamp_over_states_never_under_states():
@@ -62,6 +63,18 @@ def test_clamp_over_states_never_under_states():
     now = at(2026, 8, 16, 12, 0)
     stale = value_from_clock(now) + 1
     assert next_value(now, checkpoint=stale) > stale
+
+
+def test_a_checkpoint_just_behind_a_healthy_clock_costs_no_margin():
+    """A clean close checkpoints the exact last-emitted value, so a restart moments
+    later must resume at the clock's own value -- not the clock value inflated by a
+    whole checkpoint interval. That unconditional inflation used to misreport every
+    ordinary clean restart as a ~61 s gap; the staleness margin now lives only in the
+    periodic mid-run checkpoint write (wl_sync.cli.run), where the checkpoint really can
+    be stale."""
+    now = at(2026, 8, 16, 12, 0)
+    checkpoint = value_from_clock(now) - 5
+    assert next_value(now, checkpoint) == value_from_clock(now)
 
 
 def test_checkpoint_round_trips(tmp_path):
@@ -143,7 +156,7 @@ def test_next_value_raises_when_clamp_exceeds_ceiling():
     from wl_sync.clock import _MAX_BARCODE
 
     now = at(2026, 8, 16, 12, 0)
-    # A checkpoint so far in the future that clamping it would exceed the range
-    stale_checkpoint = _MAX_BARCODE - CHECKPOINT_INTERVAL_S
+    # A checkpoint already at the ceiling: checkpoint + 1 overflows it.
+    stale_checkpoint = _MAX_BARCODE
     with pytest.raises(ValueError, match="32-bit range"):
         next_value(now, checkpoint=stale_checkpoint)
