@@ -8,6 +8,11 @@ Type=simple
 ExecStart=/usr/local/bin/wl-sync record --out /data/rig1
 Restart=always
 RestartSec=1
+# No start rate limit. systemd's default (5 starts / 10 s) would put the unit in
+# `failed` after a fast crash loop and stop restarting it -- which is precisely the
+# scenario this box must survive unattended. Better to restart forever and be loud in
+# the journal than to be silently dead at 8am.
+StartLimitIntervalSec=0
 # The box is the first device on each day and the last off. Restart=always is what
 # makes stitching automatic: it comes back, derives its barcode counter from the
 # clock, opens the next segment, and the outage lands in the day's manifest with

@@ -25,6 +25,9 @@ rebooted" — under `Restart=always` those look identical from a timestamp, and
 telling them apart is the first question a crash loop raises. Empty (`""`) means
 the platform does not expose one.
 
+A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
+so an operator knows what a crash loop looks like as distinct from a healthy run.
+
 ## Before first boot
 
 - Fit the CR2032 to the CM5 IO Board. Nothing on the board can detect its absence.

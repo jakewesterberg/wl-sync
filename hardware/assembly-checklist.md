@@ -8,7 +8,7 @@ The barcode counter is derived from the wall clock, and the RTC is what carries 
 
 ## Machine all 34 BNC panel holes
 
-Include the one remaining spare on the front face (J5B). See `panel-elevations.md` for the per-port label table. Two ports that were spare are now the camera frame-time inputs and must NOT be labelled "spare".
+Include the one remaining spare on the front face (J5B). See `hardware/breakout/panel-elevations.md` for the per-port label table. Two ports that were spare are now the camera frame-time inputs and must NOT be labelled "spare".
 
 ## Colour-code the reward group
 
