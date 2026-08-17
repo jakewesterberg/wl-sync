@@ -58,11 +58,16 @@ and 2.3 matter rather than being tidiness.
 One directory per **day**; one segment file per **process run**.
 
 ```
-<out>/2026-08-16/
+<out>/2026-08-16_01/
 ├── manifest.json        what wl-preproc opens first
 ├── seg-000.log          one per process run
 └── seg-001.log          after a restart
 ```
+
+The directory carries the **session-id form `YYYY-MM-DD_NN`**, not a bare date:
+`SyncBoxLogHeader` validates `session_id` against it and `session.py` records that the rig
+layout, the ELN and `wl-preproc` all consume it, so the format does not change. A day is one
+session, hence `_01`; a restart joins that directory as a new segment rather than minting `_02`.
 
 **Why segments rather than one appended file.** Because of 2.4, ticks after a gap are not
 comparable to ticks before it. A single file under a single header would be *lying about its
