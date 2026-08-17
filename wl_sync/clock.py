@@ -111,13 +111,14 @@ def evaluate_clock(
     One whole interval of tolerance is the most a correctly-written checkpoint can be
     ahead of a truthful clock, so anything beyond it is the clock's fault.
 
-    THE BOUNDARY, exactly `CHECKPOINT_INTERVAL_S` ahead, is genuinely ambiguous: it is
-    both a restart landing in the same second as the last checkpoint write, and a clock
-    stalled exactly one interval. From this number alone the two are indistinguishable.
-    It is resolved toward distrust because `clock_trusted: false` costs a downstream
-    PRECISION claim, while a missed bad clock would let wl-preproc believe gap
-    arithmetic it should not -- the same over-states-never-under-states asymmetry the
-    clamp itself is built on.
+    EQUALITY IS THE HEALTHY BOUNDARY, which is why the test is `<` and not `<=`. The
+    periodic write stores `value + CHECKPOINT_INTERVAL_S` at an instant when the clock
+    read `value`, so a checkpoint exactly one interval ahead is what a perfectly
+    truthful clock looks like immediately after one -- a restart landing in the same
+    second as the last periodic write. Flagging it would reintroduce, in a one-second
+    slice, the precise false positive this tolerance exists to remove. Distrust begins
+    only once the checkpoint leads by MORE than an interval, which no correctly-written
+    checkpoint can do ahead of a clock that is telling the truth.
 
     `ntp_synchronized=None` means "could not tell" -- timedatectl absent, as on a
     laptop or in a container -- and is NOT treated as untrusted. Crying wolf on every
@@ -127,7 +128,7 @@ def evaluate_clock(
     reasons = []
     if (
         checkpoint is not None
-        and value_from_clock(now) + CHECKPOINT_INTERVAL_S <= checkpoint
+        and value_from_clock(now) + CHECKPOINT_INTERVAL_S < checkpoint
     ):
         reasons.append("clock_behind_checkpoint")
     if ntp_synchronized is False:

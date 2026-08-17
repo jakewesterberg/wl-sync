@@ -125,25 +125,40 @@ def test_an_ordinary_crash_restart_on_a_perfect_clock_is_still_trusted():
     assert evaluate_clock(now, checkpoint, ntp_synchronized=True).trusted is True
 
 
-def test_exactly_one_interval_ahead_is_resolved_toward_distrust():
-    """The boundary is ambiguous by construction: a checkpoint exactly
-    CHECKPOINT_INTERVAL_S ahead is both a restart landing in the same second as the
-    last checkpoint write and a clock stalled exactly one interval. Resolved toward
-    distrust -- over-flagging costs a precision claim downstream, under-flagging would
-    let wl-preproc believe gap arithmetic it should not."""
+def test_exactly_one_interval_ahead_is_the_healthy_boundary():
+    """The periodic write stores value + CHECKPOINT_INTERVAL_S at an instant when the
+    clock read value, so a checkpoint exactly one interval ahead is what a PERFECTLY
+    TRUTHFUL clock looks like immediately after one -- a restart landing in the same
+    second as the last periodic write. Flagging it (`<=`) would reintroduce, in a
+    one-second slice, the exact false positive this tolerance exists to remove.
+    Distrust begins only once the checkpoint leads by MORE than an interval."""
     now = at(2026, 8, 16, 12, 0)
     boundary = value_from_clock(now) + CHECKPOINT_INTERVAL_S
-    assert evaluate_clock(now, boundary, ntp_synchronized=True).trusted is False
+    assert evaluate_clock(now, boundary, ntp_synchronized=True).trusted is True
     assert evaluate_clock(now, boundary - 1, ntp_synchronized=True).trusted is True
+    assert evaluate_clock(now, boundary + 1, ntp_synchronized=True).trusted is False
+
+
+def test_a_healthy_periodic_high_water_mark_is_never_flagged():
+    """The empirical reproduction, written as a test so it cannot come back. A clock at
+    209120400 with a just-written healthy checkpoint of 209120460 reported
+    clock_behind_checkpoint, sending an operator to check a CR2032 over a clock that was
+    telling the truth."""
+    now = BARCODE_EPOCH + datetime.timedelta(seconds=209_120_400)
+    trust = evaluate_clock(
+        now, checkpoint=209_120_460, ntp_synchronized=True
+    )
+    assert trust == ClockTrust(trusted=True, reason="")
 
 
 def test_the_uniqueness_clamp_keeps_the_tolerance_the_trust_test_gained():
-    """Two questions, one number. Trust gets a whole interval of slack; uniqueness
-    gets none, because any slack there is a gap inflated for every restart."""
+    """Two questions, one number. Trust gets a whole interval of slack; uniqueness gets
+    none, because any slack there is a gap inflated for every restart. Asserted at the
+    MOST tolerant checkpoint trust accepts, where the two answers differ most."""
     now = at(2026, 8, 16, 12, 0)
-    inside_tolerance = value_from_clock(now) + CHECKPOINT_INTERVAL_S - 1
-    assert evaluate_clock(now, inside_tolerance, ntp_synchronized=True).trusted is True
-    assert next_value(now, inside_tolerance) == inside_tolerance + 1
+    most_tolerated = value_from_clock(now) + CHECKPOINT_INTERVAL_S
+    assert evaluate_clock(now, most_tolerated, ntp_synchronized=True).trusted is True
+    assert next_value(now, most_tolerated) == most_tolerated + 1
 
 
 def test_unsynchronised_ntp_is_untrusted():
