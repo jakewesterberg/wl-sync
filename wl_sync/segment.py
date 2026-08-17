@@ -53,11 +53,26 @@ def next_segment_index(day_dir: Path) -> int:
 
 
 class SegmentWriter:
-    """Append-only sink. Satisfies the `write(record)` protocol `Recorder` expects."""
+    """Append-only sink. Satisfies the `write(record)` protocol `Recorder` expects.
+
+    NOT THREAD-SAFE, AND DELIBERATELY UNGUARDED. `write()` is one file write plus an
+    unsynchronised read-modify-write of `record_count` and the barcode span; concurrent
+    callers would interleave partial lines and lose counts. `FakeBackend` dispatches
+    synchronously so no test can see this, but the RP1 backend will deliver from capture
+    threads -- so the constraint is stated here rather than discovered there. The caller
+    owns the serialisation: either a single thread drives every `Recorder` path and the
+    emit loop, or the sink is wrapped in a lock before it is handed over.
+
+    OPENED WITH "x", NOT "w". This is the only destructive operation in a module whose
+    entire purpose is bounding data loss. A human running `wl-sync record` while the
+    systemd unit is up races it for the same segment index, and under "w" the loser's
+    whole segment vanished silently with no error anywhere. Failing loudly on a
+    collision is the only acceptable outcome.
+    """
 
     def __init__(self, path: Path, header: SyncBoxLogHeader) -> None:
         self._path = path
-        self._handle = path.open("w", encoding="utf-8")
+        self._handle = path.open("x", encoding="utf-8")
         self._handle.write(json.dumps(header.model_dump(mode="json")) + "\n")
         self.barcode_first: int | None = None
         self.barcode_last: int | None = None

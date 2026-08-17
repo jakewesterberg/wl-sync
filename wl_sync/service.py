@@ -98,6 +98,14 @@ class Recorder:
     them in ARRIVAL order instead, because the paths deliver independently and a stream
     cannot be globally sorted -- the segment header declares `ordering="per-path"` and
     the reader merges.
+
+    `sink.write()` MUST BE CALLED FROM ONE THREAD. All three paths plus the emit loop
+    call it, and nothing here serialises them. `FakeBackend` dispatches synchronously so
+    no test can see this, but the RP1 backend will deliver from capture threads, where
+    concurrent writes interleave partial lines and `SegmentWriter`'s `record_count` and
+    barcode span become unguarded read-modify-writes. The constraint is stated rather
+    than enforced so the backend inherits it as a design decision instead of finding it
+    as a bug; whoever introduces real threads owns adding the lock.
     """
 
     def __init__(self, backend: SyncBackend, sink=None) -> None:

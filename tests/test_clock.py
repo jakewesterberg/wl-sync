@@ -4,6 +4,7 @@ import pytest
 
 from wl_sync.clock import (
     BARCODE_EPOCH,
+    CHECKPOINT_INTERVAL_S,
     ClockTrust,
     evaluate_clock,
     next_value,
@@ -108,6 +109,41 @@ def test_clock_behind_checkpoint_is_untrusted():
     )
     assert trust.trusted is False
     assert "behind_checkpoint" in trust.reason
+
+
+def test_an_ordinary_crash_restart_on_a_perfect_clock_is_still_trusted():
+    """The periodic checkpoint is DELIBERATELY a future value, so a bare
+    `value <= checkpoint` test stopped being a clock test and became a 'did we crash
+    recently' test. Reproduced: healthy clock, crash 70 s into a run, restart 1 s
+    later. That flag sends an operator to check a CR2032 (deploy/README.md) over a
+    crashing process, and makes wl-preproc distrust gap arithmetic at precisely the
+    boundaries where it matters most."""
+    now = at(2026, 8, 16, 12, 0)
+    # The run reached value+70 and its last periodic write stored value+70-10+60.
+    crashed_at = value_from_clock(now) - 1
+    checkpoint = crashed_at + CHECKPOINT_INTERVAL_S
+    assert evaluate_clock(now, checkpoint, ntp_synchronized=True).trusted is True
+
+
+def test_exactly_one_interval_ahead_is_resolved_toward_distrust():
+    """The boundary is ambiguous by construction: a checkpoint exactly
+    CHECKPOINT_INTERVAL_S ahead is both a restart landing in the same second as the
+    last checkpoint write and a clock stalled exactly one interval. Resolved toward
+    distrust -- over-flagging costs a precision claim downstream, under-flagging would
+    let wl-preproc believe gap arithmetic it should not."""
+    now = at(2026, 8, 16, 12, 0)
+    boundary = value_from_clock(now) + CHECKPOINT_INTERVAL_S
+    assert evaluate_clock(now, boundary, ntp_synchronized=True).trusted is False
+    assert evaluate_clock(now, boundary - 1, ntp_synchronized=True).trusted is True
+
+
+def test_the_uniqueness_clamp_keeps_the_tolerance_the_trust_test_gained():
+    """Two questions, one number. Trust gets a whole interval of slack; uniqueness
+    gets none, because any slack there is a gap inflated for every restart."""
+    now = at(2026, 8, 16, 12, 0)
+    inside_tolerance = value_from_clock(now) + CHECKPOINT_INTERVAL_S - 1
+    assert evaluate_clock(now, inside_tolerance, ntp_synchronized=True).trusted is True
+    assert next_value(now, inside_tolerance) == inside_tolerance + 1
 
 
 def test_unsynchronised_ntp_is_untrusted():

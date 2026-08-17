@@ -252,6 +252,63 @@ def test_the_checkpoint_is_never_behind_the_values_already_emitted(tmp_path):
     )
 
 
+class _Crash(Exception):
+    """Abandons run() mid-loop, leaving the segment trailer-less exactly as a real
+    crash does."""
+
+
+def _crash_after(iterations):
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        if state["n"] >= iterations:
+            raise _Crash
+
+    return tick_fn
+
+
+def test_a_crash_restart_on_a_healthy_clock_is_not_blamed_on_the_battery(tmp_path):
+    """End-to-end shape of the false positive: a perfect clock, a crash 70 s in, a
+    restart 1 s later. deploy/README.md tells the operator clock_trusted: false most
+    often means a missing CR2032, so a crashing process used to send someone to check a
+    battery -- and spec Sec.7's purpose for the field is to let wl-preproc distrust gap
+    arithmetic across THAT boundary, which is exactly where the arithmetic matters."""
+    base = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    with pytest.raises(_Crash):
+        run(tmp_path, FakeBackend(), _clock_from(base), None, _crash_after(70))
+
+    restart = base + datetime.timedelta(seconds=71)
+    day = run(tmp_path, FakeBackend(), _clock_from(restart), 2, lambda _s: None)
+
+    header, _ = read_log(day / segment_name(1))
+    assert header.clock_trusted is True
+    assert header.clock_reason == ""
+    assert json.loads((day / "manifest.json").read_text())["segments"][0]["closed"] == "crash"
+
+
+def test_a_crash_never_lets_the_restart_re_issue_a_barcode(tmp_path):
+    """The uniqueness guarantee under the conditions that actually threaten it: a crash
+    mid-run AND a clock that does not move afterwards. Every value the restart emits
+    must be strictly greater than every value the crashed segment already used.
+
+    Two seconds of clock per iteration, because that is what makes the iteration count
+    and the value count diverge -- with a 1 s iteration the two agree and even the old
+    code happens to be safe."""
+    base = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    with pytest.raises(_Crash):
+        run(tmp_path, FakeBackend(), _clock_from(base, step_s=2), None, _crash_after(95))
+
+    stalled = base + datetime.timedelta(seconds=30)  # clock fell backwards and stopped
+    day = run(tmp_path, FakeBackend(), lambda: stalled, 5, lambda _s: None)
+
+    def values(index):
+        _, records = read_log(day / segment_name(index))
+        return [r.value for r in records if isinstance(r, BarcodeEmitted)]
+
+    assert min(values(1)) > max(values(0))
+
+
 def test_main_requires_out():
     """argparse exits rather than returning, so the absence of --out must be asserted
     as a non-zero SystemExit, not a return code."""

@@ -136,6 +136,15 @@ def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
         header = SyncBoxLogHeader.model_validate(json.loads(handle.readline()))
         records: list[Record] = []
         for line in handle:
+            if not line.endswith("\n"):
+                # Torn final line: a crash caught mid-write, which is the ONLY shape a
+                # crash-closed segment ever has. Dropped rather than parsed, mirroring
+                # manifest.summarise_segment, because a truncation landing on a comma
+                # boundary parses perfectly -- "B,999999,10" is a well-formed record
+                # that never existed, carrying a garbage alignment tick. Silently
+                # fabricating one is worse than the ValueError the other truncations
+                # raise, and it is the unsafe reader wl-preproc would have used.
+                break
             stripped = line.strip()
             if not stripped:
                 continue

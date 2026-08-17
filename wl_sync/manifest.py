@@ -28,6 +28,11 @@ class SegmentSummary:
     barcode_first: int | None
     barcode_last: int | None
     clock_trusted: bool
+    # Spec Sec.7 requires the machine-readable reason in BOTH the segment header and the
+    # manifest. It was in the header only, and deploy/README.md calls the manifest "the
+    # thing to read" -- so the one field saying WHY the clock is distrusted was missing
+    # from exactly where someone looks first.
+    clock_reason: str
     closed: str
 
 
@@ -36,17 +41,24 @@ def summarise_segment(path: Path) -> SegmentSummary:
 
     Parsed line by line rather than via read_log() because a crashed segment's last line
     may be torn, and because a day's segment can hold tens of millions of records.
+
+    Raises on an unreadable segment. build_manifest degrades instead of propagating --
+    see _summarise_or_degrade -- but a direct caller gets the honest error.
     """
     barcode_first: int | None = None
     barcode_last: int | None = None
     closed = "crash"
     clock_trusted = True
+    clock_reason = ""
     with path.open("r", encoding="utf-8") as handle:
         header_line = handle.readline()
         try:
-            clock_trusted = bool(json.loads(header_line).get("clock_trusted", True))
+            header = json.loads(header_line)
+            clock_trusted = bool(header.get("clock_trusted", True))
+            clock_reason = str(header.get("clock_reason", ""))
         except (json.JSONDecodeError, AttributeError):
             clock_trusted = False
+            clock_reason = "unreadable_header"
         for line in handle:
             if not line.endswith("\n"):
                 break  # torn final line: a crash caught mid-write
@@ -64,8 +76,36 @@ def summarise_segment(path: Path) -> SegmentSummary:
         barcode_first=barcode_first,
         barcode_last=barcode_last,
         clock_trusted=clock_trusted,
+        clock_reason=clock_reason,
         closed=closed,
     )
+
+
+def _summarise_or_degrade(path: Path) -> SegmentSummary:
+    """One unreadable segment must not cost the box the rest of the day.
+
+    Bad permissions, or media corruption surfacing as a UnicodeDecodeError out of
+    `for line in handle`, used to propagate out of summarise_segment, out of
+    build_manifest, out of run() -- and since run() rebuilds the manifest before it
+    records anything, the box then could not record for the rest of that day, on every
+    restart. A file we cannot read is an outage like any other: it reports no barcodes,
+    so the day's gap arithmetic still carries the last witnessed value across it.
+
+    `closed: "unreadable"` is deliberately a third value rather than "crash", because
+    "we could not read this" and "this process died" are different facts and only one
+    of them says anything about the run.
+    """
+    try:
+        return summarise_segment(path)
+    except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+        return SegmentSummary(
+            file=path.name,
+            barcode_first=None,
+            barcode_last=None,
+            clock_trusted=False,
+            clock_reason="unreadable_segment",
+            closed="unreadable",
+        )
 
 
 def build_manifest(day_dir: Path) -> dict:
@@ -73,7 +113,7 @@ def build_manifest(day_dir: Path) -> dict:
         (path for path in day_dir.glob(SEGMENT_PATTERN) if segment_index_of(path) is not None),
         key=segment_index_of,
     )
-    summaries = [summarise_segment(path) for path in paths]
+    summaries = [_summarise_or_degrade(path) for path in paths]
 
     # Carries the last WITNESSED barcode forward across any number of segments that
     # saw none at all — e.g. one opened and then crashed before its first barcode tick,

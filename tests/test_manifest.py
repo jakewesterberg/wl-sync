@@ -1,6 +1,8 @@
 import datetime
 import json
 
+import pytest
+
 from wl_sync.log import BarcodeEmitted
 from wl_sync.manifest import build_manifest, summarise_segment, write_manifest
 from wl_sync.segment import SegmentWriter, segment_name
@@ -91,6 +93,67 @@ def test_write_manifest_lands_on_disk(tmp_path):
     write_manifest(tmp_path)
     written = json.loads((tmp_path / "manifest.json").read_text())
     assert written["segments"][0]["barcode_last"] == 1_100
+
+
+def test_the_manifest_carries_the_clock_reason_not_just_the_flag(tmp_path):
+    """Spec Sec.7 requires clock_trusted: false "plus a machine-readable clock_reason in
+    both the segment header AND the manifest". It was in the header only, and
+    deploy/README.md calls the manifest the thing to read -- so the field saying WHY was
+    missing from exactly where someone looks."""
+    header = HEADER.model_copy(
+        update={"clock_trusted": False, "clock_reason": "ntp_unsynchronized"}
+    )
+    SegmentWriter(tmp_path / segment_name(0), header).close(CLOSED_AT)
+
+    entry = write_manifest(tmp_path)["segments"][0]
+    assert list(entry) == [
+        "file",
+        "barcode_first",
+        "barcode_last",
+        "clock_trusted",
+        "clock_reason",
+        "closed",
+    ]
+    assert (entry["clock_trusted"], entry["clock_reason"]) == (False, "ntp_unsynchronized")
+
+
+def test_a_trusted_segment_reports_an_empty_reason(tmp_path):
+    _segment(tmp_path, 0, 1_000, 1_100, clean=True)
+    entry = build_manifest(tmp_path)["segments"][0]
+    assert (entry["clock_trusted"], entry["clock_reason"]) == (True, "")
+
+
+def test_one_unreadable_segment_does_not_cost_the_rest_of_the_day(tmp_path):
+    """Media corruption raises UnicodeDecodeError out of `for line in handle`. That used
+    to propagate out of summarise_segment, out of build_manifest, out of run() -- and
+    since run() rebuilds the manifest BEFORE recording anything, one bad file meant the
+    box could not record for the rest of that day, on every restart."""
+    _segment(tmp_path, 0, 1_000, 1_100, clean=True)
+    (tmp_path / segment_name(1)).write_bytes(
+        b'{"schema_version": 1}\n' + b"B,1000,\xff\xfe\n"
+    )
+    _segment(tmp_path, 2, 5_000, 5_010, clean=True)
+
+    manifest = build_manifest(tmp_path)
+    assert [entry["closed"] for entry in manifest["segments"]] == [
+        "clean",
+        "unreadable",
+        "clean",
+    ]
+    bad = manifest["segments"][1]
+    assert (bad["barcode_first"], bad["barcode_last"]) == (None, None)
+    assert (bad["clock_trusted"], bad["clock_reason"]) == (False, "unreadable_segment")
+    # The outage is still visible: the last witnessed barcode carries across it.
+    assert manifest["gaps"] == [{"after": 1_100, "before": 5_000, "seconds": 3_900}]
+
+
+def test_an_unreadable_segment_still_raises_for_a_direct_caller(tmp_path):
+    """The degradation belongs to build_manifest, which has a day to protect.
+    summarise_segment stays honest."""
+    path = tmp_path / segment_name(0)
+    path.write_bytes(b'{"schema_version": 1}\n' + b"B,1000,\xff\xfe\n")
+    with pytest.raises(UnicodeDecodeError):
+        summarise_segment(path)
 
 
 def test_manifest_is_rebuilt_not_appended(tmp_path):

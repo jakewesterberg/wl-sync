@@ -1,6 +1,8 @@
 import datetime
 from pathlib import Path
 
+import pytest
+
 from wl_sync.log import BarcodeEmitted, Edge, read_log
 from wl_sync.segment import (
     SegmentWriter,
@@ -77,6 +79,20 @@ def test_barcode_span_tracks_what_was_written(tmp_path):
     writer.write(Edge(tick_us=1_200, gpio=26, level=0))
     writer.write(BarcodeEmitted(tick_us=2_000, value=501))
     assert (writer.barcode_first, writer.barcode_last, writer.record_count) == (500, 501, 3)
+
+
+def test_opening_an_existing_segment_fails_loudly(tmp_path):
+    """The only destructive operation in a module whose whole purpose is bounding data
+    loss. A human running `wl-sync record` while the systemd unit is up races it for the
+    same segment index; under "w" the loser's entire segment vanished with no error."""
+    path = tmp_path / segment_name(0)
+    writer = SegmentWriter(path, HEADER)
+    writer.write(BarcodeEmitted(tick_us=1_000, value=500))
+    writer.close(CLOSED_AT)
+
+    with pytest.raises(FileExistsError):
+        SegmentWriter(path, HEADER)
+    assert "B,1000,500" in path.read_text()
 
 
 def test_segment_index_of_real_segment_name():

@@ -98,13 +98,37 @@ def evaluate_clock(
 ) -> ClockTrust:
     """Whether gap arithmetic across this boundary can be believed.
 
+    TWO DIFFERENT QUESTIONS ARE ASKED OF THE SAME NUMBER, and they need different
+    tolerances. `next_value`'s clamp asks "could this value have been used already?" --
+    uniqueness, where `checkpoint + 1` with no slack is exactly right and any slack is
+    an inflated gap. This asks "is the wall clock telling the truth?" -- and here the
+    checkpoint is DELIBERATELY a future value, `value + CHECKPOINT_INTERVAL_S` written
+    ahead of what the run had emitted. Testing `value_from_clock(now) <= checkpoint`
+    therefore stopped being a clock test and became a "did we crash recently" test: a
+    healthy clock and a crash 70 s into a run reported clock_behind_checkpoint, which
+    sends an operator to check a CR2032 over a crashing process (deploy/README.md) and
+    makes wl-preproc distrust gap arithmetic at exactly the boundaries where it matters.
+    One whole interval of tolerance is the most a correctly-written checkpoint can be
+    ahead of a truthful clock, so anything beyond it is the clock's fault.
+
+    THE BOUNDARY, exactly `CHECKPOINT_INTERVAL_S` ahead, is genuinely ambiguous: it is
+    both a restart landing in the same second as the last checkpoint write, and a clock
+    stalled exactly one interval. From this number alone the two are indistinguishable.
+    It is resolved toward distrust because `clock_trusted: false` costs a downstream
+    PRECISION claim, while a missed bad clock would let wl-preproc believe gap
+    arithmetic it should not -- the same over-states-never-under-states asymmetry the
+    clamp itself is built on.
+
     `ntp_synchronized=None` means "could not tell" -- timedatectl absent, as on a
     laptop or in a container -- and is NOT treated as untrusted. Crying wolf on every
     developer machine would train people to ignore the flag on the one box where it
     means something.
     """
     reasons = []
-    if checkpoint is not None and value_from_clock(now) <= checkpoint:
+    if (
+        checkpoint is not None
+        and value_from_clock(now) + CHECKPOINT_INTERVAL_S <= checkpoint
+    ):
         reasons.append("clock_behind_checkpoint")
     if ntp_synchronized is False:
         reasons.append("ntp_unsynchronized")
