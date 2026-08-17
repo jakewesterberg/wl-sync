@@ -1,12 +1,14 @@
 import datetime
 import json
+import logging
+from pathlib import Path
 
 import pytest
 
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import FRAME_US
 from wl_sync.cli import CHECKPOINT_NAME, day_directory, main, probe_boot_id, run
-from wl_sync.clock import read_checkpoint
+from wl_sync.clock import read_checkpoint, value_from_clock
 from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, Edge, read_log
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import segment_name
@@ -322,6 +324,101 @@ def test_main_runs_end_to_end(tmp_path):
     days = list(tmp_path.glob("2*_01"))
     assert len(days) == 1
     assert (days[0] / "manifest.json").exists()
+
+
+def test_a_start_says_what_it_started(tmp_path, caplog):
+    """journald is the only status surface this box has -- spec Sec.7 calls it "the
+    honest status surface" and Sec.10 records that no software-controllable panel
+    indicator exists. There was no logging in cli.py at all, so only systemd's own
+    start/stop lines ever appeared and `journalctl -u wl-sync -f` showed nothing about
+    what the box was actually doing."""
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        day = run(
+            out=tmp_path,
+            backend=FakeBackend(),
+            now_fn=_clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            duration_s=2,
+            tick_fn=lambda _seconds: None,
+        )
+    message = caplog.messages[0]
+    assert str(day / segment_name(0)) in message
+    assert "clock_trusted=True" in message
+    assert "clock_reason" in message and "boot_id" in message
+    assert str(value_from_clock(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC))) in message
+
+
+def test_a_clock_that_stops_moving_forwards_is_reported(tmp_path, caplog):
+    """Spec Sec.7 names "time moved backwards" as a trust condition, and nothing
+    recorded it mid-run: the header is written at startup and must not be rewritten, so
+    a journal line is the only honest place for it. Edge-triggered -- a stalled clock
+    binds every second, and 86,400 identical lines a day would bury the journal."""
+    frozen = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    with caplog.at_level(logging.WARNING, logger="wl_sync.cli"):
+        run(tmp_path, FakeBackend(), lambda: frozen, 5, lambda _s: None)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, "the clamp report must be edge-triggered, not per frame"
+    assert "not moving forwards" in warnings[0].getMessage()
+
+
+def test_a_healthy_clock_reports_nothing(tmp_path, caplog):
+    """The counterpart that keeps the warning meaningful. The first frame of a healthy
+    run reads the same second run() started in, so a naive `<=` test would cry wolf on
+    every single start."""
+    with caplog.at_level(logging.WARNING, logger="wl_sync.cli"):
+        run(
+            tmp_path,
+            FakeBackend(),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            5,
+            lambda _s: None,
+        )
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def _unit_sections():
+    """The shipped unit, parsed into {section: [line, ...]}. Comments dropped."""
+    unit = Path(__file__).resolve().parent.parent / "deploy" / "wl-sync.service"
+    sections, current = {}, None
+    for raw in unit.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            sections[current] = []
+        else:
+            sections[current].append(line)
+    return sections
+
+
+def test_the_shipped_unit_starts_a_mode_the_cli_actually_accepts(tmp_path):
+    """ExecStart omitted --fake, so main() printed "only --fake is available..." and
+    exited 2 immediately. Following deploy/README.md's literal `systemctl enable --now
+    wl-sync` left the unit `failed` within ~5 s -- the shipped deployment did not work
+    at all. Run the unit's own argv rather than asserting on its text, so the two
+    cannot drift apart."""
+    exec_start = [
+        line for line in _unit_sections()["Service"] if line.startswith("ExecStart=")
+    ]
+    assert len(exec_start) == 1
+    argv = exec_start[0].split("=", 1)[1].split()[1:]  # drop the binary path
+    assert "--fake" in argv, "the unit must ship in fake mode until the RP1 backend lands"
+
+    argv[argv.index("--out") + 1] = str(tmp_path)
+    assert main([*argv, "--duration", "1"]) == 0
+
+
+def test_the_start_rate_limit_key_is_in_the_section_systemd_reads_it_from():
+    """StartLimitIntervalSec is a [Unit] key. Under [Service] modern systemd logs
+    "Unknown key name ... ignoring" and applies the default 5 starts / 10 s anyway --
+    so the line was inert and a fast crash loop still ended in `failed`, which is
+    exactly the unattended scenario this box must survive."""
+    sections = _unit_sections()
+    assert "StartLimitIntervalSec=0" in sections["Unit"]
+    assert not any(
+        line.startswith("StartLimitIntervalSec") for line in sections["Service"]
+    )
 
 
 def test_probe_boot_id_does_not_raise():

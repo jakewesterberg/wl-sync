@@ -2,17 +2,26 @@
 Description=wl-sync: master timebase for the recording rig
 After=network-online.target time-sync.target
 Wants=network-online.target time-sync.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/wl-sync record --out /data/rig1
-Restart=always
-RestartSec=1
 # No start rate limit. systemd's default (5 starts / 10 s) would put the unit in
 # `failed` after a fast crash loop and stop restarting it -- which is precisely the
 # scenario this box must survive unattended. Better to restart forever and be loud in
 # the journal than to be silently dead at 8am.
+#
+# This key is [Unit], not [Service]. It shipped under [Service], where modern systemd
+# logs "Unknown key name ... ignoring" and applies the 5/10 s default anyway -- so the
+# line was inert and the box did exactly what the comment above says it must not.
 StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# --fake IS DELIBERATE AND MUST BE REMOVED once the RP1 backend (Task 5b) lands.
+# Until then `main()` rejects any other mode and exits 2 immediately, so a unit
+# without it goes to `failed` within ~5 s of `systemctl enable --now`. Shipping it
+# in fake mode means the crash-stitching, manifest and clock-degradation paths are
+# all exercisable at bring-up; only the hardware capture is missing.
+ExecStart=/usr/local/bin/wl-sync record --out /data/rig1 --fake
+Restart=always
+RestartSec=1
 # The box is the first device on each day and the last off. Restart=always is what
 # makes stitching automatic: it comes back, derives its barcode counter from the
 # clock, opens the next segment, and the outage lands in the day's manifest with

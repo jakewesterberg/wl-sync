@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import logging
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -39,6 +41,12 @@ from wl_sync.segment import SegmentWriter, next_segment_index, segment_name
 from wl_sync.service import BarcodeGenerator, Recorder
 
 CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
+
+# `logging`, not `print`: stdout is block-buffered when it is a pipe, which is what
+# systemd gives a service, so prints can sit unflushed in a daemon that runs all day.
+# journald is this box's only status surface (spec Sec.7, Sec.10) -- the heartbeat LED
+# is a buffered leg off BARCODE_RAW and cannot be driven by software.
+log = logging.getLogger(__name__)
 
 
 def day_directory(out: Path, today: datetime.date) -> Path:
@@ -145,11 +153,26 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
         clock_trusted=trust.trusted,
         clock_reason=trust.reason,
     )
-    writer = SegmentWriter(day / segment_name(index), header)
+    writer_path = day / segment_name(index)
+    writer = SegmentWriter(writer_path, header)
 
     recorder = Recorder(backend, sink=writer)
     recorder.capture_codes(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN)
     recorder.capture_edges(EDGE_PINS)
+
+    # journald is the only status surface this box has -- spec Sec.7 calls it "the
+    # honest status surface" and Sec.10 records that no software-controllable panel
+    # indicator exists, because the heartbeat LED is a buffered leg off BARCODE_RAW
+    # itself. One line, everything an operator needs to tell a healthy start from a
+    # degraded one without opening a file.
+    log.info(
+        "recording %s: first barcode %d, clock_trusted=%s clock_reason=%s boot_id=%s",
+        writer_path,
+        first_value,
+        trust.trusted,
+        trust.reason or "-",
+        header.boot_id or "-",
+    )
 
     values = _ValueSource(now_fn, first_value)
     generator = BarcodeGenerator(backend, BARCODE_PIN, values)
@@ -237,6 +260,20 @@ class _ValueSource:
         if from_clock is not None and from_clock >= floor:
             self._clamped = False
             return from_clock
+        if not self._clamped:
+            # EDGE-TRIGGERED, deliberately. Spec Sec.7 names "time moved backwards" as a
+            # trust condition and nothing recorded it mid-run -- the header is written
+            # at startup and must not be rewritten afterwards, so a journal line is the
+            # only honest place for it. Warning once per episode rather than once per
+            # frame, because a stalled clock binds every second and 86,400 identical
+            # lines a day would bury everything else in the journal.
+            log.warning(
+                "wall clock is not moving forwards (reads %s, need > %d): barcode "
+                "values are coming from the monotonic floor. Gap arithmetic across "
+                "this run will be imprecise; the values stay unique.",
+                "unreadable" if from_clock is None else from_clock,
+                floor,
+            )
         self._clamped = True
         return floor
 
@@ -257,6 +294,14 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--fake", action="store_true", help="run on the in-memory backend")
     record.add_argument("--duration", type=float, default=None, help="stop after S seconds")
     args = parser.parse_args(argv)
+
+    # To stderr, which systemd routes to the journal via StandardError=journal. Only
+    # the entry point configures handlers; `run()` is a library call and must not.
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stderr,
+        format="%(levelname)s %(message)s",
+    )
 
     if not args.fake:
         print("only --fake is available until the RP1 backend (Task 5b) lands")
