@@ -206,8 +206,17 @@ class DualBncAllocator:
     def spare_port(self) -> str | None:
         """The reference of a body left with an unused second port, if the sheet's port
         count is odd. pi-interface is the only such sheet (5 camera triggers), and its
-        spare is a real, physically-present, unwired BNC on the front panel -- worth
-        knowing about at panel-machining time, not an accounting artifact."""
+        spare is a real, physically-present BNC on the BACK panel -- worth knowing about
+        at panel-machining time, not an accounting artifact.
+
+        (Said "front panel" until 2026-08-16, which was wrong: panel-elevations.md puts
+        every pi-interface BNC on the back, and its front/back spare counts -- 1 front,
+        2 back -- only reconcile with this one on the back. The FRONT spare is J5B, the
+        second port of taskpc-digital's own reward-remote body.)
+
+        Also no longer "unwired": as of 2026-08-16 this port is the eye camera's
+        frame-time input. The property still reports it, because what it answers is "which
+        body has an odd port out", which is what callers place into."""
         return self._open_body
 
     def summary(self, sheet: str) -> str:

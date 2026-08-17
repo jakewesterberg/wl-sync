@@ -117,22 +117,37 @@ GPIO_NET_AT_PIN = {
     17: "BARCODE_RAW",
     20: "PD1_COMP", 21: "PD2_COMP", 22: "RWD_CMD", 23: "RWD_DLVR_PI",
     24: "STIM_TRIG", 25: "ACC_TRIG",
-    # 18, 19, 26, 27: spare, no net -- deliberately absent from this dict; SPARE_GPIOS.
+    # FRAME-TIME INPUTS, 2026-08-16: 26/27 were the last two spares. They now take one
+    # camera-group exposure strobe each, produced on comparators.kicad_sch by a second
+    # LM339 (the FLIR strobe's 0.87 V low misses a 74LVC541A's 0.8 V V_IL by 70 mV, so it
+    # needs a comparator, not this board's usual inbound buffer). "direct" for the same
+    # reason PD1_COMP/PD2_COMP/ACC_TRIG are: an open-collector output pulled to +3V3 is
+    # already a 3.3V-safe source. See hardware/breakout/frame-time-inputs.md.
+    26: "CAM_FRAME_EYE", 27: "CAM_FRAME_BEH",
+    # 18, 19: spare, no net -- deliberately absent from this dict; SPARE_GPIOS.
 }
 # CAMERA SYNC, 2026-08-16: 18 and 19 WERE the ohDPI and behaviour camera triggers, and
 # were the reason the PIO capture window had to start at GPIO0 (spec Sec.4: camera
 # triggers must land on a hardware PWM pin, and only a window starting at 0 leaves two
 # free). The cameras free-run, so they take the BARCODE on those same five panel BNCs
 # instead of a trigger, and both pins are now genuinely spare -- along with the constraint
-# they imposed. Four spare GPIOs, two of them PWM-capable.
-SPARE_GPIOS = (18, 19, 26, 27)
+# they imposed.
+#
+# TWO spare GPIOs now, not four, and BOTH are PWM-capable. 26/27 went to the frame-time
+# inputs above. That is also why the capture window was NOT moved to GPIO2-18: only the
+# windows starting at 0 or 1 leave both 18 and 19 free, and both of those contain GPIO0
+# and/or GPIO1, so moving it would have cost one of these two spares rather than freeing
+# pins. See hardware/breakout/camera-sync-change.md Sec.2.
+SPARE_GPIOS = (18, 19)
 assert set(GPIO_NET_AT_PIN) | set(SPARE_GPIOS) == set(range(28))
 
 # This task's own net contract ("consumes ... from Task 8" / "Produces").
 CONSUMED_CONTRACT_NETS = [f"EVT_D{i}_PI" for i in range(16)] + [
     "EVT_STROBE_PI", "RWD_CMD", "RWD_DLVR", "STIM_TRIG", "PD1_COMP", "PD2_COMP", "ACC_TRIG",
+    # Produced on comparators.kicad_sch exactly as PD1_COMP/PD2_COMP/ACC_TRIG are.
+    "CAM_FRAME_EYE", "CAM_FRAME_BEH",
 ]
-assert len(CONSUMED_CONTRACT_NETS) == 23
+assert len(CONSUMED_CONTRACT_NETS) == 25
 PRODUCED_CONTRACT_NETS = [
     # CAM_SYNC_BEH became CAM_SYNC_BEH1..4 at finding F4 (2026-08-16): the four
     # behaviour BNCs no longer share one driver pin. They then became CAM_SYNC_* on

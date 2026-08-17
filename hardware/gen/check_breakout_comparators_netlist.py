@@ -210,10 +210,56 @@ def _find_bridging_resistor(nets: dict[str, list[Node]], net_a: str, net_b: str)
     return next(iter(both))
 
 
-def _lm339_ref(values: dict[str, str]) -> str:
-    refs = [r for r, v in values.items() if v == LM339_VALUE]
-    check(len(refs) == 1, f"expected exactly 1 {LM339_VALUE!r} instance, found {len(refs)}: {refs}")
-    return refs[0]
+# ---------------------------------------------------------------------------
+# FRAME-TIME INPUTS (2026-08-16) -- the SECOND LM339 on this sheet. See
+# hardware/breakout/frame-time-inputs.md and gen_breakout_comparators.py's own
+# FRAME_LM339_REF block comment. (key, LM339 unit, BNC net, output net to the Pi).
+# ---------------------------------------------------------------------------
+FRAME_CHANNELS = [
+    ("EYE", 1, "CAM_FRAME_EYE_BNC", "CAM_FRAME_EYE"),
+    ("BEH", 2, "CAM_FRAME_BEH_BNC", "CAM_FRAME_BEH"),
+]
+FRAME_THR_NET = "CAM_FRAME_THR"
+FRAME_SPARE_UNITS = (3, 4)
+FRAME_PANEL_SERIES_VALUE = "100"    # BNC -> clamp node
+FRAME_OPTO_PULLUP_VALUE = "1k"      # clamp node -> +5V, FLIR's own published row
+FRAME_DIVIDER_VALUE = "10k"         # the 10k/10k threshold divider, both legs
+BAT54S_VALUE = "BAT54S"
+
+
+def _lm339_refs(values: dict[str, str]) -> list[str]:
+    """BOTH LM339 packages. There are two as of 2026-08-16: the original DAC-thresholded
+    quad (three populated analog channels plus the DNP A_MISC1 one) and the frame-time
+    pair. They are the same PART -- same value, same footprint -- so they cannot be told
+    apart by value, and each accessor below discriminates by the nets its own package
+    owns rather than by refdes, so neither is pinned to a literal U-number here."""
+    refs = sorted(r for r, v in values.items() if v == LM339_VALUE)
+    check(
+        len(refs) == 2,
+        f"expected exactly 2 {LM339_VALUE!r} instances (the DAC-thresholded quad and the "
+        f"frame-time pair), found {len(refs)}: {refs}",
+    )
+    return refs
+
+
+def _ref_owning_net(nets: dict[str, list[Node]], candidates: list[str], net: str, role: str) -> str:
+    check(net in nets, f"missing net: {net!r}")
+    owning = sorted({n.ref for n in nets[net]} & set(candidates))
+    check(
+        len(owning) == 1,
+        f"expected exactly 1 {LM339_VALUE!r} instance on {net!r} (the {role}), found {owning}",
+    )
+    return owning[0]
+
+
+def _lm339_ref(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+    """The DAC-thresholded quad -- the package whose sections sit on PD1_COMP."""
+    return _ref_owning_net(nets, _lm339_refs(values), "PD1_COMP", "DAC-thresholded quad")
+
+
+def _frame_lm339_ref(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+    """The frame-time pair -- the package whose sections sit on CAM_FRAME_EYE."""
+    return _ref_owning_net(nets, _lm339_refs(values), "CAM_FRAME_EYE", "frame-time pair")
 
 
 def _mcp4728_ref(values: dict[str, str]) -> str:
@@ -532,9 +578,162 @@ def _check_component_values(values: dict[str, str], lm_ref: str, dac_ref: str) -
     return f"Component values confirmed: {lm_ref}={LM339_VALUE!r}, {dac_ref}={MCP4728_VALUE!r}."
 
 
+def _check_frame_time_inputs(nets: dict[str, list[Node]], values: dict[str, str], frame_ref: str) -> str:
+    """The frame-time front end, end to end, on both channels.
+
+    Four properties here are the ones that would be silent on a scope or in ERC, and each
+    is the reason this function exists rather than a restatement of the generator:
+
+    1. THE CLAMP'S HIGH SIDE IS +5V, NOT +3V3. The strobe's HIGH is 5.0 V by construction
+       (it is pulled up to +5V through 1k, FLIR's own published row). A BAT54S clamping to
+       +3V3 would therefore conduct CONTINUOUSLY on every idle-high strobe -- forward-biased
+       for the majority of every frame period, dragging the input below its own threshold
+       and heating a SOT-23. ERC cannot see it: a diode to a valid power net is legal.
+
+    2. THE OPEN-COLLECTOR PULL-UPS GO TO +3V3, NEVER +5V. Same destroy-hardware constraint
+       the three original channels carry, and for the same reason -- these outputs reach
+       GPIO26/27 directly on a module that is 3.3V and not 5V tolerant.
+
+    3. THE PACKAGE HAS NO PIN ON DGND. gen_breakout_power.py's own checker asserts that
+       EXACTLY ONE component board-wide bridges AGND and DGND (NT1, the star-point NetTie).
+       This package is deliberately AGND-referenced while the signals it receives are
+       DGND-referenced through their own passives; a stray DGND pin on it -- which is
+       precisely what tying its spare inputs to DGND did on the first attempt -- turns a
+       single-point ground into a two-point one. Asserted locally as well as globally
+       because the global check names no reason, and a future edit here should fail HERE.
+
+    4. THE INPUT CHAIN IS UNBROKEN AND IN ORDER: BNC -> 100R -> clamp node (which carries
+       both the BAT54S and the 1k pull-up) -> 10k -> the comparator's own '+' pin. A
+       missing 100R or a pull-up landing on the wrong side of it are both fully-connected,
+       0-error netlists that behave wrongly.
+    """
+    check(FRAME_THR_NET in nets, f"missing net: {FRAME_THR_NET!r}")
+
+    # The shared 2.50 V threshold: 10k/10k off +5V to DGND, DGND-referenced so it shares a
+    # reference with the signal it is compared against.
+    r_top = _find_bridging_resistor(nets, "+5V", FRAME_THR_NET)
+    r_bot = _find_bridging_resistor(nets, FRAME_THR_NET, "DGND")
+    for r_ref, leg in ((r_top, "upper"), (r_bot, "lower")):
+        check(
+            values.get(r_ref) == FRAME_DIVIDER_VALUE,
+            f"{r_ref} (threshold divider {leg} leg): expected Value "
+            f"{FRAME_DIVIDER_VALUE!r}, found {values.get(r_ref)!r} -- the two legs must "
+            f"match or the threshold is not 2.50 V",
+        )
+
+    for key, unit, bnc_net, out_net in FRAME_CHANNELS:
+        minus_pin, plus_pin, out_pin = LM339_UNIT_PINS[unit]
+        clamp_net, fb_net = f"{out_net}_CLAMP", f"{out_net}_FB"
+
+        # 4: BNC -> 100R -> clamp node.
+        r_ser = _find_bridging_resistor(nets, bnc_net, clamp_net)
+        check(
+            values.get(r_ser) == FRAME_PANEL_SERIES_VALUE,
+            f"{r_ser} ({key} panel series resistor): expected Value "
+            f"{FRAME_PANEL_SERIES_VALUE!r}, found {values.get(r_ser)!r}",
+        )
+        # The 1k opto pull-up sits on the CLAMP-node side of that resistor, not the panel
+        # side -- on the panel side it would pull up through 100R of extra source impedance
+        # and sit outside FLIR's own published operating row.
+        r_pu5 = _find_bridging_resistor(nets, "+5V", clamp_net)
+        check(
+            values.get(r_pu5) == FRAME_OPTO_PULLUP_VALUE,
+            f"{r_pu5} ({key} opto pull-up): expected Value {FRAME_OPTO_PULLUP_VALUE!r}, "
+            f"found {values.get(r_pu5)!r} -- [flir_bfs_gpio]'s 5V/1k row is the lowest low "
+            f"FLIR publishes anywhere, and a STIFFER pull-up makes V_low WORSE, not better",
+        )
+
+        # 1: the clamp, and its high side.
+        clamp_refs = sorted({n.ref for n in nets[clamp_net] if values.get(n.ref) == BAT54S_VALUE})
+        check(
+            len(clamp_refs) == 1,
+            f"{clamp_net}: expected exactly 1 {BAT54S_VALUE} clamp, found {clamp_refs}",
+        )
+        d_ref = clamp_refs[0]
+        d_nets = sorted(name for name, nodes in nets.items() if any(n.ref == d_ref for n in nodes))
+        check(
+            d_nets == sorted(["+5V", "DGND", clamp_net]),
+            f"{d_ref} ({key} clamp): sits on {d_nets}, expected exactly "
+            f"{sorted(['+5V', 'DGND', clamp_net])} -- the high side MUST be +5V. On +3V3 it "
+            f"would conduct continuously against a 5.0 V idle-high strobe.",
+        )
+
+        # 4 (cont.): clamp node -> 10k -> '+' pin, and 1M feedback across the same node.
+        r_hyst = _find_bridging_resistor(nets, clamp_net, fb_net)
+        check(
+            values.get(r_hyst) == SERIES_VALUE,
+            f"{r_hyst} ({key} hysteresis series): expected Value {SERIES_VALUE!r}, found "
+            f"{values.get(r_hyst)!r} -- it also bounds input current to ~40 uA when the "
+            f"clamp holds the node at -0.7 V, below the LM339's own -0.3 V input abs max",
+        )
+        r_fb = _find_bridging_resistor(nets, out_net, fb_net)
+        check(
+            values.get(r_fb) == FEEDBACK_VALUE,
+            f"{r_fb} ({key} hysteresis feedback): expected Value {FEEDBACK_VALUE!r}, "
+            f"found {values.get(r_fb)!r}",
+        )
+
+        # The comparator's own three pins are where they are supposed to be.
+        for net_name, pin, role in ((fb_net, plus_pin, "'+'"), (FRAME_THR_NET, minus_pin, "'-'"),
+                                    (out_net, out_pin, "output")):
+            check(
+                any(n.ref == frame_ref and n.pin == pin for n in nets.get(net_name, [])),
+                f"{net_name}: {frame_ref} pin {pin} ({role} of the {key} channel) is not on "
+                f"it -- the frame-time channel is not wired to the section it claims",
+            )
+
+        # 2: the open-collector pull-up.
+        r_pu3 = _find_bridging_resistor(nets, "+3V3", out_net)
+        check(
+            values.get(r_pu3) == PULLUP_VALUE,
+            f"{r_pu3} ({key} output pull-up): expected Value {PULLUP_VALUE!r}, found "
+            f"{values.get(r_pu3)!r}",
+        )
+        on_5v = [n for n in nets.get("+5V", []) if n.ref == r_pu3]
+        check(
+            not on_5v,
+            f"{r_pu3} ({key} output pull-up, out_net={out_net!r}): also has a pin on +5V "
+            f"({on_5v}) -- this output reaches GPIO26/27 directly on a 3.3V-only module",
+        )
+
+    # 3: no DGND pin anywhere on the package.
+    on_dgnd = sorted({n.pin for n in nets.get("DGND", []) if n.ref == frame_ref})
+    check(
+        not on_dgnd,
+        f"{frame_ref} has pin(s) {on_dgnd} on DGND. This package is AGND-referenced; a DGND "
+        f"pin on it makes it a SECOND AGND/DGND bridge alongside NT1, the star-point "
+        f"NetTie, which is what gen_breakout_power.py's own checker forbids board-wide. "
+        f"Spare-section inputs go to AGND (this part's own V-), never DGND.",
+    )
+
+    # The spare sections are tied off, not floating.
+    for unit in FRAME_SPARE_UNITS:
+        minus_pin, plus_pin, _out_pin = LM339_UNIT_PINS[unit]
+        check(
+            any(n.ref == frame_ref and n.pin == plus_pin for n in nets["AGND"]),
+            f"{frame_ref}: spare section {unit}'s '+' (pin {plus_pin}) is not on AGND -- an "
+            f"LM339 input must never float, and AGND is this part's own V-",
+        )
+        check(
+            any(n.ref == frame_ref and n.pin == minus_pin for n in nets[FRAME_THR_NET]),
+            f"{frame_ref}: spare section {unit}'s '-' (pin {minus_pin}) is not on "
+            f"{FRAME_THR_NET} -- an LM339 input must never float",
+        )
+
+    return (
+        f"Frame-time inputs ({frame_ref}, {[c[0] for c in FRAME_CHANNELS]}): BNC -> "
+        f"{FRAME_PANEL_SERIES_VALUE}R -> clamp node ({BAT54S_VALUE} to +5V/DGND, "
+        f"{FRAME_OPTO_PULLUP_VALUE} pull-up to +5V) -> {SERIES_VALUE} -> '+', '-' on a "
+        f"shared {FRAME_DIVIDER_VALUE}/{FRAME_DIVIDER_VALUE} 2.50 V divider, output "
+        f"open-collector to +3V3 through {PULLUP_VALUE} and never +5V; no pin on DGND; "
+        f"both spare sections tied off."
+    )
+
+
 def verify(nets: dict[str, list[Node]], values: dict[str, str], dnp_refs: set[str]) -> list[str]:
     summary = []
-    lm_ref = _lm339_ref(values)
+    lm_ref = _lm339_ref(nets, values)
+    frame_ref = _frame_lm339_ref(nets, values)
     dac_ref = _mcp4728_ref(values)
 
     summary.append(_check_outputs_originate_at_comparator(nets, lm_ref))
@@ -543,7 +742,17 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], dnp_refs: set[st
     summary.append(_check_dac_drives_inverting_inputs(nets, values, lm_ref, dac_ref))
     summary.append(_check_fourth_channel_dnp(nets, values, dnp_refs, lm_ref))
     summary.append(_check_lm339_pin_completeness(nets, lm_ref))
+    # The SAME supply-pin assertions on the frame-time package. V+ on +12V is what buys the
+    # input common-mode headroom for a 5.0 V strobe high (on +5V the ceiling is 3.0-3.5 V and
+    # the LM339 can invert its output); V- on AGND and nothing else is the common-emitter
+    # constraint, identical to the original package's.
+    summary.append(_check_lm339_pin_completeness(nets, frame_ref))
+    summary.append(_check_frame_time_inputs(nets, values, frame_ref))
     summary.append(_check_component_values(values, lm_ref, dac_ref))
+    check(
+        values.get(frame_ref) == LM339_VALUE,
+        f"{frame_ref}: expected Value {LM339_VALUE!r}, found {values.get(frame_ref)!r}",
+    )
 
     # -12V is deliberately NOT in this list any more: this sheet does not consume it at
     # all (see _check_lm339_pin_completeness above and gen_breakout_comparators.py's own
@@ -585,7 +794,8 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str], goo
     cleanly -- each corruption below is a minimal, targeted mutation of that known-good
     structure."""
     results = []
-    lm_ref = _lm339_ref(good_values)
+    lm_ref = _lm339_ref(good_nets, good_values)
+    frame_ref = _frame_lm339_ref(good_nets, good_values)
     dac_ref = _mcp4728_ref(good_values)
 
     # (1) THE central negative control this task's own brief explicitly asks for: a
@@ -698,6 +908,55 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str], goo
     also_neg.setdefault("-12V", []).append(vneg_node)
     msg = _assert_fails(also_neg, good_values, good_dnp, "expected AGND and nothing else", f"{lm_ref}'s own V- on AGND but ALSO on -12V")
     results.append(f"LM339 V- also shorted to a negative rail ({lm_ref} pin {LM339_PIN_VNEG} on AGND AND -12V): caught -- {msg}")
+
+    # --- Frame-time inputs (2026-08-16) ---
+
+    # (11) THE defect this design's first attempt actually had, and the reason the check
+    # exists: a DGND pin on the frame-time package, making it a SECOND AGND/DGND bridge
+    # alongside NT1. Simulated exactly as it occurred -- a spare section's own '+' input
+    # tied to DGND instead of to AGND (this part's own V-).
+    _minus3, plus3, _out3 = LM339_UNIT_PINS[FRAME_SPARE_UNITS[0]]
+    second_bridge = copy.deepcopy(good_nets)
+    spare_node = next(
+        n for n in good_nets["AGND"] if n.ref == frame_ref and n.pin == plus3
+    )
+    second_bridge["AGND"] = [n for n in second_bridge["AGND"] if n != spare_node]
+    second_bridge.setdefault("DGND", []).append(spare_node)
+    msg = _assert_fails(second_bridge, good_values, good_dnp, "on DGND", f"{frame_ref}'s own spare section '+' tied to DGND instead of AGND")
+    results.append(f"Frame-time package given a DGND pin (a SECOND AGND/DGND bridge beside NT1 -- the defect the first attempt had, {frame_ref} pin {plus3}): caught -- {msg}")
+
+    # (12) The frame-time clamp's high side moved from +5V to +3V3. Invisible to ERC (a
+    # diode to a valid power net is legal) and invisible on a scope until the strobe idles
+    # high, at which point the BAT54S conducts continuously against a 5.0 V source.
+    eye_clamp_net = f"{FRAME_CHANNELS[0][3]}_CLAMP"
+    d_ref = next(n.ref for n in good_nets[eye_clamp_net] if good_values.get(n.ref) == BAT54S_VALUE)
+    clamp_on_3v3 = copy.deepcopy(good_nets)
+    clamp_hi_node = next(n for n in good_nets["+5V"] if n.ref == d_ref)
+    clamp_on_3v3["+5V"] = [n for n in clamp_on_3v3["+5V"] if n != clamp_hi_node]
+    clamp_on_3v3.setdefault("+3V3", []).append(clamp_hi_node)
+    msg = _assert_fails(clamp_on_3v3, good_values, good_dnp, "the high side MUST be +5V", f"{d_ref} (eye frame-time clamp) high side moved to +3V3")
+    results.append(f"Frame-time clamp high side on +3V3 instead of +5V (continuous conduction against a 5.0 V idle-high strobe, {d_ref}): caught -- {msg}")
+
+    # (13) The 1k opto pull-up moved to the PANEL side of the 100R series resistor. Fully
+    # connected, 0-error, and wrong: it would pull up through an extra 100R of source
+    # impedance, off FLIR's own published 5V/1k operating row.
+    eye_bnc_net = FRAME_CHANNELS[0][2]
+    r_pu5 = _find_bridging_resistor(good_nets, "+5V", eye_clamp_net)
+    moved_pullup = copy.deepcopy(good_nets)
+    pu_node = next(n for n in good_nets[eye_clamp_net] if n.ref == r_pu5)
+    moved_pullup[eye_clamp_net] = [n for n in moved_pullup[eye_clamp_net] if n != pu_node]
+    moved_pullup.setdefault(eye_bnc_net, []).append(pu_node)
+    msg = _assert_fails(moved_pullup, good_values, good_dnp, "expected exactly 1 resistor bridging", f"{r_pu5} (eye opto pull-up) moved to the panel side of the series resistor")
+    results.append(f"Opto pull-up on the panel side of the 100R (off FLIR's published operating row, {r_pu5}): caught -- {msg}")
+
+    # (14) A frame-time output pull-up ALSO on +5V -- the destroy-hardware constraint, now
+    # on the two channels that reach GPIO26/27. Same shape as control (1), different package.
+    frame_out = FRAME_CHANNELS[1][3]
+    r_pu3 = _find_bridging_resistor(good_nets, "+3V3", frame_out)
+    frame_also_5v = copy.deepcopy(good_nets)
+    frame_also_5v.setdefault("+5V", []).append(next(n for n in good_nets["+3V3"] if n.ref == r_pu3))
+    msg = _assert_fails(frame_also_5v, good_values, good_dnp, "also has a pin on +5V", f"{r_pu3} ({frame_out}'s own pull-up) also wired to +5V")
+    results.append(f"Frame-time output pull-up also wired to +5V (reaches GPIO26/27 on a 3.3V-only module, {r_pu3}): caught -- {msg}")
 
     return results
 

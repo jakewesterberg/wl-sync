@@ -89,8 +89,14 @@ no capacity to add a frame-time line without either mixing digital onto the anal
 dropping an existing signal. Since `BARCODE_NI` already puts the same barcode into the NI
 recording, NI and the camera logger share a timebase without any additional wire.
 
-If frame times are ever wanted in hardware at the Pi, **GPIO26/27 are free** — one input per
-camera group. That would consume the last two non-PWM spares.
+**Taken up, 2026-08-16.** Frame times *were* wanted in hardware at the Pi, and GPIO26/27 now
+carry them — one exposure-strobe input per camera group, on the two spare back-panel BNC
+ports, through a second LM339 on `comparators.kicad_sch`. The strobe cannot drive a
+`74LVC541A` input directly (its best published low is 0.87 V against a 0.8 V V_IL max — a
+silent 70 mV miss), which is why it takes a comparator rather than this board's usual inbound
+buffer. See `frame-time-inputs.md`. The remaining two spares are 18/19, both PWM-capable.
+
+This does not replace the logger path above; it adds a hardware timestamp alongside it.
 
 ## 4. Plan and spec changes this implies
 

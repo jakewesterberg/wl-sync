@@ -160,6 +160,8 @@
     "C156": "100nF",
     "C157": "100nF",
     "C158": "100nF",
+    "C159": "100nF",
+    "C160": "100nF",
     "D1": "SS14",
     "D2": "SS14",
     "D3": "SS14",
@@ -204,6 +206,8 @@
     "D42": "LED",
     "D43": "LED",
     "D44": "SS14",
+    "D45": "BAT54S",
+    "D46": "BAT54S",
     "F1": "1206L050/15YR",
     "F2": "1206L050/15YR",
     "F3": "1206L050/15YR",
@@ -216,7 +220,7 @@
     "J3": "Connector 1 (digital, task PC NI)",
     "J4": "Manual reward button (panel, recessed)",
     "J5": "Dual panel BNC: Remote reward BNC (parallel to panel button; locking -- no TRS mating transient) | Spare panel BNC (2nd port of the reward remote's dual body, FRONT face)",
-    "J6": "Dual panel BNC: Reward driver out (BNC) | Spare panel BNC (2nd port of the reward driver-out dual body, BACK face)",
+    "J6": "Dual panel BNC: Reward driver out (BNC) | Behaviour camera frame time in (BNC, BACK face)",
     "J7": "Sync-module 40-pin GPIO header (Raspberry Pi 5 / CM5 IO Board -- see module docstring)",
     "J8": "Barcode -> NI optocoupler (Task 11 placeholder)",
     "J9": "Barcode -> Intan optocoupler (Task 11 placeholder)",
@@ -225,7 +229,7 @@
     "J12": "Barcode spare 3",
     "J13": "Dual panel BNC: Eye camera sync/barcode out (BNC) | Behavior camera sync/barcode out 1 (BNC)",
     "J15": "Dual panel BNC: Behavior camera sync/barcode out 2 (BNC) | Behavior camera sync/barcode out 3 (BNC)",
-    "J17": "Dual panel BNC: Behavior camera sync/barcode out 4 (BNC) | Spare panel BNC (2nd port of the 5th camera-sync dual body)",
+    "J17": "Dual panel BNC: Behavior camera sync/barcode out 4 (BNC) | Eye/ohDPI camera frame time in (BNC)",
     "J18": "Internal USB-A (sync-module port -> Task 12 USB-I2C bridge)",
     "J19": "ACCES I/O USB-AO16-8A mating DB37 -- six eye channels (spec Sec.3.2)",
     "J20": "Dual panel BNC: Photodiode 1 (passive, coax, photovoltaic mode) | Photodiode 2 (passive, coax, photovoltaic mode)",
@@ -462,6 +466,18 @@
     "R206": "100",
     "R207": "100",
     "R208": "100",
+    "R209": "10k",
+    "R210": "10k",
+    "R211": "100",
+    "R212": "1k",
+    "R213": "10k",
+    "R214": "1M",
+    "R215": "2.2k",
+    "R216": "100",
+    "R217": "1k",
+    "R218": "10k",
+    "R219": "1M",
+    "R220": "2.2k",
     "TP1": "+12V",
     "TP2": "-12V",
     "TP3": "+5V",
@@ -543,7 +559,8 @@
     "U72": "SN74AHCT541PW",
     "U73": "SN74AHCT541PW",
     "U74": "SN74AHCT541PW",
-    "U75": "SN74AHCT541PW"
+    "U75": "SN74AHCT541PW",
+    "U76": "LM339"
   },
   "nets": {
     "+3V3": [
@@ -564,6 +581,8 @@
       ["R121", "1", "", "passive"],
       ["R188", "1", "", "passive"],
       ["R189", "1", "", "passive"],
+      ["R215", "1", "", "passive"],
+      ["R220", "1", "", "passive"],
       ["TP4", "1", "1_1", "passive"],
       ["U1", "2", "VO_2", "power_out"],
       ["U5", "20", "VCC_20", "power_in"],
@@ -618,6 +637,8 @@
       ["D20", "2", "K_2", "passive"],
       ["D21", "2", "K_2", "passive"],
       ["D22", "2", "K_2", "passive"],
+      ["D45", "2", "K_2", "passive"],
+      ["D46", "2", "K_2", "passive"],
       ["R24", "1", "", "passive"],
       ["R122", "1", "", "passive"],
       ["R124", "1", "", "passive"],
@@ -653,6 +674,9 @@
       ["R186", "1", "", "passive"],
       ["R191", "1", "", "passive"],
       ["R194", "1", "", "passive"],
+      ["R209", "1", "", "passive"],
+      ["R212", "1", "", "passive"],
+      ["R217", "1", "", "passive"],
       ["TP3", "1", "1_1", "passive"],
       ["U1", "3", "VI_3", "power_in"],
       ["U8", "20", "VCC_20", "power_in"],
@@ -709,6 +733,7 @@
       ["C114", "1", "", "passive"],
       ["C118", "1", "", "passive"],
       ["C119", "1", "", "passive"],
+      ["C159", "1", "", "passive"],
       ["D1", "1", "K_1", "passive"],
       ["D23", "2", "K_2", "passive"],
       ["D24", "2", "K_2", "passive"],
@@ -767,7 +792,8 @@
       ["U50", "18", "EN_18", "input"],
       ["U52", "1", "VDD_1", "power_in"],
       ["U52", "18", "EN_18", "input"],
-      ["U54", "3", "V+_3", "power_in"]
+      ["U54", "3", "V+_3", "power_in"],
+      ["U76", "3", "V+_3", "power_in"]
     ],
     "-12V": [
       ["C3", "1", "", "passive"],
@@ -972,6 +998,7 @@
       ["C118", "2", "", "passive"],
       ["C119", "2", "", "passive"],
       ["C120", "2", "", "passive"],
+      ["C159", "2", "", "passive"],
       ["D40", "1", "K_1", "passive"],
       ["J1", "4", "Pin_4_4", "passive"],
       ["J1", "5", "Pin_5_5", "passive"],
@@ -1032,7 +1059,10 @@
       ["U53", "2", "-_2", "passive"],
       ["U54", "12", "V-_12", "power_in"],
       ["U55", "4", "~{LDAC}_4", "input"],
-      ["U55", "10", "VSS_10", "power_in"]
+      ["U55", "10", "VSS_10", "power_in"],
+      ["U76", "9", "+_9", "input"],
+      ["U76", "11", "+_11", "input"],
+      ["U76", "12", "V-_12", "power_in"]
     ],
     "A_ACC": [
       ["R117", "1", "", "passive"],
@@ -1876,6 +1906,57 @@
       ["U74", "3", "A1_3", "input"],
       ["U74", "4", "A2_4", "input"]
     ],
+    "CAM_FRAME_BEH": [
+      ["J7", "13", "GPIO27_13", "passive"],
+      ["R219", "1", "", "passive"],
+      ["R220", "2", "", "passive"],
+      ["U76", "1", "", "open_collector"]
+    ],
+    "CAM_FRAME_BEH_BNC": [
+      ["J6", "3", "B_In_3", "passive"],
+      ["R216", "1", "", "passive"]
+    ],
+    "CAM_FRAME_BEH_CLAMP": [
+      ["D46", "3", "COM_3", "passive"],
+      ["R216", "2", "", "passive"],
+      ["R217", "2", "", "passive"],
+      ["R218", "1", "", "passive"]
+    ],
+    "CAM_FRAME_BEH_FB": [
+      ["R218", "2", "", "passive"],
+      ["R219", "2", "", "passive"],
+      ["U76", "7", "+_7", "input"]
+    ],
+    "CAM_FRAME_EYE": [
+      ["J7", "37", "GPIO26_37", "passive"],
+      ["R214", "1", "", "passive"],
+      ["R215", "2", "", "passive"],
+      ["U76", "2", "", "open_collector"]
+    ],
+    "CAM_FRAME_EYE_BNC": [
+      ["J17", "3", "B_In_3", "passive"],
+      ["R211", "1", "", "passive"]
+    ],
+    "CAM_FRAME_EYE_CLAMP": [
+      ["D45", "3", "COM_3", "passive"],
+      ["R211", "2", "", "passive"],
+      ["R212", "2", "", "passive"],
+      ["R213", "1", "", "passive"]
+    ],
+    "CAM_FRAME_EYE_FB": [
+      ["R213", "2", "", "passive"],
+      ["R214", "2", "", "passive"],
+      ["U76", "5", "+_5", "input"]
+    ],
+    "CAM_FRAME_THR": [
+      ["C160", "1", "", "passive"],
+      ["R209", "2", "", "passive"],
+      ["R210", "1", "", "passive"],
+      ["U76", "4", "-_4", "input"],
+      ["U76", "6", "-_6", "input"],
+      ["U76", "8", "-_8", "input"],
+      ["U76", "10", "-_10", "input"]
+    ],
     "CAM_SYNC_BEH1": [
       ["J13", "3", "B_In_3", "passive"],
       ["R199", "2", "", "passive"]
@@ -1951,6 +2032,7 @@
       ["C155", "2", "", "passive"],
       ["C156", "2", "", "passive"],
       ["C157", "2", "", "passive"],
+      ["C160", "2", "", "passive"],
       ["D4", "1", "A_1", "passive"],
       ["D5", "1", "A_1", "passive"],
       ["D6", "1", "A_1", "passive"],
@@ -1972,6 +2054,8 @@
       ["D22", "1", "A_1", "passive"],
       ["D42", "1", "K_1", "passive"],
       ["D43", "1", "K_1", "passive"],
+      ["D45", "1", "A_1", "passive"],
+      ["D46", "1", "A_1", "passive"],
       ["J3", "4", "4_4", "passive"],
       ["J3", "7", "7_7", "passive"],
       ["J3", "9", "9_9", "passive"],
@@ -2012,6 +2096,7 @@
       ["NT1", "2", "2_2", "passive"],
       ["NT2", "2", "2_2", "passive"],
       ["NT3", "2", "2_2", "passive"],
+      ["R210", "2", "", "passive"],
       ["U1", "1", "GND_1", "power_in"],
       ["U2", "1", "-Vin_1", "power_in"],
       ["U5", "1", "G1_1", "input"],
@@ -3846,9 +3931,6 @@
     "unconnected-(J5B-B_In-Pad3)": [
       ["J5", "3", "B_In_3", "passive+no_connect"]
     ],
-    "unconnected-(J6B-B_In-Pad3)": [
-      ["J6", "3", "B_In_3", "passive+no_connect"]
-    ],
     "unconnected-(J7-3V3-Pad1)": [
       ["J7", "1", "3V3_1", "passive+no_connect"]
     ],
@@ -3866,15 +3948,6 @@
     ],
     "unconnected-(J7-GPIO19-Pad35)": [
       ["J7", "35", "GPIO19_35", "passive+no_connect"]
-    ],
-    "unconnected-(J7-GPIO26-Pad37)": [
-      ["J7", "37", "GPIO26_37", "passive+no_connect"]
-    ],
-    "unconnected-(J7-GPIO27-Pad13)": [
-      ["J7", "13", "GPIO27_13", "passive+no_connect"]
-    ],
-    "unconnected-(J17B-B_In-Pad3)": [
-      ["J17", "3", "B_In_3", "passive+no_connect"]
     ],
     "unconnected-(J19-A_IN0-Pad36)": [
       ["J19", "36", "A_IN0_36", "passive+no_connect"]
@@ -4484,6 +4557,12 @@
     ],
     "unconnected-(U75-Y7-Pad11)": [
       ["U75", "11", "Y7_11", "tri_state+no_connect"]
+    ],
+    "unconnected-(U76-Pad13)": [
+      ["U76", "13", "", "open_collector+no_connect"]
+    ],
+    "unconnected-(U76-Pad14)": [
+      ["U76", "14", "", "open_collector+no_connect"]
     ]
   }
 }

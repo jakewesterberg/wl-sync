@@ -149,17 +149,35 @@ delivers.
 | 0–15 | in | Event code data ×16 |
 | 16 | in | Event strobe |
 | 17 | out | Barcode |
-| 18 | out | ohDPI camera trigger (hardware PWM) |
-| 19 | out | Behavior camera trigger (hardware PWM) |
+| 18, 19 | — | **spare** (hardware PWM) — were the ohDPI/behavior camera triggers |
 | 20, 21 | in | Photodiode comparators |
 | 22 | in | Reward commanded |
 | 23 | in | Reward delivered |
 | 24 | in | Stim trigger |
 | 25 | in | Accelerometer motion trigger |
-| 26, 27 | — | **spare** |
+| 26 | in | Eye/ohDPI camera frame time (ExposureActive) |
+| 27 | in | Behavior camera frame time (ExposureActive) |
 
 **26 of 28 used.** The header is effectively full: any future signal needing a Pi input is a
 design change, not a populate option.
+
+Two rows above moved on 2026-08-16, and the count is unchanged only by coincidence — two pins
+were freed and two were spent:
+
+- **18/19 became spare.** The cameras free-run, so they need a shared *timebase they can
+  record*, not a trigger; the five camera-facing BNCs carry `BARCODE_RAW` instead. See
+  `hardware/breakout/camera-sync-change.md`, which also explains why the PIO capture window
+  was **not** moved off GPIO0 despite that change dissolving the constraint which forced it
+  (every 17-wide window that keeps both PWM pins free contains GPIO0 and/or GPIO1, so moving
+  it costs a spare rather than freeing one).
+- **26/27 became the frame-time inputs.** Free-running cameras also made §12 item 1's
+  justification for dropping exposure-active returns false in both halves, so one exposure
+  strobe per camera group now returns on a spare back-panel BNC. It needs a comparator rather
+  than this board's usual `74LVC541A` inbound buffer: the FLIR strobe's best published low is
+  0.87 V against that part's 0.8 V V_IL max, a **silent 70 mV miss**. See
+  `hardware/breakout/frame-time-inputs.md`.
+
+**The two remaining spares are both PWM-capable**, which is the useful property to have kept.
 
 **Why GPIO0–16 for the capture range.** PIO parallel capture reads a contiguous pin range, and
 camera triggers must land on a hardware PWM pin (12, 13, 18, 19). Every 17-wide contiguous

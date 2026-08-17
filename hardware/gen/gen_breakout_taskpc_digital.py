@@ -380,6 +380,11 @@ GATE_DY = GRID(12.7)
 X_U8, Y_U8 = GRID(180), GRID(295)  # 74HCT32 (reward OR + 3 unused gates + power)
 X_RWD_BNC, Y_RWD_BNC = GRID(230), GRID(295)
 
+# Frame-time input, 2026-08-16: the raw net from this sheet's own spare BACK-face BNC port
+# (J6B) to the front end on comparators.kicad_sch. Named _BNC, matching this board's own
+# RWD_DLVR_BNC/RHS_STIM_BNC convention for "panel pin, before its series resistor and clamp".
+FRAME_BEH_BNC_NET = "CAM_FRAME_BEH_BNC"
+
 # One-shot block (panel-instrumentation task, 2026-08-15) -- its own column, well clear
 # of every existing anchor above (X_RWD_BTN..X_RWD_BNC top out at 230; X_U9 top out at
 # 90+7*GATE_DY=~168.9 vertically) and of X_NOTE4=400/Y_NOTE4=15 (a different sheet
@@ -1593,13 +1598,23 @@ def _place_reward_or(sch, refs):
     )
     refs["reward_bnc_series_r"] = rwd_series_ref
 
-    # Close the driver-out body on its own spare BACK-panel port, matching the remote's.
+    # The driver-out body's second BACK-panel port. Spare until 2026-08-16; it is now the
+    # BEHAVIOUR camera's frame-time input -- one of only two spare ports on the back face
+    # (the other is pi-interface's J17B, which takes the eye camera's), and its panel hole
+    # is already machined. Centre goes to the front end on comparators.kicad_sch (U76's own
+    # 100R + BAT54S + 1k pull-up, which must nonetheless be PLACED at this connector in
+    # layout); shell stays DGND, which is what keeps the strobe's 4.2 mA return out of the
+    # board's single AGND/DGND star tie. See hardware/breakout/frame-time-inputs.md.
+    #
+    # Nothing is placed here for it: no series resistor, no clamp, no refdes on this sheet.
+    # The whole front end lives with the comparator it feeds, so this sheet contributes only
+    # the connector -- which is the one thing about it that is a fact of the panel.
     y_spare_bnc = GRID(295 + 10)
     _r2, spare2_centre, spare2_shell = DualBncAllocator.for_sheet(sch).place_port(
-        sch, "Spare panel BNC (2nd port of the reward driver-out dual body, BACK face)",
+        sch, "Behaviour camera frame time in (BNC, BACK face)",
         X_RWD_BNC, y_spare_bnc, footprint=FOOTPRINT_BNC, spare=True,
     )
-    sch.no_connect(*pin_pos(X_RWD_BNC, y_spare_bnc, spare2_centre))
+    sch.label(FRAME_BEH_BNC_NET, *pin_pos(X_RWD_BNC, y_spare_bnc, spare2_centre))
     sch.label("DGND", *pin_pos(X_RWD_BNC, y_spare_bnc, spare2_shell))
 
     refs["reward_btn_hdr"] = btn_ref

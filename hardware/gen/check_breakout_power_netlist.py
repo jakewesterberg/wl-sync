@@ -226,15 +226,28 @@ NON_ISO_NETS = [
 # the regenerated whole-project netlist via this same `_rail_bypass_cap_count()`, not
 # guessed. This is the LAST schematic-capture sheet on this board, so this dict needs no
 # further "will need updating again" note.
+#
+# RECOMPUTED AGAIN AT THE FRAME-TIME INPUTS (2026-08-16), which is why the note above about
+# needing no further updates did not hold: comparators.kicad_sch gained a SECOND LM339
+# (U76) for the two camera-strobe receivers, with its own single 100nF on +12V/AGND --
+# +1 there (34->35), and nothing anywhere else. The rest of that block's own passives sit
+# on rail pairs this dict has never tracked (+5V/DGND is tracked, but the 1k opto pull-ups
+# and the 10k/10k threshold divider are not capacitors, and the one cap among them, C160,
+# bypasses a SIGNAL net (CAM_FRAME_THR) to DGND rather than bridging a rail pair, so
+# _rail_bypass_cap_count() correctly does not see it). U76 runs +12V/AGND single-supply for
+# the same reason U54 does, so -12V/AGND is unchanged at 32. Confirmed directly against the
+# regenerated whole-project netlist via this same `_rail_bypass_cap_count()`, not guessed.
 RAIL_BYPASS_EXPECTED = {
-    ("+12V", "AGND"): 34,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
+    ("+12V", "AGND"): 35,          # C1 (10uF), C2 (100nF) -- entry bulk+small, brief Step
                                    # 1; +15 from analog-frontend.kicad_sch's own 15 op-amp
                                    # packages (Task 10a); +7 from analog-ni.kicad_sch's own
                                    # 7 quad-buffer packages (Task 10b); +8 from
                                    # mux-intan.kicad_sch's own 8 ADG1206YRUZ muxes (Task
                                    # 10c); +2 from comparators.kicad_sch's own LM339 (Task
                                    # 10d, corrected: BOTH of that sheet's own LM339
-                                   # decouplers now sit here -- see the -12V/AGND entry)
+                                   # decouplers now sit here -- see the -12V/AGND entry);
+                                   # +1 (C159) from that same sheet's SECOND LM339, U76,
+                                   # the frame-time input pair (2026-08-16)
     ("-12V", "AGND"): 32,          # C3, C4 -- ditto, -12V rail; +15 (Task 10a) +7 (Task
                                    # 10b) +8 (Task 10c), same reasoning as +12V/AGND above.
                                    # NOTHING from comparators.kicad_sch (Task 10d): that

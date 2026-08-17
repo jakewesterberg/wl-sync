@@ -214,8 +214,17 @@ GPIO_PIN_SPEC = tuple(
         (23, "level_shift_in", "RWD_DLVR_PI", "RWD_DLVR", "Reward delivered"),
         (24, "direct", "STIM_TRIG", "STIM_TRIG", "Stim trigger"),
         (25, "direct", "ACC_TRIG", "ACC_TRIG", "Accelerometer motion trigger"),
-        (26, "spare", None, None, "spare"),
-        (27, "spare", None, None, "spare"),
+        # GPIO26/27 WERE the last two spares. They now carry the FRAME-TIME INPUTS, one
+        # camera-group exposure strobe each, added 2026-08-16 because free-running cameras
+        # made spec Sec.12 item 1's "the Pi triggers the cameras so frame times are known by
+        # construction" false in both halves. Produced on comparators.kicad_sch (U76, a
+        # second LM339 -- the FLIR strobe's 0.87 V low misses a 74LVC541A's 0.8 V V_IL by
+        # 70 mV, silently, so it needs a comparator rather than this board's usual buffer).
+        # "direct" for the same reason PD1_COMP/PD2_COMP/ACC_TRIG are: an open-collector
+        # output pulled to +3V3 is already a 3.3 V-safe source, so nothing sits in between.
+        # See hardware/breakout/frame-time-inputs.md.
+        (26, "direct", "CAM_FRAME_EYE", "CAM_FRAME_EYE", "Eye/ohDPI camera frame time"),
+        (27, "direct", "CAM_FRAME_BEH", "CAM_FRAME_BEH", "Behaviour camera frame time"),
     ]
 )
 assert [t[0] for t in GPIO_PIN_SPEC] == list(range(28))
@@ -226,8 +235,11 @@ assert [t[0] for t in GPIO_PIN_SPEC] == list(range(28))
 # without re-deriving it from GPIO_PIN_SPEC by hand.
 CONTRACT_NETS_CONSUMED = [
     f"EVT_D{i}_PI" for i in range(16)
-] + ["EVT_STROBE_PI", "RWD_CMD", "RWD_DLVR", "STIM_TRIG", "PD1_COMP", "PD2_COMP", "ACC_TRIG"]
-assert len(CONTRACT_NETS_CONSUMED) == 23
+] + ["EVT_STROBE_PI", "RWD_CMD", "RWD_DLVR", "STIM_TRIG", "PD1_COMP", "PD2_COMP", "ACC_TRIG",
+     # Frame-time inputs, 2026-08-16 -- produced on comparators.kicad_sch (U76) exactly as
+     # PD1_COMP/PD2_COMP/ACC_TRIG are, and consumed here at GPIO26/27.
+     "CAM_FRAME_EYE", "CAM_FRAME_BEH"]
+assert len(CONTRACT_NETS_CONSUMED) == 25
 
 # ---------------------------------------------------------------------------
 # ONE OPTOCOUPLER LED PER DRIVER PIN -- barcode's own two second legs.
@@ -394,6 +406,10 @@ CAM_BEH_EXTRA_BUF_CAP = "C157"
 CAM_SERIES_REFS = {"CAM_SYNC_EYE": "R198", "CAM_SYNC_BEH1": "R199",
                    "CAM_SYNC_BEH2": "R200", "CAM_SYNC_BEH3": "R201",
                    "CAM_SYNC_BEH4": "R202"}
+# Frame-time input, 2026-08-16: the raw net from this sheet's own spare BNC port (J17B) to
+# the front end on comparators.kicad_sch. Named _BNC, matching opto-intan's own
+# RHS_STIM_BNC convention for "panel pin, before its series resistor and clamp".
+FRAME_EYE_BNC_NET = "CAM_FRAME_EYE_BNC"
 X_CAM_SERIES = GRID(330)                   # series-R column, between buffer and BNC
 X_TRIGBUF2, Y_TRIGBUF2 = GRID(300), GRID(300)  # U74, below the existing trigger buffer
 
@@ -709,8 +725,9 @@ def _place_trigger_buffer_and_fanout(sch, refs):
             f"{net}_BUF", net, footprint=FOOTPRINT_R, ref=CAM_SERIES_REFS[net],
         ))
         # FINDING F6: five camera triggers on three dual bodies. The fifth leaves one
-        # spare port, which is a real unwired BNC on the front panel -- see
-        # bnc_dual.py's own spare_port note.
+        # spare port, a real BNC on the BACK panel -- see bnc_dual.py's own spare_port
+        # note. As of 2026-08-16 it is no longer spare: it is the eye camera's frame-time
+        # input (see the block below).
         bnc_ref, centre, shell = DualBncAllocator.for_sheet(sch).place_port(
             sch, desc, X_BNC, y, footprint=FOOTPRINT_BNC,
         )
@@ -727,23 +744,35 @@ def _place_trigger_buffer_and_fanout(sch, refs):
     #   - Its two footprint pads would otherwise carry NO NET, which the audit tracks
     #     board-wide ("only three pads carry no net") and which leaves a layout ambiguity.
     #   - It is true. The connector is one physical part with two ports; the second port
-    #     exists on the front panel, its shell IS soldered to the board, and it is available
-    #     as a spare trigger output. Drawing it is the schematic agreeing with the panel.
+    #     exists on the BACK panel, its shell IS soldered to the board, and it is available.
+    #     Drawing it is the schematic agreeing with the panel.
     #
-    # A named net on the centre conductor was the alternative and is worse: a single-node
-    # net trades the missing_unit warning for an isolated_pin_label one, which is exactly
-    # the class of warning already sitting on this board's two unpopulated opto spares.
+    # (This comment and bnc_dual.py's own spare_port docstring both said "front panel" until
+    # 2026-08-16. That was wrong: panel-elevations.md puts every pi-interface BNC on the
+    # back, and its own front/back spare counts -- 1 front, 2 back -- only reconcile with
+    # this port on the back. The front spare is J5B, on taskpc-digital's reward-remote body.)
+    #
+    # A named net on the centre conductor was the alternative and was worse WHILE THE PORT
+    # WAS UNUSED: a single-node net trades the missing_unit warning for an isolated_pin_label
+    # one. That no longer applies -- the centre conductor now carries a real signal with a
+    # real load, so it is a named net with two ends, not an isolated label.
+    #
+    # FRAME-TIME INPUT, 2026-08-16. This port is now the EYE/ohDPI camera's ExposureActive
+    # return. The centre goes to comparators.kicad_sch's own U76 front end (100R + BAT54S +
+    # 1k pull-up live there, though they must be PLACED at this connector in layout); the
+    # shell stays DGND, which is also what keeps the strobe's 4.2 mA return out of the single
+    # AGND/DGND star tie. See hardware/breakout/frame-time-inputs.md.
     spare_body = DualBncAllocator.for_sheet(sch).spare_port
     if spare_body is not None:
         y_spare = Y_BNC0 + len(cam_sync_nets) * LOAD_DY
         _ref, spare_centre, spare_shell = DualBncAllocator.for_sheet(sch).place_port(
-            sch, "Spare panel BNC (2nd port of the 5th camera-sync dual body)",
+            sch, "Eye/ohDPI camera frame time in (BNC)",
             X_BNC, y_spare, footprint=FOOTPRINT_BNC, spare=True,
         )
         assert _ref == spare_body, f"spare port landed on {_ref}, expected {spare_body}"
-        sch.no_connect(*pin_pos(X_BNC, y_spare, spare_centre))
+        sch.label(FRAME_EYE_BNC_NET, *pin_pos(X_BNC, y_spare, spare_centre))
         sch.label("DGND", *pin_pos(X_BNC, y_spare, spare_shell))
-        refs["cam_trig_bnc_spare"] = spare_body
+        refs["frame_time_bnc"] = spare_body
 
     # U74: the three extra behaviour camera-sync channels, all from the SAME BARCODE_RAW
     # input channel 2 already takes. Five channels spare.

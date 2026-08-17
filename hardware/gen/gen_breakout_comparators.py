@@ -12,6 +12,20 @@ hysteresis (1M feedback, brief's own fixed value). The 4th LM339 section is brou
 A_MISC1 but left UNPOPULATED (pull-up + hysteresis feedback DNP) -- a fourth thresholded
 signal is a populate option, not a respin.
 
+SECOND JOB, ADDED 2026-08-16: the FRAME-TIME INPUTS. A SECOND LM339 (U76) receives one
+camera ExposureActive strobe per camera group off two spare back-panel BNC ports, and
+delivers them to GPIO26/27. This exists because the cameras now free-run
+(hardware/breakout/camera-sync-change.md), which made spec Sec.12 item 1's justification for
+dropping exposure-active returns -- "the Pi triggers the cameras so frame times are known by
+construction" -- false in both halves. It needs a comparator rather than the 74LVC541A input
+every other digital signal on this board uses, because the FLIR strobe's best published low
+is 0.87 V against that part's 0.8 V V_IL max: a SILENT 70 mV miss. Two consequences shape
+the code and are documented at FRAME_LM339_REF's own block comment rather than here: the new
+package runs +12V (not +5V -- input common-mode ceiling versus a 5.0 V strobe high), and its
+front end is the ONLY DGND-referenced circuitry on this otherwise all-AGND sheet. Full
+account, including the margins and what the software must do with the edges, in
+hardware/breakout/frame-time-inputs.md.
+
 WHY A DAC AND NOT TRIMPOTS: the accelerometer threshold defines how much movement counts as
 movement and gates task progression -- a behavioural parameter, and a task-gating parameter
 that isn't recorded is a reproducibility hazard (spec Sec.6.5). An I2C-set voltage is a
@@ -262,6 +276,10 @@ FOOTPRINT_R = "Resistor_SMD:R_0603_1608Metric"
 FOOTPRINT_C_SMALL = "Capacitor_SMD:C_0603_1608Metric"
 FOOTPRINT_SOIC14 = "Package_SO:SOIC-14_3.9x8.7mm_P1.27mm"   # LM339
 FOOTPRINT_MSOP10 = "Package_SO:MSOP-10_3x3mm_P0.5mm"        # MCP4728
+FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"               # BAT54S -- the real part, no
+# stand-in; same constant every other sheet placing one already uses (gen_mule.py,
+# gen_breakout_taskpc_digital.py, gen_breakout_analog_frontend.py, gen_breakout_opto_intan.py).
+# Package_TO_SOT_SMD is already registered in fp-lib-table project-wide; nothing new here.
 
 # ---------------------------------------------------------------------------
 # Layout grid -- 1.27mm (KiCad's schematic connection grid), same GRID() helper every
@@ -385,6 +403,90 @@ COMP_ROW_Y = {unit: GRID(Y0 + (unit - 1) * ROW_DY) for unit, *_ in CHANNELS}
 Y_DAC = GRID(Y0 + 4 * ROW_DY)
 Y_PWR = GRID(Y0 + 5 * ROW_DY)
 
+# ---------------------------------------------------------------------------
+# FRAME-TIME INPUTS (2026-08-16) -- a SECOND LM339, and the one place on this sheet that
+# is DGND-referenced rather than AGND-referenced. Full account in
+# hardware/breakout/frame-time-inputs.md; the parts that constrain THIS code:
+#
+# WHY A SECOND PACKAGE. U54's four sections are all committed -- three populated, and the
+# fourth wired to a live A_MISC1 through R190 whether or not it is ever stuffed. There is
+# no spare section, so two camera strobes need a new package. Not a new PART NUMBER: U54
+# is already an LM339A and [lm339] is already pinned to TI SLCS006Z.
+#
+# WHY +12V AND NOT +5V, WHICH THE FIRST SKETCH OF THIS GOT WRONG. The LM339's input
+# common-mode ceiling is V+ - 1.5V (this file's own supply-rail note) to V+ - 2.0V
+# ([lm339]'s own v_ivr_high). The FLIR strobe's HIGH is 5.0 V -- pulled up to +5V through
+# 1k, which is FLIR's own published operating row (0.87 V low / 5.0 V high / 4.2 mA; see
+# [flir_bfs_gpio]). On a +5V supply the ceiling is 3.0-3.5 V and a 5.0 V input sits ABOVE
+# it, which is the LM339's best-known failure mode (the output can invert). V+ = +12V puts
+# the ceiling at 10.0 V -- 5 V of headroom, and the identical arrangement U54 already runs.
+#
+# WHY THE FRONT END IS DGND AND V- IS STILL AGND. These two facts look contradictory and
+# are not:
+#
+#   - The pull-up sources from +5V, whose return is DGND (gen_breakout_power.py's own
+#     entry caps: (Y_D_P5, "+5V", "DGND")). So the shell net decides where 4.2 mA of
+#     SWITCHING current flows. On AGND it would run through NT1, the board's single
+#     AGND/DGND star tie, on every camera frame. On DGND it never crosses the tie at all.
+#     Hence shells, clamp and threshold divider are ALL DGND. This is the opposite of the
+#     conclusion the first pass reached, and the reason it is spelled out here.
+#   - V- = AGND regardless, matching U54 and the three proven channels. It does not enter
+#     the COMPARISON: IN+ and IN- are both DGND-referenced, so any AGND-DGND offset is
+#     common-mode and cancels differentially. What V- sets is the OUTPUT LOW level (it is
+#     the common emitter -- see "THE SECOND DESTROY-HARDWARE CONSTRAINT"), i.e.
+#     AGND + V_CEsat ~ 0.2 V read by the Pi against DGND, against a ~0.99 V V_IL. Exactly
+#     what PD1_COMP/PD2_COMP/ACC_TRIG already ship.
+#
+# The DAC note further down says VSS = AGND "NOT DGND ... keeps the threshold in the SAME
+# ground domain as the AGND-referenced signal it is compared against". That is the SAME
+# principle applied here, reaching the opposite net because these signals arrive in the
+# other domain -- not an inconsistency with it.
+#
+# REFDES ARE OUT OF BAND, above the board-wide maxima (C158, D44, R208, U75), for exactly
+# the reason CHANNEL4_SERIES_REF/R190 is: this sheet's counters are pinned and its siblings
+# seed their own counters past its committed maxima, so an auto-minted ref here renumbers
+# already-committed parts on other sheets.
+# ---------------------------------------------------------------------------
+FRAME_LM339_REF = "U76"
+FRAME_DECOUPLE_REF = "C159"       # 100nF on the new package's own +12V/AGND supply pair
+FRAME_THR_BYPASS_REF = "C160"     # 100nF on the shared threshold node, to DGND
+FRAME_DIV_REFS = ("R209", "R210")  # 10k/10k off +5V -> 2.50 V, shared by both channels
+FRAME_THR_NET = "CAM_FRAME_THR"
+
+# (key, LM339 unit, net arriving from the owning sheet's own spare BNC port, output net
+# reaching the Pi, on-sheet description). The two BNCs are spare ports on bodies owned by
+# OTHER sheets -- J17B on pi-interface.kicad_sch, J6B on taskpc-digital.kicad_sch -- because
+# those are the only two spare ports on the BACK face, and their panel holes are already
+# machined (panel-elevations.md: 34 holes, 31 used, 3 spare). Those sheets wire centre and
+# shell; everything else is here.
+FRAME_CHANNELS = [
+    ("EYE", 1, "CAM_FRAME_EYE_BNC", "CAM_FRAME_EYE", "J17B", "GPIO26"),
+    ("BEH", 2, "CAM_FRAME_BEH_BNC", "CAM_FRAME_BEH", "J6B", "GPIO27"),
+]
+FRAME_SPARE_UNITS = (3, 4)   # inputs tied to defined levels, outputs no_connect -- never
+# left floating, and with no pull-up they sink nothing.
+
+FRAME_R_REFS = {
+    "EYE": {"ser": "R211", "pull5": "R212", "hyst": "R213", "fb": "R214", "pull3": "R215"},
+    "BEH": {"ser": "R216", "pull5": "R217", "hyst": "R218", "fb": "R219", "pull3": "R220"},
+}
+FRAME_CLAMP_REFS = {"EYE": "D45", "BEH": "D46"}
+
+# Own column block, right of X_NOTE6=285's own note (which runs ~70mm wide at KiCad's
+# default 1.27mm text size, i.e. to ~355), so nothing here overlaps anything already placed.
+X_FRAME_RSER = GRID(380)     # 100R, BNC net -> clamp node
+X_FRAME_CLAMP = GRID(400)    # BAT54S, +5V/DGND
+X_FRAME_PULL5 = GRID(420)    # 1k pull-up to +5V -- FLIR's own published row
+X_FRAME_HYST = GRID(440)     # 10k series into '+' -- hysteresis divider's upper leg
+X_FRAME_COMP = GRID(470)     # the new LM339's own 5 units
+X_FRAME_RFB = GRID(500)      # 1M hysteresis feedback
+X_FRAME_PULL3 = GRID(525)    # 2.2k open-collector pull-up to +3V3
+FRAME_ROW_Y = {unit: GRID(Y0 + (unit - 1) * ROW_DY) for unit in (1, 2, 3, 4)}
+Y_FRAME_PWR = GRID(Y0 + 4 * ROW_DY)   # the new package's own power unit
+Y_FRAME_DIV = GRID(Y0 + 5 * ROW_DY)   # shared threshold divider + its bypass
+
+X_NOTE7, Y_NOTE7 = GRID(380), GRID(200)   # frame-time note, below its own circuit block
+
 
 # ---------------------------------------------------------------------------
 # Low-level helpers -- duplicated from prior generators' own lbl()/two_pin() rather than
@@ -492,6 +594,147 @@ def comparator_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, signal_net, 
 
 
 # ---------------------------------------------------------------------------
+# One frame-time input channel
+# ---------------------------------------------------------------------------
+
+
+def frame_clamp(sch, x, y, ref, net_signal):
+    """BAT54S as a two-rail series-pair clamp on +5V/DGND.
+
+    IDENTICAL topology to gen_breakout_taskpc_digital.py's own bidirectional_clamp()
+    (itself reused verbatim from gen_mule.py, validated on the mule board), and to the same
+    rails every other DIGITAL input on this board clamps to -- this sheet's OTHER clamps do
+    not exist; its analog siblings clamp to +-12V because that is what THEIR active devices
+    run from. Here the signal is a 0-5V digital strobe living in the DGND domain, so it
+    clamps to that domain's own rails, not to the LM339's.
+
+    pin 1 "A" (anode only) -> DGND (low-side clamp); pin 3 "COM" (the genuine series
+    midpoint) -> the signal; pin 2 "K" (cathode only) -> +5V (high-side clamp). Confirmed
+    against Diode:BAT54S's own extracted pin table (pin1=A, pin2=K, pin3=COM).
+
+    [bat54s] records what this rating does and does not cover: 186 mA on a +-24V mis-plug
+    behind 100R, inside the 200 mA average rating -- but with the board OFF a 12V fault
+    charges the dead +5V rail through the clamp. That is a board-wide property of every
+    digital input here, not new to these two.
+    """
+    pins = sch.place("Diode", "BAT54S", ref, "BAT54S", x, y, footprint=FOOTPRINT_SOT23)
+    lbl(sch, x, y, pins, "1", "DGND")
+    lbl(sch, x, y, pins, "3", net_signal)
+    lbl(sch, x, y, pins, "2", "+5V")
+    return ref
+
+
+def frame_time_channel(sch, y, cpins, minus_pin, plus_pin, out_pin, bnc_net, out_net, rrefs, clamp_ref):
+    """Wire one LM339 unit as a camera-strobe receiver. Returns the refs it placed.
+
+    BNC -> 100R -> clamp node (BAT54S, +5V/DGND) -> 10k -> '+'. '-' takes the shared 2.50 V
+    threshold. Output is open-collector to +3V3 through 2.2k, with 1M fed back to '+'.
+
+    THE 1k PULL-UP IS NOT OPTIONAL AND ITS VALUE IS NOT FREE. FLIR's strobe is an open
+    collector that REQUIRES an external pull-up, and [flir_bfs_gpio] records that a stiffer
+    pull-up makes V_low WORSE, not better: 9.1 mA gives 1.46 V while 4.2 mA gives 0.87 V.
+    5V/1k is the row with the lowest low FLIR publishes anywhere, and FLIR publishes nothing
+    below 4.2 mA -- so going gentler still would be an EXTRAPOLATION, not a datasheet value.
+
+    THE 100R AND THE CLAMP ARE DRAWN HERE BUT BELONG AT THE CONNECTOR IN COPPER. Sheet
+    assignment is schematic organisation; the protection only works if it sits between the
+    panel and the silicon physically too. Said again in frame-time-inputs.md's layout note.
+
+    HYSTERESIS IS CHEAP INSURANCE HERE, NOT MANDATORY AS IT IS ON CHANNELS 1-3. Those exist
+    because a photodiode on a slow display transition and a noisy accelerometer both chatter
+    across a bare threshold. A camera strobe's falling edge is actively driven by the opto
+    transistor and fast. The 10k/1M pair is kept anyway, at this sheet's own k = 0.01 (~33 mV
+    band against the 3.3 V output swing), because two resistors is a cheap guard against
+    reflections on an unterminated coax run -- and because the 10k ALSO bounds input current
+    to ~40 uA when the clamp holds the node at -0.7 V, which is below the LM339's own -0.3 V
+    input abs max. That is the same job R190 does on channel 4, for the same reason.
+    """
+    clamp_net = f"{out_net}_CLAMP"
+    fb_net = f"{out_net}_FB"
+
+    two_pin(sch, "Device", "R", "R", "100", X_FRAME_RSER, y, bnc_net, clamp_net,
+            footprint=FOOTPRINT_R, ref=rrefs["ser"])
+    frame_clamp(sch, X_FRAME_CLAMP, y, clamp_ref, clamp_net)
+    two_pin(sch, "Device", "R", "R", "1k", X_FRAME_PULL5, y, "+5V", clamp_net,
+            footprint=FOOTPRINT_R, ref=rrefs["pull5"])
+    two_pin(sch, "Device", "R", "R", "10k", X_FRAME_HYST, y, clamp_net, fb_net,
+            footprint=FOOTPRINT_R, ref=rrefs["hyst"])
+
+    lbl(sch, X_FRAME_COMP, y, cpins, plus_pin, fb_net)
+    lbl(sch, X_FRAME_COMP, y, cpins, minus_pin, FRAME_THR_NET)
+    lbl(sch, X_FRAME_COMP, y, cpins, out_pin, out_net)
+
+    two_pin(sch, "Device", "R", "R", "1M", X_FRAME_RFB, y, out_net, fb_net,
+            footprint=FOOTPRINT_R, ref=rrefs["fb"])
+    # +3V3, NEVER +5V -- the same destroy-hardware constraint the three original channels
+    # carry, and for the same reason: these outputs reach GPIO26/27 directly, on a module
+    # that is 3.3V and not 5V tolerant. 2.2k also matches finding M4's own edge-rate fix.
+    two_pin(sch, "Device", "R", "R", "2.2k", X_FRAME_PULL3, y, "+3V3", out_net,
+            footprint=FOOTPRINT_R, ref=rrefs["pull3"])
+
+
+def place_frame_time_inputs(sch, refs):
+    """The whole frame-time block: one LM339 (5 units), two channels, shared threshold."""
+    cpins = {}
+    for unit in (1, 2, 3, 4):
+        cpins[unit] = sch.place(
+            "Comparator", "LM339", FRAME_LM339_REF, "LM339", X_FRAME_COMP, FRAME_ROW_Y[unit],
+            unit=unit, footprint=FOOTPRINT_SOIC14,
+        )
+    ppins = sch.place(
+        "Comparator", "LM339", FRAME_LM339_REF, "LM339", X_FRAME_COMP, Y_FRAME_PWR,
+        unit=5, footprint=FOOTPRINT_SOIC14,
+    )
+    lbl(sch, X_FRAME_COMP, Y_FRAME_PWR, ppins, LM339_PIN_VPOS, "+12V")
+    lbl(sch, X_FRAME_COMP, Y_FRAME_PWR, ppins, LM339_PIN_VNEG, "AGND")
+    two_pin(sch, "Device", "C", "C", "100nF", X_FRAME_COMP - DECOUPLE_DX, Y_FRAME_PWR,
+            "+12V", "AGND", footprint=FOOTPRINT_C_SMALL, ref=FRAME_DECOUPLE_REF)
+    refs["frame_lm339"] = FRAME_LM339_REF
+
+    # Shared 2.50 V threshold: 10k/10k off +5V, DGND-referenced so it shares a reference
+    # with the signal it is compared against (see the block comment above). Its 5k Thevenin
+    # feeds two LM339 '-' inputs at 250 nA max apiece -> ~2.5 mV, negligible against 1.63 V
+    # of margin. Bypassed 100nF, standard practice on a comparator reference.
+    two_pin(sch, "Device", "R", "R", "10k", X_FRAME_HYST, Y_FRAME_DIV, "+5V", FRAME_THR_NET,
+            footprint=FOOTPRINT_R, ref=FRAME_DIV_REFS[0])
+    two_pin(sch, "Device", "R", "R", "10k", X_FRAME_RFB, Y_FRAME_DIV, FRAME_THR_NET, "DGND",
+            footprint=FOOTPRINT_R, ref=FRAME_DIV_REFS[1])
+    two_pin(sch, "Device", "C", "C", "100nF", X_FRAME_PULL3, Y_FRAME_DIV, FRAME_THR_NET,
+            "DGND", footprint=FOOTPRINT_C_SMALL, ref=FRAME_THR_BYPASS_REF)
+
+    for key, unit, bnc_net, out_net, _jack, _gpio in FRAME_CHANNELS:
+        minus_pin, plus_pin, out_pin = LM339_UNIT_PINS[unit]
+        frame_time_channel(
+            sch, FRAME_ROW_Y[unit], cpins[unit], minus_pin, plus_pin, out_pin,
+            bnc_net, out_net, FRAME_R_REFS[key], FRAME_CLAMP_REFS[key],
+        )
+
+    # The two unused sections. An LM339 input must never float; these are tied to defined
+    # levels ('+' to AGND, '-' to the 2.50 V threshold, so the output transistor is ON) and
+    # their outputs carry no pull-up, so they sink nothing and dissipate nothing. Placing
+    # the units at all is deliberate: an unplaced unit is an ERC `missing_unit` warning, and
+    # this board's warning count is a checked baseline (3 pre-existing isolated_pin_label).
+    #
+    # '+' GOES TO AGND, NOT DGND, AND THAT IS NOT COSMETIC. gen_breakout_power.py's own
+    # checker asserts that EXACTLY ONE component on this board has pins on both AGND and
+    # DGND -- NT1, the star-point NetTie. It is a real invariant, not a lint: a second
+    # reference bridging the two domains is how a deliberate single-point ground quietly
+    # becomes a multi-point one. Tying these spare inputs to DGND made U76 that second
+    # reference and the checker caught it. AGND is also simply the right choice on its own
+    # terms -- it is this part's OWN V-, i.e. its own 0 V. Everything else U76 touches is a
+    # signal net (*_FB, CAM_FRAME_THR, CAM_FRAME_*), so the package now sits wholly in the
+    # AGND domain while the signals it receives are referenced to DGND through their own
+    # passives, which is exactly the split the block comment above describes.
+    for unit in FRAME_SPARE_UNITS:
+        minus_pin, plus_pin, out_pin = LM339_UNIT_PINS[unit]
+        y = FRAME_ROW_Y[unit]
+        lbl(sch, X_FRAME_COMP, y, cpins[unit], plus_pin, "AGND")
+        lbl(sch, X_FRAME_COMP, y, cpins[unit], minus_pin, FRAME_THR_NET)
+        px, py = pin_pos(X_FRAME_COMP, y, cpins[unit][out_pin])
+        sch.no_connect(px, py)
+
+
+# ---------------------------------------------------------------------------
 # Assembly
 # ---------------------------------------------------------------------------
 
@@ -581,6 +824,9 @@ def build() -> tuple[Sch, dict]:
         refs["feedbacks"].append(r_fb)
         if r_ser:
             refs["series"].append(r_ser)
+
+    # --- Frame-time inputs: a second LM339, two camera strobes (2026-08-16) ---
+    place_frame_time_inputs(sch, refs)
 
     for line_idx, line in enumerate([
         "Comparators (Task 10d) -- one LM339 quad comparator. Three channels used:",
@@ -758,6 +1004,64 @@ def build() -> tuple[Sch, dict]:
         "unipolar-positive at this part. Channels 1-3 need nothing of the kind.",
     ]):
         sch.text(line, X_NOTE6, Y_NOTE6 + line_idx * NOTE_DY)
+
+    for line_idx, line in enumerate([
+        "FRAME-TIME INPUTS (2026-08-16) -- U76, the SECOND LM339 on this sheet, and the",
+        "only DGND-referenced circuitry on it. Two FLIR Blackfly S ExposureActive strobes",
+        "return to GPIO26/27 (the last two non-PWM spares). Both camera groups are the",
+        "SAME electrical interface -- ohDPI runs OpenIris -> Spinnaker -> FLIR BFS -- so",
+        "one front end serves both. See hardware/breakout/frame-time-inputs.md.",
+        "",
+        "WHY NOT STRAIGHT INTO A 74LVC541A INPUT LIKE EVERY OTHER DIGITAL INPUT HERE: the",
+        "strobe's best published low is 0.87 V and LVC541A's V_IL max is 0.8 V. It MISSES",
+        "BY 70 mV, silently -- the buffer may simply never see a valid low on a signal that",
+        "looks perfectly correct on a scope. A comparator is the only option whose margin",
+        "is a design choice rather than a datasheet coincidence.",
+        "",
+        "WHY V+ = +12V AND NOT +5V: the LM339's input common-mode ceiling is V+ - 1.5V to",
+        "V+ - 2.0V. The strobe's HIGH is 5.0 V (pulled up to +5V through 1k, FLIR's own",
+        "published row: 0.87 V low / 5.0 V high / 4.2 mA). On +5V the ceiling is 3.0-3.5 V",
+        "and a 5.0 V input sits ABOVE it -- the LM339's best-known failure mode, an",
+        "inverted output. +12V puts the ceiling at 10.0 V. Same rail U54 already runs.",
+        "",
+        "WHY THE FRONT END IS DGND WHILE V- IS AGND -- NOT A CONTRADICTION:",
+        "  - The 1k pull-up sources from +5V, whose return is DGND. So the SHELL net picks",
+        "    where 4.2 mA of switching current flows on every camera frame. On AGND it",
+        "    would cross NT1, the board's single AGND/DGND star tie. On DGND it never does.",
+        "    Shells, BAT54S clamps and the 10k/10k threshold divider are therefore all DGND.",
+        "  - V- stays AGND, like U54. It does not enter the COMPARISON: '+' and '-' are both",
+        "    DGND-referenced, so an AGND-DGND offset is common-mode and cancels. What V-",
+        "    sets is the OUTPUT LOW (it is the common emitter): AGND + V_CEsat ~ 0.2 V, read",
+        "    against DGND at a ~0.99 V V_IL. Identical to PD1_COMP/PD2_COMP/ACC_TRIG.",
+        "The DAC note (VSS = AGND 'NOT DGND') is the SAME principle -- keep the threshold in",
+        "the signal's own domain -- reaching the other net because these signals arrive in",
+        "the other domain. It is not being contradicted here.",
+        "",
+        "MARGINS: 1.63 V low (0.87 V vs 2.50 V) and 2.50 V high (5.00 V vs 2.50 V). The",
+        "threshold needs no trimming and gets no DAC channel: the swing is 0.87-5.0 V, so",
+        "anything from ~1.5 to ~3.5 V behaves identically, and all four MCP4728 channels are",
+        "allocated anyway. Its only effect is a constant sub-us offset on a 2 ms frame.",
+        "",
+        "SOFTWARE MUST TIMESTAMP THE FALLING EDGE. ExposureActive asserts by pulling low and",
+        "that edge is actively driven by the opto transistor. The RISING edge is RC through",
+        "the pull-up and varies with cable length, so pulse WIDTH measured off this signal",
+        "carries a systematic error.",
+        "",
+        "CONNECTORS: spare ports J17B (pi-interface) and J6B (taskpc-digital), the only two",
+        "spare ports on the BACK face; their panel holes are already machined. Those sheets",
+        "wire centre and shell. THE 100R AND CLAMP ARE DRAWN HERE BUT MUST BE PLACED AT THE",
+        "CONNECTOR IN LAYOUT -- protection between panel and silicon has to be true in",
+        "copper, not only on a schematic sheet.",
+        "",
+        "U76's other two sections are unused: inputs tied ('+' to AGND -- this part's own",
+        "V-, and NOT DGND, which would make U76 a SECOND AGND/DGND bridge alongside NT1 and",
+        "break the board's single-point ground; '-' to the 2.50 V threshold) so nothing",
+        "floats, outputs no_connect with no pull-up, so they sink nothing. U76 therefore",
+        "sits wholly in the AGND domain; only its passives touch DGND. Refdes here are minted",
+        "OUT OF BAND (U76/D45-D46/R209-R220/C159-C160), above the board-wide maxima, for the",
+        "same reason R190 is -- see CHANNEL4_SERIES_REF.",
+    ]):
+        sch.text(line, X_NOTE7, Y_NOTE7 + line_idx * NOTE_DY)
 
     return sch, refs
 
