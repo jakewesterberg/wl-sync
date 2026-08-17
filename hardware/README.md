@@ -330,10 +330,19 @@ spec's own closure note and goes looking for a component to remove.
 
 Task 13 produced three files together, and they are not interchangeable:
 
-- **`hardware/breakout/breakout-bom.csv`** — the literal, unedited `kicad-cli sch export bom`
-  output (see `hardware/procurement-check.md` §1 for the exact command). Left byte-identical
-  to what that command produces, including two tooling gotchas explained there (blank `Qty`,
-  blank `MPN`/`Manufacturer`). **Do not purchase directly from this file** — several of its
+- **`hardware/breakout/breakout-bom.csv`** — `kicad-cli sch export bom` output (see
+  `hardware/procurement-check.md` §1 for the exact command), including two tooling gotchas
+  explained there (blank `Qty`, blank `MPN`/`Manufacturer`).
+
+  > **It is no longer byte-identical to that command's output, and re-running the command
+  > blind will destroy data.** 18 rows — every `wl-sync:BNC_Dual_RA_Isolated` body plus `J1`
+  > — carry hand-added `MPN`/`Manufacturer`/`Qty` (`031-6575`, `Amphenol RF`, `1`) that the
+  > raw export emits blank. This was found the hard way on 2026-08-16, when regenerating the
+  > BOM for the frame-time inputs blanked all 18 and `tests/hardware/test_bom_matches_netlist.py`
+  > did not catch it (that test compares `Reference` and `Value` only, not the sourcing
+  > columns). **When parts change, edit the affected `Reference`/`Value` cells in place rather
+  > than overwriting the file with a fresh export** — or re-export, then restore those 18 rows'
+  > three columns before committing. **Do not purchase directly from this file** — several of its
   Value strings are obsolete or packaging-ambiguous order codes (`INA105KU`, `SN74HCT14D`,
   bare `ADG1206YRUZ`), not the currently-orderable SKU.
 - **`hardware/breakout/breakout-bom-order.csv`** — the same rows as `breakout-bom.csv`
