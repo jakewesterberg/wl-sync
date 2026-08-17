@@ -1,0 +1,19 @@
+[Unit]
+Description=wl-sync: master timebase for the recording rig
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wl-sync record --out /data/rig1
+Restart=always
+RestartSec=1
+# The box is the first device on each day and the last off. Restart=always is what
+# makes stitching automatic: it comes back, derives its barcode counter from the
+# clock, opens the next segment, and the outage lands in the day's manifest with
+# nobody present.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
