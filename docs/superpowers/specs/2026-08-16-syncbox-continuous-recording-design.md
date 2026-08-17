@@ -1,0 +1,245 @@
+# Sync box: continuous recording, crash stitching, and the outage as data
+
+Design agreed 2026-08-16. Supersedes the implicit session model in
+`docs/superpowers/plans/2026-08-13-sync-box.md`, which assumed a session is a bounded run
+that starts, records, and writes its log at the end.
+
+---
+
+## 1. The reframing that forced this
+
+The sync box is **the first device turned on each day and the last turned off**. It runs
+continuously while every other recording device starts and stops blocks inside that run. A
+"session" is therefore **a day**, not a block.
+
+Two requirements follow, both stated by the rig owner:
+
+1. **It must not fail mid-session** — and if it does, the restart must stitch to what came
+   before rather than starting a disconnected record.
+2. **The outage is itself data.** The other devices keep running while the sync box is down,
+   so trials happen during the gap. Those trials really occurred and must be *recognisable as
+   unwitnessed*, not silently absent. `wl-preproc` must be able to say "these trials have no
+   sync-box coverage" positively, rather than discovering a hole.
+
+Requirement 2 is the sharper one. It means the gap must be **explicit and machine-readable**,
+not inferred.
+
+## 2. What the existing code does today
+
+Four findings, all verified against the source rather than assumed. Each is a reason the
+current shape cannot meet §1.
+
+**2.1 A crash loses the whole day, not the tail.** `Recorder` accumulates every record in an
+in-memory list and `write_log()` writes them all at once at the end. At spec §4's own estimate
+of ~2,000 edges/s, an eight-hour day is roughly 58 million records held in RAM with **nothing
+on disk until shutdown**. This is not a tuning problem; it is the wrong shape for continuous
+operation, and it is the single largest cause of the failure the rig owner fears.
+
+**2.2 The stitching key has no persistence.** `BarcodeGenerator`'s docstring is explicit that
+the counter exists for exactly this purpose — *"never reset — across sessions or reboots — so
+every barcode the lab ever emits is globally unique and cross-session mis-alignment is
+structurally impossible"*. But `next_value` lives only in memory and arrives as a constructor
+argument. **Nothing writes it down.** A restart today either repeats values or needs a human to
+supply the right one.
+
+**2.3 The sync box does not log the barcodes it emits.** `log.py` defines exactly two record
+types, `E` (edge) and `W` (code word). `emit_frame()` returns the value and drops it. So the
+box hands every *other* device the alignment key and **keeps no copy** — its own log contains
+no barcode↔tick mapping. Survivable while nothing needed to stitch; not survivable now.
+
+**2.4 The tick clock genuinely restarts.** `_TickUnwrapper` accumulates its wrap offset in
+memory, and RP1's counter wraps every `2^32` µs ≈ **71.6 minutes** — about 20 times a day. A
+restart loses that accumulated offset, so post-restart ticks are **not comparable by number**
+to pre-restart ticks. The barcode is the only thing that can re-align them, which is why 2.2
+and 2.3 matter rather than being tidiness.
+
+## 3. The record on disk
+
+One directory per **day**; one segment file per **process run**.
+
+```
+<out>/2026-08-16/
+├── manifest.json        what wl-preproc opens first
+├── seg-000.log          one per process run
+└── seg-001.log          after a restart
+```
+
+**Why segments rather than one appended file.** Because of 2.4, ticks after a gap are not
+comparable to ticks before it. A single file under a single header would be *lying about its
+own timebase*. One header per segment states one clock epoch, which is true. It also means a
+torn final line damages one segment rather than sitting in the middle of the day's only file,
+and no already-written data is ever rewritten.
+
+**New record type.** `B,tick_us,value` — one per second, ~86 KB/day against a ~1 GB day, i.e.
+negligible. It closes 2.3 and makes each segment independently alignable. It also makes a
+segment's barcode span recoverable **by reading it**, which is required because a crashed
+segment cannot write a trailer.
+
+**Segment header** extends `SyncBoxLogHeader` with: `segment_index`, `ordering` (see §5),
+`clock_trusted`, `clock_reason`. `boot_id` and `written_at` already exist.
+
+**Segment trailer**, defined here because the whole crash/clean distinction rests on it: a
+single final line `T,<closed_at_iso>,<barcode_first>,<barcode_last>,<record_count>`, written
+and `fsync`ed only during a clean shutdown. Its **presence** means clean; its **absence** means
+crash. Nothing else is consulted, so the distinction never depends on a dying process managing
+to record its own death. A segment whose last line is torn mid-write is likewise trailer-less
+and therefore crash-closed, which is correct.
+
+**Segment index** is `max(existing indices in the day directory) + 1`, or `000` if the
+directory is new. Derived from the filesystem, so a restart needs no memory of how many runs
+preceded it.
+
+**`manifest.json`** is the outage contract. It is **rebuilt by scanning the segments at every
+start**, so a crash can never leave it stale — it is derived state, never authoritative state
+that a dying process had to manage to update.
+
+```json
+{ "day": "2026-08-16",
+  "segments": [
+    {"file": "seg-000.log", "barcode_first": 1000, "barcode_last": 4200,
+     "clock_trusted": true, "closed": "crash"},
+    {"file": "seg-001.log", "barcode_first": 4700, "barcode_last": 9000,
+     "clock_trusted": true, "closed": "clean"}],
+  "gaps": [ {"after": 4200, "before": 4700, "seconds": 500} ] }
+```
+
+`gaps` answers requirement §1.2 directly: trials landing between barcodes 4200 and 4700 are
+**real but unwitnessed**. `closed` distinguishes an outage from a clean stop, and is derived
+from whether the segment has a trailer — never from the crashed process's cooperation.
+
+## 4. The barcode counter is a clock
+
+**Epoch-derived.** `value = floor((now_utc − 2020-01-01T00:00:00Z).total_seconds())`. At 32
+bits and one per second that is 136 years of unique values, good to ~2156. A restart needs no
+memory of the past: it reads the clock.
+
+**Why the counter advances by elapsed time rather than resuming at `last + 1`.** So that the
+outage is visible **in the shared key itself**. A device that recorded a barcode on each side
+of the gap computes its duration from the values alone — no manifest, no trust in its own
+clock. Critically it **fails safe**: a naive consumer assuming "one barcode = one second" gets
+the *right* answer across a gap. Contiguous numbering would make 1000 and 1001 five hundred
+seconds apart and silently mis-place every trial after the boundary.
+
+The cost, stated plainly: the counter is no longer "how many barcodes we have ever emitted",
+it is "seconds since 2020". `BarcodeGenerator`'s docstring needs rewriting and its
+`start_value` argument goes away.
+
+**Monotonicity clamp.**
+
+    next = max(value_from_clock, checkpoint + checkpoint_interval + 1)
+
+with `checkpoint` written every 60 s to `<out>/.wl-sync-barcode-checkpoint`. It lives at the
+**`--out` root, not inside a day directory**, because it must survive across days; it is the
+one piece of genuinely persistent state this design keeps. This guarantees the counter is
+unique and increasing **however broken the clock is**. When the clock is healthy
+`value_from_clock` always dominates and the clamp never binds.
+
+The `+ checkpoint_interval` term means that when the clamp *does* bind, it **over-states the
+gap, never under-states it** — the resumed counter may sit up to 60 s ahead of truth. That
+asymmetry is deliberate: an over-stated gap marks slightly more trials as unwitnessed than
+strictly were, which is conservative. An under-stated gap would claim coverage the box did not
+have, which is the failure that matters.
+
+The clamp is what makes the following true, and it was a question the rig owner raised
+directly: **a bad clock degrades the precision of gap length, never the integrity of the
+alignment key.** Without it, a backwards clock jump could emit a barcode value already used —
+two different moments carrying one identity, which is the one thing the barcode must never do.
+
+## 5. Streaming and durability
+
+**The obstacle.** `Recorder.records()` sorts, because the two capture paths deliver
+independently — `_TickUnwrapper`'s docstring notes "a word can arrive after an edge that
+precedes it in time". A stream cannot be globally sorted.
+
+**Resolution: declare the ordering rather than fake it.** The header carries
+`ordering: "per-path"`. Each path is individually ordered, so a reader does a trivial two-way
+merge. A time-based reorder buffer was considered and rejected: it invents a tuning parameter
+and still needs a late-arrival escape hatch, in exchange for a property downstream recovers
+for free.
+
+**Structure.** `Recorder(backend, sink=…)` takes a sink with a `write(record)` method. The
+default remains the in-memory list, so **every existing test is unchanged**; the run loop
+passes a `SegmentWriter`. Semantics stay in `Recorder`; durability lives in the sink.
+
+**`SegmentWriter`** appends each record on arrival and `fsync`s once per second, piggybacked
+on the barcode tick. Crash cost ≤ 1 second of records. Memory is bounded — nothing accumulates,
+so finding 2.1 disappears rather than being mitigated.
+
+`fsync` at 1 Hz is free here: spec §4.1 puts the load at ~40 KB/s onto an **NVMe SSD**, chosen
+explicitly because *"SD cards fail abruptly and on power loss"*.
+
+## 6. Entry point and lifecycle
+
+```
+wl-sync record --out /data/rig1 [--fake] [--duration S]
+```
+
+- **`--out` is required, with no default.** The day directory roots there. No filesystem
+  convention is invented, because the rig layout is consumed by `wl-preproc` and the ELN and
+  is defined outside this repo.
+- **The day directory is chosen at start and does not roll over.** The box is off overnight; a
+  run crossing midnight stays in its starting day rather than splitting mid-run.
+- **`SIGTERM`/`SIGINT` → clean close:** stop capture, flush, write the trailer, mark
+  `closed: "clean"`, update the manifest.
+- **Crash → no trailer.** The next start records `closed: "crash"` while rebuilding the
+  manifest from what is actually on disk.
+- **`Restart=always` in the systemd unit.** This is what makes stitching *automatic*: the box
+  returns, derives its counter from the clock, opens the next segment, and the gap appears in
+  the manifest with nobody present.
+- **`--fake`** runs the whole path on `FakeBackend`, so this is launchable **before** Task 5b
+  exists — and doubles as the harness 5b's bench acceptance steps require.
+- **`--duration S`** bounds a run to S **seconds**, which Task 5b step 5 needs for its past-one-wrap test
+  (≥ 71.6 minutes).
+
+## 7. Clock trust and degradation
+
+The clock is a **hard dependency** of §4, and the spec never previously named one. The chosen
+board supplies it: the **CM5 IO Board has a CR2032 socket** for the RTC, ~5-year life.
+
+**This is an invisible dependency of exactly the species this project keeps getting bitten
+by** — the same shape as `force_eeprom_read=0` and the CONFIG4 switch. An uninstalled coin
+cell is not visible on any board, in any checker, or in any BOM for our PCB. So the software
+must make it loud.
+
+**On an untrustworthy clock — RTC unset, NTP never synced, or time moved backwards — the box
+records anyway** and marks the record. It never blocks the rig, because refusing to start
+would stop the first device of the day over a $0.30 battery. Degradation is explicit:
+`clock_trusted: false` plus a machine-readable `clock_reason` in both the segment header and
+the manifest, so `wl-preproc` can distrust gap arithmetic across that boundary specifically
+while still using every barcode normally.
+
+**There is no panel indicator available for this.** The heartbeat LED is a buffered leg off
+`BARCODE_RAW` itself, so it blinks with the barcode waveform; software could only change its
+pattern by corrupting the barcode. `journalctl` and `systemctl status` are the honest status
+surface today. See §10.
+
+## 8. Testing
+
+Everything in §3–§6 is testable on a laptop with no Pi present, which is the existing
+discipline (`FakeBackend`, and Task 5a's split of pure logic from hardware).
+
+- Counter: epoch derivation; the clamp holding under a stalled, a drifting and a
+  **backwards-jumping** clock; monotonicity and uniqueness across a simulated restart.
+- Segments and manifest: a clean stop producing `closed: "clean"`; a **simulated crash**
+  (writer killed without a trailer, including mid-line) producing `closed: "crash"` and a
+  correctly bounded gap; manifest rebuilt correctly from segments alone.
+- Streaming: records reach disk within one `fsync` window; memory does not grow with run
+  length; a per-path merge of a written segment reproduces tick order.
+- End to end: `--fake --duration` produces a valid day directory.
+
+## 9. Out of scope
+
+- **`wl-preproc`'s handling** of unwitnessed trials. This design's job is to make the outage
+  unambiguous and machine-readable; what preproc does with it belongs to that repo.
+- **NAS transfer at session end** — ordinary Linux, no timing content.
+- **Timebase fitting** — `wl-preproc`'s, since it needs barcodes from several devices at once.
+- **Task 5b, the RP1 backend.** This design is deliberately backend-agnostic and runs on
+  `FakeBackend` today.
+
+## 10. Dependencies and open items
+
+| # | Item | Owner |
+|---|---|---|
+| 1 | **A CR2032 must be fitted to the CM5 IO Board.** §4 depends on it and nothing can see whether it is there. Add to the assembly checklist; the software reports `clock_trusted: false` if it is missing | Assembly |
+| 2 | **NTP source.** Neither spec nor plan names one. Ethernet already exists for NAS transfer, so this is likely configuration rather than hardware — but it should be decided rather than assumed | Bring-up |
+| 3 | **No software-controllable panel indicator exists**, and the board is still **pre-layout**. GPIO18/19 are spare and PWM-capable. If a status light is ever wanted — clock suspect, disk filling, no event codes for N minutes — it is free now and a respin after layout. **This window closes at layout** | Layout — decide before |
