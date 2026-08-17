@@ -75,19 +75,27 @@ def build_manifest(day_dir: Path) -> dict:
     )
     summaries = [summarise_segment(path) for path in paths]
 
+    # Carries the last WITNESSED barcode forward across any number of segments that
+    # saw none at all — e.g. one opened and then crashed before its first barcode tick,
+    # which repeats on every restart under systemd's Restart=always. Zipping ADJACENT
+    # summaries instead would let such an all-None segment's `continue` swallow both the
+    # gap before it and the gap after it, hiding the outage completely. Do not
+    # "simplify" this back into a pairwise zip.
     gaps = []
-    for previous, following in zip(summaries, summaries[1:]):
-        if previous.barcode_last is None or following.barcode_first is None:
-            continue
-        seconds = following.barcode_first - previous.barcode_last
-        if seconds > 1:
-            gaps.append(
-                {
-                    "after": previous.barcode_last,
-                    "before": following.barcode_first,
-                    "seconds": seconds,
-                }
-            )
+    last_seen: int | None = None
+    for summary in summaries:
+        if summary.barcode_first is not None and last_seen is not None:
+            seconds = summary.barcode_first - last_seen
+            if seconds > 1:
+                gaps.append(
+                    {
+                        "after": last_seen,
+                        "before": summary.barcode_first,
+                        "seconds": seconds,
+                    }
+                )
+        if summary.barcode_last is not None:
+            last_seen = summary.barcode_last
 
     return {
         "day": day_dir.name,

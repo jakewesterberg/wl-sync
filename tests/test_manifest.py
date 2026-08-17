@@ -57,11 +57,33 @@ def test_contiguous_segments_report_no_gap(tmp_path):
     assert build_manifest(tmp_path)["gaps"] == []
 
 
+def test_a_gap_survives_an_intervening_segment_with_no_barcodes(tmp_path):
+    """A segment can be opened and then crash before its first barcode tick (Task 8's
+    run() opens the SegmentWriter before entering the emit loop). Under systemd's
+    Restart=always this shape repeats on every restart, so it is not rare. Zipping
+    ADJACENT summaries would let that all-None segment absorb both the gap before it
+    and the gap after it, hiding the outage entirely. The gap must still be reported by
+    carrying the last witnessed barcode forward across it."""
+    _segment(tmp_path, 0, 100, 200, clean=True)
+    SegmentWriter(tmp_path / segment_name(1), HEADER).flush()  # opened, no barcodes, crash
+    _segment(tmp_path, 2, 5_000, 5_010, clean=True)
+    manifest = build_manifest(tmp_path)
+    assert manifest["gaps"] == [{"after": 200, "before": 5_000, "seconds": 4_800}]
+
+
 def test_segments_are_ordered_by_index_not_by_name_luck(tmp_path):
-    _segment(tmp_path, 0, 1_000, 1_100, clean=True)
-    _segment(tmp_path, 1, 1_200, 1_300, clean=True)
-    files = [entry["file"] for entry in build_manifest(tmp_path)["segments"]]
-    assert files == [segment_name(0), segment_name(1)]
+    """seg-9 vs seg-10: lexically "seg-10" sorts FIRST, numerically it sorts second.
+    Written unpadded on purpose — segment_name pads to 3, so a padded pair would not
+    diverge until 1000 and this test would pass even against lexical sorting."""
+    for name, first, last in (("seg-9.log", 1_000, 1_100), ("seg-10.log", 2_000, 2_100)):
+        writer = SegmentWriter(tmp_path / name, HEADER)
+        for value in range(first, last + 1):
+            writer.write(BarcodeEmitted(tick_us=value * 1_000_000, value=value))
+        writer.close(CLOSED_AT)
+    assert [entry["file"] for entry in build_manifest(tmp_path)["segments"]] == [
+        "seg-9.log",
+        "seg-10.log",
+    ]
 
 
 def test_write_manifest_lands_on_disk(tmp_path):
