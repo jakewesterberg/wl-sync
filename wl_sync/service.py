@@ -65,12 +65,31 @@ class _TickUnwrapper:
         return tick + self._offset
 
 
-class Recorder:
-    """Collects strobed code words and individual edges onto one unwrapped clock."""
+class _MemorySink:
+    """The historical behaviour: hold everything, sort on read. Correct for tests and
+    short runs; fatal for a whole day, which is what SegmentWriter is for."""
 
-    def __init__(self, backend: SyncBackend) -> None:
+    def __init__(self) -> None:
+        self.records: list[Record] = []
+
+    def write(self, record: Record) -> None:
+        self.records.append(record)
+
+
+class Recorder:
+    """Collects strobed code words and individual edges onto one unwrapped clock.
+
+    `sink` takes each record as it arrives. The default accumulates in memory and
+    `records()` returns them tick-sorted. A streaming sink (`SegmentWriter`) receives
+    them in ARRIVAL order instead, because the two capture paths deliver independently
+    and a stream cannot be globally sorted -- the segment header declares
+    `ordering="per-path"` and the reader merges.
+    """
+
+    def __init__(self, backend: SyncBackend, sink=None) -> None:
         self._backend = backend
-        self._records: list[Record] = []
+        self._memory = _MemorySink() if sink is None else None
+        self._sink = self._memory if sink is None else sink
         self._unwrap_words = _TickUnwrapper()
         self._unwrap_edges = _TickUnwrapper()
 
@@ -83,15 +102,18 @@ class Recorder:
         self._backend.start_edge_capture(pins, self._on_edge)
 
     def _on_word(self, tick: int, word: int) -> None:
-        self._records.append(CodeWord(tick_us=self._unwrap_words(tick), word=word))
+        self._sink.write(CodeWord(tick_us=self._unwrap_words(tick), word=word))
 
     def _on_edge(self, gpio: int, level: int, tick: int) -> None:
-        self._records.append(
+        self._sink.write(
             Edge(tick_us=self._unwrap_edges(tick), gpio=gpio, level=level)
         )
 
     def records(self) -> list[Record]:
-        return sorted(self._records, key=lambda record: record.tick_us)
+        """Tick-sorted, and empty when a streaming sink was supplied -- nothing is held."""
+        if self._memory is None:
+            return []
+        return sorted(self._memory.records, key=lambda record: record.tick_us)
 
 
 def frame_times(records: Iterable[Record], gpio: int) -> list[int]:

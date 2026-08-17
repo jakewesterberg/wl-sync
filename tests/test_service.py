@@ -10,6 +10,14 @@ STROBE_PIN = 18
 REWARD_PIN = 23
 
 
+class _CollectingSink:
+    def __init__(self):
+        self.written = []
+
+    def write(self, record):
+        self.written.append(record)
+
+
 def pulses_to_edges(pulses, start_us):
     edges = []
     tick = start_us
@@ -164,3 +172,36 @@ def test_recorder_captures_both_frame_time_lines():
     backend.inject_edge(27, 0, 1_100)
     assert frame_times(recorder.records(), gpio=26) == [1_000]
     assert frame_times(recorder.records(), gpio=27) == [1_100]
+
+
+def test_recorder_streams_to_a_sink_in_arrival_order():
+    """Arrival order, NOT tick order: the two capture paths deliver independently, so a
+    stream cannot be globally sorted. The header declares ordering='per-path' and the
+    reader merges. See the design spec, section 5."""
+    backend = FakeBackend()
+    sink = _CollectingSink()
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_edges([REWARD_PIN])
+    backend.inject_edge(REWARD_PIN, 1, 2_000)
+    backend.inject_edge(REWARD_PIN, 0, 1_000)
+    # Unwrapper detects 1_000 < 2_000 as wraparound, adds TICK_WRAP_US
+    assert [record.tick_us for record in sink.written] == [2_000, TICK_WRAP_US + 1_000]
+
+
+def test_a_sink_replaces_in_memory_accumulation():
+    """Nothing may accumulate when a sink is given, or an all-day run exhausts RAM."""
+    backend = FakeBackend()
+    recorder = Recorder(backend, sink=_CollectingSink())
+    recorder.capture_edges([REWARD_PIN])
+    backend.inject_edge(REWARD_PIN, 1, 1_000)
+    assert recorder.records() == []
+
+
+def test_the_default_recorder_is_unchanged():
+    backend = FakeBackend()
+    recorder = Recorder(backend)
+    recorder.capture_edges([REWARD_PIN])
+    backend.inject_edge(REWARD_PIN, 1, 2_000)
+    backend.inject_edge(REWARD_PIN, 0, 1_000)
+    # Unwrapper detects 1_000 < 2_000 as wraparound; sorted: [2_000, TICK_WRAP_US + 1_000]
+    assert [record.tick_us for record in recorder.records()] == [2_000, TICK_WRAP_US + 1_000]
