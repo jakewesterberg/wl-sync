@@ -30,7 +30,7 @@ def pulses_to_edges(pulses, start_us):
 
 def test_generator_emits_a_decodable_frame():
     backend = FakeBackend()
-    BarcodeGenerator(backend, pin=BARCODE_PIN, start_value=1000).emit_frame()
+    BarcodeGenerator(backend, pin=BARCODE_PIN, value_source=lambda: 1000).emit_frame()
     assert len(backend.emitted) == 1
     pin, pulses = backend.emitted[0]
     assert pin == BARCODE_PIN
@@ -38,11 +38,11 @@ def test_generator_emits_a_decodable_frame():
     assert [b.value for b in decode_edges(edges, start_us=0)] == [1000]
 
 
-def test_generator_increments_monotonically():
+def test_generator_never_repeats_a_value():
+    """A stalled clock must not re-issue an identity."""
     backend = FakeBackend()
-    generator = BarcodeGenerator(backend, pin=BARCODE_PIN, start_value=7)
+    generator = BarcodeGenerator(backend, pin=BARCODE_PIN, value_source=lambda: 7)
     assert [generator.emit_frame() for _ in range(3)] == [7, 8, 9]
-    assert generator.next_value == 10
 
 
 def test_recorder_captures_strobed_code_words():

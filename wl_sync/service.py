@@ -24,22 +24,27 @@ _FALLING = 0
 
 
 class BarcodeGenerator:
-    """Emits one barcode frame per call, incrementing a monotonic counter.
+    """Emits one barcode frame per call.
 
-    The counter is never reset — across sessions or reboots — so every barcode
-    the lab ever emits is globally unique and cross-session mis-alignment is
-    structurally impossible rather than merely unlikely.
+    `value_source` is called for each frame and returns the value to emit -- normally
+    the wall clock, since a barcode value IS seconds since 2020 (see wl_sync.clock).
+    The result is clamped to strictly exceed the previous one, so monotonicity holds at
+    the point of emission whatever the source does. A repeated barcode would be two
+    different moments carrying one identity, which is the one thing it must never be.
     """
 
-    def __init__(self, backend: SyncBackend, pin: int, start_value: int) -> None:
+    def __init__(self, backend: SyncBackend, pin: int, value_source) -> None:
         self._backend = backend
         self._pin = pin
-        self.next_value = start_value
+        self._value_source = value_source
+        self._last: int | None = None
 
     def emit_frame(self) -> int:
-        value = self.next_value
+        value = self._value_source()
+        if self._last is not None and value <= self._last:
+            value = self._last + 1
         self._backend.emit_pulses(self._pin, encode(value))
-        self.next_value = value + 1
+        self._last = value
         return value
 
 
