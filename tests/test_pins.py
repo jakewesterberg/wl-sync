@@ -28,9 +28,23 @@ def test_frame_time_pins_match_the_board():
     assert FRAME_TIME_GPIO == {"cam_frame_eye": 26, "cam_frame_beh": 27}
 
 
-def test_every_named_pin_is_in_the_gpio_map():
-    for pin in (*EDGE_PINS, BARCODE_PIN, CODE_STROBE_PIN):
-        assert pin in GPIO_MAP.values(), f"GPIO{pin} is used but unnamed in GPIO_MAP"
+def test_gpio_map_pins_every_name_to_its_exact_pin():
+    """A whole-dict assertion, not a membership check: transposing two names within
+    the same set of pins is the one mismapping a looser test would pass through, and
+    it is the exact failure this module exists to prevent."""
+    assert GPIO_MAP == {
+        **{f"evt_d{i}": i for i in range(16)},
+        "evt_strobe": 16,
+        "barcode_out": 17,
+        "pd1_comp": 20,
+        "pd2_comp": 21,
+        "rwd_cmd": 22,
+        "rwd_dlvr": 23,
+        "stim_trig": 24,
+        "acc_trig": 25,
+        "cam_frame_eye": 26,
+        "cam_frame_beh": 27,
+    }
 
 
 def test_gpio_map_has_no_duplicate_pins():
