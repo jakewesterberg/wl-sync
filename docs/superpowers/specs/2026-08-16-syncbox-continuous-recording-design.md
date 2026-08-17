@@ -236,10 +236,24 @@ discipline (`FakeBackend`, and Task 5a's split of pure logic from hardware).
 - **Task 5b, the RP1 backend.** This design is deliberately backend-agnostic and runs on
   `FakeBackend` today.
 
-## 10. Dependencies and open items
+## 10. Dependencies — all three resolved 2026-08-16
 
-| # | Item | Owner |
-|---|---|---|
-| 1 | **A CR2032 must be fitted to the CM5 IO Board.** §4 depends on it and nothing can see whether it is there. Add to the assembly checklist; the software reports `clock_trusted: false` if it is missing | Assembly |
-| 2 | **NTP source.** Neither spec nor plan names one. Ethernet already exists for NAS transfer, so this is likely configuration rather than hardware — but it should be decided rather than assumed | Bring-up |
-| 3 | **No software-controllable panel indicator exists**, and the board is still **pre-layout**. GPIO18/19 are spare and PWM-capable. If a status light is ever wanted — clock suspect, disk filling, no event codes for N minutes — it is free now and a respin after layout. **This window closes at layout** | Layout — decide before |
+| # | Item | Decision | Owner |
+|---|---|---|---|
+| 1 | **A CR2032 must be fitted to the CM5 IO Board.** §4 depends on it and nothing on the board, in any checker, or in our BOM can see whether it is there — the same invisible-dependency species as `force_eeprom_read=0` and the CONFIG4 switch | **Record it in two places people actually read:** a new `hardware/assembly-checklist.md` for build steps no schematic can express (fit the coin cell, machine all 34 BNC holes, colour-code the reward group), plus a spares line in the order BOM. The software's `clock_trusted: false` becomes a backstop rather than the only defence | Assembly |
+| 2 | **No time source was named** anywhere in spec or plan | **NTP over the existing Ethernet**, which is already required for NAS transfer, so no new hardware. Server address chosen at bring-up. NTP disciplines the RTC so drift never accumulates; the RTC covers power-off and any network outage | Bring-up config |
+| 3 | **No software-controllable panel indicator exists** — the heartbeat LED is a buffered leg off `BARCODE_RAW` itself, so it blinks with the barcode and software cannot change its pattern without corrupting the barcode | **Add a populated status LED on GPIO18**, before layout. One LED, one resistor, one spare buffer channel. Carries `clock_trusted: false`, disk filling, and no-event-codes-for-N-minutes — the states that otherwise look identical to a healthy box from across the room | **Hardware, and it blocks layout** |
+
+### 10.1 What decision 3 costs elsewhere
+
+Taking GPIO18 is a real hardware change and must land **before layout**:
+
+- `gen_breakout_pi_interface.py`: GPIO18 moves from `"spare"` to a buffered output driving the
+  LED, with its own series resistor and buffer channel — the same treatment the barcode
+  heartbeat LED already gets, and out-of-band refdes per the `R198`/`R190` precedent.
+- Spare GPIO drops from **2 (18, 19) to 1 (19)** — still PWM-capable. Spec §4's GPIO map,
+  `check_breakout_pi_interface_netlist.py`'s `SPARE_GPIOS`, `camera-sync-change.md` and
+  `frame-time-inputs.md` all state the current count and will need updating together.
+- A **blink vocabulary** has to be defined: what distinguishes healthy from clock-suspect from
+  disk-filling, distinguishably at a glance, next to a heartbeat LED already blinking at 1 Hz.
+  That belongs in the implementation plan, not here.
