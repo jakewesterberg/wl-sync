@@ -175,17 +175,17 @@ def test_recorder_captures_both_frame_time_lines():
 
 
 def test_recorder_streams_to_a_sink_in_arrival_order():
-    """Arrival order, NOT tick order: the two capture paths deliver independently, so a
-    stream cannot be globally sorted. The header declares ordering='per-path' and the
-    reader merges. See the design spec, section 5."""
+    """Arrival order, NOT tick order. Two capture paths are required to show this at
+    all: within ONE path the unwrapper's output is monotonically non-decreasing, so
+    arrival and sorted order are identical and the test would prove nothing."""
     backend = FakeBackend()
     sink = _CollectingSink()
     recorder = Recorder(backend, sink=sink)
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
     recorder.capture_edges([REWARD_PIN])
-    backend.inject_edge(REWARD_PIN, 1, 2_000)
-    backend.inject_edge(REWARD_PIN, 0, 1_000)
-    # Unwrapper detects 1_000 < 2_000 as wraparound, adds TICK_WRAP_US
-    assert [record.tick_us for record in sink.written] == [2_000, TICK_WRAP_US + 1_000]
+    backend.inject_edge(REWARD_PIN, 1, 5_000)
+    backend.inject_word(1_000, 0x8001)
+    assert [record.tick_us for record in sink.written] == [5_000, 1_000]
 
 
 def test_a_sink_replaces_in_memory_accumulation():
@@ -198,10 +198,12 @@ def test_a_sink_replaces_in_memory_accumulation():
 
 
 def test_the_default_recorder_is_unchanged():
+    """Same injections as the sink test above, opposite result: the in-memory path
+    sorts. If sorted() were dropped from records(), this would fail."""
     backend = FakeBackend()
     recorder = Recorder(backend)
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
     recorder.capture_edges([REWARD_PIN])
-    backend.inject_edge(REWARD_PIN, 1, 2_000)
-    backend.inject_edge(REWARD_PIN, 0, 1_000)
-    # Unwrapper detects 1_000 < 2_000 as wraparound; sorted: [2_000, TICK_WRAP_US + 1_000]
-    assert [record.tick_us for record in recorder.records()] == [2_000, TICK_WRAP_US + 1_000]
+    backend.inject_edge(REWARD_PIN, 1, 5_000)
+    backend.inject_word(1_000, 0x8001)
+    assert [record.tick_us for record in recorder.records()] == [1_000, 5_000]
