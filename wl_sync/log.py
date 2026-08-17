@@ -44,6 +44,15 @@ class SyncBoxLogHeader(BaseModel):
     boot_id: str
     written_at: datetime.datetime
     gpio_map: dict[str, int]
+    segment_index: int = 0
+    # Records reach disk in ARRIVAL order, and the two capture paths deliver
+    # independently, so the file is ordered WITHIN each path and not across them. A
+    # reader merges. Declared rather than faked: a reorder buffer would invent a tuning
+    # parameter and still need a late-arrival escape hatch, for a property the reader
+    # recovers for free.
+    ordering: str = "per-path"
+    clock_trusted: bool = True
+    clock_reason: str = ""
 
     @field_validator("session_id")
     @classmethod

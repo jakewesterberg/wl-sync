@@ -115,3 +115,19 @@ def test_unknown_record_type_raises(tmp_path):
         handle.write("X,1,2\n")
     with pytest.raises(ValueError):
         read_log(path)
+
+
+def test_header_defaults_describe_a_single_trusted_segment():
+    assert (HEADER.segment_index, HEADER.ordering) == (0, "per-path")
+    assert (HEADER.clock_trusted, HEADER.clock_reason) == (True, "")
+
+
+def test_header_carries_clock_distrust(tmp_path):
+    header = HEADER.model_copy(
+        update={"clock_trusted": False, "clock_reason": "ntp_unsynchronized"}
+    )
+    path = tmp_path / "syncbox.log"
+    write_log(path, header, [])
+    read_back, _ = read_log(path)
+    assert read_back.clock_trusted is False
+    assert read_back.clock_reason == "ntp_unsynchronized"
