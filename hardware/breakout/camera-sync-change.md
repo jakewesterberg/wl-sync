@@ -43,13 +43,30 @@ to start at 0.
 Why that matters: GPIO0/1 are in the capture window *only* because it had to start at 0, and
 they are the two pins the Pi probes as I²C at boot looking for a HAT ID EEPROM. That is why
 they carry 330 Ω series resistors and why `force_eeprom_read=0` is a required `config.txt`
-setting. **Move the window to GPIO2–18 and that whole mitigation disappears**, along with two
-more free pins.
+setting. **Move the window to GPIO2–18 and that whole mitigation disappears.**
 
-**Not done, deliberately.** It re-maps 17 event lines across `taskpc-digital` and
-`pi-interface`, and the board works as it stands. Recorded because it is far cheaper in
-design phase than after layout, and because the *reason* for the GPIO0 window no longer
-exists — so anyone reading spec §4 later would be reading a justification that has expired.
+**It does not, however, free pins — it costs one.** A 17-wide window that avoids both 18 and
+19 must end at 17 or below, so it must start at 0 or 1, and both of those windows contain
+GPIO0 and/or GPIO1. Escaping the I²C pins while keeping two free PWM pins is not on the
+menu; it is a forced trade:
+
+| | Current (0–16) | Proposed (2–18) |
+|---|---|---|
+| Spare GPIOs | **4** (18, 19, 26, 27) | **3** (19, 26, 27) |
+| …of which PWM-capable | 2 | 1 |
+| GPIO0/1 | in-window: 330 Ω ×2 + `force_eeprom_read=0` | out of window; Pi *outputs* only |
+
+So the real argument for moving is **not pins** — it is deleting the `force_eeprom_read=0`
+dependency, an invisible rig-config setting no checker can see, the same species as the
+CONFIG4 switch F2 was praised for retiring. That is a narrower claim than "two more free
+pins", which was simply wrong.
+
+**Not done, and now recommended against.** Moving the window re-maps 17 event lines across
+`taskpc-digital` and `pi-interface` to net one *fewer* spare pin, and §3's frame-time inputs
+need two of the spares that remain. Recorded anyway because it is far cheaper to settle in
+design phase than after layout, and because the *reason* spec §4 gives for the GPIO0 window
+no longer exists — so anyone reading that justification later would be reading one that has
+expired, whichever way the window lands.
 
 ## 3. What this change does NOT solve
 
