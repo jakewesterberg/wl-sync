@@ -207,6 +207,21 @@ def test_a_dead_coin_cell_resumes_from_the_checkpoint_and_rejoins_that_day(tmp_p
     assert manifest["segments"][1]["barcode_first"] > manifest["segments"][0]["barcode_last"]
 
 
+def test_only_a_pre_epoch_reading_degrades(tmp_path):
+    """The degradation is deliberately narrow. A naive datetime silently means "local
+    time" and would shift every barcode -- that is a caller bug, not a dead battery, and
+    it must keep raising with its own message rather than being swallowed by the
+    dead-RTC path."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        run(
+            tmp_path,
+            FakeBackend(),
+            lambda: datetime.datetime(2026, 8, 16, 9, 0),  # no tzinfo
+            1,
+            lambda _s: None,
+        )
+
+
 def test_the_checkpoint_is_never_behind_the_values_already_emitted(tmp_path):
     """THE invariant the high-water checkpoint exists to hold, checked at every point
     in a long run rather than at one convenient moment.

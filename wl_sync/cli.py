@@ -107,8 +107,14 @@ def _resume(
     writing to. With no checkpoint at all it lands on 2020-01-01_01: still not the true
     date, but honest, constant, and -- unlike a directory named after whatever the junk
     clock happened to read -- it does not mint a fresh orphan directory on every boot.
+
+    ONLY a pre-epoch reading degrades. A naive datetime is a caller bug that silently
+    means "local time" and would shift every barcode, and a reading past the 32-bit
+    ceiling (~2156) cannot be encoded into a frame at all; both keep raising, and both
+    fall through to value_from_clock's own message rather than being caught here.
     """
-    if started >= BARCODE_EPOCH:
+    aware = started.tzinfo is not None and started.utcoffset() is not None
+    if not (aware and started < BARCODE_EPOCH):
         return (
             next_value(started, checkpoint),
             evaluate_clock(started, checkpoint, ntp_synchronized),

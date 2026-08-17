@@ -190,10 +190,19 @@ independently — `_TickUnwrapper`'s docstring notes "a word can arrive after an
 precedes it in time". A stream cannot be globally sorted.
 
 **Resolution: declare the ordering rather than fake it.** The header carries
-`ordering: "per-path"`. Each path is individually ordered, so a reader does a trivial two-way
+`ordering: "per-path"`. Each path is individually ordered, so a reader does a trivial n-way
 merge. A time-based reorder buffer was considered and rejected: it invents a tuning parameter
 and still needs a late-arrival escape hatch, in exchange for a property downstream recovers
 for free.
+
+**There are THREE paths, not two** — corrected 2026-08-17. `B` records were originally
+written straight to the sink with a raw `now_us()` tick, bypassing `Recorder` and therefore
+bypassing unwrapping: after the first 71.6-minute wrap every barcode's tick was `k·2³²` µs
+adrift of the `E` and `W` ticks it exists to align. Barcodes now go through `Recorder` on
+their own path with their own `_TickUnwrapper`, which is safe at 1 Hz because one second is
+four orders of magnitude below the wrap period. The tick is sampled **before** the frame is
+emitted, since a frame takes 200 ms and `Barcode.start_us` — what every receiving device
+reports — is the lead rising edge.
 
 **Structure.** `Recorder(backend, sink=…)` takes a sink with a `write(record)` method. The
 default remains the in-memory list, so **every existing test is unchanged**; the run loop
