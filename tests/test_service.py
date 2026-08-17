@@ -1,7 +1,7 @@
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import IDLE_MIN_US, decode_edges
 from wl_sync.log import CodeWord, Edge, TICK_WRAP_US
-from wl_sync.service import BarcodeGenerator, Recorder
+from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
 
 BARCODE_PIN = 17
 DATA_BASE = 2
@@ -117,7 +117,50 @@ def test_recorder_ignores_unregistered_pins():
     assert recorder.records() == []
 
 
-def test_camera_trigger_uses_hardware_pwm():
+def test_frame_time_pins_match_the_board():
+    """GPIO26/27 per spec §4. Named, because a bare pin number in a call site is the
+    kind of thing that silently survives a board change."""
+    assert FRAME_TIME_GPIO == {"cam_frame_eye": 26, "cam_frame_beh": 27}
+
+
+def test_frame_times_are_the_falling_edges():
+    """THE point of this function, and a hardware fact rather than a convention:
+    ExposureActive asserts by pulling LOW, and that edge is actively driven by the
+    camera's opto transistor. The RISING edge is RC through the 1k pull-up and varies
+    with cable length, so anything timed off it carries a systematic error. See
+    hardware/breakout/frame-time-inputs.md §6.
+    """
+    records = [
+        Edge(tick_us=1_000, gpio=26, level=0),
+        Edge(tick_us=1_200, gpio=26, level=1),
+        Edge(tick_us=3_000, gpio=26, level=0),
+        Edge(tick_us=3_200, gpio=26, level=1),
+    ]
+    assert frame_times(records, gpio=26) == [1_000, 3_000]
+
+
+def test_frame_times_ignore_other_lines():
+    records = [
+        Edge(tick_us=1_000, gpio=26, level=0),
+        Edge(tick_us=1_100, gpio=27, level=0),
+        Edge(tick_us=1_200, gpio=REWARD_PIN, level=0),
+    ]
+    assert frame_times(records, gpio=27) == [1_100]
+
+
+def test_frame_times_ignore_code_words():
+    records = [
+        CodeWord(tick_us=500, word=7),
+        Edge(tick_us=1_000, gpio=26, level=0),
+    ]
+    assert frame_times(records, gpio=26) == [1_000]
+
+
+def test_recorder_captures_both_frame_time_lines():
     backend = FakeBackend()
-    backend.start_pwm(12, 500.0, 0.5)
-    assert backend.pwm[12] == (500.0, 0.5)
+    recorder = Recorder(backend)
+    recorder.capture_edges(sorted(FRAME_TIME_GPIO.values()))
+    backend.inject_edge(26, 0, 1_000)
+    backend.inject_edge(27, 0, 1_100)
+    assert frame_times(recorder.records(), gpio=26) == [1_000]
+    assert frame_times(recorder.records(), gpio=27) == [1_100]

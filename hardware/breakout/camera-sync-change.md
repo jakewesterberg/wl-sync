@@ -20,7 +20,7 @@ panel holes, no refdes disturbed.
 | GPIO18 → `CAM_TRIG_EYE_RAW` → U15.A3 → `CAM_TRIG_EYE_BUF` → R198 → BNC | `BARCODE_RAW` → U15.A3 → `CAM_SYNC_EYE_BUF` → R198 → BNC |
 | GPIO19 → `CAM_TRIG_BEH_RAW` → U15.A4, U74.A2/A3/A4 → 4× BNC | `BARCODE_RAW` → same four channels → `CAM_SYNC_BEH1..4_BUF` |
 | GPIO18, GPIO19 — hardware PWM, camera triggers | **spare** (no-connect), and PWM-capable |
-| GPIO26, GPIO27 — spare | spare (unchanged) |
+| GPIO26, GPIO27 — spare | spare *at the time of this change*; taken by the frame-time inputs later the same day — see §3 |
 
 Nets renamed `CAM_TRIG_*` → `CAM_SYNC_*`, because the old names would have described a clock
 the lines no longer carry. On this project a name that is right about the model and wrong
@@ -79,7 +79,7 @@ does not know frame times, and there are no triggers to count frames against.
 
 That §11 row is a **reversal of the `wl-preproc` spec**, which had exposure-active returns as
 Pi inputs all along. Since its premise disappeared, the reversal has now been withdrawn
-rather than reworded — see §3 below and `frame-time-inputs.md`.
+rather than reworded — see the end of this section and `frame-time-inputs.md`.
 
 The intended replacement, per the rig design being sketched (FLIR USB cameras with a DIO
 data logger alongside, custom software):
@@ -118,7 +118,7 @@ This does not replace the logger path above; it adds a hardware timestamp alongs
 | Spec **§11** item 1 | *Mis-cited as §12 item 1 in this file until 2026-08-16.* Not merely a justification to restate: it is a **reversal of the `wl-preproc` spec**, and the reversal is now **withdrawn** — exposure-active returns are Pi inputs again | ✅ applied |
 | Spec §6 | Eye channels at "500 Hz — camera frame rate" is now the **camera's** rate, not one this box sets. Consequence tracked as spec §12 open item 10: the ~2 kHz adequate-rate figure holds only while the camera is ≤ ~500 fps | ✅ applied |
 | Task 15 panel drawings | BNC labels: "CAM TRIG" → "CAM SYNC", plus two new frame-time labels | ⏳ **deferred** — Task 15 has not produced panel drawings yet; nothing exists to edit |
-| `wl_sync` | Stop driving hardware PWM on 18/19. `backend.py`'s `start_pwm()` entry point (docstring: *"the camera trigger"*) becomes unused. Add GPIO26/27 frame-time capture — **timestamp the FALLING edge**, see `frame-time-inputs.md` §6 | ⏳ **deferred** — software, not yet done |
+| `wl_sync` | `backend.py`'s `start_pwm()` (docstring: *"the camera trigger"*) **removed** from both the protocol and the fake — the box emits no trigger at all now. `service.py` gains `FRAME_TIME_GPIO` and `frame_times()`, which records the falling-edge rule once instead of at every call site. No new backend capability was needed: `start_edge_capture()` already covered it | ✅ applied |
 
 ## 5. Verification
 

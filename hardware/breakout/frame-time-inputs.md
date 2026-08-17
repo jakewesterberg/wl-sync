@@ -42,9 +42,9 @@ BNC ──[100R]──┬──────────────────�
 ```
 
 - **Connectors:** spare ports **J6B** (`taskpc-digital`) and **J17B** (`pi-interface`), both
-  back face. Both holes are already machined — `panel-elevations.md` counts 34 BNC holes,
-  34 BNC holes and already instructed that every one be machined, including what were then
-  three spare ports. Taking two of those three leaves 33 used and 1 spare (front-face J5B).
+  back face. `panel-elevations.md` counts 34 BNC holes and already instructed that every one
+  be machined, including what were then three spare ports. Taking two of those three leaves
+  33 used and 1 spare (front-face J5B).
   **No new panel holes, no new connector bodies.**
 - **GPIO:** **26** (eye/ohDPI), **27** (behaviour) — the last two non-PWM spares.
 - **Threshold:** 2.50 V, one 10k/10k divider off +5V shared by both channels.
@@ -160,7 +160,7 @@ All applied 2026-08-16 except the last row.
 | Spec §6 + §12 open item 10 | The eye channels' 500 Hz is the **camera's** rate now. §6's ~2 kHz adequate rate was derived from it and holds only while the camera is ≤ ~500 fps — tracked as an open item needing the ohDPI rig's configured frame rate | ✅ |
 | `panel-elevations.md` | Back face gains 2 ports (16 → 18) and loses both its spare ports; total used 31 → 33, spare 3 → 1. **The machining note said to label all three spare holes "spare"** — two of them are now live inputs, so it now carries a per-port label table | ✅ |
 | `camera-sync-change.md` §3 | Its "if frame times are ever wanted in hardware, GPIO26/27 are free" is now taken | ✅ |
-| `wl_sync` | Read GPIO26/27 and **timestamp the FALLING edge** (§6). Retire `backend.py`'s `start_pwm()`, whose docstring still calls it "the camera trigger" | ⏳ not yet done |
+| `wl_sync` | `service.py` gains `FRAME_TIME_GPIO` (26/27, named) and `frame_times()`, which selects **falling edges only** per §6 — both edges are still logged, the function is where the decision lives. `backend.py`'s `start_pwm()` removed from protocol and fake | ✅ |
 
 ## 9. Layout note
 

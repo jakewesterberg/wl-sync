@@ -1,10 +1,18 @@
 """Hardware backend protocol and an in-memory fake.
 
 Deliberately mechanism-neutral: the protocol says *what* the sync box needs, not
-how a particular chip provides it. On Pi 5 the three functions land on three
-different mechanisms — PIO for strobed capture, hardware PWM for camera
-triggers, ordinary GPIO for barcode output — and none of that leaks into the
-service layer or the tests.
+how a particular chip provides it. On Pi 5 these land on different mechanisms —
+PIO for strobed capture, ordinary GPIO for barcode output and for edge capture —
+and none of that leaks into the service layer or the tests.
+
+`start_pwm()` was here until 2026-08-16, described as "the camera trigger". It is
+gone because the thing it drove is gone: the cameras free-run, so this box emits
+no trigger at all. The five camera-facing panel BNCs now carry the barcode — a
+timebase to record rather than a clock to obey — and GPIO18/19 are spare. What
+replaced it is the opposite direction of travel: the cameras' own exposure
+strobes come back IN on GPIO26/27, and `start_edge_capture()` already covers
+that, so no new backend capability was needed. See
+hardware/breakout/camera-sync-change.md and frame-time-inputs.md.
 """
 
 from __future__ import annotations
@@ -16,9 +24,6 @@ from typing import Protocol
 class SyncBackend(Protocol):
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         """Drive pin through (level, duration_us). Timing need not be precise."""
-
-    def start_pwm(self, pin: int, freq_hz: float, duty: float) -> None:
-        """Start a hardware PWM channel — the camera trigger."""
 
     def start_strobed_capture(
         self,
@@ -46,7 +51,6 @@ class FakeBackend:
 
     def __init__(self) -> None:
         self.emitted: list[tuple[int, list[tuple[int, int]]]] = []
-        self.pwm: dict[int, tuple[float, float]] = {}
         self._on_word: Callable[[int, int], None] | None = None
         self._edge_pins: list[int] = []
         self._on_edge: Callable[[int, int, int], None] | None = None
@@ -54,9 +58,6 @@ class FakeBackend:
 
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         self.emitted.append((pin, list(pulses)))
-
-    def start_pwm(self, pin: int, freq_hz: float, duty: float) -> None:
-        self.pwm[pin] = (freq_hz, duty)
 
     def start_strobed_capture(
         self,
