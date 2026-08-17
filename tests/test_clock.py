@@ -116,3 +116,34 @@ def test_reasons_accumulate():
         now, checkpoint=value_from_clock(now) + 500, ntp_synchronized=False
     )
     assert "behind_checkpoint" in trust.reason and "ntp_unsynchronized" in trust.reason
+
+
+def test_value_from_clock_raises_at_32bit_ceiling():
+    """The epoch has an end: around year 2156. A time that far out must raise."""
+    from wl_sync.clock import _MAX_BARCODE
+
+    # Compute a datetime that would produce a value > _MAX_BARCODE
+    seconds_over = _MAX_BARCODE + 1
+    far_future = BARCODE_EPOCH + datetime.timedelta(seconds=seconds_over)
+    with pytest.raises(ValueError, match="32-bit range"):
+        value_from_clock(far_future)
+
+
+def test_read_checkpoint_returns_none_for_out_of_range_value(tmp_path):
+    """An out-of-range checkpoint is corrupt by definition and must degrade."""
+    from wl_sync.clock import _MAX_BARCODE
+
+    path = tmp_path / "checkpoint"
+    path.write_text(f"{_MAX_BARCODE + 1000}\n")
+    assert read_checkpoint(path) is None
+
+
+def test_next_value_raises_when_clamp_exceeds_ceiling():
+    """When the clamp would exceed the ceiling, it must raise rather than propagate the error."""
+    from wl_sync.clock import _MAX_BARCODE
+
+    now = at(2026, 8, 16, 12, 0)
+    # A checkpoint so far in the future that clamping it would exceed the range
+    stale_checkpoint = _MAX_BARCODE - CHECKPOINT_INTERVAL_S
+    with pytest.raises(ValueError, match="32-bit range"):
+        next_value(now, checkpoint=stale_checkpoint)

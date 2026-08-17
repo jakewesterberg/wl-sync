@@ -10,7 +10,8 @@ five hundred seconds apart and silently mis-placed every trial after the boundar
 
 The cost is a dependency on a clock that survives power loss, which is what the CM5 IO
 Board's CR2032 is for. The clamp below is what keeps a broken clock from turning a
-precision problem into a correctness one.
+precision problem into a correctness one. The 32-bit range is absolute: any value that
+cannot fit is treated as corruption and degraded rather than propagated.
 """
 
 from __future__ import annotations
@@ -48,7 +49,10 @@ def next_value(now: datetime.datetime, checkpoint: int | None) -> int:
     from_clock = value_from_clock(now)
     if checkpoint is None:
         return from_clock
-    return max(from_clock, checkpoint + CHECKPOINT_INTERVAL_S + 1)
+    result = max(from_clock, checkpoint + CHECKPOINT_INTERVAL_S + 1)
+    if result > _MAX_BARCODE:
+        raise ValueError(f"barcode value out of 32-bit range: {result}")
+    return result
 
 
 def read_checkpoint(path: Path) -> int | None:
@@ -57,10 +61,13 @@ def read_checkpoint(path: Path) -> int | None:
     Unreadable degrades to None rather than raising: a torn checkpoint must not stop
     the first device of the day from starting. The cost of None is only that the
     clamp cannot bind, and the clock is then the sole source -- which is the normal
-    case anyway.
+    case anyway. An out-of-range value is treated as corrupt and also returns None.
     """
     try:
-        return int(path.read_text().strip())
+        value = int(path.read_text().strip())
+        if value < 0 or value > _MAX_BARCODE:
+            return None
+        return value
     except (OSError, ValueError):
         return None
 
