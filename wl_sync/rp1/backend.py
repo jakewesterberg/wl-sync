@@ -29,7 +29,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from wl_sync.rp1 import program
-from wl_sync.rp1.gpio import SeqnoTracker, edge_tick_us, pulse_deadlines
+from wl_sync.rp1.gpio import EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import pair_fifo
 
 _TICK_HZ = 1_000_000  # the program's idle loop is 2 cycles, clocked at 2 MHz
@@ -204,6 +204,7 @@ class Rp1Backend:
         self._out = None
         self._edge_stop: threading.Event | None = None
         self._edge_thread: threading.Thread | None = None
+        self._pump: EdgePump | None = None
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
         # B ticks must share it or the three paths do not align. Captured as close to
@@ -325,10 +326,11 @@ class Rp1Backend:
             config={tuple(pins): settings},
             consumer="wl-sync",
             # Generous, because the kernel's buffer overflows SILENTLY and the only
-            # witness is the sequence number gap SeqnoTracker raises on.
+            # witness is the sequence-number gap EdgePump records and check_health
+            # reports.
             event_buffer_size=1024,
         )
-        self._on_edge = on_edge
+        self._pump = EdgePump(on_edge, self._origin_ns)
         self._edge_stop = threading.Event()
         self._edge_thread = threading.Thread(
             target=self._pump_edges, name="wl-sync-edges", daemon=True
@@ -336,18 +338,40 @@ class Rp1Backend:
         self._edge_thread.start()
 
     def _pump_edges(self) -> None:
-        tracker = SeqnoTracker()
+        """Drain libgpiod into the pump. Errors are HELD, never raised out of here.
+
+        A background thread that dies on an exception takes the rig's edge signals with
+        it: the segment keeps growing from the other two paths and nothing says that
+        rewards and licks stopped being recorded. `check_health()` is what makes that
+        loud, and the run loop is expected to call it every second.
+        """
         while not self._edge_stop.is_set():
-            if not self._edges.wait_edge_events(timeout=0.2):
-                continue
-            for event in self._edges.read_edge_events():
-                tracker.check(event.global_seqno)
-                level = 1 if event.event_type is event.Type.RISING_EDGE else 0
-                self._on_edge(
-                    event.line_offset,
-                    level,
-                    edge_tick_us(event.timestamp_ns, self._origin_ns),
-                )
+            try:
+                if not self._edges.wait_edge_events(timeout=0.2):
+                    continue
+                if not self._pump.handle(self._edges.read_edge_events()):
+                    return
+            except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+                self._pump.error = error
+                return
+
+    def check_health(self) -> None:
+        """Raise if anything this backend runs in the background has failed.
+
+        THE RUN LOOP MUST CALL THIS, once per iteration. Every capture path here is a
+        thread or a hardware FIFO, and each one's failure mode is to go quiet rather
+        than to complain: a dead pump thread, a kernel buffer that overflowed, a PIO
+        FIFO that dropped words. None of them interrupt the emit loop on their own, so
+        a day can otherwise be recorded with half its signals missing and a clean
+        trailer on the end saying nothing was wrong.
+        """
+        if self._pump is not None and self._pump.error is not None:
+            error = self._pump.error
+            self._pump.error = None  # reported once; do not spam the journal
+            raise RuntimeError(f"edge capture: {error}") from error
+        if self._edge_thread is not None and not self._edge_thread.is_alive():
+            if not self._edge_stop.is_set():
+                raise RuntimeError("the edge capture thread stopped unexpectedly")
 
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         """Drive the barcode frame, software-timed against ABSOLUTE deadlines.
@@ -389,6 +413,7 @@ class Rp1Backend:
         """
         if self._edge_stop is not None:
             self._edge_stop.set()
+        if self._edge_thread is not None:
             self._edge_thread.join(timeout=1.0)
         for request in (self._edges, self._out):
             if request is not None:

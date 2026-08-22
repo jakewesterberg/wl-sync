@@ -247,6 +247,13 @@ class QueuedSink:
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._closed = False
         self._error: BaseException | None = None
+        # Guards the closed-flag check and the enqueue TOGETHER, and nothing else. No
+        # I/O ever happens under it -- it covers a boolean read and a deque append -- so
+        # it does not reintroduce the fsync blocking that ruled a lock out for the sink
+        # itself. Without it a writer can pass the check, enqueue BEHIND a close request
+        # already in the queue, and have its record dropped by a drain thread that has
+        # returned: a write that succeeded and then vanished.
+        self._gate = threading.Lock()
         self._thread = threading.Thread(
             target=self._drain, name="wl-sync-sink", daemon=True
         )
@@ -260,14 +267,16 @@ class QueuedSink:
 
     def write(self, record: Record) -> None:
         """Enqueue. Never waits on the sink, which is the whole point."""
-        self._check()
-        self._queue.put(record)
+        with self._gate:
+            self._check()
+            self._queue.put(record)
 
     def flush(self) -> None:
-        self._check()
-        barrier = _FlushBarrier()
-        self._queue.put(barrier)
-        barrier.done.wait()
+        with self._gate:
+            self._check()
+            barrier = _FlushBarrier()
+            self._queue.put(barrier)
+        self._await(barrier)
         self._check()
 
     def close(self, *args) -> None:
@@ -276,15 +285,29 @@ class QueuedSink:
         A close that dropped the tail would lose the end of every session, which is
         where the day's last trials are.
         """
-        if self._closed:
-            return
-        request = _CloseRequest(args)
-        self._queue.put(request)
-        self._closed = True
-        request.done.wait()
+        with self._gate:
+            if self._closed:
+                return
+            self._closed = True
+            request = _CloseRequest(args)
+            self._queue.put(request)
+        self._await(request)
         self._thread.join()
         if self._error is not None:
             raise RuntimeError("the sink's owner thread died") from self._error
+
+    def _await(self, barrier: _FlushBarrier) -> None:
+        """Wait for the owner thread to reach a barrier -- OR TO HAVE DIED.
+
+        A bare `wait()` deadlocks: a write that raises makes the drain thread return,
+        so nothing is left to set the barrier and the caller waits forever. On the rig
+        that is the daemon hanging at session end with the segment still open and no
+        trailer -- so the day it just finished recording reports as a crash, caused by
+        the very error handling meant to make failure visible.
+        """
+        while not barrier.done.wait(0.05):
+            if not self._thread.is_alive():
+                return
 
     def _drain(self) -> None:
         while True:

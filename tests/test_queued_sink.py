@@ -218,3 +218,92 @@ def test_a_failed_close_surfaces_rather_than_being_swallowed():
     sink.write(Edge(tick_us=1, gpio=20, level=1))
     with pytest.raises(RuntimeError, match="owner thread died"):
         sink.close()
+
+
+def _close_in_a_thread(sink, timeout=3.0):
+    """close() must not be able to hang. Run it where a hang is a failure rather
+    than a stuck test run."""
+    outcome = {}
+
+    def run():
+        try:
+            sink.close()
+            outcome["raised"] = None
+        except BaseException as error:  # noqa: BLE001 - recorded, then asserted on
+            outcome["raised"] = error
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    return worker.is_alive(), outcome
+
+
+def test_close_does_not_hang_when_the_owner_thread_already_died():
+    """The deadlock the error path introduced.
+
+    A write that raises makes the drain thread return, so nothing is left to answer a
+    close request -- and close() waited on a barrier that could never be set. On the
+    rig that is the daemon hanging at session end, holding the segment open with no
+    trailer, so the day it just recorded reports as a crash.
+    """
+
+    class _Breaks(_RacySink):
+        def write(self, record) -> None:
+            raise OSError("no space left on device")
+
+    sink = QueuedSink(_Breaks())
+    sink.write(Edge(tick_us=1, gpio=20, level=1))
+    for _ in range(200):
+        if not sink._thread.is_alive():
+            break
+        time.sleep(0.005)
+
+    hung, outcome = _close_in_a_thread(sink)
+
+    assert not hung, "close() hung after the owner thread died"
+    assert isinstance(outcome["raised"], RuntimeError)
+
+
+def test_close_is_idempotent_and_still_does_not_hang():
+    """systemd sends SIGTERM and the process may also close on its own way out, so a
+    second close must be a no-op rather than a second wait on a stopped thread."""
+    sink = QueuedSink(_RacySink())
+    sink.close()
+    hung, outcome = _close_in_a_thread(sink)
+    assert not hung and outcome["raised"] is None
+
+
+def test_a_write_accepted_before_close_is_never_silently_dropped():
+    """`_closed` was set AFTER the close request was queued, so a writer could pass the
+    check, enqueue behind the close, and have its record discarded by a drain thread
+    that had already returned -- a write that succeeded and vanished.
+
+    Run repeatedly because the window is small; the assertion is the invariant, not the
+    timing: every write that RETURNS must be delivered, and every write that cannot be
+    must raise.
+    """
+    for _ in range(40):
+        inner = _RacySink()
+        sink = QueuedSink(inner)
+        accepted = []
+        start = threading.Event()
+
+        def writer():
+            start.wait()
+            for index in range(50):
+                try:
+                    sink.write(Edge(tick_us=index, gpio=20, level=1))
+                    accepted.append(index)
+                except RuntimeError:
+                    return  # refused, which is the honest outcome
+
+        worker = threading.Thread(target=writer)
+        worker.start()
+        start.set()
+        sink.close()
+        worker.join()
+
+        assert inner.record_count == len(accepted), (
+            f"{len(accepted) - inner.record_count} record(s) were accepted by write() "
+            "and then discarded"
+        )

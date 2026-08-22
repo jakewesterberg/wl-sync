@@ -88,3 +88,51 @@ class SeqnoTracker:
                 f"{seqno}: the kernel's event buffer overflowed"
             )
         self._previous = seqno
+
+
+class EdgePump:
+    """Turns libgpiod edge events into `on_edge` calls, and survives what goes wrong.
+
+    SPLIT OUT SO IT CAN BE TESTED. The thread and the libgpiod request around it are
+    hardware; this is the part that decides what a dropped sequence number means and
+    what happens when the consumer fails, and both of those are decisions that can be
+    wrong quietly.
+
+    A BACKGROUND THREAD THAT DIES ON AN EXCEPTION IS THE FAILURE TO AVOID. Edges would
+    simply stop, the segment would keep being written by the other paths, and nothing
+    would say that half the rig's signals had gone missing. So errors are HELD rather
+    than raised out of the loop, for `check_health()` to surface.
+
+    The two failures are not the same and are not treated the same:
+
+      * A DROPPED EDGE is a data-quality event. The kernel's buffer overflowed and a
+        few edges are gone; everything after them is still good. Stopping would trade a
+        small detectable gap for the rest of the day's edges, so capture CONTINUES.
+      * A FAILING CONSUMER means records are not being kept at all. Continuing would
+        spin, delivering into something that cannot accept, so the pump stops.
+    """
+
+    def __init__(self, on_edge, origin_ns: int) -> None:
+        self._on_edge = on_edge
+        self._origin_ns = origin_ns
+        self._seqnos = SeqnoTracker()
+        self.error: BaseException | None = None
+
+    def handle(self, events) -> bool:
+        """Deliver a batch. Returns False when the pump should stop."""
+        for event in events:
+            try:
+                self._seqnos.check(event.global_seqno)
+            except DroppedEdgeError as dropped:
+                self.error = dropped  # recorded, and we keep going
+            try:
+                rising = event.event_type is event.Type.RISING_EDGE
+                self._on_edge(
+                    event.line_offset,
+                    1 if rising else 0,
+                    edge_tick_us(event.timestamp_ns, self._origin_ns),
+                )
+            except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+                self.error = error
+                return False
+        return True

@@ -79,3 +79,66 @@ def test_the_first_event_sets_the_baseline_whatever_its_number():
     tracker = SeqnoTracker()
     tracker.check(9_000)
     tracker.check(9_001)
+
+
+class _FakeEvent:
+    class Type:
+        RISING_EDGE = "rising"
+        FALLING_EDGE = "falling"
+
+    def __init__(self, seqno, offset, rising, timestamp_ns):
+        self.global_seqno = seqno
+        self.line_offset = offset
+        self.event_type = self.Type.RISING_EDGE if rising else self.Type.FALLING_EDGE
+        self.timestamp_ns = timestamp_ns
+
+
+def test_events_are_delivered_on_the_shared_timebase():
+    from wl_sync.rp1.gpio import EdgePump
+
+    seen = []
+    pump = EdgePump(on_edge=lambda g, l, t: seen.append((g, l, t)), origin_ns=1_000)
+    pump.handle([_FakeEvent(1, 26, True, 1_000 + 5_000_000)])
+    assert seen == [(26, 1, 5_000)]
+
+
+def test_a_dropped_edge_is_recorded_but_capture_CONTINUES():
+    """A kernel buffer overflow is a data-quality event, not a reason to stop.
+
+    Raising out of the pump thread would kill it, so a handful of lost edges would cost
+    the REST OF THE DAY's edges as well -- trading a small, detectable gap for a large,
+    silent one. The drop is held for `check_health()` to surface while the box keeps
+    recording everything after it.
+    """
+    from wl_sync.rp1.gpio import DroppedEdgeError, EdgePump
+
+    seen = []
+    pump = EdgePump(on_edge=lambda g, l, t: seen.append(g), origin_ns=0)
+    pump.handle([_FakeEvent(1, 20, True, 0)])
+    pump.handle([_FakeEvent(9, 21, False, 1_000)])   # seqnos 2..8 lost
+    pump.handle([_FakeEvent(10, 22, True, 2_000)])   # must still arrive
+
+    assert seen == [20, 21, 22], "capture stopped after a drop"
+    assert isinstance(pump.error, DroppedEdgeError)
+
+
+def test_a_failing_consumer_stops_the_pump_and_is_held():
+    """Unlike a drop, a sink that raises means records are NOT being kept. Continuing
+    would spin, delivering into something that cannot accept -- so it stops, and says
+    so, instead of dying quietly and letting the segment simply end."""
+    from wl_sync.rp1.gpio import EdgePump
+
+    def explode(gpio, level, tick):
+        raise OSError("the sink is gone")
+
+    pump = EdgePump(on_edge=explode, origin_ns=0)
+    assert pump.handle([_FakeEvent(1, 20, True, 0)]) is False
+    assert isinstance(pump.error, OSError)
+
+
+def test_a_healthy_pump_reports_no_error():
+    from wl_sync.rp1.gpio import EdgePump
+
+    pump = EdgePump(on_edge=lambda *_: None, origin_ns=0)
+    assert pump.handle([_FakeEvent(1, 20, True, 0)]) is True
+    assert pump.error is None
