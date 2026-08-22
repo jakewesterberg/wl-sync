@@ -61,7 +61,10 @@ class SegmentWriter:
     synchronously so no test can see this, but the RP1 backend will deliver from capture
     threads -- so the constraint is stated here rather than discovered there. The caller
     owns the serialisation: either a single thread drives every `Recorder` path and the
-    emit loop, or the sink is wrapped in a lock before it is handed over.
+    emit loop, or the sink is wrapped in `wl_sync.service.QueuedSink`, which gives it a
+    single owner thread. NOT a lock: `flush()` below fsyncs, so a lock wide enough to be
+    correct is also wide enough to block a capture thread on disk, and a capture thread
+    that stops draining the PIO FIFO drops words.
 
     OPENED WITH "x", NOT "w". This is the only destructive operation in a module whose
     entire purpose is bounding data loss. A human running `wl-sync record` while the

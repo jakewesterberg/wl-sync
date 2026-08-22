@@ -13,6 +13,8 @@ the one non-obvious thing about them: only the FALLING edge is trustworthy.
 
 from __future__ import annotations
 
+import queue
+import threading
 from collections.abc import Iterable, Sequence
 from typing import Protocol
 
@@ -112,11 +114,17 @@ class Recorder:
 
     `sink.write()` MUST BE CALLED FROM ONE THREAD. All three paths plus the emit loop
     call it, and nothing here serialises them. `FakeBackend` dispatches synchronously so
-    no test can see this, but the RP1 backend will deliver from capture threads, where
+    no test can see this, but the RP1 backend delivers from capture threads, where
     concurrent writes interleave partial lines and `SegmentWriter`'s `record_count` and
-    barcode span become unguarded read-modify-writes. The constraint is stated rather
-    than enforced so the backend inherits it as a design decision instead of finding it
-    as a bug; whoever introduces real threads owns adding the lock.
+    barcode span become unguarded read-modify-writes. Measured on 8 threads x 250
+    records: 313 of 2000 increments lost, while every line still reached the file -- so
+    the trailer's count silently disagrees with the records beneath it.
+
+    SATISFY IT BY WRAPPING THE SINK IN `QueuedSink`, not by taking a lock. A lock has to
+    cover `flush()` too, and `SegmentWriter.flush()` fsyncs, so a capture thread would
+    block on disk (measured: 229 ms) and stop draining an 8-deep FIFO fed by
+    `push noblock` -- turning a data race into dropped words. Recorder itself stays a
+    direct call, so the fake path is unchanged.
     """
 
     def __init__(self, backend: SyncBackend, sink: RecordSink | None = None) -> None:
@@ -186,3 +194,123 @@ def frame_times(records: Iterable[Record], gpio: int) -> list[int]:
         and record.gpio == gpio
         and record.level == _FALLING
     ]
+
+
+class _FlushBarrier:
+    """A flush the caller waits on, rather than a marker it drops and forgets.
+
+    spec Sec.4 promises a crash loses at most one second, and the emit loop delivers
+    that by flushing every second. A flush that merely queued would return while
+    records were still above it, quietly turning the promise into "one second plus
+    however far behind the drain thread is". Waiting keeps the bound exact, and costs
+    only the emit loop -- which already blocks on fsync today.
+    """
+
+    __slots__ = ("done", "args")
+
+    def __init__(self, args: tuple = ()) -> None:
+        self.done = threading.Event()
+        self.args = args
+
+
+class _CloseRequest(_FlushBarrier):
+    """Close, after everything already queued has gone down."""
+
+
+class QueuedSink:
+    """Serialises fan-in from several threads onto one owner thread.
+
+    WHY A QUEUE AND NOT A LOCK, which is the obvious answer and the wrong one. The
+    lock would have to cover `flush()` as well as `write()`, since flushing mid-write
+    is the same hazard -- and `SegmentWriter.flush()` calls `os.fsync()`. A capture
+    thread that blocks on disk stops draining the PIO RX FIFO, which is 8 words deep
+    and fed by `push noblock`, so the stall becomes DROPPED WORDS. That fails Task 5b
+    Step 3's "zero dropped words" outright. A lock would trade a data race for data
+    loss, which is the worse of the two.
+
+    Here nothing but the drain thread ever touches the wrapped sink, so the sink needs
+    no lock and stays exactly as simple as it is -- `Recorder` and `SegmentWriter` both
+    document that they must be called from one thread, and this is what makes that
+    true again once the RP1 backend delivers from capture threads.
+
+    ADDITIVE BY DESIGN. `Recorder`'s default path is still a direct call, so
+    `FakeBackend`'s synchronous dispatch is untouched. Only the hardware path wraps.
+
+    A FAILING SINK MUST NOT DIE QUIETLY. If the wrapped sink raises, the drain thread
+    would otherwise exit and every later record would be accepted and discarded, with
+    the segment simply stopping mid-day and nothing saying so. The exception is held
+    and re-raised on the next `write`, `flush` or `close` instead.
+    """
+
+    def __init__(self, sink: RecordSink) -> None:
+        self.sink = sink
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._closed = False
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(
+            target=self._drain, name="wl-sync-sink", daemon=True
+        )
+        self._thread.start()
+
+    def _check(self) -> None:
+        if self._error is not None:
+            raise RuntimeError("the sink's owner thread died") from self._error
+        if self._closed:
+            raise RuntimeError("sink is closed; the owner thread will never take this")
+
+    def write(self, record: Record) -> None:
+        """Enqueue. Never waits on the sink, which is the whole point."""
+        self._check()
+        self._queue.put(record)
+
+    def flush(self) -> None:
+        self._check()
+        barrier = _FlushBarrier()
+        self._queue.put(barrier)
+        barrier.done.wait()
+        self._check()
+
+    def close(self, *args) -> None:
+        """Drain what is queued, close the wrapped sink, and stop the owner thread.
+
+        A close that dropped the tail would lose the end of every session, which is
+        where the day's last trials are.
+        """
+        if self._closed:
+            return
+        request = _CloseRequest(args)
+        self._queue.put(request)
+        self._closed = True
+        request.done.wait()
+        self._thread.join()
+        if self._error is not None:
+            raise RuntimeError("the sink's owner thread died") from self._error
+
+    def _drain(self) -> None:
+        while True:
+            item = self._queue.get()
+            if isinstance(item, _CloseRequest):
+                try:
+                    close = getattr(self.sink, "close", None)
+                    if close is not None:
+                        close(*item.args)
+                except BaseException as error:  # noqa: BLE001 - surfaced on close()
+                    self._error = error
+                finally:
+                    item.done.set()
+                return
+            if isinstance(item, _FlushBarrier):
+                try:
+                    flush = getattr(self.sink, "flush", None)
+                    if flush is not None:
+                        flush()
+                except BaseException as error:  # noqa: BLE001 - surfaced on flush()
+                    self._error = error
+                finally:
+                    item.done.set()
+                continue
+            try:
+                self.sink.write(item)
+            except BaseException as error:  # noqa: BLE001 - surfaced on the next call
+                self._error = error
+                return
