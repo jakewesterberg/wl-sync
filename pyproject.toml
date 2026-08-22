@@ -12,10 +12,12 @@ dependencies = ["pydantic>=2.6"]
 # for. Develop against 3.11, the floor that actually constrains us.
 
 [project.optional-dependencies]
-# Still empty, and that is the finding: piolib is a C library reached by ctypes,
-# so there is no Python package to depend on. The extra stays as the marker for a
-# Pi 5 install; `libpiolib.so` itself comes from the OS, not from pip.
-pi = []
+# piolib is NOT in here: it is a C library reached by ctypes, so `libpiolib.so`
+# comes from the OS rather than from pip. libgpiod is different -- it ships real
+# Python bindings, and v2 is required for the LineSettings/edge_detection API and
+# for `EdgeEvent.global_seqno`, which is the only way a kernel-side edge drop is
+# detectable at all.
+pi = ["gpiod>=2.1"]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

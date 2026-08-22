@@ -24,14 +24,20 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import threading
 import time
 from collections.abc import Callable, Sequence
 
 from wl_sync.rp1 import program
+from wl_sync.rp1.gpio import SeqnoTracker, edge_tick_us, pulse_deadlines
 from wl_sync.rp1.pio_capture import pair_fifo
 
 _TICK_HZ = 1_000_000  # the program's idle loop is 2 cycles, clocked at 2 MHz
 _CYCLES_PER_TICK = 2
+
+# How long before a deadline to stop sleeping and spin. time.sleep overshoots by
+# roughly a millisecond, which is a fifth of a barcode bit slot.
+_SPIN_NS = 2_000_000
 
 
 class PiolibError(RuntimeError):
@@ -183,13 +189,21 @@ def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
 class Rp1Backend:
     """`SyncBackend` on RP1 PIO. One state machine for strobed capture."""
 
-    def __init__(self, pio_index: int = 0) -> None:
+    def __init__(self, pio_index: int = 0, chip_path: str = "/dev/gpiochip0") -> None:
+        # UNVERIFIED: which chardev carries RP1's bank. gpiochip0 on current Pi 5
+        # firmware, gpiochip4 on Pi 4, and it has moved between releases -- so it is
+        # a parameter, and bench day confirms it by label rather than by hope.
         self._lib = _load_piolib()
         if self._lib.pio_init() < 0:
             raise PiolibError("pio_init failed")
         _assert_encoders_agree(self._lib)
         self._pio = _check_pio(self._lib.pio_open(pio_index))
         self._sm: int | None = None
+        self._chip_path = chip_path
+        self._edges = None
+        self._out = None
+        self._edge_stop: threading.Event | None = None
+        self._edge_thread: threading.Thread | None = None
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
         # B ticks must share it or the three paths do not align. Captured as close to
@@ -285,24 +299,100 @@ class Rp1Backend:
     def start_edge_capture(
         self, pins: Sequence[int], on_edge: Callable[[int, int, int], None]
     ) -> None:
-        raise NotImplementedError(
-            "Edge capture is not a PIO facility and piolib's gpio_* calls configure "
-            "pins rather than deliver transitions. On Pi 5 this is libgpiod line "
-            "events -- a separate dependency with its own threading model, and "
-            "Recorder's sink is explicitly single-threaded. Left unwritten rather "
-            "than guessed."
+        """Capture individual-pin transitions via libgpiod line events.
+
+        NOT PIO. Edge capture is not a PIO facility -- piolib's `gpio_*` calls
+        configure pins rather than deliver transitions -- and it does not need to be:
+        the kernel stamps each event from CLOCK_MONOTONIC AT INTERRUPT TIME, which is
+        better than anything this process could do for itself. `now_us()` counts from
+        the same clock, so the edges land on the shared timebase with no correction
+        for thread wake-up latency.
+
+        `on_edge` is called from this thread, so the sink behind it must be a
+        `QueuedSink` -- see wl_sync.service. That is what makes a capture thread's
+        write independent of how slow the disk is.
+        """
+        import gpiod
+        from gpiod.line import Clock, Direction, Edge
+
+        settings = gpiod.LineSettings(
+            direction=Direction.INPUT,
+            edge_detection=Edge.BOTH,
+            event_clock=Clock.MONOTONIC,
         )
+        self._edges = gpiod.request_lines(
+            self._chip_path,
+            config={tuple(pins): settings},
+            consumer="wl-sync",
+            # Generous, because the kernel's buffer overflows SILENTLY and the only
+            # witness is the sequence number gap SeqnoTracker raises on.
+            event_buffer_size=1024,
+        )
+        self._on_edge = on_edge
+        self._edge_stop = threading.Event()
+        self._edge_thread = threading.Thread(
+            target=self._pump_edges, name="wl-sync-edges", daemon=True
+        )
+        self._edge_thread.start()
+
+    def _pump_edges(self) -> None:
+        tracker = SeqnoTracker()
+        while not self._edge_stop.is_set():
+            if not self._edges.wait_edge_events(timeout=0.2):
+                continue
+            for event in self._edges.read_edge_events():
+                tracker.check(event.global_seqno)
+                level = 1 if event.event_type is event.Type.RISING_EDGE else 0
+                self._on_edge(
+                    event.line_offset,
+                    level,
+                    edge_tick_us(event.timestamp_ns, self._origin_ns),
+                )
 
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
-        raise NotImplementedError(
-            "Barcode output is ordinary software-timed GPIO, not PIO. Deliberately "
-            "left until the bench: the codec tolerates hundreds of microseconds of "
-            "jitter (5 ms bit slots, receivers time their own edges), so the question "
-            "is which GPIO interface the vendor kernel actually exposes, which is a "
-            "fact to measure rather than to assume."
-        )
+        """Drive the barcode frame, software-timed against ABSOLUTE deadlines.
+
+        Software timing is fine here and precision is deliberately spent elsewhere: 5 ms
+        slots sampled at 30 kHz give 150 samples per bit, and every receiver times its
+        own edges. What is NOT fine is letting error accumulate. The decoder samples
+        each bit at its slot centre measured from the lead edge, so it assumes uniform
+        slots; sleeping for each duration in turn makes every overshoot permanent and
+        the tail of a 36-pulse frame walks out of its slots. Deadlines are computed once
+        from a single start, so a late pulse is corrected by the next.
+
+        Sleeps to just short of each deadline and spins the remainder: `time.sleep`
+        alone overshoots by around a millisecond, which is a fifth of a bit slot.
+        """
+        import gpiod
+        from gpiod.line import Direction, Value
+
+        if self._out is None:
+            self._out = gpiod.request_lines(
+                self._chip_path,
+                config={pin: gpiod.LineSettings(direction=Direction.OUTPUT)},
+                consumer="wl-sync",
+            )
+        start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        for level, deadline_ns in pulse_deadlines(pulses, start):
+            remaining = deadline_ns - time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+            if remaining > _SPIN_NS:
+                time.sleep((remaining - _SPIN_NS) / 1e9)
+            while time.clock_gettime_ns(time.CLOCK_MONOTONIC) < deadline_ns:
+                pass
+            self._out.set_value(pin, Value.ACTIVE if level else Value.INACTIVE)
 
     def close(self) -> None:
+        """Stop everything this backend started, in the order that loses least.
+
+        The edge thread first, because it calls into the sink and the sink is about to
+        be closed by the caller; then the state machine; then the descriptors.
+        """
+        if self._edge_stop is not None:
+            self._edge_stop.set()
+            self._edge_thread.join(timeout=1.0)
+        for request in (self._edges, self._out):
+            if request is not None:
+                request.release()
         if self._sm is not None:
             self._lib.pio_sm_set_enabled(self._pio, self._sm, False)
         self._lib.pio_close(self._pio)
