@@ -1,0 +1,117 @@
+;
+; strobe_capture — one state machine: timestamp and latch the 16-line event code.
+;
+; REFERENCE LISTING ONLY — NOT ASSEMBLED, AND NOTHING READS THIS FILE.
+; piolib exposes pio_encode_*, so the program is built as instruction words in
+; wl_sync/rp1/program.py and handed over as a plain uint16_t*. No pioasm, no build
+; step. This file is the annotated source form of what that module encodes; keep
+; the two in step by eye, and trust program.py, which has tests.
+;
+; DRAFTED 2026-08-22 WITHOUT HARDWARE. Task 5b's bench acceptance (±100 µs over a
+; 10-minute run, zero dropped words) has not been run. Every cycle count below is
+; reasoned from the RP2040 PIO instruction set, which RP1's PIO is documented as
+; being compatible with, and NONE of it has been assembled or executed. The
+; "Unverified" list at the bottom is what to check first on bench day.
+;
+; ---------------------------------------------------------------------------
+; WHAT IT PUSHES: two words per event, not one.
+;
+;   word 1   the 16 captured data lines, upper 16 bits zero
+;   word 2   the raw down-counter; the host inverts it (wl_sync.rp1.pio_capture)
+;
+; One word carrying data plus a tick DELTA was the earlier design and could not
+; work: 16 data lines leave 16 delta bits = 65.535 ms, while trials are ~3 s, so
+; ordinary inter-trial gaps overflowed the field silently. Covering 3 s in 16 bits
+; needs ≥45.8 µs per tick, which spends half the ±100 µs budget on quantisation
+; before anything else goes wrong. A full 32-bit tick wraps at 71.6 minutes —
+; the same period as now_us(), so the host already knows how to unwrap it.
+;
+; The upper 16 bits of word 1 being zero is what makes a dropped word DETECTABLE
+; rather than a permanent silent swap of data and time. See pair_fifo.
+;
+; ---------------------------------------------------------------------------
+; WHY THE COUNTER RUNS DOWN: `jmp x--` is PIO's only decrement. There is no add
+; and no subtract, so a free-running counter counts down from 0xFFFFFFFF and the
+; host inverts. Inverting costs one host instruction and zero PIO instructions,
+; and PIO instructions are the scarce resource.
+;
+; WHY EVERY PATH COSTS TWO CYCLES PER DECREMENT — this is the whole design.
+; A naive version counts only in the idle loop, so every capture and every
+; strobe-high period is time the counter never saw. That loss is per-event and
+; cumulative: at ~600 events in a 10-minute run even a 2 µs slip per event is
+; 1.2 ms, which fails the ±100 µs gate on its own. So the capture path pads with
+; `jmp x--` so that it too advances the counter once per two cycles, and the
+; strobe-high wait is a counting loop rather than a `wait` instruction.
+;
+; `wait 0 pin` is deliberately NOT used anywhere: it stalls the state machine,
+; and a stalled state machine is a stopped clock.
+;
+; ---------------------------------------------------------------------------
+; CONFIGURATION REQUIRED OF THE HOST
+;   in_base      = CODE_DATA_BASE (GPIO0), 16 contiguous lines — wl_sync.pins
+;   jmp_pin      = CODE_STROBE_PIN (GPIO16)
+;   in_shiftdir  = LEFT, so `in pins, 16` lands the lines in ISR bits 0..15 and
+;                  leaves the upper half clear. Shifting right would put them at
+;                  the top and destroy the pairing check.
+;   autopush     = OFF; both pushes are explicit
+;   clock        = 2 MHz, i.e. clkdiv = f_sys / 2e6, so the two-cycle loop
+;                  advances the counter once per microsecond
+;   X            = 0xFFFFFFFF at start
+;
+
+.program strobe_capture
+
+.wrap_target
+idle:
+    jmp pin, capture            ; [1] strobe high → event
+    jmp x--, idle               ; [1] tick, and keep waiting     = 2 cycles / tick
+.wrap
+
+capture:
+    in pins, 16                 ; [1] latch the code word
+    jmp x--, c_push_data        ; [1]                            = 2 cycles / tick
+c_push_data:
+    push noblock                ; [1] word 1: data
+    jmp x--, c_load_counter     ; [1]                            = 2 cycles / tick
+c_load_counter:
+    mov isr, x                  ; [1] snapshot the counter
+    jmp x--, c_push_counter     ; [1]                            = 2 cycles / tick
+c_push_counter:
+    push noblock                ; [1] word 2: raw counter
+    jmp x--, held               ; [1]                            = 2 cycles / tick
+
+; The strobe is still high. Count through it rather than waiting on it, so a wide
+; strobe costs precision nothing. Re-arming only once it falls is what makes one
+; strobe produce one capture.
+held:
+    jmp pin, held_tick          ; [1] still high?
+    jmp idle                    ; [1] fallen → re-arm
+held_tick:
+    jmp x--, held               ; [1] tick while it stays high   = 2 cycles / tick
+
+; 11 instructions of the 32-instruction memory, leaving 21 for edge capture.
+;
+; ---------------------------------------------------------------------------
+; KNOWN, CONSTANT BIAS: `mov isr, x` runs 5 cycles after the strobe was observed,
+; so every timestamp is ~2.5 µs late by a FIXED amount. Constant is the important
+; word — it is identical for every event, so it is a host-side subtraction, not a
+; jitter term. It must be measured on the bench rather than trusted from this
+; comment, because it depends on the assembler's final instruction placement.
+;
+; UNVERIFIED — check these first on bench day, in this order:
+;   1. `jmp x--` semantics at X = 0: this assumes it decrements to 0xFFFFFFFF and
+;      falls through, and that `.wrap` then returns to `idle` with no lost cycle.
+;      If it costs a cycle, the counter gains 0.5 µs once per 71.6 min — harmless,
+;      but confirm rather than assume.
+;   2. That `jmp x--, <next instruction>` is a legal way to spend a decrement, and
+;      that it is one cycle. The entire ±100 µs argument rests on it.
+;   3. `mov isr, x` ignoring in_shiftdir and copying all 32 bits straight.
+;   4. RESOLVED 2026-08-22 against piolib's published header: there is no assembler
+;      in the path at all, and Rp1Backend._assert_encoders_agree now checks every
+;      instruction here against piolib's own pio_encode_* at startup, so an RP1/RP2040
+;      divergence stops the box rather than corrupting timestamps. Items 1-3 remain
+;      open because they are about SEMANTICS at runtime, which no encoder check sees.
+;   5. `push noblock` DROPS on a full FIFO. With events seconds apart and an 8-deep
+;      FIFO this should never fire, and pair_fifo will raise DesyncError if a single
+;      word is lost — but a whole pair lost is invisible, so the bench run must
+;      check the FIFO overflow flag directly to satisfy "zero dropped words".
