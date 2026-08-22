@@ -21,6 +21,11 @@ GPIO_MAP: dict[str, int] = {
     **{f"evt_d{i}": CODE_DATA_BASE + i for i in range(CODE_DATA_COUNT)},
     "evt_strobe": CODE_STROBE_PIN,
     "barcode_out": BARCODE_PIN,
+    # Spec Sec.4's table, rows 20-25. The netlist-checked primary source is
+    # hardware/gen/gen_breakout_pi_interface.py's GPIO_PIN_SPEC, which carries these in
+    # this order; the transposition risk here is silent (swapping pd1/pd2, rwd_cmd/
+    # rwd_dlvr or stim_trig/acc_trig changes no pin COUNT and no test that checks
+    # membership), so tests/test_pins.py asserts the whole dict rather than the keys.
     "pd1_comp": 20,
     "pd2_comp": 21,
     "rwd_cmd": 22,

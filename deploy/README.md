@@ -23,6 +23,12 @@ The manifest is the thing to read. `gaps` lists spans where this box was **not
 watching** — trials in those spans really happened and were recorded by the other
 devices, but carry no sync-box coverage.
 
+`overlaps` should be **empty**, and anything in it is an alarm rather than a note.
+It means the barcode counter went backwards or repeated, so one barcode value names
+two different moments and a trial can be attributed to the wrong one. Ordinary
+outages, restarts and bad clocks all show up in `gaps` or `clock_trusted`, never
+here. If it is ever non-empty, say so before the day's data is aligned.
+
 `clock_trusted: false` on a segment means gap arithmetic across that boundary is
 unreliable. The manifest carries `clock_reason` next to it, which says which:
 
@@ -34,9 +40,11 @@ unreliable. The manifest carries `clock_reason` next to it, which says which:
 | `ntp_unsynchronized` | `timedatectl` reports NTP has never synced |
 | `unreadable_header` / `unreadable_segment` | the segment itself could not be read — media or permissions, not the clock. `closed: "unreadable"` marks the same thing |
 
-An ordinary crash and restart does **not** set this flag: the trust test carries a
-whole checkpoint interval of tolerance precisely so that a crashing process does
-not send anyone to check a battery.
+An ordinary crash and restart does **not** set this flag: the trust test carries 60 s
+of tolerance precisely so that a crashing process does not send anyone to check a
+battery. (That tolerance used to be described as "a whole checkpoint interval". There
+is no checkpoint interval any more — the checkpoint is written every second — and the
+60 s now covers only ordinary NTP corrections.)
 
 `boot_id` in the header distinguishes "the process restarted" from "the machine
 rebooted" — under `Restart=always` those look identical from a timestamp, and

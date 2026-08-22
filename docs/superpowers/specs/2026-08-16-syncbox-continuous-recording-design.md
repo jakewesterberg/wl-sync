@@ -105,11 +105,22 @@ that a dying process had to manage to update.
      "clock_trusted": true, "clock_reason": "", "closed": "crash"},
     {"file": "seg-001.log", "barcode_first": 4700, "barcode_last": 9000,
      "clock_trusted": false, "clock_reason": "ntp_unsynchronized", "closed": "clean"}],
-  "gaps": [ {"after": 4200, "before": 4700, "seconds": 500} ] }
+  "gaps": [ {"after": 4200, "before": 4700, "seconds": 500} ],
+  "overlaps": [] }
 ```
 
 `gaps` answers requirement §1.2 directly: trials landing between barcodes 4200 and 4700 are
 **real but unwitnessed**.
+
+`overlaps` answers the **opposite** condition, and is separate from `gaps` because it is not a
+duration on a timeline. A gap is a positive difference between one segment's last barcode and
+the next segment's first: the box was down while the other devices kept running. A difference
+of **zero or less** means values were **re-issued** — one identity naming two moments, so a
+trial can be attributed to the wrong one. Added 2026-08-22: the gap test was `seconds > 1`, so
+both zero and negative differences failed it and vanished, and a day carrying a re-issue looked
+*cleaner* than a day with an ordinary restart. `overlaps` is a new key rather than a changed
+one, so consumers already reading `gaps` are unaffected; it is normally `[]`, and anything in
+it is a correctness alarm rather than a precision note.
 
 `clock_reason` sits beside `clock_trusted` here as well as in the segment header, because §7
 requires the machine-readable reason in **both** and this file is what an operator opens
@@ -151,18 +162,22 @@ persistent state this design keeps. This guarantees the counter is unique and in
 **however broken the clock is**. When the clock is healthy `value_from_clock` always dominates
 and the clamp never binds.
 
-**The checkpoint is the exact last-emitted value, rewritten every second** — settled
-2026-08-17, after two attempts at a staleness margin both failed on the real binary. The run
-loop writes `value` immediately after emitting it, at the same 1 Hz cadence the segment
-`fsync` already runs at. The clean close writes the same thing. There is no margin, no
-interval, and no high-water mark anywhere.
+**The checkpoint is the exact value, rewritten every second, and written BEFORE the frame is
+emitted** — the value settled 2026-08-17 after two attempts at a staleness margin both failed
+on the real binary; the ordering settled 2026-08-22 after the third failure, below. The run
+loop chooses `value`, marks it spent, and only then puts it on the wire, at the same 1 Hz
+cadence the segment `fsync` already runs at. The clean close writes the same thing. There is no
+margin, no interval, and no high-water mark anywhere.
 
 *Why it is written this way rather than periodically.* The property that matters — the
 checkpoint is never behind the last value emitted — stops being an **argument** and becomes an
-**identity**: `checkpoint == last emitted`, true by construction, independent of how long a
-loop iteration takes or where a crash lands. `write_checkpoint` is atomic (temp file plus
-rename), and at ~30 bytes/s the cost is ~2.6 MB/day on the NVMe §4.1 chose explicitly. A crash
-loses at most one second of staleness, the same bound the segment already accepts.
+**identity**: `checkpoint == last emitted` everywhere outside the sub-millisecond window
+between the mark and the frame, and `checkpoint == last emitted + 1` inside it, independent of
+how long a loop iteration takes or where a crash lands. `write_checkpoint` is atomic (temp file
+plus rename) **and durable** (`fsync` on the file, then on its directory — the second is what
+makes the rename itself survive power loss). At ~30 bytes/s the cost is ~2.6 MB/day on the NVMe
+§4.1 chose explicitly, plus one `fsync` per second alongside the segment's own. A crash loses
+at most one second of staleness, the same bound the segment already accepts.
 
 *The two failed attempts, recorded because they failed the same way.* **A margin the restart
 cannot verify becomes a ratchet under `Restart=always`.**
@@ -183,6 +198,38 @@ Both destroy the same premise — that a barcode *is* seconds since 2020 — and
 invisible to probes that closed cleanly, because only a genuine crash leaves the margin
 behind. Storing the exact value removes the margin rather than relocating it, and **no ratchet
 is possible without one**.
+
+*The third failure, and why the order is what it is.* Storing the exact value fixed the
+ratchet but left the mark on the **wrong side of the emission**. The loop emitted the frame and
+then checkpointed it, on the reasoning that "recorded but not marked" was the dangerous
+ordering. That reasoning weighed the wrong pair. A crash between the frame reaching the pin and
+the checkpoint recording it left a value **on the wire that nothing knew was spent**, and a
+restart on a stalled clock resumed at `checkpoint + 1` and issued it again — two moments under
+one identity, the single failure §4 says the value must never have.
+
+The orders are not symmetric, and the asymmetry is the whole argument:
+
+| Crash lands | Consequence | Is it true? |
+|---|---|---|
+| After the frame, before the mark | The same value is emitted **twice** | **No.** One identity, two moments. |
+| After the mark, before the frame | One value is **skipped** | **Yes.** A barcode value *is* seconds since 2020, so a skipped value reads as the one-second outage that genuinely occurred. |
+
+Marking first is therefore correct, and it costs one burned value per crash restart. That is a
+burn, like the two rejected designs — so the question is not *whether* it burns but at what
+**rate**. The high-water design burned a whole 60 s interval per restart *regardless of
+cadence*, which is why it ran away even at the shipped `RestartSec=1`. This burns **one value
+per restart** against a clock that advances one per second, so any cadence of a second or
+slower self-corrects instead of compounding. Measured at the shipped cadence: 25 crash restarts
+leave the counter **1 s behind** the wall clock, with no spurious warnings. Faster than one
+restart per second it does creep, one value at a time; `deploy/wl-sync.service` pins
+`RestartSec=1`, and the failure is **rate-bounded rather than unbounded**, which is the
+difference from the design that was rejected.
+
+*A consequence worth stating.* Because the mark is what makes a value unusable, **uniqueness no
+longer depends on the emitter at all.** The barcode generator chooses nothing and clamps
+nothing — it emits exactly the value it is handed. A clamp downstream of the mark would emit
+something other than what was marked, which is this same defect one line further down. The
+whole guarantee lives at the single point where the value is chosen.
 
 *What this costs, and what it buys.* The earlier design claimed an **over-states, never
 under-states** property, carried by the margin: a crash could leave the resumed counter up to

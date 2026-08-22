@@ -14,6 +14,7 @@ the one non-obvious thing about them: only the FALLING edge is trustworthy.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import Protocol
 
 from wl_sync.backend import SyncBackend
 from wl_sync.barcode import encode
@@ -23,29 +24,39 @@ from wl_sync.pins import FRAME_TIME_GPIO
 _FALLING = 0
 
 
-class BarcodeGenerator:
-    """Emits one barcode frame per call.
+class RecordSink(Protocol):
+    """What `Recorder` needs of a destination: somewhere to put one record.
 
-    `value_source` is called for each frame and returns the value to emit -- normally
-    the wall clock, since a barcode value IS seconds since 2020 (see wl_sync.clock).
-    The result is clamped to strictly exceed the previous one, so monotonicity holds at
-    the point of emission whatever the source does. A repeated barcode would be two
-    different moments carrying one identity, which is the one thing it must never be.
+    Named so the `sink` parameter can say what it accepts. `SegmentWriter.write` and
+    `_MemorySink.write` both satisfy it without inheriting from it, which is the point --
+    the streaming sink lives in another module and should not have to import this one.
     """
 
-    def __init__(self, backend: SyncBackend, pin: int, value_source) -> None:
+    def write(self, record: Record) -> None: ...
+
+
+class BarcodeGenerator:
+    """Emits one barcode frame per call, for the value it is handed.
+
+    IT CHOOSES NOTHING, and that is the point. Until 2026-08-22 it took a
+    `value_source` and clamped the result to strictly exceed the previous one, which
+    made it a second decision point sitting DOWNSTREAM of the checkpoint. The caller
+    now marks a value as spent before handing it here (wl_sync.cli.run), so a clamp at
+    this end would emit something other than what was marked -- putting the checkpoint
+    back out of step with the wire, which is the defect that ordering exists to close,
+    reappearing one line further down.
+
+    A repeated barcode is two different moments carrying one identity, the one thing it
+    must never be. That guarantee now lives entirely where the value is CHOSEN; see
+    wl_sync.cli._ValueSource.
+    """
+
+    def __init__(self, backend: SyncBackend, pin: int) -> None:
         self._backend = backend
         self._pin = pin
-        self._value_source = value_source
-        self._last: int | None = None
 
-    def emit_frame(self) -> int:
-        value = self._value_source()
-        if self._last is not None and value <= self._last:
-            value = self._last + 1
+    def emit_frame(self, value: int) -> None:
         self._backend.emit_pulses(self._pin, encode(value))
-        self._last = value
-        return value
 
 
 class _TickUnwrapper:
@@ -108,10 +119,13 @@ class Recorder:
     as a bug; whoever introduces real threads owns adding the lock.
     """
 
-    def __init__(self, backend: SyncBackend, sink=None) -> None:
+    def __init__(self, backend: SyncBackend, sink: RecordSink | None = None) -> None:
         self._backend = backend
+        # One ternary, not two on the same condition: the pair could be edited apart,
+        # and `_memory` set with `_sink` pointing elsewhere is a Recorder that silently
+        # records into a sink `records()` will never return.
         self._memory = _MemorySink() if sink is None else None
-        self._sink = self._memory if sink is None else sink
+        self._sink = sink if self._memory is None else self._memory
         self._unwrap_words = _TickUnwrapper()
         self._unwrap_edges = _TickUnwrapper()
         self._unwrap_barcodes = _TickUnwrapper()

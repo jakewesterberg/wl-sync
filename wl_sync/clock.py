@@ -17,6 +17,7 @@ cannot fit is treated as corruption and degraded rather than propagated.
 from __future__ import annotations
 
 import datetime
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -99,11 +100,34 @@ def read_checkpoint(path: Path) -> int | None:
 
 
 def write_checkpoint(path: Path, value: int) -> None:
-    """Write atomically, so a crash mid-write cannot leave a truncated number that
-    happens to parse as a much smaller one."""
+    """Write atomically AND durably.
+
+    Atomic -- temp file plus rename -- so a crash mid-write cannot leave a truncated
+    number that happens to parse as a much smaller one. That covers a process crash,
+    where the page cache survives and the rename is already visible to the next reader.
+
+    Durable -- two fsyncs -- so it also covers POWER LOSS, where it does not. Without
+    them the bytes and the rename can both still be in the page cache when the rail
+    drops, and the box returns to a stale checkpoint; on a dead RTC the clamp is then
+    the only thing choosing values, so everything after the stale mark is re-issued.
+    THE SECOND FSYNC IS THE DIRECTORY, and it is not optional: making the file's
+    contents durable says nothing about whether the rename that gave the file its name
+    reached the disk.
+
+    The cost is one more fsync per second alongside the segment's own, which spec
+    Sec.4.1 already sized the NVMe for.
+    """
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(f"{value}\n")
+    with open(temporary, "w") as handle:
+        handle.write(f"{value}\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     temporary.replace(path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 @dataclass(frozen=True, slots=True)

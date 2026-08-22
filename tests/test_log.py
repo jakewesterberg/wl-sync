@@ -3,6 +3,7 @@ import datetime
 import pytest
 from pydantic import ValidationError
 
+from wl_sync.clock import MAX_BARCODE
 from wl_sync.log import (
     TICK_WRAP_US,
     BarcodeEmitted,
@@ -191,3 +192,72 @@ def test_every_non_default_header_field_round_trips(tmp_path):
     read_back, _ = read_log(path)
     assert read_back == header
     assert (read_back.segment_index, read_back.ordering) == (7, "global")
+
+
+def test_header_rejects_a_negative_segment_index():
+    """`segment_index` orders the day for wl-preproc, so a negative one is not a
+    smaller number -- it is a file that sorts before everything and claims to be the
+    day's first. Nothing downstream re-derives it, so nothing downstream can catch it."""
+    with pytest.raises(ValidationError):
+        SyncBoxLogHeader.model_validate(
+            {**HEADER.model_dump(mode="json"), "segment_index": -1}
+        )
+
+
+def test_header_rejects_an_ordering_it_does_not_define():
+    """`ordering` is the field that tells a reader HOW to read the rest of the file:
+    `per-path` means the records need a k-way merge, `global` means they are already
+    sorted. No code in this package reads it -- wl-preproc does -- so a typo here is
+    invisible on this side of the boundary and changes how the day is reconstructed on
+    the other. A closed set is the only place that can be caught."""
+    with pytest.raises(ValidationError):
+        SyncBoxLogHeader.model_validate(
+            {**HEADER.model_dump(mode="json"), "ordering": "per_path"}
+        )
+
+
+def test_all_three_record_types_round_trip_interleaved(tmp_path):
+    """B alongside BOTH other types, which no existing round-trip covered.
+
+    `test_round_trip_mixed_records` predates barcodes and carries only E and W;
+    `test_barcode_records_round_trip` carries B and E. Nothing exercised all three
+    together, which is the shape a real segment actually has -- and the reader
+    dispatches on the type tag, so a B line landing between a W and an E is exactly
+    where a mis-ordered branch would show.
+    """
+    records = [
+        BarcodeEmitted(tick_us=1_000, value=209_034_000),
+        CodeWord(tick_us=1_200, word=0x8001),
+        Edge(tick_us=1_500, gpio=26, level=0),
+        CodeWord(tick_us=2_000, word=0x0001),
+        BarcodeEmitted(tick_us=1_001_000, value=209_034_001),
+        Edge(tick_us=1_001_500, gpio=27, level=1),
+    ]
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, records)
+
+    _, read_back = read_log(path)
+
+    assert read_back == records
+
+
+def test_a_barcode_at_the_32_bit_ceiling_round_trips(tmp_path):
+    """The largest encodable value, which is where a reader that narrowed the type
+    would fail and nowhere else.
+
+    Untested until now at either end. The value is unremarkable to Python -- ints are
+    unbounded -- but it is the boundary `barcode.encode` enforces and the one a corrupt
+    checkpoint lands on, so a log carrying it must survive the round trip rather than
+    being the second failure in that story.
+    """
+    records = [
+        BarcodeEmitted(tick_us=0, value=0),
+        BarcodeEmitted(tick_us=1_000_000, value=MAX_BARCODE),
+    ]
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, records)
+
+    _, read_back = read_log(path)
+
+    assert read_back == records
+    assert read_back[1].value == (1 << 32) - 1

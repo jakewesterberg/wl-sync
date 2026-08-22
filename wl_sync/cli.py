@@ -9,6 +9,7 @@ new one. systemd's Restart=always is what makes the stitching automatic.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import logging
 import signal
@@ -137,6 +138,33 @@ def _resume(
     return first_value, ClockTrust(False, ",".join(reasons)), day_date
 
 
+@contextlib.contextmanager
+def _handling(handler, *signums):
+    """Install `handler` for the duration of the block, then put back what was there.
+
+    RESTORED ON THE WAY OUT, because `run()` is a library call and `main()` is the entry
+    point -- these handlers belong to the call, not to the process. Left installed, the
+    caller's own shutdown handling stays replaced by a flag object that does nothing but
+    swallow the signal, so a later call into this library leaves a process that cannot
+    be stopped by the handler its owner installed. Nothing in this package noticed,
+    because `main()` is the only caller today and wants exactly these handlers.
+
+    Only signals successfully replaced are recorded, so off the main thread -- under a
+    test runner, say -- this installs nothing and restores nothing.
+    """
+    replaced = {}
+    for received in signums:
+        try:
+            replaced[received] = signal.signal(received, handler)
+        except ValueError:
+            pass  # not the main thread
+    try:
+        yield
+    finally:
+        for received, previous in replaced.items():
+            signal.signal(received, previous)
+
+
 def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
     """Record until `duration_s` elapses or a termination signal arrives.
 
@@ -192,83 +220,102 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
     )
 
     values = _ValueSource(now_fn, first_value)
-    generator = BarcodeGenerator(backend, BARCODE_PIN, values)
+    generator = BarcodeGenerator(backend, BARCODE_PIN)
 
     stopping = _StopFlag()
-    for received in (signal.SIGINT, signal.SIGTERM):
-        try:
-            signal.signal(received, stopping)
-        except ValueError:
-            pass  # not the main thread, e.g. under a test runner
+    with _handling(stopping, signal.SIGINT, signal.SIGTERM):
+        elapsed = 0.0
+        while not stopping.set and (duration_s is None or elapsed < duration_s):
+            value = values()
 
-    elapsed = 0.0
-    while not stopping.set and (duration_s is None or elapsed < duration_s):
-        # Sampled BEFORE emitting: a frame takes 200 ms (barcode.FRAME_US) and the
-        # record means the LEAD rising edge, which is what every receiving device
-        # reports. Recorded through the Recorder rather than straight to the writer so
-        # the tick is unwrapped on its own path -- a raw counter would diverge from the
-        # E and W ticks it exists to align by 2^32 us at every 71.6-minute wrap.
-        tick = backend.now_us()
-        value = generator.emit_frame()
+            # THE EXACT VALUE, EVERY SECOND. No high-water mark, no interval: "the
+            # checkpoint is never behind the last value emitted" stops being an argument
+            # about the loop's period and becomes `checkpoint == last emitted`, true by
+            # construction. Two earlier designs carried a margin instead and both ratcheted
+            # -- most recently a startup high-water write that a crash loop compounded, 25
+            # restarts over 75 s leaving the counter 1449 s ahead of a perfectly healthy
+            # clock. A margin the restart cannot verify is a ratchet; the fix is to have no
+            # margin, not a better one. write_checkpoint is atomic and fsynced, and at
+            # ~30 bytes/s this is ~2.6 MB/day on the NVMe spec Sec.4.1 chose explicitly.
+            #
+            # MARKED BEFORE IT REACHES THE WIRE, which is a reversal: until 2026-08-22 the
+            # frame was emitted first, on the reasoning that "recorded but not marked" was
+            # the dangerous ordering. That reasoning weighed the wrong pair. A crash between
+            # emit_frame() and this line left a value on the wire that no checkpoint knew
+            # was spent, and a restart on a stalled clock re-issued it -- two moments under
+            # one identity, the one failure the value must never have.
+            #
+            # The reverse failure is a value marked and never emitted, which skips it. That
+            # is not a lie: a barcode value IS seconds since 2020, so a skipped value reads
+            # as the one-second outage that genuinely occurred. One ordering is
+            # self-describing, the other is false; that asymmetry is the whole argument.
+            write_checkpoint(checkpoint_path, value)
 
-        # THE EXACT VALUE, EVERY SECOND. No high-water mark, no interval: "the
-        # checkpoint is never behind the last value emitted" stops being an argument
-        # about the loop's period and becomes `checkpoint == last emitted`, true by
-        # construction. Two earlier designs carried a margin instead and both ratcheted
-        # -- most recently a startup high-water write that a crash loop compounded, 25
-        # restarts over 75 s leaving the counter 1449 s ahead of a perfectly healthy
-        # clock. A margin the restart cannot verify is a ratchet; the fix is to have no
-        # margin, not a better one. write_checkpoint is atomic (temp + rename), and at
-        # ~30 bytes/s this is ~2.6 MB/day on the NVMe spec Sec.4.1 chose explicitly.
-        #
-        # Written BEFORE the record, not after. The value is already on the wire once
-        # emit_frame() returns, so the dangerous ordering is "recorded but not marked
-        # used" -- a crash there could let a stalled clock re-issue it. This ordering
-        # leaves only "marked used but not recorded", which costs at most the one
-        # second of records the fsync window already bounds.
-        write_checkpoint(checkpoint_path, value)
+            # Sampled BETWEEN the mark and the frame, not at the top of the iteration. A
+            # frame takes 200 ms (barcode.FRAME_US) and the record means the LEAD rising
+            # edge, which is what every receiving device reports, so reading the counter
+            # after emit_frame() returns puts this box's own alignment record a systematic
+            # 200 ms behind everything it is aligning. Reading it before write_checkpoint
+            # would be wrong in the same direction and for the same reason -- that call
+            # fsyncs twice, so the tick would predate the edge by however long the medium
+            # took. Immediately before emission is the only placement that stays true.
+            #
+            # Recorded through the Recorder rather than straight to the writer so the tick
+            # is unwrapped on its own path -- a raw counter would diverge from the E and W
+            # ticks it exists to align by 2^32 us at every 71.6-minute wrap.
+            tick = backend.now_us()
+            generator.emit_frame(value)
+            recorder.record_barcode(tick, value)
+            writer.flush()
+            tick_fn(1.0)
+            elapsed += 1.0
 
-        recorder.record_barcode(tick, value)
-        writer.flush()
-        tick_fn(1.0)
-        elapsed += 1.0
-
-    writer.close(now_fn())
-    # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
-    # dead-RTC start really does emit -- with "no barcodes were written".
-    last = first_value if writer.barcode_last is None else writer.barcode_last
-    write_checkpoint(checkpoint_path, last)
-    write_manifest(day)
-    return day
+        writer.close(now_fn())
+        # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
+        # dead-RTC start really does emit -- with "no barcodes were written".
+        last = first_value if writer.barcode_last is None else writer.barcode_last
+        write_checkpoint(checkpoint_path, last)
+        write_manifest(day)
+        return day
 
 
 class _ValueSource:
     """Barcode values from the wall clock, anchored at the value this run resumed on.
 
-    The floor -- `first_value + emitted` -- is what keeps the counter unique when the
-    clock stalls, jumps backwards, or cannot be read at all. An unreadable clock is not
-    hypothetical: below the 2020 epoch `value_from_clock` raises, and a run that started
-    on a dead RTC would otherwise die on its first frame having already been rescued at
-    startup by _resume(). One second of run time is one unit of floor, so the floor
-    alone is a correct (if imprecise) barcode source for as long as the run lasts.
+    THE ONLY PLACE A BARCODE VALUE IS CHOSEN, which is what lets the caller mark a value
+    as spent before it reaches the wire and know that the mark and the frame agree.
+    BarcodeGenerator held a second clamp until 2026-08-22; a clamp downstream of the
+    mark emits something other than what was marked, so it moved here.
+
+    The floor -- one past the last value issued -- is what keeps the counter unique when
+    the clock stalls, jumps backwards, or cannot be read at all. An unreadable clock is
+    not hypothetical: below the 2020 epoch `value_from_clock` raises, and a run that
+    started on a dead RTC would otherwise die on its first frame having already been
+    rescued at startup by _resume(). One second of run time is one unit of floor, so the
+    floor alone is a correct (if imprecise) barcode source for as long as the run lasts.
     """
 
     def __init__(self, now_fn, first_value: int) -> None:
         self._now_fn = now_fn
         self._first = first_value
-        self._emitted = 0
+        self._last: int | None = None
         self._clamped = False
 
     def __call__(self) -> int:
-        floor = self._first + self._emitted
+        # `_last + 1` rather than `_first + calls`: both are monotonic, but this one is
+        # TIGHTER whenever the clock has run ahead of the start value, and it is exact
+        # rather than inferred. It is also the whole of the uniqueness guarantee now --
+        # BarcodeGenerator used to hold a second clamp and no longer does, because a
+        # clamp downstream of the checkpoint can emit something other than what was
+        # marked. One decision, made here, recorded before it becomes irreversible.
+        floor = self._first if self._last is None else self._last + 1
         try:
             from_clock = next_value(self._now_fn(), None)
         except ValueError:
             from_clock = None  # pre-epoch or out of range: the floor is all we have
-        self._emitted += 1
         if from_clock is not None and from_clock >= floor:
             self._clamped = False
-            return from_clock
+            return self._issue(from_clock)
         if not self._clamped:
             # EDGE-TRIGGERED, deliberately. Spec Sec.7 names "time moved backwards" as a
             # trust condition and nothing recorded it mid-run -- the header is written
@@ -284,7 +331,22 @@ class _ValueSource:
                 floor,
             )
         self._clamped = True
-        return floor
+        return self._issue(floor)
+
+    def _issue(self, value: int) -> int:
+        """Record the decision and hand it back, refusing anything unencodable.
+
+        THE CEILING IS CHECKED HERE BECAUSE HERE IS THE ONLY PLACE A VALUE IS CHOSEN.
+        It used to guard the clock branch alone -- `value_from_clock` raises above the
+        ceiling and the caller catches it -- while the floor branch walked past it into
+        `barcode.encode`, which raises the identical error from somewhere far less
+        informative. Collapsing the two branches into one decision point makes a single
+        guard cover both by construction, rather than by remembering to write it twice.
+        """
+        if value > MAX_BARCODE:
+            raise ValueError(f"barcode value out of 32-bit range: {value}")
+        self._last = value
+        return value
 
 
 class _StopFlag:

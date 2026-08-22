@@ -6,12 +6,19 @@ One JSON header line, then one CSV line per record, type-tagged:
     W,tick_us,word           a 16-bit event code word latched on a strobe edge
     B,tick_us,value          a barcode frame this box emitted
 
-Three record types because the RP1 PIO captures them differently: a strobed
-parallel word arrives as one FIFO entry, while reward, lick and loopback lines
-arrive as individual transitions. Flattening them into one shape would throw
-away that distinction and force the reader to reconstruct it. Barcode records
-are emitted once per second by this box and recorded by every other device for
-clock alignment.
+Three record types because three things ARRIVE DIFFERENTLY, and only two of the
+three are captures at all:
+
+  E and W differ in how RP1 delivers them. A strobed parallel word is one FIFO
+  entry; reward, lick and loopback lines are individual transitions. Flattening
+  those into one shape would throw away the distinction and force the reader to
+  reconstruct it.
+
+  B is not captured by anything. This box EMITS it, once per second, and every
+  other device records it for clock alignment -- so the copy kept here is the
+  emitter's own account of what it put on the wire, not a measurement of it.
+  Reading the RP1 rationale onto B is the mistake to avoid: it explains why E and
+  W are separate from each other, and says nothing about why B exists.
 
 Plain text so it is readable with standard tools on a rig PC at 8am, which is
 when it matters.
@@ -26,8 +33,9 @@ import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from wl_sync.session import SessionId
 
@@ -44,14 +52,22 @@ class SyncBoxLogHeader(BaseModel):
     boot_id: str
     written_at: datetime.datetime
     gpio_map: dict[str, int]
-    segment_index: int = 0
+    # `ge=0` because this ORDERS THE DAY for wl-preproc. A negative index is not a
+    # smaller number; it is a file claiming to precede the day's first segment, and
+    # nothing downstream re-derives it, so nothing downstream can catch it.
+    segment_index: int = Field(default=0, ge=0)
     # Records reach disk in ARRIVAL order, and the THREE capture paths -- edges (E),
     # strobed code words (W) and this box's own barcodes (B) -- deliver independently,
     # so the file is ordered WITHIN each path and not across them. A reader does a
     # three-way merge. Declared rather than faked: a reorder buffer would invent a
     # tuning parameter and still need a late-arrival escape hatch, for a property the
     # reader recovers for free.
-    ordering: str = "per-path"
+    #
+    # A CLOSED SET, because this field tells a reader HOW to read the rest of the file
+    # and no code in this package reads it -- wl-preproc does. A typo is therefore
+    # invisible on this side of the boundary and changes how the day is reconstructed on
+    # the other, so the schema is the only place it can be caught.
+    ordering: Literal["per-path", "global"] = "per-path"
     clock_trusted: bool = True
     clock_reason: str = ""
 

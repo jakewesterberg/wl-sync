@@ -71,13 +71,23 @@ class SegmentWriter:
     """
 
     def __init__(self, path: Path, header: SyncBoxLogHeader) -> None:
-        self._path = path
         self._handle = path.open("x", encoding="utf-8")
-        self._handle.write(json.dumps(header.model_dump(mode="json")) + "\n")
-        self.barcode_first: int | None = None
-        self.barcode_last: int | None = None
-        self.record_count = 0
-        self.flush()
+        # The file EXISTS from the line above, so a failure writing the header leaves a
+        # headerless segment behind and an open handle with it. That is permanent
+        # damage rather than a transient: next_segment_index counts the file, so the
+        # index is burned, and every manifest rebuilt for the rest of the day reports it
+        # as unreadable -- an outage that never happened, in the file whose whole job is
+        # to say where the real outages were. Unwinding leaves the day as it was.
+        try:
+            self._handle.write(json.dumps(header.model_dump(mode="json")) + "\n")
+            self.barcode_first: int | None = None
+            self.barcode_last: int | None = None
+            self.record_count = 0
+            self.flush()
+        except BaseException:
+            self._handle.close()
+            path.unlink(missing_ok=True)
+            raise
 
     def write(self, record: Record) -> None:
         """Write a record to the segment."""

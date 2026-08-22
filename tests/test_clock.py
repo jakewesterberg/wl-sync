@@ -1,4 +1,5 @@
 import datetime
+import os
 
 import pytest
 
@@ -207,3 +208,36 @@ def test_next_value_raises_when_clamp_exceeds_ceiling():
     stale_checkpoint = MAX_BARCODE
     with pytest.raises(ValueError, match="32-bit range"):
         next_value(now, checkpoint=stale_checkpoint)
+
+
+def test_the_checkpoint_and_its_directory_are_both_fsynced(tmp_path, monkeypatch):
+    """Durability, which atomicity alone does not give.
+
+    `write_checkpoint` writes a temp file and renames it, so a crash can never leave a
+    truncated number that parses as a smaller one. That survives a PROCESS crash, where
+    the page cache is untouched. It does not survive POWER LOSS: the bytes and the
+    rename can both still be in the page cache, so the box comes back to a stale
+    checkpoint and -- on a dead RTC, where the clamp is the only thing choosing values
+    -- re-issues everything after it.
+
+    BOTH fsyncs are needed, and the directory one is the easier to forget: fsyncing the
+    file's contents says nothing about whether the rename that gave it its name reached
+    the platter. Spies on the real call and matches by inode rather than by argument,
+    so it asserts which OBJECTS were made durable rather than how the code was written.
+    The temp file's inode becomes the checkpoint's inode on rename.
+    """
+    synced = []
+    real_fsync = os.fsync
+
+    def spy(fd):
+        synced.append(os.fstat(fd).st_ino)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+
+    path = tmp_path / "counter"
+    write_checkpoint(path, 209034005)
+
+    assert read_checkpoint(path) == 209034005
+    assert path.stat().st_ino in synced, "the checkpoint's bytes were never fsynced"
+    assert tmp_path.stat().st_ino in synced, "the rename was never fsynced"

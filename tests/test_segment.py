@@ -136,3 +136,29 @@ def test_read_log_skips_trailer_on_closed_segment(tmp_path):
         Edge(tick_us=1_500, gpio=26, level=0),
         BarcodeEmitted(tick_us=2_000, value=501),
     ]
+
+
+class _HeaderThatFailsToSerialise:
+    """Stands in for any header that cannot be written: a field that will not serialise,
+    or a full disk under the write itself."""
+
+    def model_dump(self, mode: str | None = None) -> dict:
+        raise RuntimeError("header could not be serialised")
+
+
+def test_a_failed_header_write_leaves_no_half_made_segment(tmp_path):
+    """`open("x")` creates the file BEFORE the header is written, so a failure in
+    between leaves a zero-length segment behind and an open handle with it.
+
+    That file is permanent damage, not a transient: `next_segment_index` counts it, so
+    the index is burned, and every manifest rebuilt for the rest of the day reports it
+    as a segment that cannot be read -- an outage that never happened, in the file whose
+    job is to say where the real outages were.
+    """
+    path = tmp_path / segment_name(0)
+
+    with pytest.raises(RuntimeError):
+        SegmentWriter(path, _HeaderThatFailsToSerialise())
+
+    assert not path.exists(), "a segment with no header was left on disk"
+    assert next_segment_index(tmp_path) == 0, "the segment index was burned"

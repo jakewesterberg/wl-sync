@@ -12,6 +12,7 @@ authoritative and never merged into, so a crash cannot leave it stale.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -20,6 +21,63 @@ from wl_sync.segment import SEGMENT_PATTERN, segment_index_of
 
 _TRAILER_RE = re.compile(r"^T,")
 _BARCODE_RE = re.compile(r"^B,(\d+),(\d+)$")
+
+# T,<isoformat>,<first>,<last>,<count>. The span fields are EMPTY when the segment
+# carried no barcodes, so `\d*` rather than `\d+`: empty must come back as None, never
+# as 0, which is a legitimate barcode value (the epoch itself, which a dead-RTC start
+# really does emit). `[^,]*` for the timestamp is safe because SegmentWriter writes
+# datetime.isoformat(), which uses a period as its decimal separator; anything with an
+# extra comma fails to match and falls back to the scan, which is the safe direction.
+_TRAILER_SPAN_RE = re.compile(r"^T,[^,]*,(\d*),(\d*),\d+$")
+
+# Enough to hold a trailer many times over. A last line longer than this fails to match
+# and falls back to the full scan rather than being read wrongly.
+_TAIL_BYTES = 4096
+
+
+def _trailer_span(path: Path) -> tuple[int | None, int | None] | None:
+    """A clean segment's barcode span, read from its trailer instead of its body.
+
+    THIS IS WHY THE MANIFEST DOES NOT COST A DAY-LONG READ. `run()` rebuilds the
+    manifest BEFORE it records anything, so every restart used to pay for a full scan of
+    every segment already on disk -- and a day-long segment holds tens of millions of
+    records. A restart late in the day spent its first seconds re-parsing, lengthening
+    the very outage the manifest exists to measure.
+
+    `SegmentWriter.close()` writes `first`, `last` and `count` from the same counters a
+    scan would rebuild, so on a well-formed segment the two agree by construction. Where
+    they disagree the file is corrupt, and the trailer is the half written last and
+    fsynced.
+
+    Returns None -- meaning "scan it properly" -- whenever the tail is not a complete,
+    parseable trailer: a torn final line, a crashed segment with no trailer at all, an
+    over-long last line, or undecodable bytes. Every one of those degrades to the old
+    behaviour rather than to a wrong answer.
+    """
+    with path.open("rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        window = min(size, _TAIL_BYTES)
+        handle.seek(size - window)
+        tail = handle.read(window)
+
+    if not tail.endswith(b"\n"):
+        return None  # torn final line: a crash caught mid-write
+    lines = tail.split(b"\n")
+    if len(lines) < 2:
+        return None
+    try:
+        last_line = lines[-2].decode("utf-8")
+    except UnicodeDecodeError:
+        # Let the scan meet the same bytes and raise, so the segment is reported
+        # `unreadable` rather than quietly summarised from a guess.
+        return None
+
+    match = _TRAILER_SPAN_RE.match(last_line)
+    if match is None:
+        return None
+    first, last = match.group(1), match.group(2)
+    return (int(first) if first else None, int(last) if last else None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +97,11 @@ class SegmentSummary:
 def summarise_segment(path: Path) -> SegmentSummary:
     """Read a segment's header and barcode span without holding its records.
 
-    Parsed line by line rather than via read_log() because a crashed segment's last line
-    may be torn, and because a day's segment can hold tens of millions of records.
+    A cleanly-closed segment is read from its TRAILER -- header line plus tail, no body
+    -- because the trailer already carries the span a scan would rebuild. See
+    `_trailer_span` for why that matters and when it declines. Everything else is parsed
+    line by line, rather than via read_log(), because a crashed segment's last line may
+    be torn and because a day's segment can hold tens of millions of records.
 
     Raises on an unreadable segment. build_manifest degrades instead of propagating --
     see _summarise_or_degrade -- but a direct caller gets the honest error.
@@ -59,6 +120,21 @@ def summarise_segment(path: Path) -> SegmentSummary:
         except (json.JSONDecodeError, AttributeError):
             clock_trusted = False
             clock_reason = "unreadable_header"
+
+        # Independent of the header, so a segment with a junk header still gets the fast
+        # path -- the two answer different questions and neither needs the other.
+        span = _trailer_span(path)
+        if span is not None:
+            barcode_first, barcode_last = span
+            return SegmentSummary(
+                file=path.name,
+                barcode_first=barcode_first,
+                barcode_last=barcode_last,
+                clock_trusted=clock_trusted,
+                clock_reason=clock_reason,
+                closed="clean",
+            )
+
         for line in handle:
             if not line.endswith("\n"):
                 break  # torn final line: a crash caught mid-write
@@ -122,12 +198,32 @@ def build_manifest(day_dir: Path) -> dict:
     # gap before it and the gap after it, hiding the outage completely. Do not
     # "simplify" this back into a pairwise zip.
     gaps = []
+    overlaps = []
     last_seen: int | None = None
     for summary in summaries:
         if summary.barcode_first is not None and last_seen is not None:
             seconds = summary.barcode_first - last_seen
             if seconds > 1:
                 gaps.append(
+                    {
+                        "after": last_seen,
+                        "before": summary.barcode_first,
+                        "seconds": seconds,
+                    }
+                )
+            elif seconds <= 0:
+                # THE OPPOSITE OF A GAP, and it must not be recorded as one. A positive
+                # difference means the box was down while the other devices kept
+                # running, which `gaps` exists to let wl-preproc mark UNWITNESSED. A
+                # difference of zero or less means values were RE-ISSUED: one identity
+                # naming two moments, so a trial can be attributed to the wrong one.
+                #
+                # Both used to fail the `> 1` test and vanish, which made a day carrying
+                # a correctness failure look cleaner than a day with an ordinary
+                # restart. Kept in its own list rather than admitted to `gaps` as a
+                # negative number, because it is not a duration on a timeline and no
+                # consumer should be doing arithmetic with it.
+                overlaps.append(
                     {
                         "after": last_seen,
                         "before": summary.barcode_first,
@@ -141,6 +237,7 @@ def build_manifest(day_dir: Path) -> dict:
         "day": day_dir.name,
         "segments": [asdict(summary) for summary in summaries],
         "gaps": gaps,
+        "overlaps": overlaps,
     }
 
 

@@ -1,14 +1,23 @@
 import datetime
 import json
 import logging
+import signal
 from pathlib import Path
 
 import pytest
 
 from wl_sync.backend import FakeBackend
-from wl_sync.barcode import FRAME_US
-from wl_sync.cli import CHECKPOINT_NAME, day_directory, main, probe_boot_id, run
+from wl_sync.barcode import FRAME_US, N_BITS
+from wl_sync.cli import (
+    CHECKPOINT_NAME,
+    _ValueSource,
+    day_directory,
+    main,
+    probe_boot_id,
+    run,
+)
 from wl_sync.clock import (
+    BARCODE_EPOCH,
     MAX_BARCODE,
     read_checkpoint,
     value_from_clock,
@@ -132,9 +141,10 @@ def test_barcode_and_edge_ticks_stay_on_one_timebase_across_a_wrap(tmp_path):
     assert barcodes == sorted(barcodes), "B ticks jumped backwards across the wrap"
     assert edges == sorted(edges)
     assert max(edges) > TICK_WRAP_US, "test did not actually cross a wrap boundary"
-    # run() reads now_us() at the top of each iteration, so iteration i+1's barcode
-    # tick IS iteration i's injected edge tick. Equality across the wrap is the whole
-    # claim: both paths report the same instant as the same number.
+    # run() reads now_us() immediately before emitting each frame, and nothing between
+    # the injected edge and that read moves the fake's counter, so iteration i+1's
+    # barcode tick IS iteration i's injected edge tick. Equality across the wrap is the
+    # whole claim: both paths report the same instant as the same number.
     assert barcodes[1:] == edges[: len(barcodes) - 1]
 
 
@@ -401,6 +411,166 @@ def test_a_crash_never_lets_the_restart_re_issue_a_barcode(tmp_path):
     assert min(values(1)) > max(values(0))
 
 
+def _wire_values(backend):
+    """Barcode values that actually reached the pin, read back from the pulse train.
+
+    Deliberately NOT read from the log. The hazard under test is a frame that went out
+    and was never recorded, so the log is precisely the witness that goes missing; the
+    wire is the only account of it that survives the window.
+    """
+    values = []
+    for _pin, pulses in backend.emitted:
+        value = 0
+        for level, _duration in pulses[2 : 2 + N_BITS]:
+            value = (value << 1) | level
+        values.append(value)
+    return values
+
+
+class _CrashOnTheWire(FakeBackend):
+    """Puts the frame fully onto the pin, then dies.
+
+    Models the window a real crash opens between a value becoming irreversible -- it is
+    on the wire, every receiving device has it -- and the checkpoint recording that it
+    was spent. `_crash_after` cannot reach this window: it raises from tick_fn, which
+    runs after the checkpoint is already written.
+    """
+
+    def __init__(self, crash_on: int) -> None:
+        super().__init__()
+        self._crash_on = crash_on
+        self._frames = 0
+
+    def emit_pulses(self, pin, pulses):
+        super().emit_pulses(pin, pulses)
+        self._frames += 1
+        if self._frames >= self._crash_on:
+            raise _Crash
+
+
+def test_a_frame_on_the_wire_is_never_re_issued_after_a_crash(tmp_path):
+    """The emitted-but-unmarked window: uniqueness must survive a crash landing between
+    the frame reaching the pin and the checkpoint recording that it did.
+
+    A repeated barcode is two different moments carrying one identity, which is the one
+    thing the value must never be -- so the test asserts on the wire, across both runs,
+    rather than on either run's log.
+    """
+    base = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    crashed = _CrashOnTheWire(crash_on=5)
+    with pytest.raises(_Crash):
+        run(tmp_path, crashed, _clock_from(base), None, lambda _s: None)
+
+    # The clock stops dead, so the clamp -- not the clock -- chooses the restart value.
+    restarted = FakeBackend()
+    run(tmp_path, restarted, lambda: base, 5, lambda _s: None)
+
+    repeated = sorted(set(_wire_values(crashed)) & set(_wire_values(restarted)))
+    assert not repeated, f"re-issued barcode value(s) {repeated}"
+
+
+def test_the_value_source_alone_never_repeats_a_value(tmp_path):
+    """Uniqueness has to hold where the value is CHOSEN, not where it is emitted.
+
+    The checkpoint can only record a decision that has already been made, so once the
+    value is marked before it goes to the pin, nothing downstream may alter it -- a
+    second clamp inside the emitter would silently make the checkpoint disagree with
+    the wire, which is the same defect one line further down.
+
+    The failing shape is a clock that jumps forward and then stalls: the source's floor
+    advances by one per call while the clock reading does not, so a reading that already
+    won once wins again.
+    """
+    readings = iter(
+        [
+            BARCODE_EPOCH + datetime.timedelta(seconds=1000),
+            BARCODE_EPOCH + datetime.timedelta(seconds=1100),
+            BARCODE_EPOCH + datetime.timedelta(seconds=1100),
+        ]
+    )
+    source = _ValueSource(lambda: next(readings), first_value=1000)
+
+    values = [source(), source(), source()]
+
+    assert len(set(values)) == len(values), f"repeated a value: {values}"
+
+
+def test_the_value_source_refuses_a_floor_past_the_ceiling(tmp_path):
+    """The ceiling guard has to cover the FLOOR branch, not just the clock branch.
+
+    `value_from_clock` raises above the ceiling and `__call__` catches it, so a clock
+    reading past 2^32 degrades to the floor. The floor itself had no such guard and
+    walked into `barcode.encode`, which raises the identical error from a place that
+    says nothing about where the bad value came from. Reachable without waiting for
+    2156: a checkpoint corrupted to the ceiling still parses, and one second later the
+    floor is past it.
+
+    Asserted on the source rather than through `run()` deliberately -- both paths raise
+    the same ValueError, so only the unit contract "never hands out a value that cannot
+    be encoded" distinguishes them.
+    """
+    source = _ValueSource(lambda: BARCODE_EPOCH, first_value=MAX_BARCODE)
+
+    assert source() == MAX_BARCODE  # the last encodable value is still issued
+
+    with pytest.raises(ValueError, match="out of 32-bit range"):
+        source()
+
+
+class _CrashBeforeTheWire(FakeBackend):
+    """Dies after the checkpoint marks the value and before it reaches the pin.
+
+    The window mark-before-emit deliberately OPENS, in exchange for closing the one
+    where a value reaches the wire unmarked. Its cost is a burned value: marked spent,
+    never emitted.
+    """
+
+    def emit_pulses(self, pin, pulses):
+        raise _Crash
+
+
+def test_burning_a_value_per_restart_does_not_outrun_the_clock(tmp_path, caplog):
+    """A REGRESSION GUARD ON THE FIX ITSELF, not a test that discriminates against the
+    old code. Run against the pre-fix sources it raises TypeError on `None - int`,
+    because the old loop crashes inside emit_pulses before it ever writes a checkpoint
+    -- an artifact of there being nothing to measure, not evidence of a ratchet. Read
+    its failure there as "not applicable", not as "the old code was worse".
+
+    It exists because the previous attempt at this mechanism died exactly here. A
+    startup high-water write burned a whole 60 s interval per restart REGARDLESS of
+    cadence, so it ran away even at the shipped RestartSec=1: 25 restarts over 75 s put
+    the counter 1449 s ahead of a healthy clock. Mark-before-emit also burns on every
+    restart, so the question is not whether it burns but at what RATE.
+
+    One value per restart, against a clock that advances one per second, means any
+    cadence of a second or slower self-corrects rather than compounds -- which is what
+    deploy/wl-sync.service pins with RestartSec=1. Measured here at that cadence: -1 s,
+    i.e. still behind the clock after 25 crashes. Faster than one restart per second it
+    does creep, one value at a time; the unit forbids that cadence, and the failure is
+    rate-bounded rather than unbounded, which is the difference from the design that
+    was rejected.
+
+    The absent warnings are asserted for the same reason they were last time: spurious
+    "clock is not moving forwards" lines were one of the three user-visible symptoms of
+    the runaway, and deploy/README.md promises an ordinary crash restart is quiet.
+    """
+    base = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    restarts = 25
+
+    with caplog.at_level(logging.WARNING, logger="wl_sync.cli"):
+        for restart in range(restarts):
+            started = base + datetime.timedelta(seconds=restart)
+            with pytest.raises(_Crash):
+                run(tmp_path, _CrashBeforeTheWire(), lambda s=started: s, None, lambda _s: None)
+
+    wall_now = base + datetime.timedelta(seconds=restarts)
+    checkpoint = read_checkpoint(tmp_path / CHECKPOINT_NAME)
+    drift = checkpoint - value_from_clock(wall_now)
+
+    assert drift <= 0, f"counter ran {drift} s ahead of a perfectly healthy wall clock"
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
 def test_main_requires_out():
     """argparse exits rather than returning, so the absence of --out must be asserted
     as a non-zero SystemExit, not a return code."""
@@ -516,3 +686,33 @@ def test_probe_boot_id_does_not_raise():
     /proc/sys/kernel/random/boot_id on Linux, or the "" degrade path elsewhere -- it
     must return a string, never raise."""
     assert isinstance(probe_boot_id(), str)
+
+
+def test_run_restores_the_signal_handlers_it_installed(tmp_path):
+    """`run()` is a LIBRARY CALL and `main()` is the entry point, so the handlers it
+    installs belong to the call, not to the process.
+
+    It installed SIGINT and SIGTERM handlers and never put back what was there. The
+    caller's own shutdown handling was silently replaced by a flag object that stays
+    behind after run() returns and does nothing but swallow the signal -- so the second
+    call into this library leaves a process that cannot be stopped by the handler its
+    owner installed. Nothing in this package notices, because main() is the only caller
+    today and it wants exactly these handlers.
+    """
+    installed = []
+
+    def sentinel(_signum, _frame):
+        installed.append("mine")
+
+    previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    for received in previous:
+        signal.signal(received, sentinel)
+    try:
+        run(tmp_path, FakeBackend(), _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)), 1, lambda _s: None)
+        still_mine = {s: signal.getsignal(s) for s in previous}
+        assert still_mine == {s: sentinel for s in previous}, (
+            f"run() kept its own handlers: {still_mine}"
+        )
+    finally:
+        for received, handler in previous.items():
+            signal.signal(received, handler)

@@ -30,7 +30,7 @@ def pulses_to_edges(pulses, start_us):
 
 def test_generator_emits_a_decodable_frame():
     backend = FakeBackend()
-    BarcodeGenerator(backend, pin=BARCODE_PIN, value_source=lambda: 1000).emit_frame()
+    BarcodeGenerator(backend, pin=BARCODE_PIN).emit_frame(1000)
     assert len(backend.emitted) == 1
     pin, pulses = backend.emitted[0]
     assert pin == BARCODE_PIN
@@ -38,11 +38,27 @@ def test_generator_emits_a_decodable_frame():
     assert [b.value for b in decode_edges(edges, start_us=0)] == [1000]
 
 
-def test_generator_never_repeats_a_value():
-    """A stalled clock must not re-issue an identity."""
+def test_generator_emits_exactly_the_value_it_is_given():
+    """The generator alters nothing, INCLUDING a value that repeats one it already sent.
+
+    It held a monotonicity clamp until 2026-08-22. The clamp was not wrong in itself --
+    it moved to wl_sync.cli._ValueSource, which is tested for it -- but it sat
+    downstream of the checkpoint, so a value that got clamped here went onto the wire
+    differing from the one marked as spent. Passing 7 twice is therefore asserting the
+    absence of that clamp: an emitter that silently corrects its caller cannot be
+    checkpointed against.
+    """
     backend = FakeBackend()
-    generator = BarcodeGenerator(backend, pin=BARCODE_PIN, value_source=lambda: 7)
-    assert [generator.emit_frame() for _ in range(3)] == [7, 8, 9]
+    generator = BarcodeGenerator(backend, pin=BARCODE_PIN)
+
+    generator.emit_frame(7)
+    generator.emit_frame(7)
+
+    sent = [
+        decode_edges(pulses_to_edges(pulses, IDLE_MIN_US), start_us=0)[0].value
+        for _pin, pulses in backend.emitted
+    ]
+    assert sent == [7, 7]
 
 
 def test_recorder_captures_strobed_code_words():
