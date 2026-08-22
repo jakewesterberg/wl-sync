@@ -13,11 +13,18 @@ than a guessed one. What that buys, beyond correctness:
     recording wrong timestamps -- which is the failure that would otherwise be
     found months later in a session nobody can align.
 
-WHAT IS DELIBERATELY NOT HERE: `start_edge_capture`. Individual-pin edge events
-are not a PIO facility, and piolib's `gpio_*` calls configure pins rather than
-deliver transitions. On Pi 5 that is libgpiod line-event territory -- a separate
-dependency with its own threading model. Inventing it here would produce a file
-that reads as finished and is not, so it raises instead.
+EDGE CAPTURE AND BARCODE OUTPUT ARE NOT PIO, and are bound to libgpiod v2
+instead. Individual-pin edge events are not a PIO facility -- piolib's `gpio_*`
+calls configure pins rather than deliver transitions -- and libgpiod is the
+better tool anyway: the kernel stamps every edge from CLOCK_MONOTONIC at
+interrupt time, on the same clock `now_us()` counts from, so an edge carries no
+trace of when this process happened to be scheduled.
+
+EVERYTHING HERE FAILS BY GOING QUIET. A pump thread that dies, a kernel event
+buffer that overflows, a PIO FIFO that drops words: none of them interrupt the
+emit loop, so a day can be recorded with half the rig's signals missing and a
+clean trailer on the end saying nothing was wrong. `check_health()` is what makes
+that loud, and THE RUN LOOP MUST CALL IT EVERY SECOND.
 """
 
 from __future__ import annotations
