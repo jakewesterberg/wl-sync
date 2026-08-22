@@ -27,3 +27,10 @@ include = ["wl_sync*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The repo root on sys.path, so `from tests.test_log import HEADER` resolves however
+# pytest was launched. `python -m pytest` puts the CWD on sys.path and bare `pytest`
+# does not, so without this the suite's RESULT DEPENDED ON THE INVOCATION: green
+# locally, two collection errors in CI, which runs `pytest -v`. Latent since c64af45
+# and 7a13c09 introduced the cross-module import, and invisible until the work reached
+# a branch CI actually builds.
+pythonpath = ["."]
