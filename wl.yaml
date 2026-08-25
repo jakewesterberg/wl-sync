@@ -32,3 +32,38 @@ third_party:
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.
+
+# What the sync box owns. wl-preproc's CHECKPOINT states the direction: "wl-sync
+# owns everything the sync box produces — session identity, the barcode codec,
+# the log format — and wl-preproc depends on it via a direct git reference."
+# None of these ships as a rendered schema here; the JSON form of the log header
+# exists only as wl-preproc's re-export, which is why that entry is a mirror
+# there and the definition is here.
+publishes:
+  - name: syncbox-log-header
+    kind: pydantic-model
+    at: wl_sync/log.py
+    stability: stable
+    what: >-
+      The header on every sync box log: schema_version, session_id, rig,
+      boot_id, written_at, the gpio_map, the segment index and ordering, and
+      whether the clock was trusted with the reason if not. wl-preproc
+      re-exports it to docs/schemas/syncbox_log_header.json rather than
+      redefining it, and its CI diffs that export so a drift here fails there.
+
+  - name: session-id
+    kind: pydantic-model
+    at: wl_sync/session.py
+    stability: stable
+    what: >-
+      Session identity as the sync box mints it. Everything downstream keys on
+      this, so a change to its form renames every session in the lab.
+
+  - name: barcode-codec
+    kind: pydantic-model
+    at: wl_sync/barcode.py
+    stability: stable
+    what: >-
+      The barcode the sync box emits and everything else decodes to align
+      streams onto one clock. The codec is the contract; a change breaks
+      alignment for any recording made across the boundary.
