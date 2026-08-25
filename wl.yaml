@@ -1,0 +1,34 @@
+schema: 1
+slug: wl-sync
+class: device
+lifecycle: active
+visibility: public
+remote: https://github.com/jakewesterberg/wl-sync.git
+
+summary: >-
+  The sync box and its breakout board: timing signals, event-code routing and
+  signal conditioning for a recording rig. Owns session identity, the barcode
+  codec and the log format.
+
+runs_on: [rig/sync]
+builds_on: [dws]
+
+third_party:
+  - name: python
+    constraint: ">=3.11"
+    why: The floor this project supports, and the one wl-preproc matches.
+  - name: libgpiod
+    constraint: ">=2"
+    where: rig/sync
+    why: >-
+      v2 is required for the LineSettings/edge_detection API and for
+      EdgeEvent.global_seqno, which is the only way a kernel-side edge drop is
+      detectable.
+  - name: piolib
+    where: rig/sync
+    why: >-
+      A C library reached by ctypes, so libpiolib.so comes from the OS rather
+      than from pip — which is exactly why it needs a catalog entry.
+  - name: kicad
+    where: dws
+    why: The breakout board's schematic and layout.
