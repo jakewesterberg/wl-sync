@@ -1,5 +1,13 @@
 # What wl-expcontroller needs from wl-sync
 
+> **Naming note, 2026-09-28.** `wl-expcontroller` was renamed `wl-xcon`. This
+> document predates the rename and names the controller `wl-expcontroller`
+> throughout, which is what it was called when this handover was written and
+> consolidated, including the `expcontroller/` directory name in Ask 1 below —
+> a name written into the rig directory layout, not merely prose about it.
+> The registry carries `aliases: [wl-expcontroller]`, so the name still
+> resolves.
+
 **From:** `wl-expcontroller`, the behavioural task controller replacing NIMH MonkeyLogic.
 **Date:** 2026-08-31. **Read against** `wl-sync` at `16ded9a`.
 
