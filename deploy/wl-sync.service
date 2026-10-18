@@ -20,7 +20,12 @@ Type=simple
 # Fake mode keeps the crash-stitching, manifest and clock-degradation paths
 # exercisable at bring-up. After bench day: drop --fake and add --gpiochip with the
 # chardev confirmed by label.
-ExecStart=/usr/local/bin/wl-sync record --out /data/rig1 --fake
+#
+# --listen / --session-token-file serve the session endpoint the task PC opens and
+# closes visits through. The token is a root-owned file made at install time, never
+# committed: see deploy/README.md. A missing token file only costs the POSTs; the box
+# still records.
+ExecStart=/usr/local/bin/wl-sync record --out /data/rig1 --fake --listen 0.0.0.0:8740 --session-token-file /etc/wl-sync/session-token
 Restart=always
 RestartSec=1
 # The box is the first device on each day and the last off. Restart=always is what

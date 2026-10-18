@@ -29,7 +29,13 @@ Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gp
 
     systemctl status wl-sync          # is it running
     journalctl -u wl-sync -f          # what is it saying
-    cat /data/rig1/$(date +%F)_01/manifest.json
+    ls /data/rig1/unassigned/$(date +%F)/syncbox/    # between visits
+    ls /data/rig1/*/syncbox/                         # one folder per visit
+    cat /data/rig1/unassigned/$(date +%F)/syncbox/manifest.json
+
+Segments land in `/data/rig1/unassigned/<date>/syncbox/` while no animal is in the rig,
+and in `/data/rig1/<id>/syncbox/` during a visit, where `<id>` is the session id the
+task PC was given (for example `2026-10-18_01`). Each folder has its own manifest.
 
 The manifest is the thing to read. `gaps` lists spans where this box was **not
 watching** — trials in those spans really happened and were recorded by the other
@@ -65,6 +71,46 @@ the platform does not expose one.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
+
+## The session endpoint
+
+The unit starts `wl-sync` with `--listen 0.0.0.0:8740 --session-token-file
+/etc/wl-sync/session-token`. Through that port the task PC opens a session when an
+animal enters and closes it when it leaves, and the box cuts the recording into one
+folder per visit. Without the endpoint the box still records, into `unassigned/`.
+
+**The token file.** Make the token once, and put the same one on the task PC:
+
+    python3 -c 'import secrets; print(secrets.token_hex(32))' > /tmp/session-token
+    sudo install -d -m 0755 /etc/wl-sync
+    sudo install -m 0600 -o root -g root /tmp/session-token /etc/wl-sync/session-token
+    shred -u /tmp/session-token
+
+The unit has no `User=`, so it runs as root and can read a root-only file. Never commit
+the token. If the file is missing, unreadable or empty, the box logs an ERROR naming the
+path (`journalctl -u wl-sync -p err`), serves `GET` only, and keeps recording.
+
+**The port** is 8740, on the rig network. If something else holds it, the box logs an
+ERROR and records without the endpoint.
+
+**Who can read it.** `GET /session` needs no token: anyone who can reach the port can
+see the open session id. Opening and closing need the token, so keep the port on the rig
+network.
+
+Replace `$TOKEN` with the token. Read, open and close:
+
+    curl http://wl-sync-rig0.local:8740/session
+
+    curl -X POST http://wl-sync-rig0.local:8740/session/open \
+      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+      -d '{"request_id": "visit-attempt-0001"}'
+
+    curl -X POST http://wl-sync-rig0.local:8740/session/close \
+      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+      -d '{"session_id": "2026-10-18_01"}'
+
+Use a new `request_id` for every attempt at a new visit. Resending the same one after a
+lost reply returns the session it already opened instead of opening a second.
 
 ## Setting up the OS, once per box
 

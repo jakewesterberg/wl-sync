@@ -33,6 +33,7 @@ from wl_sync.clock import (
     read_checkpoint,
     write_checkpoint,
 )
+from wl_sync.endpoint import serve
 from wl_sync.log import SyncBoxLogHeader
 from wl_sync.manifest import write_manifest
 from wl_sync.pins import (
@@ -659,6 +660,73 @@ def _hardware_backend(chip_path: str):
     return Rp1Backend(chip_path=chip_path)
 
 
+def _listen_address(text: str) -> tuple[str, int]:
+    """Parse `--listen HOST:PORT`. A typo here is configuration the operator must see,
+    so it is an argparse error (exit 2), unlike a failure to BIND, which is logged and
+    survived. `rpartition` so a host that itself contains colons still splits on the
+    port."""
+    host, _, port_text = text.rpartition(":")
+    try:
+        port = int(port_text)
+    except ValueError:
+        port = -1
+    if not host or not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError(
+            f"expected HOST:PORT with a port from 0 to 65535, got {text!r}"
+        )
+    return host, port
+
+
+def _read_token(path: Path | None) -> str | None:
+    """The bearer token, or None -- meaning the endpoint answers GET only.
+
+    THE BOX MUST RECORD REGARDLESS (spec 2, anti-goal), and under `Restart=always`
+    anything that raises at start-up is a crash loop that records nothing. So a token
+    file that is missing, unreadable or empty is logged at ERROR and degrades to
+    read-only. The path is logged, never the contents: the journal is not a secret store.
+    """
+    if path is None:
+        return None
+    try:
+        token = path.read_text().strip()
+    except (OSError, UnicodeDecodeError) as error:
+        log.error(
+            "session token file %s is unreadable (%s); the endpoint will serve GET only",
+            path, type(error).__name__,
+        )
+        return None
+    if not token:
+        log.error(
+            "session token file %s is empty; the endpoint will serve GET only", path
+        )
+        return None
+    return token
+
+
+def _start_endpoint(out: Path, listen: tuple[str, int] | None, token_file: Path | None,
+                    requests: queue.SimpleQueue):
+    """Start the session endpoint, or return None and log why not.
+
+    A `--listen` that cannot bind (port in use, no such address) is logged at ERROR and
+    the box records without the endpoint, for the same reason as _read_token: a crash
+    loop records nothing.
+    """
+    if listen is None:
+        if token_file is not None:
+            log.warning("--session-token-file given without --listen; it is ignored")
+        return None
+    token = _read_token(token_file)
+    host, port = listen
+    try:
+        return serve(out, requests, token, host, port)
+    except OSError as error:
+        log.error(
+            "session endpoint cannot listen on %s:%s (%s); recording without it",
+            host, port, error,
+        )
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wl-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -672,6 +740,20 @@ def main(argv: list[str] | None = None) -> int:
         help="chardev carrying RP1's GPIO bank; it has moved between releases, so "
         "confirm it by label (gpioinfo) rather than trusting the default",
     )
+    record.add_argument(
+        "--listen",
+        type=_listen_address,
+        default=None,
+        metavar="HOST:PORT",
+        help="serve the session endpoint here; default none, meaning no endpoint",
+    )
+    record.add_argument(
+        "--session-token-file",
+        type=Path,
+        default=None,
+        help="file holding the bearer token (one line) that POSTs must present; "
+        "without it the endpoint serves GET only",
+    )
     args = parser.parse_args(argv)
 
     # To stderr, which systemd routes to the journal via StandardError=journal. Only
@@ -682,12 +764,20 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(message)s",
     )
 
-    day = run(
-        out=args.out,
-        backend=FakeBackend() if args.fake else _hardware_backend(args.gpiochip),
-        now_fn=lambda: datetime.datetime.now(datetime.timezone.utc),
-        duration_s=args.duration,
-        tick_fn=time.sleep,
-    )
+    requests: queue.SimpleQueue[SessionRequest] = queue.SimpleQueue()
+    server = _start_endpoint(args.out, args.listen, args.session_token_file, requests)
+    try:
+        day = run(
+            out=args.out,
+            backend=FakeBackend() if args.fake else _hardware_backend(args.gpiochip),
+            now_fn=lambda: datetime.datetime.now(datetime.timezone.utc),
+            duration_s=args.duration,
+            tick_fn=time.sleep,
+            requests=requests if server is not None else None,
+        )
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
     print(f"recorded {day}")
     return 0

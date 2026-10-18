@@ -3,7 +3,10 @@ import json
 import logging
 import queue
 import signal
+import socket
 import threading
+import time
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -18,6 +21,7 @@ from wl_sync.cli import (
     probe_boot_id,
     run,
 )
+from wl_sync.endpoint import serve
 from wl_sync.clock import (
     BARCODE_EPOCH,
     MAX_BARCODE,
@@ -766,6 +770,9 @@ def test_the_shipped_unit_starts_a_mode_the_cli_actually_accepts(tmp_path):
     assert "--fake" in argv, "the unit must ship in fake mode until bench acceptance"
 
     argv[argv.index("--out") + 1] = str(tmp_path)
+    # Port 0, so CI never fights over 8740. The token file is left as shipped: it does
+    # not exist on a CI runner, and a box with no token file must still record (R18).
+    argv[argv.index("--listen") + 1] = "127.0.0.1:0"
     assert main([*argv, "--duration", "1"]) == 0
 
 
@@ -1393,3 +1400,154 @@ def test_a_close_that_fails_after_clearing_state_still_records_between_sessions(
     assert folder.is_relative_to(tmp_path / "unassigned")
     assert len(_values(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))) == 2
     assert len(_values(folder / segment_name(1))) == 2
+
+
+# ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------
+
+WAIT_S = 10.0
+TOKEN = "s3cret-token-value"
+
+
+class _Rig:
+    """run() on a thread against a real endpoint on port 0. The tick sleeps 0.05 s so an
+    HTTP call can land between two iterations; every call and join is bounded so a
+    regression fails instead of hanging the suite."""
+
+    def __init__(self, tmp_path):
+        self.tmp_path = tmp_path
+        self.requests = queue.SimpleQueue()
+        self.server = serve(tmp_path, self.requests, TOKEN, "127.0.0.1", 0)
+        self.url = "http://127.0.0.1:%d" % self.server.server_address[1]
+        self.folder = None
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self):
+        self.folder = run(
+            out=self.tmp_path,
+            backend=FakeBackend(),
+            now_fn=_clock_from(START),
+            duration_s=30,
+            tick_fn=lambda _s: time.sleep(0.05),
+            requests=self.requests,
+        )
+
+    def call(self, method, path, body=None):
+        data = None if body is None else json.dumps(body).encode()
+        request = urllib.request.Request(self.url + path, data=data, method=method)
+        if method == "POST":
+            request.add_header("Authorization", f"Bearer {TOKEN}")
+            request.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(request, timeout=WAIT_S) as response:
+            return json.loads(response.read())
+
+    def finish(self):
+        self.thread.join(WAIT_S)
+        assert not self.thread.is_alive(), "run() did not finish"
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def rig(tmp_path):
+    made = _Rig(tmp_path)
+    yield made
+    made.server.shutdown()
+    made.server.server_close()
+
+
+def test_a_task_pc_can_open_and_close_a_session_end_to_end(rig):
+    """The whole path a task PC takes: POST open, GET the id back, POST close, over real
+    HTTP into a running loop. The session's syncbox/ holds a segment closed with a
+    trailer, so the visit's recording really landed under its id."""
+    rig.thread.start()
+    opened = rig.call("POST", "/session/open", {"request_id": "r1"})
+    session_id = opened["session_id"]
+    assert rig.call("GET", "/session")["session_id"] == session_id
+
+    assert rig.call("POST", "/session/close", {"session_id": session_id})["closed"]
+    rig.finish()
+
+    segments = sorted((rig.tmp_path / session_id / "syncbox").glob("*.log"))
+    assert segments and all(_has_trailer(path) for path in segments)
+
+
+def test_a_retried_open_after_a_lost_reply_gets_the_same_session(rig):
+    """The task PC lost the reply to its open and asks again with the same request_id.
+    It must get the session it already opened, not a second one, and the answer says the
+    session is still open (`closed` null)."""
+    rig.thread.start()
+    first = rig.call("POST", "/session/open", {"request_id": "r1"})
+    second = rig.call("POST", "/session/open", {"request_id": "r1"})
+    assert second["session_id"] == first["session_id"]
+    assert second["closed"] is None
+    rig.finish()
+
+
+def _unassigned_segments(root):
+    return list((root / "unassigned").glob("*/syncbox/*.log"))
+
+
+def test_an_unreadable_token_file_logs_an_error_and_the_box_still_records(tmp_path, caplog):
+    """R18: under Restart=always anything that raises at start-up is a crash loop that
+    records nothing, and the recording is the box's whole job. A token file that is
+    missing serves GET only, says so at ERROR with the path, and records."""
+    missing = tmp_path / "no-such-token"
+    with caplog.at_level(logging.ERROR):
+        code = main(
+            ["record", "--fake", "--out", str(tmp_path / "rig"), "--duration", "1",
+             "--listen", "127.0.0.1:0", "--session-token-file", str(missing)]
+        )
+    assert code == 0
+    assert _unassigned_segments(tmp_path / "rig")
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any(str(missing) in message for message in errors)
+
+
+def test_an_empty_token_file_logs_an_error_and_the_box_still_records(tmp_path, caplog):
+    """An empty file (after stripping) would otherwise become the token "" -- a secret
+    anyone could present. It is treated as no token, loudly."""
+    token_file = tmp_path / "token"
+    token_file.write_text("  \n")
+    with caplog.at_level(logging.ERROR):
+        code = main(
+            ["record", "--fake", "--out", str(tmp_path / "rig"), "--duration", "1",
+             "--listen", "127.0.0.1:0", "--session-token-file", str(token_file)]
+        )
+    assert code == 0
+    assert _unassigned_segments(tmp_path / "rig")
+    assert any(r.levelno >= logging.ERROR and str(token_file) in r.getMessage()
+               for r in caplog.records)
+
+
+def test_a_listen_address_that_cannot_bind_logs_an_error_and_the_box_still_records(
+    tmp_path, caplog
+):
+    """R18: the port is already taken. The box records without the endpoint rather than
+    crash-looping, and the token is never in the log."""
+    token_file = tmp_path / "token"
+    token_file.write_text(TOKEN + "\n")
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    blocker.listen()
+    try:
+        with caplog.at_level(logging.INFO):
+            code = main(
+                ["record", "--fake", "--out", str(tmp_path / "rig"), "--duration", "1",
+                 "--listen", "127.0.0.1:%d" % blocker.getsockname()[1],
+                 "--session-token-file", str(token_file)]
+            )
+    finally:
+        blocker.close()
+    assert code == 0
+    assert _unassigned_segments(tmp_path / "rig")
+    assert any(r.levelno >= logging.ERROR for r in caplog.records)
+    assert TOKEN not in caplog.text
+
+
+@pytest.mark.parametrize("value", ["8740", "host:", ":8740", "host:abc", "host:65536", "host:-1"])
+def test_a_malformed_listen_value_is_an_argparse_error(tmp_path, value):
+    """A typo in --listen is configuration the operator must see, not something to
+    swallow: argparse exits 2."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["record", "--fake", "--out", str(tmp_path), "--listen", value])
+    assert excinfo.value.code == 2
