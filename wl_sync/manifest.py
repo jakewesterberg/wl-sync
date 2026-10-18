@@ -234,7 +234,8 @@ def build_manifest(day_dir: Path) -> dict:
             last_seen = summary.barcode_last
 
     return {
-        "day": day_dir.name,
+        # Segments now live in <session>/syncbox/, so the session is the folder above it.
+        "day": day_dir.parent.name if day_dir.name == "syncbox" else day_dir.name,
         "segments": [asdict(summary) for summary in summaries],
         "gaps": gaps,
         "overlaps": overlaps,

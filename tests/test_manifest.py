@@ -262,3 +262,15 @@ def test_a_segment_with_no_barcodes_still_summarises_from_its_trailer(tmp_path):
 
     assert summary.closed == "clean"
     assert (summary.barcode_first, summary.barcode_last) == (None, None)
+
+
+def test_a_session_folders_manifest_names_the_session(tmp_path):
+    """Segments live in <root>/<session-id>/syncbox/ or <root>/unassigned/<date>/syncbox/.
+    The manifest must name the folder above syncbox/, not syncbox/ itself."""
+    session = tmp_path / "2026-10-18_02" / "syncbox"
+    session.mkdir(parents=True)
+    unassigned = tmp_path / "unassigned" / "2026-10-18" / "syncbox"
+    unassigned.mkdir(parents=True)
+
+    assert build_manifest(session)["day"] == "2026-10-18_02"
+    assert build_manifest(unassigned)["day"] == "2026-10-18"
