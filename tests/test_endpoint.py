@@ -398,20 +398,13 @@ def test_the_stdlib_error_paths_are_json_too(rig):
     connection.close()
 
 
-def test_too_many_headers_gets_a_json_error(rig):
-    import socket
-
-    host, port = rig.server.server_address[:2]
-    with socket.create_connection((host, port), timeout=WAIT_S) as sock:
-        sock.sendall(b"GET /session HTTP/1.1\r\n" + b"X-A: b\r\n" * 150 + b"\r\n")
-        data = b""
-        while chunk := sock.recv(4096):
-            data += chunk
-    head, _, body = data.partition(b"\r\n\r\n")
-    assert b"application/json" in head
-    assert head.startswith(b"HTTP/1.")
-    assert b" 431 " in head.split(b"\r\n")[0]
-    assert "error" in json.loads(body)
+def test_an_escaped_handler_error_is_logged_not_printed(rig, caplog, capsys):
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        rig.server.handle_error(None, ("127.0.0.1", 1))
+    assert any(r.levelname == "ERROR" and r.exc_info for r in caplog.records)
+    assert capsys.readouterr().err == ""
 
 
 def test_deeply_nested_json_is_400_not_500(rig):

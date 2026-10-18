@@ -91,6 +91,14 @@ class _Server(ThreadingHTTPServer):
 
     daemon_threads = True
 
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Log an escaped handler exception, with traceback, instead of printing it.
+
+        socketserver's default writes to stderr, which is outside `logging` and so
+        outside whatever the box does with its logs.
+        """
+        logger.exception("unhandled error serving %s", client_address)
+
     root: Path
     requests: queue.SimpleQueue
     token: str | None
@@ -128,8 +136,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
-        except ConnectionError:
-            pass
+        except OSError:
+            # ConnectionError, or a TimeoutError on a socket that already timed out
+            # (the 408 path): the caller is gone, and there is nobody to tell.
+            logger.debug("client %s went away before the error was sent", self.address_string())
         self.close_connection = True
 
     def _send(self, status: int, payload: dict[str, Any], headers: dict[str, str] | None = None) -> None:
@@ -142,8 +152,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
-        except ConnectionError:
-            # The caller hung up before reading the answer. The work (if any) is done
+        except OSError:
+            # The caller hung up (or its socket timed out) before reading the answer. The work (if any) is done
             # and cannot be undone; raising would only spam a traceback.
             logger.debug("client %s went away before the response was sent", self.address_string())
             self.close_connection = True
@@ -154,7 +164,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(status, payload)
         except _Reply as reply:
             self._send(reply.status, reply.payload, reply.headers)
-        except ConnectionError:
+        except OSError:
+            logger.debug("client %s went away mid-request", self.address_string())
             self.close_connection = True
         except Exception as error:
             # A bug here must still answer in JSON; a dropped connection tells the task
