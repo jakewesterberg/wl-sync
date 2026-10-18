@@ -512,8 +512,8 @@ box. Recording never stalls at an open or a close, and after every request the r
   `deploy/README.md` ("The session endpoint") gives the commands that make it.
 - **The port** is 8740. The box runs `wl-sync record --listen HOST:PORT --session-token-file PATH`; the shipped unit uses
   `0.0.0.0:8740` and `/etc/wl-sync/session-token`.
-- **A missing, unreadable or empty token file** means the box serves `GET` only, logs an ERROR, and **keeps recording**. Opens and
-  closes then answer 403.
+- **A box without a token file** (missing, unreadable or empty) serves `GET /session` only and answers every open or close with
+  403. It logs an ERROR and **keeps recording**.
 - `GET /session` needs no token, so keep the port on the rig network.
 
 ## Retrying
@@ -558,8 +558,10 @@ consumers cannot tell which ran"* (wl-xcon `docs/design/decisions/ADR-0005-day-o
 
 ## What stays unsettled
 
-- **Who writes `session_manifest.yaml` for a MonkeyLogic session.** wl-preproc records it as not yet settled (design §7). The box gives
-  a MonkeyLogic session its id and its `syncbox/` folder, and does not write the manifest.
+- **Who writes `session_manifest.yaml` for a MonkeyLogic session.** wl-preproc's answer to XC-098 is that wl-xcon writes it, at the session folder's root, in every
+  session it runs (wl-preproc `HANDOVER-wl-expcontroller.md:403-404`). A MonkeyLogic session is not one wl-xcon runs, so nothing
+  names its writer; that is wl-sync's observation, not wl-preproc's. The box gives a MonkeyLogic session its id and its `syncbox/`
+  folder, and does not write the manifest.
 - **The copy to the NAS, and `syncbox/DONE`.** Nothing does either yet, on either side.
 - **wl-preproc's pinned wl-sync (`90b931e`) cannot read today's logs.** That is a message for wl-preproc, and independent of this answer.
 

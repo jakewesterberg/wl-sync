@@ -226,8 +226,11 @@ and no client library. A `request_id` can be anything unique per attempt, such a
 
 - **Copying sessions to the NAS, and writing `syncbox/DONE`.** Nothing does this yet, on either
   side.
-- **Who writes `session_manifest.yaml` for a MonkeyLogic session.** wl-preproc records it as
-  *"not yet settled"*. The box gives a MonkeyLogic session its id and its sync-box folder; it does
+- **Who writes `session_manifest.yaml` for a MonkeyLogic session.** ~~wl-preproc records it as
+  *"not yet settled"*.~~ **Corrected 2026-10-18:** wl-preproc's answer to XC-098 is that wl-xcon writes it,
+  at the session folder's root, in every session it runs (wl-preproc `HANDOVER-wl-expcontroller.md:403-404`).
+  "Not yet settled" there refers to sessions with no task PC. A MonkeyLogic session is not one wl-xcon
+  runs, so nothing names its writer. The box gives a MonkeyLogic session its id and its sync-box folder; it does
   not write the manifest.
 - **wl-preproc's pinned wl-sync (`90b931e`) cannot read today's segment logs.** Its header model
   forbids the fields added since August, and its reader raises on `B` and `T` records (checked

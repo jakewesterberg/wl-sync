@@ -1,7 +1,7 @@
 # Next session — sync box
 
 **State at handoff (2026-10-18):** Step A has landed, and **the RP1 backend has now run on
-silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests pass. §6 lists
+silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests passed at that handoff (404 on the branch below). §6 lists
 this session's commits. What is left of bench day needs signals on the pins.
 
 **Session identity is built, and not merged.** It is on branch `session-identity`: the box
