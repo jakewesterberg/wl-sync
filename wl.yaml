@@ -10,6 +10,22 @@ summary: >-
   signal conditioning for a recording rig. Owns session identity, the barcode
   codec and the log format.
 
+status:
+  phase: >-
+    Software: the continuous recorder (segments, manifest, clock degradation,
+    barcode checkpointing) and the RP1 backend (PIO strobe capture, libgpiod
+    edge capture) are built and tested on FakeBackend, 274 tests, CI green.
+    The RP1 backend is not yet wired into the run loop, so the box records
+    only with --fake. Breakout board: schematic captured, layout not started.
+    wl-xcon's 2026-10-11 asks are answered except the two on session identity.
+  next: >-
+    Wire the RP1 backend into the run loop (docs/next-session.md, Step A),
+    then bench day on a Pi 5. Before layout: the task PC line-out and the PFI
+    copy of PD1_COMP (spec Sec.12 item 11).
+  # The tip this block was written from. Quoted: an all-digit SHA would be
+  # read by YAML as an integer.
+  describes: "9e60ed6"
+
 runs_on: [rig/sync]
 builds_on: [dws]
 
