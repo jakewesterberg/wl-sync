@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from wl_sync import cli
+from wl_sync import cli, sessions
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
@@ -1233,7 +1233,7 @@ def test_an_open_rolls_the_recording_into_the_new_session(tmp_path):
     opening = _request("open", "r1")
     folder = _record(tmp_path, {1: [opening]}, 4)
 
-    assert opening.reply.result().session.session_id == SessionId.parse("2026-08-16_01")
+    assert opening.reply.result(timeout=0).session.session_id == SessionId.parse("2026-08-16_01")
     session = tmp_path / "2026-08-16_01" / "syncbox"
     assert folder == session
     before = unassigned_dir(tmp_path, DAY) / segment_name(0)
@@ -1250,12 +1250,20 @@ def test_a_close_rolls_the_recording_back_between_sessions(tmp_path):
     opening, closing = _request("open", "r1"), _request("close", "2026-08-16_01")
     folder = _record(tmp_path, {1: [opening], 3: [closing]}, 6)
 
-    assert closing.reply.result() == SessionId.parse("2026-08-16_01")
+    assert closing.reply.result(timeout=0) == SessionId.parse("2026-08-16_01")
     session_segment = tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0)
     assert _has_trailer(session_segment)
     assert len(_values(session_segment)) == 2
     assert folder.parent.parent.name == "unassigned"
+    # seg-000 of the unassigned folder is the one from BEFORE the open (frames 1-2); the
+    # post-close frames (5-6) are in seg-001, which is a segment of its own.
     assert len(_values(folder / segment_name(0))) == 2
+    after = folder / segment_name(1)
+    assert len(_values(after)) == 2
+    assert _has_trailer(after)
+    header, _ = read_log(after)
+    assert header.session_id == "2026-08-16_00"
+    assert header.segment_index == 1
     assert read_open(tmp_path) is None
 
 
@@ -1264,7 +1272,7 @@ def test_an_open_while_open_closes_the_old_session_and_says_so(tmp_path, caplog)
     with caplog.at_level(logging.INFO, logger=cli.log.name):
         _record(tmp_path, {1: [first], 3: [second]}, 6)
 
-    assert second.reply.result().closed == first.reply.result().session.session_id
+    assert second.reply.result(timeout=0).closed == first.reply.result(timeout=0).session.session_id
     errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
     assert any("2026-08-16_01" in m and "2026-08-16_02" in m for m in errors)
     assert _has_trailer(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))
@@ -1273,7 +1281,7 @@ def test_an_open_while_open_closes_the_old_session_and_says_so(tmp_path, caplog)
 def test_an_open_on_a_dead_clock_is_named_by_the_barcode_day(tmp_path):
     opening = _request("open", "r1")
     _record(tmp_path, {1: [opening]}, 3, start=datetime.datetime(2000, 1, 1, tzinfo=UTC))
-    assert opening.reply.result().session.session_id == SessionId.parse("2020-01-01_01")
+    assert opening.reply.result(timeout=0).session.session_id == SessionId.parse("2020-01-01_01")
 
 
 def test_session_errors_reach_the_caller_and_recording_continues(tmp_path):
@@ -1281,19 +1289,20 @@ def test_session_errors_reach_the_caller_and_recording_continues(tmp_path):
     folder = _record(tmp_path, {1: [wrong, garbled]}, 4)
 
     with pytest.raises(WrongSession):
-        wrong.reply.result()
+        wrong.reply.result(timeout=0)
     with pytest.raises(ValueError):
-        garbled.reply.result()
+        garbled.reply.result(timeout=0)
     assert folder == unassigned_dir(tmp_path, DAY)
     assert len(_values(folder / segment_name(0))) == 4
 
 
 def test_a_cancelled_request_is_never_carried_out(tmp_path):
-    opening = _request("open", "r1")
-    assert opening.reply.cancel()
-    _record(tmp_path, {1: [opening]}, 3)
-    assert read_open(tmp_path) is None
-    assert not list(tmp_path.glob("2026-08-16_*"))
+    cancelled, live = _request("open", "r1"), _request("open", "r2")
+    assert cancelled.reply.cancel()
+    _record(tmp_path, {1: [cancelled, live]}, 3)
+    assert live.reply.result(timeout=0).session.session_id == SessionId.parse("2026-08-16_01")
+    assert read_open(tmp_path).request_id == "r2"
+    assert [p.name for p in tmp_path.glob("2026-08-16_*")] == ["2026-08-16_01"]
 
 
 def test_a_roll_in_the_last_iteration_does_not_rewind_the_checkpoint(tmp_path):
@@ -1306,3 +1315,81 @@ def test_a_roll_in_the_last_iteration_does_not_rewind_the_checkpoint(tmp_path):
     assert len(emitted) == 3
     assert not _values(folder / segment_name(0))
     assert read_checkpoint(tmp_path / CHECKPOINT_NAME) == emitted[-1]
+
+
+def test_an_open_that_fails_after_saving_state_still_records_into_that_session(
+    tmp_path, monkeypatch
+):
+    """write_open saves the state and then fsyncs the directory. If the fsync raises, the
+    state names the new session while the caller hears of a failure; the retry is then
+    `reused` and rolls nowhere. The recording must follow the state file regardless."""
+    real = sessions.write_open
+
+    def saves_then_fails(root, session):
+        real(root, session)
+        raise OSError("directory fsync failed")
+
+    failing, retry = _request("open", "r1"), _request("open", "r1")
+    monkeypatch.setattr(sessions, "write_open", saves_then_fails)
+    requests = queue.SimpleQueue()
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        if state["n"] == 1:
+            requests.put(failing)
+        if state["n"] == 3:
+            monkeypatch.setattr(sessions, "write_open", real)
+            requests.put(retry)
+
+    run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(START),
+        duration_s=6,
+        tick_fn=tick_fn,
+        requests=requests,
+    )
+
+    assert isinstance(failing.reply.exception(timeout=0), OSError)
+    assert retry.reply.result(timeout=0).reused
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert len(_values(unassigned_dir(tmp_path, DAY) / segment_name(0))) == 2
+    assert len(_values(session / segment_name(0))) == 4
+
+
+def test_a_close_that_fails_after_clearing_state_still_records_between_sessions(
+    tmp_path, monkeypatch
+):
+    real = sessions.clear_open
+
+    def clears_then_fails(root):
+        real(root)
+        raise OSError("directory fsync failed")
+
+    opening, closing = _request("open", "r1"), _request("close", "2026-08-16_01")
+    requests = queue.SimpleQueue()
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        if state["n"] == 1:
+            requests.put(opening)
+        if state["n"] == 3:
+            monkeypatch.setattr(sessions, "clear_open", clears_then_fails)
+            requests.put(closing)
+
+    folder = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(START),
+        duration_s=6,
+        tick_fn=tick_fn,
+        requests=requests,
+    )
+
+    assert isinstance(closing.reply.exception(timeout=0), OSError)
+    assert read_open(tmp_path) is None
+    assert folder.is_relative_to(tmp_path / "unassigned")
+    assert len(_values(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))) == 2
+    assert len(_values(folder / segment_name(1))) == 2

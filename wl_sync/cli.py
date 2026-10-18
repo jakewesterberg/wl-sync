@@ -47,6 +47,7 @@ from wl_sync.segment import SegmentWriter, next_segment_index, segment_name
 from wl_sync.service import BarcodeGenerator, QueuedSink, Recorder
 from wl_sync.session import SessionId
 from wl_sync.sessions import (
+    SessionError,
     SessionRequest,
     close_session,
     open_session,
@@ -182,10 +183,11 @@ def _segment_factory(
     rather than as a raise that leaves the old segment half-handled.
 
     The index is read when this is called, not when the factory runs. That is safe because
-    a roll never goes into the folder it leaves (every session id is new, and the
-    between-sessions folder is only entered from a session), so no writer can be adding to
-    `folder` in between. At the start of run() the folder may not exist yet, and a missing
-    folder simply has no segments.
+    only the run loop creates segments, and the outgoing segment is already on disk when
+    this is called, so a roll into the folder it leaves would still see it. Were another
+    process to add one in between, segments are opened with "x", so the collision fails
+    loudly rather than overwriting. At the start of run() the folder may not exist yet,
+    and a missing folder simply has no segments.
     """
     index = next_segment_index(folder)
     header = SyncBoxLogHeader(
@@ -324,74 +326,104 @@ def run(
     # box (spec Sec.4). See the end of the loop.
     carried_last: int | None = None
 
+    def follow_state(day: datetime.date) -> None:
+        """Make the recording follow the state file, rolling only if it does not already.
+
+        THE STATE FILE IS WHAT A RESTART WOULD RESUME, so it is what the recording must
+        match -- after EVERY request, including one that failed. open_session saves the
+        state and only then fsyncs the directory; if that fsync raises, the state already
+        names the new session while the caller was told the open failed. Left in the old
+        folder, the retry (same request_id, so `reused`) would roll nowhere and the box
+        would record the new animal into the previous one's folder until a restart: a
+        session folder holding two animals. Reading the state back instead of trusting the
+        outcome closes that, for opens and closes alike. A refusal changes no state, so
+        this is a no-op for it.
+
+        No session open and already between sessions stays put: there is no midnight roll
+        between visits.
+
+        A failure IN the roll propagates; the caller completes the future first.
+        """
+        nonlocal folder, session_id, carried_last
+        current = read_open(out)
+        if current is not None:
+            new_folder, new_id = session_dir(out, current.session_id), current.session_id
+            if folder == new_folder:
+                return
+        else:
+            if folder.is_relative_to(out / "unassigned"):
+                return
+            new_folder, new_id = unassigned_dir(out, day), unassigned_id(day)
+
+        old_folder, outgoing = folder, sink.sink
+        _, make_writer = _segment_factory(
+            new_folder, new_id, rig=out.name, written_at=now_fn(), trust=trust
+        )
+        sink.roll(make_writer, now_fn())
+        # The outgoing writer's span is final now that its trailer is written.
+        if outgoing.barcode_last is not None:
+            carried_last = outgoing.barcode_last
+        folder, session_id = new_folder, new_id
+        log.info("recording into %s (session %s)", new_folder, new_id)
+
+        try:
+            write_manifest(old_folder)
+        except Exception as error:  # noqa: BLE001 - recording matters more than the summary
+            # Not rebuilt by a later start either: a folder that has been left is never
+            # entered again, so its manifest stays as it is until someone rebuilds it.
+            log.error("could not rebuild the manifest of %s: %s", old_folder, error)
+
     def carry_out(request: SessionRequest, value: int) -> None:
         """Do what `request` asks and complete its future, whatever happens.
 
         THE FUTURE IS COMPLETED BEFORE ANYTHING PROPAGATES, because an HTTP caller blocked
         on it would otherwise sit out its whole timeout on a request that already failed.
 
-        A refusal or a filesystem failure BEFORE the roll (a SessionError, a bad id, an
-        OSError) goes to the caller and recording carries on in the current folder, since
-        nothing about the recording has changed. A failure IN the roll is different: the
-        sink is dead and can record nothing, so it is set on the future and then raised.
-        Under systemd `Restart=always` the box resumes from the state file it saved.
+        A refusal or a failure in open_session/close_session goes to the caller, and
+        recording then follows whatever the state file says (see follow_state) -- which is
+        the current folder unless the failure came after the state was saved. A failure IN
+        the roll is different: the sink is dead and can record nothing, so it is set on the
+        future and then raised. Under systemd `Restart=always` the box resumes from the
+        state file it saved.
         """
-        nonlocal folder, session_id, carried_last
         day = _barcode_day(value)
-        opened = None
+        error: Exception | None = None
+        result = None
         try:
             if request.kind == "open":
-                opened = open_session(out, request.argument, now_fn(), day)
-                result = opened
-                target = (
-                    None
-                    if opened.reused
-                    else (session_dir(out, opened.session.session_id), opened.session.session_id)
-                )
+                result = open_session(out, request.argument, now_fn(), day)
+                if not result.reused:
+                    # Logged as soon as the state changed, so a roll that then fails
+                    # still leaves the forced close in the journal (spec 3.1).
+                    if result.closed is not None:
+                        log.error(
+                            "session %s opened while %s was still open: %s was closed "
+                            "to make room",
+                            result.session.session_id, result.closed, result.closed,
+                        )
+                    log.info(
+                        "opened session %s into %s",
+                        result.session.session_id,
+                        session_dir(out, result.session.session_id),
+                    )
             else:
-                closing = SessionId.parse(request.argument)
-                close_session(out, closing)
-                result = closing
-                target = (unassigned_dir(out, day), unassigned_id(day))
-        except Exception as error:  # noqa: BLE001 - handed to the caller, see above
-            request.reply.set_exception(error)
-            return
+                result = SessionId.parse(request.argument)
+                close_session(out, result)
+                log.info("closed session %s", result)
+        except Exception as caught:  # noqa: BLE001 - handed to the caller, see above
+            error = caught
+            if not isinstance(caught, SessionError):
+                log.error("%s request failed: %r", request.kind, caught)
 
-        if target is None:
-            # A retry of the open that is already in force: nothing changed, so nothing
-            # rolls and nothing is logged a second time.
-            request.reply.set_result(result)
-            return
-
-        new_folder, new_id = target
-        old_folder, outgoing = folder, sink.sink
-        _, make_writer = _segment_factory(
-            new_folder, new_id, rig=out.name, written_at=now_fn(), trust=trust
-        )
         try:
-            sink.roll(make_writer, now_fn())
-        except BaseException as error:
-            request.reply.set_exception(error)
+            follow_state(day)
+        except BaseException as roll_error:
+            request.reply.set_exception(roll_error)
             raise
-        # The outgoing writer's span is final now that its trailer is written.
-        if outgoing.barcode_last is not None:
-            carried_last = outgoing.barcode_last
-        folder, session_id = new_folder, new_id
-
-        try:
-            write_manifest(old_folder)
-        except Exception as error:  # noqa: BLE001 - the next start rebuilds it
-            log.error("could not rebuild the manifest of %s: %s", old_folder, error)
-        if opened is not None:
-            if opened.closed is not None:
-                log.error(
-                    "session %s opened while %s was still open: %s was closed to make room",
-                    new_id, opened.closed, opened.closed,
-                )
-            log.info("opened session %s, recording into %s", new_id, new_folder)
+        if error is not None:
+            request.reply.set_exception(error)
         else:
-            log.info("closed session %s, recording between sessions into %s", result, new_folder)
-        request.reply.set_result(result)
+            request.reply.set_result(result)
 
     stopping = _StopFlag()
     with _handling(stopping, signal.SIGINT, signal.SIGTERM):
