@@ -101,10 +101,16 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 `deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
-GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), record
-for a minute, and decode the GPIO20 edges with `barcode.decode_edges`. Every frame should
-decode to the value the box logged. That checks the end-of-frame fix on silicon, where the
-fake could not.
+GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
+
+    ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0 --duration 60
+    ~/wl-sync-venv/bin/python -m wl_sync.bench loopback /tmp/wl-bench/rig0/<today>_01
+
+`wl_sync.bench` matches every frame decoded from GPIO20 against the `B` record the box logged,
+and exits non-zero on any mismatch. That checks the end-of-frame fix on silicon, where no fake
+could. The first frame is reported as not checkable, by design. The lead-edge offset it prints
+is the software latency between the logged tick and the pin rising; record it here. Without
+the jumper it says so, which was checked on the box.
 
 Then Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`, which need a
 second board or a signal generator on the strobe and data lines:
@@ -241,6 +247,7 @@ Worth keeping, because they caught real defects today.
 | deploy: how the sync box's OS was set up, headless |
 | deploy: the sync box can join the tailnet |
 | RP1 backend: bind piolib through a C shim, and first run on silicon |
+| bench: check the box's own barcode, read back through an edge input |
 
 **The capture logic is verified against fakes on a laptop. On silicon, so far: the shim,
 the encodings, the chip, the pacing and a clean 30 s run, all with nothing wired.**
