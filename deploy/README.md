@@ -119,8 +119,9 @@ makes the same two calls from MATLAB. Without them the whole visit records into
 `deploy/monkeylogic/wlsync_session.m` is one file.
 
 **This cannot be tested in this repository.** It has never run under MATLAB, MonkeyLogic or
-against the box. The function uses only documented MATLAB calls, but every item in the
-bench-day checklist below is unconfirmed until someone runs it on the Windows boot.
+against the box. The function's MATLAB calls are believed to be documented, and the ones
+named in the checklist below are unconfirmed; none of it is confirmed until someone runs it on the
+Windows boot.
 
 **Install.** Copy `wlsync_session.m` into a folder on MATLAB's path (`addpath`, or a folder
 MonkeyLogic already puts there). Check with `which wlsync_session`.
@@ -132,7 +133,7 @@ Never commit it, and never paste it into a script. The function reads it with
 `strtrim(fileread(...))` and never prints it.
 
 **Where to call it.** Call `wlsync_session('open', box, token_file)` when a session starts and
-`wlsync_session('close', box, token_file)` when it ends, with `box` like `'wl-sync-rig0:8740'`.
+`wlsync_session('close', box, token_file)` when it ends, with `box` like `'wl-sync-rig0.local:8740'`.
 NIMH MonkeyLogic is believed to run a user `alert_function.m` with session-level cases (task
 start and end), which would be the likely place. **Confirm this against the installed
 MonkeyLogic version on bench day**, including the exact case names and whether an error
@@ -155,7 +156,9 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 3. `wlsync_session('show', box)` now returns the same id.
 4. `wlsync_session('close', box, tf)` returns that id; `show` returns `''` again.
 5. Retry with a lost reply: open, then drop the network for a moment (or point at a slow link) so the
-   first reply is lost. Exactly one session must result, not two.
+   first reply is lost. Exactly one session must result, not two. A hang is a possible outcome,
+   because `ConnectTimeout` bounds connecting only: if MATLAB hangs, stop MonkeyLogic, then
+   run `wlsync_session('show', box)` to see what the box did.
 6. A wrong token: the error reads HTTP 401 with the box's message, and the token appears nowhere.
 7. An unreachable box (wrong host, or the box off): the error says unreachable after 4 attempts,
    in about 3 s of waiting plus the timeouts.
@@ -163,6 +166,17 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
    (and whether it also bounds a slow reply), and the type of `resp.Body.Data` for a JSON body
    (the function handles a struct, text or bytes).
 9. The MonkeyLogic hook: where it fires, and that a failed open really stops the start.
+10. Error classification: that `send` raises `matlab.net.http.HTTPException` (believed, unverified)
+    for a refused connection, unknown host and timeout, so item 7 reads "unreachable". Then break an
+    option on purpose (misspell the `HTTPOptions` property): the error must be `wlsync:internal` with
+    MATLAB's own message, and must not be retried (no 3 s wait).
+11. Name resolution: the Windows boot resolves `wl-sync-rig0.local`. If not, use the box's IP
+    address or its tailnet name as `box`.
+12. A 409: with curl, close a session id that is not the open one; the box answers 409 with `open`, which the function would show as `[the open session is ...]`.
+13. `wlsync_session('close', box, tf)` with nothing open errors "nothing to close".
+14. `wlsync_session('bogus', box)` errors naming `'open'`, `'close'` and `'show'`.
+15. Open while a session is already open: the new id is returned and a `wlsync:autoclosed`
+    warning names the session the box force-closed.
 
 ## Setting up the OS, once per box
 

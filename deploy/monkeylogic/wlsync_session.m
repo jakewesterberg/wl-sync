@@ -7,7 +7,7 @@ function id = wlsync_session(action, box, token_file)
 %
 %   Inputs
 %     ACTION      'open', 'close' or 'show'. Anything else is an error.
-%     BOX         host and port of the sync box, e.g. 'wl-sync-rig0:8740'.
+%     BOX         host and port of the sync box, e.g. 'wl-sync-rig0.local:8740'.
 %     TOKEN_FILE  path to a text file holding the session token. Needed for
 %                 'open' and 'close'; 'show' needs no token.
 %
@@ -18,9 +18,9 @@ function id = wlsync_session(action, box, token_file)
 %                 'show'  : the open id, or '' when no session is open.
 %
 %   Example
-%     id = wlsync_session('open', 'wl-sync-rig0:8740', 'C:\wl\session-token');
+%     id = wlsync_session('open', 'wl-sync-rig0.local:8740', 'C:\wl\session-token');
 %     % ... run the visit, naming MonkeyLogic's data after ID ...
-%     wlsync_session('close', 'wl-sync-rig0:8740', 'C:\wl\session-token');
+%     wlsync_session('close', 'wl-sync-rig0.local:8740', 'C:\wl\session-token');
 %
 %   Every failure is an error, so a caller that does not catch it stops.
 %   That is the point: a MonkeyLogic visit that starts without a session
@@ -37,6 +37,12 @@ function id = wlsync_session(action, box, token_file)
 %       It retries (up to 3 more times, 1 s apart) only on a network
 %       failure, a timeout, or HTTP 503 (the box's recording loop did not
 %       take the request, and nothing changed). Any other status is final.
+%     * Only a transport failure (believed to be matlab.net.http.HTTPException,
+%       UNVERIFIED) is called "unreachable" and retried. Any other MATLAB
+%       error stops at once as wlsync:internal, so a bug is not mistaken for
+%       a network problem.
+%     * ConnectTimeout bounds connecting only; a lost reply may hang rather
+%       than time out. If so, stop MonkeyLogic and run 'show'.
 %     * 'close' does not retry: it reads the open id first, and a lost
 %       reply is better answered by 'show' than by a blind second close.
 %     * The token is read with strtrim(fileread(...)), and is never printed
@@ -55,7 +61,7 @@ function id = wlsync_session(action, box, token_file)
 
     switch action
         case 'show'
-            id = show_open(base);
+            id = show_open(base, '');
 
         case 'open'
             if nargin < 3
@@ -78,10 +84,17 @@ function id = wlsync_session(action, box, token_file)
                 error('wlsync:unreachable', ...
                     'sync box %s unreachable after %d attempts: %s', box, attempt, failure);
             end
-            check_ok(status, data, 'open', box);
+            check_ok(status, data, 'open', box, token);
             id = as_char(get_field(data, 'session_id'));
             if isempty(id)
                 error('wlsync:badreply', 'sync box %s answered 200 to open but gave no session_id', box);
+            end
+            closed = as_char(get_field(data, 'closed'));
+            if ~isempty(closed)
+                % The box had to close a session that was still open: a close was missed.
+                warning('wlsync:autoclosed', ...
+                    'sync box %s force-closed session %s while opening %s; a close was missed', ...
+                    box, closed, id);
             end
 
         case 'close'
@@ -89,7 +102,7 @@ function id = wlsync_session(action, box, token_file)
                 error('wlsync:usage', 'close needs a token file: wlsync_session(''close'', box, token_file)');
             end
             token = read_token(token_file);
-            open_id = show_open(base);
+            open_id = show_open(base, token);
             if isempty(open_id)
                 error('wlsync:nothingopen', 'nothing to close: sync box %s has no open session', box);
             end
@@ -99,7 +112,7 @@ function id = wlsync_session(action, box, token_file)
                 error('wlsync:unreachable', 'sync box %s unreachable while closing %s: %s', ...
                     box, open_id, failure);
             end
-            check_ok(status, data, 'close', box);
+            check_ok(status, data, 'close', box, token);
             id = as_char(get_field(data, 'closed'));
 
         otherwise
@@ -122,12 +135,12 @@ function token = read_token(path)
     end
 end
 
-function id = show_open(base)
+function id = show_open(base, token)
     [status, data, failure] = send_request('GET', [base '/session'], '', []);
     if ~isempty(failure)
         error('wlsync:unreachable', 'sync box at %s unreachable: %s', base, failure);
     end
-    check_ok(status, data, 'show', base);
+    check_ok(status, data, 'show', base, token);
     id = as_char(get_field(data, 'session_id'));
 end
 
@@ -157,8 +170,24 @@ function [status, data, failure] = send_request(method, url, token, body)
         status = double(resp.StatusCode);
         data = decode_body(resp);
     catch err
-        % The message may name the URL but never carries the token.
-        failure = err.message;
+        % Only a transport failure is "unreachable" (and so retried by 'open').
+        % UNVERIFIED: that send raises matlab.net.http.HTTPException for a refused
+        % connection, unknown host or timeout. If it raises something else on a
+        % real network failure, this will wrongly stop as internal; fix on bench day.
+        if isa(err, 'matlab.net.http.HTTPException')
+            failure = redact(err.message, token);
+        else
+            % A wrong option name, a HeaderField/MessageBody misuse, a bug: say so
+            % at once, never retry, never call it a network problem.
+            error('wlsync:internal', 'internal error (%s): %s', err.identifier, redact(err.message, token));
+        end
+    end
+end
+
+function text = redact(text, token)
+% Server or MATLAB text goes into errors only after the token is removed.
+    if ~isempty(token)
+        text = strrep(text, token, '<token>');
     end
 end
 
@@ -189,12 +218,12 @@ function data = try_jsondecode(text)
     end
 end
 
-function check_ok(status, data, what, where_)
+function check_ok(status, data, what, where_, token)
 % Anything but 200 is an error carrying the box's own message and the status.
     if status == 200
         return
     end
-    msg = as_char(get_field(data, 'error'));
+    msg = redact(as_char(get_field(data, 'error')), token);
     if isempty(msg)
         msg = '(no message from the box)';
     end
