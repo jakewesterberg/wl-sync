@@ -33,6 +33,18 @@ from wl_sync.segment import SegmentWriter, segment_name
 UTC = datetime.timezone.utc
 
 
+@pytest.fixture(autouse=True)
+def _host_ntp_is_unknown(monkeypatch):
+    """run() asks the HOST whether NTP has synced, through timedatectl. A laptop has no
+    timedatectl and answers None ("unknown", which evaluate_clock trusts), but a Linux CI
+    runner has one and reports whatever its own clock is doing -- so three of these tests
+    failed in CI on 2026-10-18 whenever the runner had not yet synced, and passed on the
+    next push. Every test here is about the run loop, not the host, so the probe answers
+    "unknown" unless a test says otherwise. evaluate_clock's NTP handling is tested
+    directly in tests/test_clock.py."""
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda: None)
+
+
 def _clock_from(start, step_s=1):
     """A now_fn advancing step_s per call, unbounded -- run() calls it once at start,
     once per emitted frame, and once at close."""
