@@ -7,6 +7,11 @@ positively instead of discovering a hole.
 
 The manifest is DERIVED STATE, rebuilt by scanning segments at every start. It is never
 authoritative and never merged into, so a crash cannot leave it stale.
+
+The scan is memoised per segment (see `_summarise_cached`), because the run loop also
+rebuilds a folder's manifest at every roll, and a crashed segment's scan is slow. The
+memo is checked against the file on every lookup, so it never stands in for a segment
+that has changed; the manifest is still rebuilt whole every time.
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -157,6 +164,62 @@ def summarise_segment(path: Path) -> SegmentSummary:
     )
 
 
+# Enough for months of one box's segments -- a day makes tens of them -- and small: an
+# entry is a path, a stat key and one SegmentSummary, measured at about 1.4 KB, so a full
+# memo is under 6 MB. See _summarise_cached.
+_SUMMARY_CACHE_LIMIT = 4096
+
+# path -> ((st_ino, st_size, st_mtime_ns), summary), least recently used first.
+_summaries: OrderedDict[Path, tuple[tuple[int, int, int], SegmentSummary]] = OrderedDict()
+_summaries_lock = threading.Lock()
+
+
+def _summarise_cached(path: Path) -> SegmentSummary:
+    """summarise_segment, reusing an earlier summary of the same, unchanged file.
+
+    WHY THE MANIFEST REMEMBERS. The run loop rebuilds a folder's manifest when the
+    recording rolls out of it, on its own thread, between two frames. A segment left
+    without a trailer by a crash declines the fast path and is parsed line by line:
+    210 MB took 1.87 s on a laptop, and a CM5 is slower. For that long no barcode frame
+    went out, the new segment went unflushed past the one-second crash-loss bound, and a
+    pure-Python loop held the GIL against the 1 ms word pump -- at every open and close
+    after a crash, which spec Sec.2 forbids ("recording that stalls ... at an open or a
+    close"). The start of the run has already parsed every segment in the folder it
+    starts in, before capture begins, and nothing writes to a crashed segment again. So
+    a roll out of that folder now costs a stat per segment, not a parse.
+
+    WHY IT CANNOT GO STALE. An entry is used only while the file's inode, size and
+    modification time all still match. Segments are append-only, so any write changes
+    the size; the time and the inode catch a file rewritten or replaced in place. The
+    stat is taken BEFORE the parse: a file that grows between the two is summarised
+    with more than the stat saw, and the next lookup sees a new size and parses again.
+    The other order would file a summary of the old contents under the new size.
+
+    WHAT IS NOT REMEMBERED. A failure. Whatever made a read fail -- permissions, say --
+    can be put right without touching the size or the time, so a remembered failure
+    could outlive its cause.
+
+    BOUNDED, least recently used out first, because the process can run for months. The
+    limit is far above what a day's rolls can add (99 sessions at most, two rolls
+    each), so it does not evict what a roll is about to reuse. A lock, because nothing
+    confines callers to one thread; it is never held across a parse.
+    """
+    stat = path.stat()
+    key = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    with _summaries_lock:
+        cached = _summaries.get(path)
+        if cached is not None and cached[0] == key:
+            _summaries.move_to_end(path)
+            return cached[1]
+    summary = summarise_segment(path)
+    with _summaries_lock:
+        _summaries[path] = (key, summary)
+        _summaries.move_to_end(path)
+        while len(_summaries) > _SUMMARY_CACHE_LIMIT:
+            _summaries.popitem(last=False)
+    return summary
+
+
 def _summarise_or_degrade(path: Path) -> SegmentSummary:
     """One unreadable segment must not cost the box the rest of the day.
 
@@ -172,7 +235,7 @@ def _summarise_or_degrade(path: Path) -> SegmentSummary:
     of them says anything about the run.
     """
     try:
-        return summarise_segment(path)
+        return _summarise_cached(path)
     except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
         return SegmentSummary(
             file=path.name,
@@ -184,9 +247,21 @@ def _summarise_or_degrade(path: Path) -> SegmentSummary:
         )
 
 
-def build_manifest(day_dir: Path) -> dict:
+def build_manifest(day_dir: Path, *, excluding: Path | None = None) -> dict:
+    """The manifest of the segments in `day_dir`, leaving out `excluding` if given.
+
+    `excluding` is for the segment still being written. Listed, it could only read as
+    `closed: "crash"`, since it has no trailer until it closes; the start of a run
+    rebuilds its folder's manifest before its own segment exists, so it lists the
+    segments that were there when the recording arrived. A roll into a folder passes its
+    new segment here to say the same thing.
+    """
     paths = sorted(
-        (path for path in day_dir.glob(SEGMENT_PATTERN) if segment_index_of(path) is not None),
+        (
+            path
+            for path in day_dir.glob(SEGMENT_PATTERN)
+            if segment_index_of(path) is not None and path != excluding
+        ),
         key=segment_index_of,
     )
     summaries = [_summarise_or_degrade(path) for path in paths]
@@ -242,8 +317,8 @@ def build_manifest(day_dir: Path) -> dict:
     }
 
 
-def write_manifest(day_dir: Path) -> dict:
-    manifest = build_manifest(day_dir)
+def write_manifest(day_dir: Path, *, excluding: Path | None = None) -> dict:
+    manifest = build_manifest(day_dir, excluding=excluding)
     path = day_dir / "manifest.json"
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

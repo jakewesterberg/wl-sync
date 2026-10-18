@@ -153,12 +153,19 @@ def _resume(
 
 
 def _barcode_day(value: int) -> datetime.date:
-    """The date a barcode value implies: it IS seconds since the 2020 epoch (Sec.4).
+    """The date a barcode value implies: it IS seconds since the 2020 epoch (Sec.4), and
+    the epoch is UTC, so this is a UTC date.
 
-    ONE EXPRESSION, USED BY EVERYTHING THAT NAMES A FOLDER FROM A VALUE. _resume() names
-    the start-up folder with it and a session request names its folder with it, so a dead
-    clock cannot name the one after 1970 while the other names it after 2020 -- two
-    spellings of the same fact are free to drift apart.
+    ONE EXPRESSION FOR EVERY FOLDER NAMED FROM A VALUE. A session request names its
+    folder with it, and so does _resume() when the clock reads before the epoch, so a
+    dead clock cannot name the one after 1970 while the other names it after 2020 --
+    two spellings of the same fact are free to drift apart.
+
+    NOT EVERY FOLDER IS NAMED FROM A VALUE. On a clock that reads after the epoch,
+    _resume() names the start-up folder by the clock's own date, `started.date()`, which
+    is how session-identity spec Sec.3.2 decides "the day": the wall-clock date on a
+    trusted clock, the date the resumed value implies on a dead one. That is the
+    intended behaviour, not a second spelling of this one.
     """
     return (BARCODE_EPOCH + datetime.timedelta(seconds=value)).date()
 
@@ -357,7 +364,7 @@ def run(
             new_folder, new_id = unassigned_dir(out, day), unassigned_id(day)
 
         old_folder, outgoing = folder, sink.sink
-        _, make_writer = _segment_factory(
+        new_segment, make_writer = _segment_factory(
             new_folder, new_id, rig=out.name, written_at=now_fn(), trust=trust
         )
         sink.roll(make_writer, now_fn())
@@ -367,12 +374,26 @@ def run(
         folder, session_id = new_folder, new_id
         log.info("recording into %s (session %s)", new_folder, new_id)
 
-        try:
-            write_manifest(old_folder)
-        except Exception as error:  # noqa: BLE001 - recording matters more than the summary
-            # Not rebuilt by a later start either: a folder that has been left is never
-            # entered again, so its manifest stays as it is until someone rebuilds it.
-            log.error("could not rebuild the manifest of %s: %s", old_folder, error)
+        # BOTH FOLDERS' MANIFESTS. The old one now has its closed segment to record. The
+        # new one is written now, not when the recording leaves it, so a session entered
+        # by an open has a manifest for the whole visit rather than none; its new segment
+        # is left out, as a start leaves out its own (see build_manifest).
+        #
+        # ON THE RUN LOOP'S THREAD, so these must be cheap, and they are: a segment some
+        # earlier rebuild in this process summarised is not parsed again while it is
+        # unchanged (manifest._summarise_cached). The start has summarised the folder
+        # it began in, and a roll into a folder summarises that one. What a roll can
+        # still pay for is a crashed segment in a folder no rebuild in this process has
+        # seen: after a restart in the middle of a visit, a crashed segment in that day's
+        # unassigned/ folder is parsed once, at the visit's close.
+        for rebuilt, still_open in ((old_folder, None), (new_folder, new_segment)):
+            try:
+                write_manifest(rebuilt, excluding=still_open)
+            except Exception as error:  # noqa: BLE001 - recording matters more than the summary
+                # Not retried. A session folder that has been left is never entered
+                # again, so its manifest stays as it is until someone rebuilds it; an
+                # unassigned/ folder is rebuilt when the recording next comes into it.
+                log.error("could not rebuild the manifest of %s: %s", rebuilt, error)
 
     def carry_out(request: SessionRequest, value: int) -> None:
         """Do what `request` asks and complete its future, whatever happens.

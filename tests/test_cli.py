@@ -1,3 +1,4 @@
+import collections
 import datetime
 import json
 import logging
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from wl_sync import cli, sessions
+from wl_sync import cli, manifest, sessions
 from wl_sync.backend import FakeBackend
 from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
@@ -1400,6 +1401,80 @@ def test_a_close_that_fails_after_clearing_state_still_records_between_sessions(
     assert folder.is_relative_to(tmp_path / "unassigned")
     assert len(_values(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))) == 2
     assert len(_values(folder / segment_name(1))) == 2
+
+
+def test_a_roll_does_not_parse_again_a_crashed_segment_the_start_parsed(
+    tmp_path, monkeypatch
+):
+    """Rolling out of a folder rebuilds its manifest on the run loop's thread. A segment
+    left without a trailer by an earlier crash is parsed in full by that rebuild, and a
+    large one held the loop for seconds: no barcode frame, no flush of the new segment,
+    and the GIL held against the word pump, at the open itself (spec Sec.2's anti-goal).
+
+    The start of the run has already parsed it, before capture began, and nothing has
+    written to it since. So the roll must reuse that parse rather than repeat it."""
+    earlier = START - datetime.timedelta(hours=1)
+    with pytest.raises(_Crash):
+        run(tmp_path, FakeBackend(), _clock_from(earlier), None, _crash_after(5))
+    crashed = unassigned_dir(tmp_path, DAY) / segment_name(0)
+    assert not _has_trailer(crashed)
+
+    parses = collections.Counter()
+    real = manifest.summarise_segment
+
+    def counting(path):
+        parses[path] += 1
+        return real(path)
+
+    monkeypatch.setattr(manifest, "summarise_segment", counting)
+    opening = _request("open", "r1")
+    _record(tmp_path, {1: [opening]}, 3)
+
+    assert opening.reply.result(timeout=0).session.session_id == SessionId.parse("2026-08-16_01")
+    # Rebuilt twice -- at the start, and when the open rolled out of the folder -- and
+    # parsed once, at the start.
+    assert json.loads((crashed.parent / "manifest.json").read_text())["segments"][0][
+        "closed"
+    ] == "crash"
+    assert parses[crashed] == 1
+
+
+def test_a_session_entered_by_a_roll_has_a_manifest_at_once(tmp_path):
+    """A folder's manifest was written only when the recording left it or the run ended,
+    so a session entered by an open had none for the whole visit: `ls <id>/syncbox/`
+    showed segments and no manifest, and deploy/README.md calls the manifest the thing
+    to read.
+
+    It lists no segments yet. The one being written is left out, as the start of a run
+    leaves out its own: listed now, it could only say "crash", since it has no trailer
+    until it closes."""
+    requests = queue.SimpleQueue()
+    put_requests = _requesting(requests, {1: [_request("open", "r1")]})
+    written = tmp_path / "2026-08-16_01" / "syncbox" / "manifest.json"
+    state = {"n": 0}
+    seen = {}
+
+    def tick_fn(seconds):
+        state["n"] += 1
+        if state["n"] == 2:  # just after iteration 2, which carried the open out
+            seen["manifest"] = json.loads(written.read_text()) if written.exists() else None
+        put_requests(seconds)
+
+    run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(START),
+        duration_s=4,
+        tick_fn=tick_fn,
+        requests=requests,
+    )
+
+    assert seen["manifest"] is not None, "no manifest.json in the session it rolled into"
+    assert seen["manifest"]["day"] == "2026-08-16_01"
+    assert seen["manifest"]["segments"] == []
+    # The end of the run still rebuilds it, with the segment now closed.
+    final = json.loads(written.read_text())
+    assert [(s["file"], s["closed"]) for s in final["segments"]] == [(segment_name(0), "clean")]
 
 
 # ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------

@@ -1,8 +1,11 @@
+import collections
 import datetime
 import json
+import os
 
 import pytest
 
+from wl_sync import manifest
 from wl_sync.log import BarcodeEmitted
 from wl_sync.manifest import build_manifest, summarise_segment, write_manifest
 from wl_sync.segment import SegmentWriter, segment_name
@@ -10,6 +13,24 @@ from tests.test_log import HEADER
 
 UTC = datetime.timezone.utc
 CLOSED_AT = datetime.datetime(2026, 8, 16, 17, 0, tzinfo=UTC)
+
+
+def _counting_parses(monkeypatch):
+    """Count summarise_segment's calls, by file name, from here on.
+
+    summarise_segment is the parser: every read of a segment's body goes through it, so
+    a count of its calls is a count of parses. Counting rather than timing, so the
+    tests below do not depend on how fast the machine running them is.
+    """
+    parses = collections.Counter()
+    real = manifest.summarise_segment
+
+    def counting(path):
+        parses[path.name] += 1
+        return real(path)
+
+    monkeypatch.setattr(manifest, "summarise_segment", counting)
+    return parses
 
 
 def _segment(day_dir, index, first, last, *, clean):
@@ -274,3 +295,93 @@ def test_a_session_folders_manifest_names_the_session(tmp_path):
 
     assert build_manifest(session)["day"] == "2026-10-18_02"
     assert build_manifest(unassigned)["day"] == "2026-10-18"
+
+
+def test_a_crashed_segment_is_parsed_once_however_often_its_manifest_is_rebuilt(
+    tmp_path, monkeypatch
+):
+    """A segment with no trailer is parsed in full, and that must happen once, not at
+    every rebuild.
+
+    The run loop rebuilds a folder's manifest when the recording rolls out of it, on the
+    run loop's own thread. A crashed segment has no trailer, so the fast path declines
+    it and it is parsed line by line -- 210 MB took 1.87 s on a laptop, and a CM5 is
+    slower. For that long no barcode frame went out, the new segment was not flushed,
+    which broke the one-second crash-loss bound, and the parse held the GIL against the
+    1 ms word pump: the "recording that stalls at an open or a close" spec Sec.2 names
+    as an anti-goal. Nothing can change a crashed segment any more, so the second
+    rebuild has nothing new to learn from it.
+    """
+    _segment(tmp_path, 0, 100, 200, clean=False)  # no trailer: the full parse
+    parses = _counting_parses(monkeypatch)
+
+    first = build_manifest(tmp_path)
+    second = build_manifest(tmp_path)
+
+    assert parses[segment_name(0)] == 1
+    assert second == first
+    assert first["segments"][0]["closed"] == "crash"
+
+
+def test_a_segment_that_grows_is_parsed_again(tmp_path, monkeypatch):
+    """The memo must never stand in for a segment that has changed: a crashed segment is
+    finished, but a segment still being written is not, and both have no trailer.
+
+    Against the code before the memo this passes, since nothing was remembered; it
+    guards the memo, and fails against one keyed on the path alone."""
+    writer = _segment(tmp_path, 0, 100, 200, clean=False)
+    parses = _counting_parses(monkeypatch)
+    assert build_manifest(tmp_path)["segments"][0]["barcode_last"] == 200
+
+    writer.write(BarcodeEmitted(tick_us=201_000_000, value=201))
+    writer.flush()
+
+    assert build_manifest(tmp_path)["segments"][0]["barcode_last"] == 201
+    assert parses[segment_name(0)] == 2
+
+
+def test_a_segment_rewritten_at_the_same_size_is_parsed_again(tmp_path, monkeypatch):
+    """A changed modification time alone must also invalidate, whatever the size says.
+
+    Same size, same inode, new contents and a new mtime: only the time can tell this
+    file from the one remembered. Against the code before the memo this passes; it
+    fails against a memo keyed on the path and the size."""
+    path = tmp_path / segment_name(0)
+    _segment(tmp_path, 0, 100, 200, clean=False)
+    parses = _counting_parses(monkeypatch)
+    assert build_manifest(tmp_path)["segments"][0]["barcode_last"] == 200
+    before = path.stat()
+
+    text = path.read_text(encoding="utf-8")
+    assert text.count(",200\n") == 1
+    path.write_text(text.replace(",200\n", ",209\n"), encoding="utf-8")
+    # Set explicitly: a coarse filesystem clock could otherwise give the rewrite the
+    # same mtime as the original, and then nothing at all would distinguish them.
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
+    after = path.stat()
+    assert (after.st_ino, after.st_size) == (before.st_ino, before.st_size)
+
+    assert build_manifest(tmp_path)["segments"][0]["barcode_last"] == 209
+    assert parses[segment_name(0)] == 2
+
+
+def test_the_memo_is_bounded(tmp_path, monkeypatch):
+    """One process can run the box for months, adding tens of segments a day, so the
+    memo must not grow without limit. The least recently used entry goes first, and a
+    segment whose entry has gone is simply parsed again the next time it is asked for.
+
+    Against the code before the memo there is nothing to bound; this fails against a
+    memo with no limit."""
+    monkeypatch.setattr(manifest, "_summaries", collections.OrderedDict())
+    monkeypatch.setattr(manifest, "_SUMMARY_CACHE_LIMIT", 2)
+    for index in range(3):
+        _segment(tmp_path, index, 100 * index, 100 * index + 10, clean=False)
+    parses = _counting_parses(monkeypatch)
+
+    first = build_manifest(tmp_path)
+    assert len(manifest._summaries) == 2
+    assert tmp_path / segment_name(0) not in manifest._summaries
+
+    assert build_manifest(tmp_path) == first
+    assert len(manifest._summaries) == 2
+    assert parses[segment_name(0)] == 2
