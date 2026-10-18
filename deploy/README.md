@@ -4,7 +4,10 @@
     sudo systemctl daemon-reload
     sudo systemctl enable --now wl-sync
 
-Edit `--out` in the unit to the rig's session root before enabling.
+Edit `--out` in the unit to the rig's session root before enabling. Its last component
+becomes `rig` in every log header, so `/data/rig0` for a box called `wl-sync-rig0`.
+
+A new box needs its OS first: see [Setting up the OS](#setting-up-the-os-once-per-box).
 
 **The unit ships in fake mode on purpose, until bench acceptance.** `ExecStart`
 carries `--fake`. Without it `wl-sync record` runs the RP1 backend, which is wired into
@@ -62,6 +65,63 @@ the platform does not expose one.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
+
+## Setting up the OS, once per box
+
+Done this way for `wl-sync-rig0` on 2026-10-18, with no screen and no NVMe adapter. It
+ended running Raspberry Pi OS Lite, Debian 13 "trixie", kernel `6.18.50+rpt-rpi-2712`, from
+the NVMe.
+
+1. **Write Raspberry Pi OS Lite (64-bit) to a USB drive** with Raspberry Pi Imager. Use
+   Raspberry Pi OS, not another distribution: PIO reaches Raspberry Pi's own kernel first
+   (`docs/superpowers/plans/2026-08-13-sync-box.md`). In Imager's settings:
+   - hostname `wl-sync-rigN`;
+   - a user, with SSH by public key only;
+   - no Wi-Fi.
+2. **Boot from the USB drive, with the SD slot empty.** The CM5's `BOOT_ORDER=0xf2461`,
+   read right to left, tries SD, then NVMe, then USB, then network. A blank or
+   non-bootable NVMe therefore falls through to USB.
+3. **Give it a network that hands out addresses.** On a direct cable with no DHCP,
+   NetworkManager gives up and takes the link down, so the box answers for a few seconds
+   and then vanishes. Use the lab network, or a Mac's Internet Sharing over its Ethernet
+   adapter, which puts the box on 192.168.2.x. Then `ssh <user>@wl-sync-rigN.local`.
+4. **Set what this box needs that a stock image lacks:**
+   - **`force_eeprom_read=0`** at the end of `/boot/firmware/config.txt`, which ends in an
+     `[all]` section. GPIO 0/1 carry event-code bits 0 and 1, and the boot-time HAT probe
+     would fight the breakout board's drivers on them (spec §4).
+   - **A persistent journal.** Raspberry Pi OS keeps it in RAM
+     (`/usr/lib/systemd/journald.conf.d/40-rpi-volatile-storage.conf`), so every error is
+     lost at reboot, and the journal is this box's only status surface:
+
+         sudo mkdir -p /etc/systemd/journald.conf.d
+         printf '[Journal]\nStorage=persistent\n' | sudo tee /etc/systemd/journald.conf.d/50-wl-sync-persistent.conf
+         sudo systemctl restart systemd-journald
+
+   - **No radio.** `ls /sys/class/ieee80211` must print nothing. The part wanted is
+     `CM5004000`. A wireless module needs `dtoverlay=disable-wifi` and
+     `dtoverlay=disable-bt` (spec §4.2).
+5. **Clone onto the NVMe with `rpi-clone`** (github.com/geerlingguy/rpi-clone). Its
+   installer is piped into `sudo bash`, so read it first. Before running it:
+   - Install `parted`, `fdisk` and `dosfstools` with `apt`. Its own check for missing
+     tools runs before `-U` takes effect, so without a terminal it aborts; and its package
+     names predate Trixie.
+   - Then run `sudo rpi-clone -U nvme0n1`. **It erases the NVMe.** It took 55 s for 3.9 GB.
+6. **Power off, remove the USB drive, and power on.** Then check:
+   - `findmnt -n -o SOURCE /` reads `/dev/nvme0n1p2`;
+   - `vcgencmd get_throttled` reads `0x0`;
+   - `od -An -tu4 --endian=big /proc/device-tree/chosen/power/max_current` reads `5000`,
+     meaning the supply negotiated the full 5 A;
+   - `timedatectl show -p NTPSynchronized` reads `yes`.
+
+Two things from that first setup to know about:
+
+- **Its root steps used a temporary passwordless-`sudo` drop-in,**
+  `/etc/sudoers.d/090-wl-sync-setup`. Delete it when bring-up is done, because a box left
+  running unattended for years should not keep passwordless root.
+- **It dropped off three times while being set up, cause not found.** Power read clean
+  every time it could be checked, and it was not heat. The journal now persists, so after
+  a repeat, `journalctl -b -1 -n 50` shows whether the previous boot ended in a clean
+  shutdown or just stopped.
 
 ## Before first boot
 

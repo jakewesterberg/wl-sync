@@ -61,7 +61,12 @@ Decided along the way. A `check_health()` failure is logged at ERROR once per ep
 
 ## 2. Next steps, in order
 
-### Step B — bench day *(needs a Pi 5 or the CM5)*
+### Step B — bench day *(on the CM5, which is ready)*
+
+The box is `wl-sync-rig0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from its
+NVMe. It was set up on 2026-10-18; `deploy/README.md`, "Setting up the OS", says how,
+and lists what it still needs: wl-sync with its `pi` extra, and libpiolib built from
+Raspberry Pi's `utils` repository. `ssh wl-sync-rig0` reaches it.
 
 Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`. Run the hardware
 mode by hand first:
