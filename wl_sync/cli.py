@@ -1,9 +1,10 @@
 """`wl-sync record` -- the run loop that makes this a sync box rather than a library.
 
 The box is the first device on each day and the last off, and it runs continuously
-while every other device starts and stops blocks inside that run. So a SESSION IS A DAY,
-one segment file per process run, and a restart joins the day rather than beginning a
-new one. systemd's Restart=always is what makes the stitching automatic.
+while every other device starts and stops blocks inside that run. Each process run
+writes one segment into the folder of the session that is open -- or, with none open,
+into the between-sessions folder for the day -- and a restart joins that folder rather
+than beginning a new one. systemd's Restart=always is what makes the stitching automatic.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from wl_sync.pins import (
 )
 from wl_sync.segment import SegmentWriter, next_segment_index, segment_name
 from wl_sync.service import BarcodeGenerator, QueuedSink, Recorder
+from wl_sync.sessions import read_open, session_dir, unassigned_dir, unassigned_id
 
 CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
 
@@ -54,12 +56,6 @@ _IDLE_BEFORE_FRAME_S = IDLE_MIN_US / 1e6 + 0.1
 # journald is this box's only status surface (spec Sec.7, Sec.10) -- the heartbeat LED
 # is a buffered leg off BARCODE_RAW and cannot be driven by software.
 log = logging.getLogger(__name__)
-
-
-def day_directory(out: Path, today: datetime.date) -> Path:
-    """`<out>/YYYY-MM-DD_01`. Index 01 because a day is one session; the `_NN` form is
-    kept because SyncBoxLogHeader validates it and wl-preproc consumes it."""
-    return out / f"{today.isoformat()}_01"
 
 
 def probe_ntp_synchronized() -> bool | None:
@@ -191,17 +187,31 @@ def run(
     checkpoint = read_checkpoint(checkpoint_path)
     first_value, trust, day_date = _resume(started, checkpoint, probe_ntp_synchronized())
 
-    day = day_directory(out, day_date)
-    day.mkdir(parents=True, exist_ok=True)
+    # WHICH FOLDER THIS RUN RECORDS INTO is decided by the state file, not the date. A
+    # session that is open stays open across a restart AND across midnight (spec 3.1: "a
+    # restart is not a visit"), so its folder is resumed whatever today's date is.
+    # Otherwise no animal is in the rig and the segments go to the between-sessions
+    # area, named for the day the barcode value implies -- still `day_date` from
+    # _resume(), so a dead clock never names a folder after 1970 or 2000. `read_open`
+    # degrades a missing or corrupt state file to None, so a lost state file records
+    # between sessions rather than refusing to start.
+    current = read_open(out)
+    if current is not None:
+        session_id = current.session_id
+        folder = session_dir(out, session_id)
+    else:
+        session_id = unassigned_id(day_date)
+        folder = unassigned_dir(out, day_date)
+    folder.mkdir(parents=True, exist_ok=True)
 
     # Rebuild first, so any segment left trailer-less by a crash is recorded as such
     # before this run adds its own.
-    write_manifest(day)
+    write_manifest(folder)
 
-    index = next_segment_index(day)
+    index = next_segment_index(folder)
     header = SyncBoxLogHeader(
         schema_version=1,
-        session_id=day.name,
+        session_id=str(session_id),
         rig=out.name,
         boot_id=probe_boot_id(),
         written_at=started,
@@ -210,7 +220,7 @@ def run(
         clock_trusted=trust.trusted,
         clock_reason=trust.reason,
     )
-    writer_path = day / segment_name(index)
+    writer_path = folder / segment_name(index)
     writer = SegmentWriter(writer_path, header)
     # ONE OWNER THREAD FOR THE SEGMENT, on every backend. The RP1 backend delivers from
     # capture threads, and SegmentWriter is neither thread-safe nor quick: its flush()
@@ -229,8 +239,9 @@ def run(
     # itself. One line, everything an operator needs to tell a healthy start from a
     # degraded one without opening a file.
     log.info(
-        "recording %s: first barcode %d, clock_trusted=%s clock_reason=%s boot_id=%s",
+        "recording %s (session %s): first barcode %d, clock_trusted=%s clock_reason=%s boot_id=%s",
         writer_path,
+        session_id,
         first_value,
         trust.trusted,
         trust.reason or "-",
@@ -329,10 +340,13 @@ def run(
         sink.close(now_fn())
         # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
         # dead-RTC start really does emit -- with "no barcodes were written".
-        last = first_value if writer.barcode_last is None else writer.barcode_last
+        # Read through the sink, not the local `writer`: a roll replaces the segment
+        # writer, and the first one's span stops at the roll.
+        barcode_last = sink.sink.barcode_last
+        last = first_value if barcode_last is None else barcode_last
         write_checkpoint(checkpoint_path, last)
-        write_manifest(day)
-        return day
+        write_manifest(folder)
+        return folder
 
 
 class _ValueSource:

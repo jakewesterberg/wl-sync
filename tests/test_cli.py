@@ -13,7 +13,6 @@ from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
     CHECKPOINT_NAME,
     _ValueSource,
-    day_directory,
     main,
     probe_boot_id,
     run,
@@ -25,10 +24,16 @@ from wl_sync.clock import (
     value_from_clock,
     write_checkpoint,
 )
-from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, Edge, read_log
+from wl_sync.log import TICK_WRAP_US, SyncBoxLogHeader, BarcodeEmitted, Edge, read_log
 from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import SegmentWriter, segment_name
+from wl_sync.sessions import (
+    OpenSession,
+    SessionId,
+    unassigned_dir,
+    write_open,
+)
 
 UTC = datetime.timezone.utc
 
@@ -58,17 +63,64 @@ def _clock_from(start, step_s=1):
     return now_fn
 
 
-def test_day_directory_uses_the_session_id_format(tmp_path):
-    """SyncBoxLogHeader validates session_id as YYYY-MM-DD_NN and wl-preproc consumes
-    it, so the directory carries that form rather than a bare date."""
-    day = day_directory(tmp_path, datetime.date(2026, 8, 16))
-    assert day.name == "2026-08-16_01"
+def test_with_no_session_open_the_box_records_between_sessions(tmp_path):
+    """The box records all day, and most of the day no animal is in the rig. Those
+    segments belong to no visit, so they go under `unassigned/<date>/syncbox` and carry
+    the day's `_00` id -- the id `next_id` never mints, so nothing can mistake them for
+    a real session. The old `<date>_01` folder must not appear: it claimed a visit that
+    did not happen."""
+    folder = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        duration_s=2,
+        tick_fn=lambda _s: None,
+    )
+    assert folder == tmp_path / "unassigned" / "2026-08-16" / "syncbox"
+    header, _ = read_log(folder / segment_name(0))
+    assert header.session_id == "2026-08-16_00"
+    assert not (tmp_path / "2026-08-16_01").exists()
 
 
-def test_the_same_day_is_reused_by_a_restart(tmp_path):
-    first = day_directory(tmp_path, datetime.date(2026, 8, 16))
-    first.mkdir(parents=True)
-    assert day_directory(tmp_path, datetime.date(2026, 8, 16)) == first
+def test_a_restart_resumes_into_the_open_session(tmp_path):
+    """A restart is not a visit (spec 3.1): the state file says a session is open, so a
+    restarted service keeps recording into that session's folder as a new segment, and
+    the header names the session -- not the between-sessions stand-in -- whatever the
+    box's clock says the date is."""
+    session_id = SessionId.parse("2026-08-16_02")
+    write_open(
+        tmp_path,
+        OpenSession(session_id, datetime.datetime(2026, 8, 16, 8, 0, tzinfo=UTC), "r1"),
+    )
+    folder = tmp_path / "2026-08-16_02" / "syncbox"
+    folder.mkdir(parents=True)
+    previous = SyncBoxLogHeader(
+        schema_version=1,
+        session_id="2026-08-16_02",
+        rig=tmp_path.name,
+        boot_id="",
+        written_at=datetime.datetime(2026, 8, 16, 8, 0, tzinfo=UTC),
+        gpio_map=cli.GPIO_MAP,
+        segment_index=0,
+        clock_trusted=True,
+        clock_reason="",
+    )
+    SegmentWriter(folder / segment_name(0), previous).close(
+        datetime.datetime(2026, 8, 16, 8, 30, tzinfo=UTC)
+    )
+
+    result = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        duration_s=2,
+        tick_fn=lambda _s: None,
+    )
+    assert result == folder
+    header, _ = read_log(folder / segment_name(1))
+    assert header.session_id == "2026-08-16_02"
+    assert header.segment_index == 1
+    assert not (tmp_path / "unassigned").exists()
 
 
 def test_a_short_run_writes_a_clean_segment_and_manifest(tmp_path):
@@ -210,8 +262,8 @@ def test_a_dead_coin_cell_degrades_the_record_instead_of_refusing_to_start(tmp_p
 
     # No directory named after the bogus reading. The day comes from the resumed
     # barcode value, which with no checkpoint is the epoch itself.
-    assert not (tmp_path / "2000-01-01_01").exists()
-    assert day.name == "2020-01-01_01"
+    assert not list(tmp_path.glob("**/2000-01-01*"))
+    assert day == tmp_path / "unassigned" / "2020-01-01" / "syncbox"
 
 
 def test_a_dead_coin_cell_resumes_from_the_checkpoint_and_rejoins_that_day(tmp_path):
@@ -229,7 +281,7 @@ def test_a_dead_coin_cell_resumes_from_the_checkpoint_and_rejoins_that_day(tmp_p
         duration_s=2,
         tick_fn=lambda _s: None,
     )
-    assert day.name == "2026-08-16_01"
+    assert day == unassigned_dir(tmp_path, datetime.date(2026, 8, 16))
     manifest = json.loads((day / "manifest.json").read_text())
     assert len(manifest["segments"]) == 2
     assert manifest["segments"][1]["clock_trusted"] is False
@@ -292,7 +344,7 @@ def test_the_checkpoint_equals_the_last_value_emitted(tmp_path):
     an iteration count and a value count diverge in the first place.
     """
     checkpoint_path = tmp_path / CHECKPOINT_NAME
-    segment = tmp_path / "2026-08-16_01" / segment_name(0)
+    segment = unassigned_dir(tmp_path, datetime.date(2026, 8, 16)) / segment_name(0)
     mismatches = []
 
     def last_emitted():
@@ -361,7 +413,7 @@ def test_a_crash_loop_never_ratchets_the_counter_ahead_of_the_clock(tmp_path, ca
     # Rebuilt here rather than read from disk: run() writes the manifest at its START,
     # so the file left behind is missing the final crashed segment. This is what restart
     # 26 would see.
-    manifest = build_manifest(day_directory(tmp_path, base.date()))
+    manifest = build_manifest(unassigned_dir(tmp_path, base.date()))
     assert len(manifest["segments"]) == restarts
     untrusted = [s["file"] for s in manifest["segments"] if not s["clock_trusted"]]
     assert untrusted == [], f"a healthy clock was distrusted in {untrusted}"
@@ -595,9 +647,9 @@ def test_main_requires_out():
 
 def test_main_runs_end_to_end(tmp_path):
     assert main(["record", "--out", str(tmp_path), "--fake", "--duration", "2"]) == 0
-    days = list(tmp_path.glob("2*_01"))
-    assert len(days) == 1
-    assert (days[0] / "manifest.json").exists()
+    folders = list(tmp_path.glob("unassigned/*/syncbox"))
+    assert len(folders) == 1
+    assert (folders[0] / "manifest.json").exists()
 
 
 def test_a_start_says_what_it_started(tmp_path, caplog):
