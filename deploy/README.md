@@ -111,6 +111,59 @@ Replace `$TOKEN` with the token. Read, open and close:
 Use a new `request_id` for every attempt at a new visit. Resending the same one after a
 lost reply returns the session it already opened instead of opening a second.
 
+## MonkeyLogic on the dual-boot rig
+
+On days the rig boots Windows and MonkeyLogic runs the task instead of wl-xcon, MonkeyLogic
+makes the same two calls from MATLAB. Without them the whole visit records into
+`unassigned/` and never becomes a session. Nothing new is installed on the Windows boot:
+`deploy/monkeylogic/wlsync_session.m` is one file.
+
+**This cannot be tested in this repository.** It has never run under MATLAB, MonkeyLogic or
+against the box. The function uses only documented MATLAB calls, but every item in the
+bench-day checklist below is unconfirmed until someone runs it on the Windows boot.
+
+**Install.** Copy `wlsync_session.m` into a folder on MATLAB's path (`addpath`, or a folder
+MonkeyLogic already puts there). Check with `which wlsync_session`.
+
+**The token.** Put the same token as the task PC's in a text file on the Windows boot, for
+example `C:\wl\session-token`, readable only by the operator's account (remove inherited
+permissions in the file's Security tab, or `icacls C:\wl\session-token /inheritance:r /grant:r %USERNAME%:R`).
+Never commit it, and never paste it into a script. The function reads it with
+`strtrim(fileread(...))` and never prints it.
+
+**Where to call it.** Call `wlsync_session('open', box, token_file)` when a session starts and
+`wlsync_session('close', box, token_file)` when it ends, with `box` like `'wl-sync-rig0:8740'`.
+NIMH MonkeyLogic is believed to run a user `alert_function.m` with session-level cases (task
+start and end), which would be the likely place. **Confirm this against the installed
+MonkeyLogic version on bench day**, including the exact case names and whether an error
+raised there stops the start. If MonkeyLogic offers no such hook, call the function from
+whatever script launches the run.
+
+**Use the returned id.** `id = wlsync_session('open', ...)` names MonkeyLogic's data file or
+folder for the visit (for example `2026-10-18_02`), so wl-preproc can pair it with the box's
+`<id>/syncbox/`.
+
+**A failed open must stop the session from starting.** The function raises an error on every
+failure, carrying the box's own message and HTTP status, and `open` retries only what is safe
+(network failure, timeout, 503) using one `request_id`. Do not catch the error and carry on,
+and never type an id by hand: the box mints every id, and a made-up one pairs with nothing.
+
+**Bench-day checklist**, once on the Windows boot against the real box:
+
+1. `wlsync_session('show', box)` returns `''` with nothing open (and the JSON null does not break it).
+2. `id = wlsync_session('open', box, tf)` returns an id like today's `_01`, and `curl .../session` agrees.
+3. `wlsync_session('show', box)` now returns the same id.
+4. `wlsync_session('close', box, tf)` returns that id; `show` returns `''` again.
+5. Retry with a lost reply: open, then drop the network for a moment (or point at a slow link) so the
+   first reply is lost. Exactly one session must result, not two.
+6. A wrong token: the error reads HTTP 401 with the box's message, and the token appears nowhere.
+7. An unreachable box (wrong host, or the box off): the error says unreachable after 4 attempts,
+   in about 3 s of waiting plus the timeouts.
+8. Unconfirmed MATLAB details, fix if they fail: the `HTTPOptions` property name `'ConnectTimeout'`
+   (and whether it also bounds a slow reply), and the type of `resp.Body.Data` for a JSON body
+   (the function handles a struct, text or bytes).
+9. The MonkeyLogic hook: where it fires, and that a failed open really stops the start.
+
 ## Setting up the OS, once per box
 
 Done this way for `wl-sync-rig0` on 2026-10-18, with no screen and no NVMe adapter. It
