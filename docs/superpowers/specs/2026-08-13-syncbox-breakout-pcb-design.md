@@ -672,7 +672,19 @@ with nothing between. MDR is also the hand-solderable choice at 1.27 mm pitch ag
 | | Connector 0 | Connector 1 |
 |---|---|---|
 | Analog in | **AI 0–15** | AI 16–31 |
-| Digital | P0.0–P0.7, P1.0–P1.7 | **P0.8–P0.31**, P2.0–P2.7 |
+| Digital | P0.0–P0.7, ~~P1.0–P1.7~~ **PFI 0–15 (P1.0–P1.7 and P2.0–P2.7)** | **P0.8–P0.31**, ~~P2.0–P2.7~~ **no PFI** |
+| Analog out | AO 0, AO 1 | AO 2, AO 3 |
+
+> **Corrected 2026-10-18 against NI's X Series User Manual 370784K-01, Figure A-5** ("NI
+> PCIe-6323/6343 Pinout", p. A-8). **All sixteen PFI lines are on Connector 0;** Connector 1
+> carries P0.8–P0.31 and nothing else digital. This table put P2.0–P2.7 on Connector 1, and
+> `gen_breakout_taskpc_digital.py` repeats it ("leaving P0.31 and all 8 of P2.0-7 spare").
+> **No wiring was wrong:** every P0.x pin this board uses was sourced from that figure, and none of
+> them moves. What changes is what the unused pins are, and it matters for one reason. **Of the
+> connector's pins, only PFI lines can be a timing engine's digital trigger** (the manual's §11,
+> "Triggering with a Digital Source": "any of the PFI, RTSI, or PXI_STAR signals"), and they share
+> a cable with the analog inputs, not with the digital lines. Read against the task PC's card; the recording card's pinout was
+> not re-checked here.
 
 This permits the clean split the design wants: **all 16 analog channels on connector 0** — AI 0–15
 is exactly the channel count — and **all 24 digital lines on connector 1**, which is P0.8–P0.31
@@ -983,7 +995,7 @@ cross-correlation per session, which is a better reason to keep the channels tha
 |---|---|---|
 | 1 | ~~+5 V current budget on the NI 68-pin connector~~ **Closed 2026-08-13** — **250 mA per connector**. Feasible at ~151–199 mA with **3.9 kΩ** pull-ups (24 optocoupler output stages at 5–7 mA each, plus ~31 mA of pull-up current); 1 kΩ would not be (~240–288 mA, at or over budget). 10 kΩ, the original figure here, also fit the budget but exceeded the ACSL-6400's own R\_L maximum — see §8.1 | ~~Schematic~~ |
 | 2 | **Whether SpikeGLX exposes NRSE** as an NI terminal configuration. Decision 5 depends on it | Schematic |
-| 3 | ~~Connector 0 / Connector 1 pin split~~ **Closed 2026-08-13** — Connector 0 carries AI 0–15 + P0.0–7 + P1; Connector 1 carries AI 16–31 + P0.8–31 + P2. Analog fits entirely on 0, digital entirely on 1. See §9.2 | ~~Layout~~ |
+| 3 | ~~Connector 0 / Connector 1 pin split~~ **Closed 2026-08-13** — Connector 0 carries AI 0–15 + P0.0–7 + P1; Connector 1 carries AI 16–31 + P0.8–31 + P2. Analog fits entirely on 0, digital entirely on 1. See §9.2. **Corrected 2026-10-18: P2 is on Connector 0 as well, with P1, so Connector 1 has no PFI line; the split itself stands** (§9.2's note) | ~~Layout~~ |
 | 4 | **MDR68 and BNC stock and lead time** — the widest schedule error bar (§10.2) | Immediately |
 | 5 | ~~Accelerometer output range~~ **Closed 2026-08-15 by `wl-shook` §3's output contract.** 0–5.000 V single-ended on BNC, non-inverted, with a **0.250 V resting pedestal** so 0 V means the device is absent rather than still — the NI record proves liveness sample by sample. Floating, battery-only, no rig supply, which is exactly what the differential receive assumes. Inside this board's ±5 V convention, so **the input stage is a unity buffer with nothing to derive and the board is correct as built.** No scaling network, no respin | ~~Schematic~~ |
 | 6 | Which 8 of 16 analog sources are the default mux selection. Deferred safely — the mux makes it software, not copper | Post-bring-up |
@@ -991,3 +1003,5 @@ cross-correlation per session, which is a better reason to keep the channels tha
 | 8 | Behavior camera count (≤4 budgeted). **The rate constraint is void as of 2026-08-16**: the cameras free-run, so this box sets no rate at all and the surviving-PWM-pin argument constrains nothing. Each camera's *own* rate is now independent, and its exposure is recovered from the frame-time input (§4, GPIO26/27) rather than assumed from a trigger | Layout |
 | 9 | Whether asymmetric comparator make/break thresholds are wanted. **Cost restated (2026-08-15): a second MCP4728 package, not a second channel each.** All four channels of the one DAC are allocated — VOUTA/B/C/D to PD1/PD2/ACC/MISC1 — so there is no spare channel to take the second threshold of any comparator. This is a new I²C device (the part has no address pins; its 3 address bits are EEPROM-programmed, factory default 0x60, so a second one must be reprogrammed before it can share the bus), plus its decoupling and board area | Schematic |
 | 10 | ~~Eye-channel bandwidth depends on a rate this box no longer sets~~ **Closed 2026-08-16 — §6's ~2 kHz stands, and the binding limit is the DAC, not the camera.** Raised because the cameras free-run now, so 500 fps became a property of rig configuration rather than of this design. Looked up: OpenIrisDPI states it *"is capable of tracking the first and fourth Purkinje reflections at **500 Hz** running on modern CPUs"* — 500 Hz is the algorithm's CPU-bound design point, not an arbitrary setting, so the rig is not about to be reconfigured well above it. More decisively, the eye data reaches this board **only through the ACCESIO DAC**, whose conversion rate is **4 kHz, all channels simultaneous** (8 µs typical settling). That caps the delivered analog bandwidth at 2 kHz *whatever* the camera does, so no camera reconfiguration can invalidate the ~2 kHz figure — it was matched to the DAC all along. No anti-alias change needed | ~~Bring-up~~ |
+| 11 | **A two-channel line-out from the task PC card, and a PFI copy of `PD1_COMP`. Committed 2026-10-18 for wl-xcon (XC-327).** The 6343's AO 0/1 (Connector 0 pins 22/21, AO GND 55/54) arrive on this board and are no-connect today, because both of the card's connectors are cabled here. They go to a back-face line-out, and the back face has no spare port, so this adds a connector body and a panel hole. Grounding is part of that design: AO GND is the task PC card's analog return and the amplifier is mains-powered. Separately, `PD1_COMP` reaches the task PC only on P0.27, which cannot be an AO Start Trigger (§9.2's 2026-10-18 note), so a second buffered copy goes onto a Connector 0 PFI pin. The outbound buffer bank is 8/8, so that needs a new channel. Reply in `HANDOVER-wl-expcontroller.md`, 2026-10-18, item 7 | **Before layout** |
+| 12 | ~~Misc analog inputs unassigned~~ **Closed 2026-10-18: `A_MISC3` is the audio verification tap** (wl-xcon XC-089, validation V7). It is not `A_MISC1`, which is the only misc input with a comparator option (§6.5). Its range is ±5 V at ÷1 and ±10 V at ÷2, with no anti-alias filter. It reaches NI as AI15 and the task PC as AI8 | ~~—~~ |

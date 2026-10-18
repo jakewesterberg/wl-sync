@@ -614,7 +614,24 @@ opto_out_table = [
     [24.0, 4700.0, 0.95, 24.0, 5.0],
     [30.0, 4700.0, 0.88, 30.0, 6.3],
 ]
-opto_out_v_low_best_v = 0.87    # 5 V / 1.0 kohm -- the lowest FLIR publishes anywhere
+# The BFS-U3-16S2's own page, added 2026-10-18 (wl-xcon XC-092). A DIFFERENT TABLE, not
+# the 200S6's re-published: every level is split into "No Load" and "Load", the page never
+# says what the load is, and it has no 12 V / 2.0 kohm row. The BFS-U3-04S2's page carries
+# the identical table. Columns verbatim: (Vext, Rext_ohm, V_low_no_load, V_low_load,
+# V_high_no_load, V_high_load, I_no_load_mA, I_low_load_mA, I_high_load_mA).
+url_16s2 = "https://softwareservices.flir.com/BFS-U3-16S2/latest/40-Installation/ElectricalGPIO.htm"
+url_04s2 = "https://softwareservices.flir.com/BFS-U3-04S2/latest/40-Installation/ElectricalGPIO.htm"
+retrieved_16s2 = "2026-10-18"
+opto_out_table_16s2 = [
+    [3.3, 200.0, 1.47, 1.44, 3.25, 2.64, 8.4, 2.52, 8.52],
+    [5.0, 1000.0, 0.92, 0.86, 5.0, 2.29, 3.9, 2.68, 4.04],
+    [12.0, 2400.0, 1.08, 1.02, 12.08, 3.78, 4.54, 3.44, 4.56],
+    [24.0, 4700.0, 1.3, 1.08, 24.0, 6.36, 4.78, 3.7, 4.82],
+    [30.0, 4700.0, 1.4, 1.32, 30.0, 11.08, 5.96, 3.02, 5.08],
+]
+# 5 V / 1.0 kohm on the 200S6's page. Not the lowest anywhere since the 16S2's page was
+# read: its loaded low on the same row is 0.86 V, and its no-load low is 0.92 V.
+opto_out_v_low_best_v = 0.87
 sync_topology = "primary/secondary: primary pin 4 (opto out) -> each secondary pin 2 (opto in), pin 5 opto-ground common"
 applies_to_both_camera_groups = true   # see note -- ohDPI is a FLIR BFS rig too
 feeds = ["camera-sync frame-time inputs"]
@@ -627,8 +644,16 @@ inputs, so it does not merely represent the group's exposure, it defines it.
 A STIFFER PULL-UP MAKES V_LOW WORSE, NOT BETTER. The table is not monotonic but its trend
 is clear at the ends: 9.1 mA gives 1.46 V while 4.2 mA gives 0.87 V. So the intuitive fix
 -- pull harder to get a cleaner low -- is exactly backwards, and 3.3 V/200 ohm is the worst
-row in the table. FLIR publishes nothing below 4.2 mA, so a lower-current operating point
-is an EXTRAPOLATION, not a datasheet value, and this file does not hold those.
+row in the table. The 200S6's page publishes nothing below 4.2 mA, so a lower-current
+operating point is an EXTRAPOLATION, not a datasheet value, and this file does not hold
+those. (The 16S2's page goes to 3.9 mA on the same row, at 0.92 V.)
+
+THE 16S2'S LOADED HIGH IS BELOW THE FRAME-TIME THRESHOLD (2026-10-18). Its 5 V / 1.0 kohm
+row gives 2.29 V high under "Load", against the frame-time comparator's 2.50 V. The page
+does not define the load. This board's own input is close to none (1 kohm pull-up, 10 kohm
+into a comparator), but the primary/secondary topology above has the primary's output
+driving each secondary's opto input too, which is plausibly what "Load" means. Open, not
+resolved here: see hardware/breakout/frame-time-inputs.md Sec.4.
 
 0.87 V IS ABOVE EVERY TTL/LVC LOW-LEVEL INPUT THRESHOLD ON THIS BOARD (0.8 V max -- see
 [sn74lvc541a] and [sn74ahct541]), so the strobe cannot land on a buffer input. It needs a

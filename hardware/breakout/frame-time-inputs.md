@@ -108,6 +108,19 @@ silent, and it is why `[sn74lvc541a]` was pinned.
 Hysteresis is not strictly required here — the falling edge is actively driven and fast —
 but 33 mV costs two resistors and guards against reflections on an unterminated coax run.
 
+> **2026-10-18 — the BFS-U3-16S2's page publishes a loaded high below this threshold. Open.**
+> `[flir_bfs_gpio]` now carries that page's table beside the 200S6's (the 04S2's page has the
+> same table). Its 5 V / 1.0 kΩ row splits into **No Load: 0.92 V low / 5 V high**, which
+> leaves 1.58 V of low margin here and changes nothing, and **Load: 0.86 V / 2.29 V**, which
+> FLIR do not define. **2.29 V is below this stage's 2.50 V threshold**, so a strobe on that
+> column never crosses it: no frame-time edges, and nothing else complains.
+>
+> This board's input is close to no load. But §1's one-strobe-per-group argument rests on the
+> primary's output also driving each secondary's opto input, and that is plausibly FLIR's
+> "Load". So §6's "anything from ~1.5 to ~3.5 V behaves identically" holds for the no-load
+> column only. **What is not known yet:** which column a group's strobe follows when wired as
+> the rig will be. That is a bench measurement, and it has to come before choosing a fix.
+
 ## 5. Parts
 
 **1 × LM339A + 12 resistors + 2 caps + 2 BAT54S.** No new part *number*: `U54` is already an
