@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import queue
 import signal
 import threading
 from pathlib import Path
@@ -28,9 +29,14 @@ from wl_sync.log import TICK_WRAP_US, SyncBoxLogHeader, BarcodeEmitted, Edge, re
 from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import SegmentWriter, segment_name
+from concurrent.futures import Future
+
 from wl_sync.sessions import (
     OpenSession,
     SessionId,
+    SessionRequest,
+    WrongSession,
+    read_open,
     unassigned_dir,
     write_open,
 )
@@ -1168,3 +1174,135 @@ def test_a_failure_held_at_the_end_of_a_run_is_still_reported(tmp_path, caplog):
             lambda _s: None,
         )
     assert any(late in r.getMessage() for r in caplog.records)
+
+
+# --- session requests (spec 3.1-3.4) -------------------------------------------------
+
+DAY = datetime.date(2026, 8, 16)
+START = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+
+
+def _request(kind, argument):
+    return SessionRequest(kind, argument, Future())
+
+
+def _requesting(requests, script):
+    """A tick_fn that puts `script[n]` on the queue after iteration n (1-based).
+
+    A request is drained after the frame of the iteration that follows, so one scripted
+    at n is carried out in iteration n + 1 -- a known place, with no timing in it."""
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        for request in script.get(state["n"], ()):
+            requests.put(request)
+
+    return tick_fn
+
+
+def _values(path):
+    return [
+        int(line.split(",")[2])
+        for line in path.read_text().splitlines()
+        if line.startswith("B,")
+    ]
+
+
+def _has_trailer(path):
+    return any(line.startswith("T,") for line in path.read_text().splitlines())
+
+
+def _record(tmp_path, script, iterations, start=START):
+    requests = queue.SimpleQueue()
+    folder = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(start),
+        duration_s=iterations,
+        tick_fn=_requesting(requests, script),
+        requests=requests,
+    )
+    return folder
+
+
+def test_an_open_rolls_the_recording_into_the_new_session(tmp_path):
+    """An open at iteration 2 closes the between-sessions segment after frame 2 and
+    records frame 3 onwards into the new session's folder, which the run then reports
+    as the folder it last recorded into."""
+    opening = _request("open", "r1")
+    folder = _record(tmp_path, {1: [opening]}, 4)
+
+    assert opening.reply.result().session.session_id == SessionId.parse("2026-08-16_01")
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert folder == session
+    before = unassigned_dir(tmp_path, DAY) / segment_name(0)
+    assert _has_trailer(before)
+    assert len(_values(before)) == 2
+    after = _values(session / segment_name(0))
+    assert len(after) == 2 and after[0] > _values(before)[-1]
+    header, _ = read_log(session / segment_name(0))
+    assert header.session_id == "2026-08-16_01"
+    assert read_open(tmp_path).session_id == SessionId.parse("2026-08-16_01")
+
+
+def test_a_close_rolls_the_recording_back_between_sessions(tmp_path):
+    opening, closing = _request("open", "r1"), _request("close", "2026-08-16_01")
+    folder = _record(tmp_path, {1: [opening], 3: [closing]}, 6)
+
+    assert closing.reply.result() == SessionId.parse("2026-08-16_01")
+    session_segment = tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0)
+    assert _has_trailer(session_segment)
+    assert len(_values(session_segment)) == 2
+    assert folder.parent.parent.name == "unassigned"
+    assert len(_values(folder / segment_name(0))) == 2
+    assert read_open(tmp_path) is None
+
+
+def test_an_open_while_open_closes_the_old_session_and_says_so(tmp_path, caplog):
+    first, second = _request("open", "r1"), _request("open", "r2")
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        _record(tmp_path, {1: [first], 3: [second]}, 6)
+
+    assert second.reply.result().closed == first.reply.result().session.session_id
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("2026-08-16_01" in m and "2026-08-16_02" in m for m in errors)
+    assert _has_trailer(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))
+
+
+def test_an_open_on_a_dead_clock_is_named_by_the_barcode_day(tmp_path):
+    opening = _request("open", "r1")
+    _record(tmp_path, {1: [opening]}, 3, start=datetime.datetime(2000, 1, 1, tzinfo=UTC))
+    assert opening.reply.result().session.session_id == SessionId.parse("2020-01-01_01")
+
+
+def test_session_errors_reach_the_caller_and_recording_continues(tmp_path):
+    wrong, garbled = _request("close", "2026-08-16_07"), _request("close", "nonsense")
+    folder = _record(tmp_path, {1: [wrong, garbled]}, 4)
+
+    with pytest.raises(WrongSession):
+        wrong.reply.result()
+    with pytest.raises(ValueError):
+        garbled.reply.result()
+    assert folder == unassigned_dir(tmp_path, DAY)
+    assert len(_values(folder / segment_name(0))) == 4
+
+
+def test_a_cancelled_request_is_never_carried_out(tmp_path):
+    opening = _request("open", "r1")
+    assert opening.reply.cancel()
+    _record(tmp_path, {1: [opening]}, 3)
+    assert read_open(tmp_path) is None
+    assert not list(tmp_path.glob("2026-08-16_*"))
+
+
+def test_a_roll_in_the_last_iteration_does_not_rewind_the_checkpoint(tmp_path):
+    """The new writer holds no barcode yet when the run ends, so reading the checkpoint
+    from it alone rewinds to the run's first value and a restart re-issues values."""
+    opening = _request("open", "r1")
+    folder = _record(tmp_path, {2: [opening]}, 3)
+
+    emitted = _values(unassigned_dir(tmp_path, DAY) / segment_name(0))
+    assert len(emitted) == 3
+    assert not _values(folder / segment_name(0))
+    assert read_checkpoint(tmp_path / CHECKPOINT_NAME) == emitted[-1]

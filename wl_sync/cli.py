@@ -14,10 +14,12 @@ import contextlib
 import datetime
 import logging
 import math
+import queue
 import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from wl_sync.backend import FakeBackend
@@ -43,7 +45,16 @@ from wl_sync.pins import (
 )
 from wl_sync.segment import SegmentWriter, next_segment_index, segment_name
 from wl_sync.service import BarcodeGenerator, QueuedSink, Recorder
-from wl_sync.sessions import read_open, session_dir, unassigned_dir, unassigned_id
+from wl_sync.session import SessionId
+from wl_sync.sessions import (
+    SessionRequest,
+    close_session,
+    open_session,
+    read_open,
+    session_dir,
+    unassigned_dir,
+    unassigned_id,
+)
 
 CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
 
@@ -136,8 +147,65 @@ def _resume(
         # anything ABOVE the ceiling to None, so this is the one remaining value.
         reasons.append("checkpoint_exhausted")
         first_value = 0
-    day_date = (BARCODE_EPOCH + datetime.timedelta(seconds=first_value)).date()
-    return first_value, ClockTrust(False, ",".join(reasons)), day_date
+    return first_value, ClockTrust(False, ",".join(reasons)), _barcode_day(first_value)
+
+
+def _barcode_day(value: int) -> datetime.date:
+    """The date a barcode value implies: it IS seconds since the 2020 epoch (Sec.4).
+
+    ONE EXPRESSION, USED BY EVERYTHING THAT NAMES A FOLDER FROM A VALUE. _resume() names
+    the start-up folder with it and a session request names its folder with it, so a dead
+    clock cannot name the one after 1970 while the other names it after 2020 -- two
+    spellings of the same fact are free to drift apart.
+    """
+    return (BARCODE_EPOCH + datetime.timedelta(seconds=value)).date()
+
+
+def _segment_factory(
+    folder: Path,
+    session_id: SessionId,
+    *,
+    rig: str,
+    written_at: datetime.datetime,
+    trust: ClockTrust,
+) -> tuple[Path, Callable[[], SegmentWriter]]:
+    """The path of the next segment in `folder`, and a zero-argument factory that writes it.
+
+    THE ONLY PLACE A SEGMENT HEADER IS DEFINED. The start of run() and every roll build
+    their segment here, so a field added to the header cannot reach the first segment of
+    a run and miss the ones after a session change.
+
+    A FACTORY, NOT A WRITER, because QueuedSink.roll() calls it on the owner thread after
+    the old segment's trailer is written. Opening the file here, on the run loop's thread,
+    would put two live segments under one sink. The folder is made inside the factory for
+    the same reason: a failure to create it must surface through roll(), as a held error,
+    rather than as a raise that leaves the old segment half-handled.
+
+    The index is read when this is called, not when the factory runs. That is safe because
+    a roll never goes into the folder it leaves (every session id is new, and the
+    between-sessions folder is only entered from a session), so no writer can be adding to
+    `folder` in between. At the start of run() the folder may not exist yet, and a missing
+    folder simply has no segments.
+    """
+    index = next_segment_index(folder)
+    header = SyncBoxLogHeader(
+        schema_version=1,
+        session_id=str(session_id),
+        rig=rig,
+        boot_id=probe_boot_id(),
+        written_at=written_at,
+        gpio_map=GPIO_MAP,
+        segment_index=index,
+        clock_trusted=trust.trusted,
+        clock_reason=trust.reason,
+    )
+    path = folder / segment_name(index)
+
+    def make() -> SegmentWriter:
+        folder.mkdir(parents=True, exist_ok=True)
+        return SegmentWriter(path, header)
+
+    return path, make
 
 
 @contextlib.contextmanager
@@ -170,8 +238,15 @@ def _handling(handler, *signums):
 def run(
     out: Path, backend, now_fn, duration_s: float | None, tick_fn,
     mono_fn=time.monotonic,
+    requests: queue.SimpleQueue[SessionRequest] | None = None,
 ) -> Path:
     """Record until `duration_s` elapses or a termination signal arrives.
+
+    `requests` is how the task PC's open and close reach the recording (spec 3.1-3.4).
+    The endpoint puts a SessionRequest on it and waits on its future; this loop carries
+    it out between two emit iterations, so a session changes at a whole-second boundary
+    and the capture threads, which only ever hold the QueuedSink, never see the folder
+    change. None means no endpoint, and the loop behaves exactly as it did before.
 
     `now_fn`, `tick_fn` and `mono_fn` are injected so the whole loop is testable without
     sleeping: tests pass a scripted wall clock, a no-op sleep and, where pacing is under
@@ -208,20 +283,10 @@ def run(
     # before this run adds its own.
     write_manifest(folder)
 
-    index = next_segment_index(folder)
-    header = SyncBoxLogHeader(
-        schema_version=1,
-        session_id=str(session_id),
-        rig=out.name,
-        boot_id=probe_boot_id(),
-        written_at=started,
-        gpio_map=GPIO_MAP,
-        segment_index=index,
-        clock_trusted=trust.trusted,
-        clock_reason=trust.reason,
+    writer_path, make_writer = _segment_factory(
+        folder, session_id, rig=out.name, written_at=started, trust=trust
     )
-    writer_path = folder / segment_name(index)
-    writer = SegmentWriter(writer_path, header)
+    writer = make_writer()
     # ONE OWNER THREAD FOR THE SEGMENT, on every backend. The RP1 backend delivers from
     # capture threads, and SegmentWriter is neither thread-safe nor quick: its flush()
     # fsyncs, so a capture thread calling into it would block on the disk and stop
@@ -245,12 +310,88 @@ def run(
         first_value,
         trust.trusted,
         trust.reason or "-",
-        header.boot_id or "-",
+        probe_boot_id() or "-",
     )
 
     values = _ValueSource(now_fn, first_value)
     generator = BarcodeGenerator(backend, BARCODE_PIN)
     health = _HealthReport(backend)
+
+    # The last barcode of the segments this run has rolled away from. A roll leaves the
+    # new writer with no barcode yet, so a run that rolls in its final iteration would
+    # otherwise read "no barcodes were written" at the end and rewind the checkpoint to
+    # `first_value`; a restart would then reuse values, which must be unique across the
+    # box (spec Sec.4). See the end of the loop.
+    carried_last: int | None = None
+
+    def carry_out(request: SessionRequest, value: int) -> None:
+        """Do what `request` asks and complete its future, whatever happens.
+
+        THE FUTURE IS COMPLETED BEFORE ANYTHING PROPAGATES, because an HTTP caller blocked
+        on it would otherwise sit out its whole timeout on a request that already failed.
+
+        A refusal or a filesystem failure BEFORE the roll (a SessionError, a bad id, an
+        OSError) goes to the caller and recording carries on in the current folder, since
+        nothing about the recording has changed. A failure IN the roll is different: the
+        sink is dead and can record nothing, so it is set on the future and then raised.
+        Under systemd `Restart=always` the box resumes from the state file it saved.
+        """
+        nonlocal folder, session_id, carried_last
+        day = _barcode_day(value)
+        opened = None
+        try:
+            if request.kind == "open":
+                opened = open_session(out, request.argument, now_fn(), day)
+                result = opened
+                target = (
+                    None
+                    if opened.reused
+                    else (session_dir(out, opened.session.session_id), opened.session.session_id)
+                )
+            else:
+                closing = SessionId.parse(request.argument)
+                close_session(out, closing)
+                result = closing
+                target = (unassigned_dir(out, day), unassigned_id(day))
+        except Exception as error:  # noqa: BLE001 - handed to the caller, see above
+            request.reply.set_exception(error)
+            return
+
+        if target is None:
+            # A retry of the open that is already in force: nothing changed, so nothing
+            # rolls and nothing is logged a second time.
+            request.reply.set_result(result)
+            return
+
+        new_folder, new_id = target
+        old_folder, outgoing = folder, sink.sink
+        _, make_writer = _segment_factory(
+            new_folder, new_id, rig=out.name, written_at=now_fn(), trust=trust
+        )
+        try:
+            sink.roll(make_writer, now_fn())
+        except BaseException as error:
+            request.reply.set_exception(error)
+            raise
+        # The outgoing writer's span is final now that its trailer is written.
+        if outgoing.barcode_last is not None:
+            carried_last = outgoing.barcode_last
+        folder, session_id = new_folder, new_id
+
+        try:
+            write_manifest(old_folder)
+        except Exception as error:  # noqa: BLE001 - the next start rebuilds it
+            log.error("could not rebuild the manifest of %s: %s", old_folder, error)
+        if opened is not None:
+            if opened.closed is not None:
+                log.error(
+                    "session %s opened while %s was still open: %s was closed to make room",
+                    new_id, opened.closed, opened.closed,
+                )
+            log.info("opened session %s, recording into %s", new_id, new_folder)
+        else:
+            log.info("closed session %s, recording between sessions into %s", result, new_folder)
+        request.reply.set_result(result)
 
     stopping = _StopFlag()
     with _handling(stopping, signal.SIGINT, signal.SIGTERM):
@@ -310,6 +451,20 @@ def run(
             sink.flush()
             health()
 
+            # AFTER THE FRAME IS ON DISK AND BEFORE PACING: the frame just emitted belongs
+            # to the session that was open when it was emitted, and the next one to the
+            # session this makes. Drained with get_nowait() because the loop must never
+            # wait on an endpoint it does not need.
+            while requests is not None:
+                try:
+                    request = requests.get_nowait()
+                except queue.Empty:
+                    break
+                # False for a future the caller cancelled (its HTTP request timed out):
+                # carrying that out would open a session nobody is waiting for.
+                if request.reply.set_running_or_notify_cancel():
+                    carry_out(request, value)
+
             # THE NEXT GRID POINT THAT LEAVES THE DECODER ITS IDLE, not a fixed second
             # after the frame. On hardware a frame holds the pin for 200 ms, so
             # `tick_fn(1.0)` made the period 1.2 s while every bound this loop promises
@@ -342,7 +497,11 @@ def run(
         # dead-RTC start really does emit -- with "no barcodes were written".
         # Read through the sink, not the local `writer`: a roll replaces the segment
         # writer, and the first one's span stops at the roll.
+        # NEVER REWIND: a roll in the last iteration leaves the current writer with no
+        # barcode, and the value emitted before the roll lives only in the one carried.
         barcode_last = sink.sink.barcode_last
+        if barcode_last is None:
+            barcode_last = carried_last
         last = first_value if barcode_last is None else barcode_last
         write_checkpoint(checkpoint_path, last)
         write_manifest(folder)
