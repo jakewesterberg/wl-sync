@@ -13,6 +13,7 @@ import http.client
 import json
 import queue
 import threading
+import time
 import urllib.error
 import urllib.request
 
@@ -411,3 +412,61 @@ def test_deeply_nested_json_is_400_not_500(rig):
     status, payload, _ = rig.call("POST", "/session/open", raw=b"[" * 50000)
     assert status == 400
     assert "error" in payload
+
+
+def test_a_handler_oserror_still_answers_500_json(rig, monkeypatch, caplog):
+    def unreadable(root):
+        raise PermissionError("state file unreadable")
+
+    monkeypatch.setattr("wl_sync.endpoint.read_open", unreadable)
+    status, body, response = rig.call("GET", "/session", token=None)
+    assert status == 500
+    assert response.headers["Content-Type"] == "application/json"
+    assert "error" in body
+    assert any(r.levelname == "ERROR" and r.exc_info for r in caplog.records)
+
+
+def test_a_body_read_that_times_out_is_not_logged_as_an_error(rig, monkeypatch, caplog):
+    from wl_sync.endpoint import _Handler
+
+    class TimedOut:
+        def read(self, n):
+            raise TimeoutError("timed out")
+
+        def close(self):
+            pass
+
+    original = _Handler._require_token
+
+    def require_token_then_break_the_body(self):
+        original(self)
+        self.rfile = TimedOut()
+
+    monkeypatch.setattr(_Handler, "_require_token", require_token_then_break_the_body)
+    host, port = rig.server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
+    body = b'{"request_id": "r1"}'
+    # Capture BEFORE sending: the handler logs as soon as the request arrives.
+    with caplog.at_level("DEBUG"):
+        connection.putrequest("POST", "/session/open")
+        connection.putheader("Authorization", f"Bearer {TOKEN}")
+        connection.putheader("Content-Length", str(len(body)))
+        connection.endheaders(body)
+        with pytest.raises((http.client.RemoteDisconnected, ConnectionError)):
+            connection.getresponse()  # the server closes without answering a gone client
+        connection.close()
+        deadline = time.monotonic() + WAIT_S
+        while time.monotonic() < deadline and not any(
+            "went away mid-request" in r.getMessage() for r in caplog.records
+        ):
+            time.sleep(0.01)
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any("went away mid-request" in r.getMessage() for r in caplog.records)
+
+
+def test_a_connection_reset_in_handle_error_is_not_an_error(rig, caplog):
+    try:
+        raise ConnectionResetError("reset")
+    except ConnectionResetError:
+        rig.server.handle_error(None, ("127.0.0.1", 1))
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]

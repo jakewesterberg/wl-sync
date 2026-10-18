@@ -33,6 +33,7 @@ import hmac
 import json
 import logging
 import queue
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -70,6 +71,10 @@ class _Reply(Exception):
         self.headers = headers or {}
 
 
+class _ClientGone(Exception):
+    """The client reset or timed out while its request body was being read."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Route:
     """One entry of the route table.
@@ -97,6 +102,10 @@ class _Server(ThreadingHTTPServer):
         socketserver's default writes to stderr, which is outside `logging` and so
         outside whatever the box does with its logs.
         """
+        # A client resetting during the header read is routine, not a fault.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            logger.debug("client %s went away", client_address, exc_info=True)
+            return
         logger.exception("unhandled error serving %s", client_address)
 
     root: Path
@@ -164,10 +173,12 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(status, payload)
         except _Reply as reply:
             self._send(reply.status, reply.payload, reply.headers)
-        except OSError:
+        except _ClientGone:
             logger.debug("client %s went away mid-request", self.address_string())
             self.close_connection = True
         except Exception as error:
+            # Includes an OSError from handler logic (say, an unreadable state file):
+            # that is a server fault to log at ERROR and answer, not a vanished client.
             # A bug here must still answer in JSON; a dropped connection tells the task
             # PC nothing and invites a retry of something that may have succeeded.
             logger.exception("endpoint failed on %s %s", method, self.path)
@@ -231,7 +242,11 @@ class _Handler(BaseHTTPRequestHandler):
                 {"error": f"body is {length} bytes; the limit is {MAX_BODY_BYTES}"},
                 {"Connection": "close"},
             )
-        raw = self.rfile.read(length)
+        try:
+            raw = self.rfile.read(length)
+        except OSError:
+            # Only the read is the client's doing; an OSError elsewhere is ours.
+            raise _ClientGone from None
         try:
             body = json.loads(raw)
         except (ValueError, RecursionError) as error:
