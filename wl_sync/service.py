@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import queue
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
 from wl_sync.backend import SyncBackend
@@ -312,7 +312,7 @@ class QueuedSink:
         if self._error is not None:
             raise RuntimeError("the sink's owner thread died") from self._error
 
-    def roll(self, make_sink, *close_args) -> None:
+    def roll(self, make_sink: Callable[[], RecordSink], *close_args) -> None:
         """Close the current sink with `close(*close_args)` and carry on into `make_sink()`.
 
         THE OWNER THREAD DOES IT, NOT THE CALLER. Capture threads hold this QueuedSink,

@@ -347,22 +347,53 @@ def test_a_roll_splits_records_at_the_moment_it_was_asked():
 def test_no_record_is_lost_across_a_roll_under_concurrent_writers():
     """Capture threads keep writing straight through a roll and must never see it. Every
     record must land in exactly one of the two segments: none lost in the hand-over,
-    none written twice."""
+    none written twice.
+
+    DETERMINISTIC, NO SLEEPS. Each writer finishes its first half, signals, and waits;
+    the roll is requested only once every first half has returned, and the second halves
+    start only after it. The queue is FIFO, so the first halves MUST be in the old
+    segment and the second halves in the new one -- a roll that landed before or after
+    the whole stream would otherwise pass every count check.
+    """
     first, second = _ClosableSink(), _ClosableSink()
     queued = QueuedSink(first)
+    half = PER_WRITER // 2
+    halves_written = threading.Barrier(WRITERS + 1)
+    rolled = threading.Event()
+
+    def run(base):
+        for index in range(half):
+            queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
+        halves_written.wait()
+        rolled.wait()
+        for index in range(half, PER_WRITER):
+            queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
+
+    workers = [threading.Thread(target=run, args=(n,)) for n in range(WRITERS)]
     try:
-        hammer = threading.Thread(target=_hammer, args=(queued,))
-        hammer.start()
-        time.sleep(0.005)  # let the writers get under way, so the roll lands mid-stream
+        for worker in workers:
+            worker.start()
+        halves_written.wait()
         queued.roll(lambda: second)
-        hammer.join()
+        rolled.set()
+        for worker in workers:
+            worker.join()
         queued.flush()
     finally:
+        rolled.set()
         queued.close()
 
-    landed = first.lines + second.lines
-    assert len(landed) == WRITERS * PER_WRITER
-    assert len(set(landed)) == len(landed), "a record was written twice"
+    before = {
+        str(base * 10_000 + index) for base in range(WRITERS) for index in range(half)
+    }
+    after = {
+        str(base * 10_000 + index)
+        for base in range(WRITERS)
+        for index in range(half, PER_WRITER)
+    }
+    assert len(first.lines) == len(before) and set(first.lines) == before
+    assert len(second.lines) == len(after) and set(second.lines) == after
+    assert len(first.lines) + len(second.lines) == WRITERS * PER_WRITER
     assert first.closed_with == ()
 
 
@@ -384,3 +415,25 @@ def test_a_failing_new_sink_does_not_die_quietly():
         queued.write(Edge(tick_us=1, gpio=20, level=1))
     assert isinstance(later.value.__cause__, OSError)
     assert old.lines == []
+
+
+def test_a_failing_close_during_a_roll_does_not_die_quietly():
+    """The other half of a roll. Closing the old segment writes its trailer, and losing
+    that error would mark a good visit as a crash. It is held and raised like any other,
+    and make_sink() must never run: opening the next segment on top of one that failed to
+    close would hide the failure behind a healthy-looking new file."""
+
+    class _BreaksOnClose(_ClosableSink):
+        def close(self, *args) -> None:
+            raise OSError("disk went away")
+
+    made = []
+    queued = QueuedSink(_BreaksOnClose())
+    with pytest.raises(RuntimeError, match="owner thread died") as raised:
+        queued.roll(lambda: made.append(1))
+    assert isinstance(raised.value.__cause__, OSError)
+    assert made == []
+
+    with pytest.raises(RuntimeError, match="owner thread died") as later:
+        queued.write(Edge(tick_us=1, gpio=20, level=1))
+    assert isinstance(later.value.__cause__, OSError)
