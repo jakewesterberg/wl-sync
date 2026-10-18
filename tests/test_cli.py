@@ -123,6 +123,34 @@ def test_a_restart_resumes_into_the_open_session(tmp_path):
     assert not (tmp_path / "unassigned").exists()
 
 
+def test_a_session_open_across_midnight_keeps_its_id(tmp_path):
+    """Spec 3.1: a session that is open when the date rolls over keeps its id. The
+    visit, not the calendar, decides the folder, so a restart after midnight must record
+    into the session opened yesterday rather than minting a folder for today. This closes
+    a coverage gap (docs/next-session.md 5): the resume test above uses a clock on the
+    session's own date and so cannot tell "resume the open session" from "name the folder
+    after today"."""
+    session_id = SessionId.parse("2026-08-16_02")
+    write_open(
+        tmp_path,
+        OpenSession(session_id, datetime.datetime(2026, 8, 16, 23, 0, tzinfo=UTC), "r1"),
+    )
+    folder = tmp_path / "2026-08-16_02" / "syncbox"
+    folder.mkdir(parents=True)
+
+    result = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(datetime.datetime(2026, 8, 17, 0, 30, tzinfo=UTC)),
+        duration_s=2,
+        tick_fn=lambda _s: None,
+    )
+    assert result == folder
+    header, _ = read_log(folder / segment_name(0))
+    assert header.session_id == "2026-08-16_02"
+    assert not list(tmp_path.glob("**/2026-08-17*"))
+
+
 def test_a_short_run_writes_a_clean_segment_and_manifest(tmp_path):
     clock = iter(
         datetime.datetime(2026, 8, 16, 9, 0, second=s, tzinfo=UTC) for s in range(10)

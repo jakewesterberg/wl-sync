@@ -107,8 +107,8 @@ def _resume(
     IS seconds since 2020 (Sec.4), so the resumed value is the box's own surviving
     timebase and implies a date. With a checkpoint present that lands on the day the box
     was really recording, so a restart on a dead battery rejoins the day it was already
-    writing to. With no checkpoint at all it lands on 2020-01-01_01: still not the true
-    date, but honest, constant, and -- unlike a directory named after whatever the junk
+    writing to. With no checkpoint at all it lands on unassigned/2020-01-01/syncbox: still not
+    the true date, but honest, constant, and -- unlike a directory named after whatever the junk
     clock happened to read -- it does not mint a fresh orphan directory on every boot.
 
     ONLY a pre-epoch reading degrades. A naive datetime is a caller bug that silently
