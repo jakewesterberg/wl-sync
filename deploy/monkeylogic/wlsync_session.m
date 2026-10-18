@@ -1,7 +1,8 @@
-function id = wlsync_session(action, box, token_file)
+function id = wlsync_session(action, box, token_file, session_id)
 %WLSYNC_SESSION  Open, close or read the sync box's session, from MATLAB.
 %
 %   ID = WLSYNC_SESSION('open',  BOX, TOKEN_FILE)
+%   ID = WLSYNC_SESSION('close', BOX, TOKEN_FILE, SESSION_ID)
 %   ID = WLSYNC_SESSION('close', BOX, TOKEN_FILE)
 %   ID = WLSYNC_SESSION('show',  BOX)
 %
@@ -10,6 +11,13 @@ function id = wlsync_session(action, box, token_file)
 %     BOX         host and port of the sync box, e.g. 'wl-sync-rig0.local:8740'.
 %     TOKEN_FILE  path to a text file holding the session token. Needed for
 %                 'open' and 'close'; 'show' needs no token.
+%     SESSION_ID  'close' only: the id 'open' returned. Pass it. Given, the
+%                 box is asked to close exactly that session and nothing is
+%                 looked up, so a late close for this visit is refused
+%                 (HTTP 409) instead of closing the next visit's session.
+%                 Left out, 'close' closes whatever the box reports as open,
+%                 which skips that guard. An empty SESSION_ID is an error,
+%                 never a quiet fall back to the look-up.
 %
 %   Outputs
 %     ID          char, e.g. '2026-10-18_02'.
@@ -20,7 +28,10 @@ function id = wlsync_session(action, box, token_file)
 %   Example
 %     id = wlsync_session('open', 'wl-sync-rig0.local:8740', 'C:\wl\session-token');
 %     % ... run the visit, naming MonkeyLogic's data after ID ...
-%     wlsync_session('close', 'wl-sync-rig0.local:8740', 'C:\wl\session-token');
+%     wlsync_session('close', 'wl-sync-rig0.local:8740', 'C:\wl\session-token', id);
+%
+%   Requires MATLAB R2016b or later (believed, UNVERIFIED): matlab.net.http,
+%   jsonencode and isstring are believed to need it.
 %
 %   Every failure is an error, so a caller that does not catch it stops.
 %   That is the point: a MonkeyLogic visit that starts without a session
@@ -43,8 +54,13 @@ function id = wlsync_session(action, box, token_file)
 %       a network problem.
 %     * ConnectTimeout is believed to bound connecting only (UNVERIFIED); a lost reply may hang rather
 %       than time out. If so, stop MonkeyLogic and run 'show'.
-%     * 'close' does not retry: it reads the open id first, and a lost
-%       reply is better answered by 'show' than by a blind second close.
+%     * 'close' does not retry. A lost reply is better answered by 'show'
+%       than by a second close, which would be refused with HTTP 409 if the
+%       first one had in fact closed the session.
+%     * The box needs a Content-Length on a POST and refuses a chunked
+%       body (HTTP 400, "a valid Content-Length is required"). MATLAB is
+%       believed to send a Content-Length for a body handed over whole, as
+%       here (UNVERIFIED): a bench-day check.
 %     * The token is read with strtrim(fileread(...)), and is never printed
 %       or put in an error message.
 %
@@ -53,11 +69,16 @@ function id = wlsync_session(action, box, token_file)
 %   MonkeyLogic section of deploy/README.md).
 
     if nargin < 2 || ~(ischar(action) || isstring(action)) || ~(ischar(box) || isstring(box))
-        error('wlsync:usage', 'usage: id = wlsync_session(action, box, token_file)');
+        error('wlsync:usage', 'usage: id = wlsync_session(action, box, token_file, session_id)');
     end
     action = char(action);
     box = char(box);
     base = ['http://' box];
+    if nargin >= 4 && ~strcmp(action, 'close')
+        % Only a close names a session. An id handed to 'open' would suggest the
+        % caller can choose one, and the box mints every id.
+        error('wlsync:usage', 'only ''close'' takes a session id; the box mints every id');
+    end
 
     switch action
         case 'show'
@@ -99,18 +120,33 @@ function id = wlsync_session(action, box, token_file)
 
         case 'close'
             if nargin < 3
-                error('wlsync:usage', 'close needs a token file: wlsync_session(''close'', box, token_file)');
+                error('wlsync:usage', 'close needs a token file: wlsync_session(''close'', box, token_file, session_id)');
             end
             token = read_token(token_file);
-            open_id = show_open(base, token);
-            if isempty(open_id)
-                error('wlsync:nothingopen', 'nothing to close: sync box %s has no open session', box);
+            if nargin >= 4
+                % Exactly the session the caller opened, never looked up: the box
+                % refuses a close naming a session that is not the open one, and that
+                % refusal is what stops a late close from ending the next visit.
+                if ~(ischar(session_id) || isstring(session_id))
+                    error('wlsync:usage', 'session_id must be text, such as the id ''open'' returned');
+                end
+                close_id = char(session_id);
+                if isempty(close_id)
+                    error('wlsync:usage', 'session_id is empty; pass the id ''open'' returned');
+                end
+            else
+                % No id given: close whatever is open now. That skips the guard above,
+                % since a late close then closes whatever has opened since.
+                close_id = show_open(base, token);
+                if isempty(close_id)
+                    error('wlsync:nothingopen', 'nothing to close: sync box %s has no open session', box);
+                end
             end
             [status, data, failure] = send_request('POST', [base '/session/close'], token, ...
-                struct('session_id', open_id));
+                struct('session_id', close_id));
             if ~isempty(failure)
                 error('wlsync:unreachable', 'sync box %s unreachable while closing %s: %s', ...
-                    box, open_id, failure);
+                    box, close_id, failure);
             end
             check_ok(status, data, 'close', box, token);
             id = as_char(get_field(data, 'closed'));

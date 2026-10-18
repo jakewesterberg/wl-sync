@@ -297,22 +297,37 @@ def test_an_unanswered_request_is_503_and_cancelled(make_rig):
     assert request.reply.cancelled()
 
 
+class _StartedOnPut(queue.SimpleQueue):
+    """A stand-in run loop that starts each request in the very call that queues it.
+
+    The endpoint's timeout starts only after `put()` returns, so a request started here
+    is RUNNING before that timeout can fire, however the threads are scheduled. Started
+    from a helper thread instead, a helper scheduled more than the timeout late let the
+    endpoint cancel first and answer 503, so the test failed under load while proving
+    nothing about the endpoint.
+    """
+
+    def put(self, item, block=True, timeout=None):
+        assert item.reply.set_running_or_notify_cancel()
+        super().put(item, block, timeout)
+
+
 def test_a_started_request_is_waited_for_past_the_timeout(make_rig):
+    """A request the run loop has started is always finished, so a cancel fails and the
+    endpoint must wait for the answer rather than call it a 503: "nothing happened" would
+    be false about a session that was in fact opened."""
     rig = make_rig(timeout_s=0.2)
-    started = threading.Event()
+    rig.server.requests = started = _StartedOnPut()
 
     def slow_loop():
-        request = rig.requests.get(timeout=WAIT_S)
-        assert request.reply.set_running_or_notify_cancel()
-        started.set()
-        threading.Event().wait(0.6)
+        request = started.get(timeout=WAIT_S)
+        threading.Event().wait(0.6)  # three times the endpoint's timeout
         request.reply.set_result(opened())
 
     thread = threading.Thread(target=slow_loop, daemon=True)
     thread.start()
     status, body, _ = rig.call("POST", "/session/open", {"request_id": "r1"})
     thread.join(WAIT_S)
-    assert started.is_set()
     assert status == 200
     assert body["session_id"] == "2026-10-18_02"
 
