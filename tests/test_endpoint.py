@@ -232,15 +232,20 @@ def test_a_post_without_content_length_is_400(rig):
 
 
 def test_an_oversized_body_is_413_without_being_read(rig):
-    body = b'{"request_id": "' + b"x" * (70 * 1024) + b'"}'
-    # The server answers before reading, so the client may see its upload cut off.
-    try:
-        status, payload, _ = rig.call("POST", "/session/open", raw=body)
-    except (ConnectionError, urllib.error.URLError):
-        pytest.skip("server closed before the client finished uploading")
-    assert status == 413
-    assert "error" in payload
+    # Headers only, no body: if the server tried to read 70000 bytes it would hang
+    # until the client's timeout instead of answering.
+    host, port = rig.server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
+    connection.putrequest("POST", "/session/open")
+    connection.putheader("Authorization", f"Bearer {TOKEN}")
+    connection.putheader("Content-Length", "70000")
+    connection.endheaders()
+    response = connection.getresponse()
+    assert response.status == 413
+    assert response.getheader("Content-Type") == "application/json"
+    assert "error" in json.loads(response.read())
     assert rig.requests.empty()
+    connection.close()
 
 
 def test_wrong_session_is_409_and_says_what_is_open(rig):
@@ -342,3 +347,74 @@ def test_auth_is_checked_before_the_body(rig):
 
 def test_the_server_uses_daemon_threads(rig):
     assert rig.server.daemon_threads is True
+
+
+@pytest.mark.parametrize("header", [f"bearer {TOKEN}", f"BEARER {TOKEN}", f"Bearer  {TOKEN}"])
+def test_scheme_case_and_extra_spaces_are_accepted(rig, header):
+    rig.answer(opened())
+    status, _, _ = rig.call(
+        "POST", "/session/open", {"request_id": "r1"}, token=None, headers={"Authorization": header}
+    )
+    assert status == 200
+
+
+def test_a_wrong_token_is_still_refused_with_loose_parsing(rig):
+    status, _, _ = rig.call(
+        "POST", "/session/open", {"request_id": "r1"}, token=None,
+        headers={"Authorization": "bearer  nope"},
+    )
+    assert status == 401
+
+
+def test_a_non_ascii_token_matches_its_utf8_bytes(make_rig):
+    rig = make_rig(token="caf\u00e9")
+    rig.answer(opened())
+    host, port = rig.server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
+    body = b'{"request_id": "r1"}'
+    connection.putrequest("POST", "/session/open")
+    connection.putheader("Authorization", b"Bearer caf\xc3\xa9")
+    connection.putheader("Content-Length", str(len(body)))
+    connection.endheaders(body)
+    assert connection.getresponse().status == 200
+    connection.close()
+
+
+def test_a_trailing_newline_in_a_close_id_is_canonicalised(rig):
+    rig.answer(SID)
+    status, _, _ = rig.call("POST", "/session/close", {"session_id": "2026-10-18_01\n"})
+    assert status == 200
+    assert rig.seen[0].argument == "2026-10-18_01"
+
+
+def test_the_stdlib_error_paths_are_json_too(rig):
+    host, port = rig.server.server_address[:2]
+    connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)
+    connection.request("OPTIONS", "/session")
+    response = connection.getresponse()
+    assert response.status == 501
+    assert response.getheader("Content-Type") == "application/json"
+    assert "error" in json.loads(response.read())
+    connection.close()
+
+
+def test_too_many_headers_gets_a_json_error(rig):
+    import socket
+
+    host, port = rig.server.server_address[:2]
+    with socket.create_connection((host, port), timeout=WAIT_S) as sock:
+        sock.sendall(b"GET /session HTTP/1.1\r\n" + b"X-A: b\r\n" * 150 + b"\r\n")
+        data = b""
+        while chunk := sock.recv(4096):
+            data += chunk
+    head, _, body = data.partition(b"\r\n\r\n")
+    assert b"application/json" in head
+    assert head.startswith(b"HTTP/1.")
+    assert b" 431 " in head.split(b"\r\n")[0]
+    assert "error" in json.loads(body)
+
+
+def test_deeply_nested_json_is_400_not_500(rig):
+    status, payload, _ = rig.call("POST", "/session/open", raw=b"[" * 50000)
+    assert status == 400
+    assert "error" in payload

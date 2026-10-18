@@ -108,6 +108,30 @@ class _Handler(BaseHTTPRequestHandler):
         # wrong level and mixed with the recording's own output.
         logger.debug("%s - %s", self.address_string(), format % args)
 
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        """The stdlib's own error paths (bad request line, 414, 431, 408, 501) in JSON.
+
+        Otherwise they answer in HTML, and a MATLAB or PowerShell caller that parses
+        every body as JSON would fail with a confusing parse error instead of the cause.
+        """
+        if message is None:
+            message = self.responses.get(code, ("error",))[0]
+        # A request line that did not parse has no `command`; HEAD gets headers only.
+        if getattr(self, "command", None) == "HEAD":
+            body = b""
+        else:
+            body = json.dumps({"error": message}).encode()
+        try:
+            self.send_response(code, message)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(body)
+        except ConnectionError:
+            pass
+        self.close_connection = True
+
     def _send(self, status: int, payload: dict[str, Any], headers: dict[str, str] | None = None) -> None:
         body = json.dumps(payload).encode()
         try:
@@ -118,7 +142,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_header(name, value)
             self.end_headers()
             self.wfile.write(body)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             # The caller hung up before reading the answer. The work (if any) is done
             # and cannot be undone; raising would only spam a traceback.
             logger.debug("client %s went away before the response was sent", self.address_string())
@@ -130,7 +154,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(status, payload)
         except _Reply as reply:
             self._send(reply.status, reply.payload, reply.headers)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
             self.close_connection = True
         except Exception as error:
             # A bug here must still answer in JSON; a dropped connection tells the task
@@ -165,11 +189,16 @@ class _Handler(BaseHTTPRequestHandler):
                 {"error": "this box has no token configured, so it refuses opens and closes"},
             )
         header = self.headers.get("Authorization", "")
-        scheme, _, presented = header.partition(" ")
+        # RFC 7235: the scheme is case-insensitive and may be followed by any run of
+        # spaces, so `bearer  tok` is as valid as `Bearer tok`.
+        scheme, _, presented = header.strip().partition(" ")
+        presented = presented.strip()
         # Bytes, not str: compare_digest raises TypeError on a non-ASCII str, which
-        # would turn a hostile header into a 500 instead of a 401.
-        if scheme != "Bearer" or not hmac.compare_digest(
-            presented.encode("utf-8", "surrogateescape"), expected.encode("utf-8")
+        # would turn a hostile header into a 500 instead of a 401. `http.client` decodes
+        # header values as latin-1, so latin-1 gives back the bytes the client sent,
+        # which a UTF-8 token is configured as; re-encoding as UTF-8 would never match.
+        if scheme.lower() != "bearer" or not hmac.compare_digest(
+            presented.encode("latin-1"), expected.encode("utf-8")
         ):
             raise _Reply(
                 HTTPStatus.UNAUTHORIZED,
@@ -194,8 +223,12 @@ class _Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length)
         try:
             body = json.loads(raw)
-        except ValueError as error:  # includes UnicodeDecodeError
-            raise _Reply(HTTPStatus.BAD_REQUEST, {"error": f"body is not valid JSON: {error}"}) from None
+        except (ValueError, RecursionError) as error:
+            # ValueError includes UnicodeDecodeError. RecursionError is deeply nested
+            # input such as 100000 `[`; it is a bad body, not a server fault.
+            raise _Reply(
+                HTTPStatus.BAD_REQUEST, {"error": f"body is not valid JSON: {type(error).__name__}"}
+            ) from None
         if not isinstance(body, dict):
             raise _Reply(HTTPStatus.BAD_REQUEST, {"error": "body must be a JSON object"})
         return body
@@ -296,10 +329,10 @@ def _post_close(handler: _Handler, body: dict[str, Any] | None) -> tuple[int, di
     if not isinstance(session_id, str):
         raise _Reply(HTTPStatus.BAD_REQUEST, {"error": "session_id must be a string"})
     try:
-        SessionId.parse(session_id)
+        canonical = str(SessionId.parse(session_id))
     except ValueError as error:
         raise _Reply(HTTPStatus.BAD_REQUEST, {"error": str(error)}) from None
-    result, failure = _call(handler, "close", session_id)
+    result, failure = _call(handler, "close", canonical)
     if failure is not None:
         return failure
     return 200, {"closed": str(result)}
