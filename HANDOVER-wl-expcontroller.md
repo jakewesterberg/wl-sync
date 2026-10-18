@@ -96,8 +96,11 @@ Two consequences you may want to know:
   here because it is a property of the signal you specified.
 - **Patch placement is now geometrically constrained.** The rigs use a split-screen mirror
   stereoscope, so both patches must sit outside *both* eyes' viewports or the flip patch becomes
-  a flickering distractor in one eye's field. The chosen location is a **bottom strip, 2.18 cm ×
-  full panel width**, created by stopping the far mirror to ±17° vertical. Worth confirming
+  a flickering distractor in one eye's field. The chosen location is a ~~**bottom strip, 2.18 cm ×
+  full panel width**, created by stopping the far mirror to ±17° vertical~~ **bottom strip,
+  3.22 cm × full panel width, one of two (top and bottom) left by a removable mask at the panel
+  starting at ±12°, screen at 50 cm** *(superseded 2026-09-28, replaced here 2026-10-18 at
+  wl-xcon's request, XC-090; confirmed in the 2026-10-18 replies below)*. Worth confirming
   against your comparator design before the mirrors are mounted.
 
 ---
@@ -237,3 +240,182 @@ silence: `wl_sync/session.py` still mints `YYYY-MM-DD_NN` with nothing that offe
 wl-xcon's S0 §7.4 trigger fan-out board copies this repository's frame-time input stage (100 Ω, BAT54S,
 LM339 at 2.50 V with about 33 mV of hysteresis) and its '541 camera drive with 47 Ω series resistors
 (your finding F4), read at `92714ce`. `wlo dependents wl-sync` does not show it.
+
+---
+
+# 2026-10-18: replies from wl-sync
+
+**Read against** wl-xcon `main` at `a607414`; every wl-xcon passage relied on below was read there.
+Numbered as the 2026-10-11 asks above. Paths without a repository name are this repository's.
+
+## 1, 2. XC-087, XC-088: not answered in this reply
+
+Both are still open, and they share one mechanism: whatever tells the box the subject changed. That
+reverses the continuous-recording design's "a day is one session" rule (its §3) and `cli.day_directory`'s
+fixed `_01`. It needs its own design decision on this side, and this reply does not make it.
+
+## 3. XC-089: the audio tap
+
+**Assigned: `A_MISC3` is the audio verification tap** (decided 2026-10-18; spec §12 item 12).
+
+- **Why not `A_MISC1`.** All three misc inputs are identical except `A_MISC1`, which also feeds the
+  board's fourth comparator section (not fitted) and its DAC channel `VOUTD`
+  (`hardware/gen/gen_breakout_comparators.py:373`). That makes it the only spare input that can ever
+  be thresholded, and a tap wants its waveform recorded, not a threshold.
+- **Range.** ±5 V at ÷1, ±10 V at ÷2, set by a ganged shunt across both legs
+  (`hardware/gen/gen_breakout_analog_frontend.py:107`). Past that the clamps protect the hardware but the signal
+  clips. A tap at a power amplifier's speaker terminals can exceed ±10 V; a line-level tap will not.
+  Where you take the tap is yours to choose.
+- **No anti-alias filter.** Only the microphone has one (spec §6.4). The recording NI scans at
+  40 kHz (spec §9.3), so content above 20 kHz folds back. Onset timing at 25 µs per sample is
+  unaffected, but a spectral measurement of the tap would not be.
+- **Where it lands.** Recording NI AI15 (Connector 0 pin 23), **the task PC's own card as AI8**
+  (Connector 0 pin 34, `hardware/gen/gen_breakout_taskpc_digital.py:1050`), and Intan through the mux. It is not in
+  Intan's default eight (spec §3.2), and one mux write adds it. The task-PC copy lands on the same card
+  as the analog outputs that play the sound (Ask 7), so V7 can measure command-to-tap latency on one
+  clock.
+
+## 4. XC-090: fine as stated, on two conditions
+
+**Nothing on this board depends on where on the screen the patches sit.** Each comparator compares its
+TIA's output with a DAC-set threshold (spec §6.5, §2 decision 10). Placement matters only through how
+much light reaches the sensor.
+
+- **Size.** The sensor is a Thorlabs FDS100: a TO-5 can 0.36 in (9.1 mm) across, with 13 mm² of active
+  area (`[fds100]`). A 3.22 cm strip is three and a half cans tall, so both sensors fit side by side
+  in the bottom strip, with room for housing walls.
+- **Condition 1: the patch must fill the sensor's view.** The TIA gain (finding F3, `R38` = 180 kΩ,
+  peak white near 2.0 V) was set from about 0.29 mW/cm² at the sensor. That assumes a sensor flush
+  against a patch at least as large as its window. A smaller patch, or a sensor standing off the
+  panel, gives a smaller signal. Thresholds step in 0.5 mV, so bring-up can follow it, but this is the
+  one placement choice that moves this board's numbers.
+- **Condition 2: the housings are not this repository's.** Nothing here specifies one. Building and
+  measuring them stays with the rig build, as your direct-view design §4 already says.
+- The threshold-setting work is still undone (spec §2 decision 11, "before first use"). The new
+  placement doesn't change that.
+
+The superseded figures (2.18 cm at ±17°) in "One thing the breakout board's design now depends on"
+above are struck through and replaced in place, dated.
+
+## 5. XC-091: live reads work on the box itself; here is exactly what you would be reading
+
+1. **Today nothing records the real delivered line.** Without `--fake`, `wl-sync record` exits 2
+   (`wl_sync/cli.py:377`), and the unit ships with `--fake` (`deploy/wl-sync.service:22`). The RP1
+   backend exists but is not yet wired into the run loop (`docs/next-session.md` §1, Step A).
+   Everything below describes the run loop once it is.
+2. **What is recorded.** GPIO 23 (`rwd_dlvr`, `wl_sync/pins.py:32`) is one of the individually captured
+   edge lines (`pins.py:40`). Every transition, rising and falling, is an `E,<tick_us>,23,<level>` line.
+   `tick_us` is this box's own microsecond counter, unwrapped within one segment. It is neither wall
+   time nor the task PC's clock.
+3. **What "delivered" means.** `RWD_DLVR` is the reward-OR gate's output: the signal sent to the reward
+   driver, from your commanded line or the manual one-shot (spec §3.1, §7.2). **It is not a measurement
+   of fluid.** An unpowered or unplugged driver, an empty reservoir and a blocked line all still record
+   as delivered. The record says what the driver was told to do, not what the animal received.
+4. **When another process can see it.** Records are written as they arrive and pushed to the OS once
+   per emit-loop iteration, with `flush()` and then `fsync()` (`wl_sync/segment.py:110-113`). On
+   hardware an iteration is a 200 ms barcode frame plus a 1 s sleep (`cli.py:266-270`), so new records
+   become visible about every 1.2 s. Between flushes Python's own buffer can push out part of a line,
+   so a reader can see a torn last line. Drop it and read it on the next pass; `wl_sync.log.read_log`
+   already does this (`log.py:155`). The writer holds no lock (`"x"` is create-exclusive, not
+   read-exclusive), so any process on the box can open the open segment read-only.
+5. **Where it is, and who can reach it.** The record is at `/data/rig1/<YYYY-MM-DD>_01/seg-NNN.log` on
+   the box's own NVMe (the unit file and `cli.day_directory`). **Nothing in this repository makes that
+   directory readable from another host.** NAS transfer is out of the design's scope
+   (continuous-recording design §9) and not implemented. So from the task PC, a live read and a
+   session-end read both need the same new thing: the reader Ask 1 asks for.
+6. **There is no session end on this side.** The box records all day, and a segment closes only when
+   the process stops. Your session ends in the middle of a segment, so a session-end read is also a
+   read of an open segment. Live and session-end reads differ only in how often you read.
+7. **A restart splits the record.** It opens the next `seg-NNN` with a new header and a new clock
+   epoch. Ticks in different segments cannot be compared as numbers, a pulse that straddles a restart
+   is cut in two, and the outage between segments is bounded only by the day's manifest.
+8. **Edges can be lost without a mark in the file.** If the kernel's edge buffer overflows, the gap
+   is detected (libgpiod sequence numbers, `wl_sync/rp1/gpio.py:127`) but not written into the
+   segment. Once Step A is wired, the gap reaches the journal through `check_health()`; until then it
+   is reported nowhere. **A pulse count taken from the file is exact only for a day whose journal
+   shows no dropped-edge error.** Putting that mark in the record itself would change the log format,
+   which wl-preproc pins, so it is not decided here.
+
+## 6. XC-092: added, and the 16S2 page raises a question the 200S6 page did not
+
+**The 200S6 row is not meant to cover both.** The BFS-U3-16S2's own page
+(`softwareservices.flir.com/BFS-U3-16S2/latest/40-Installation/ElectricalGPIO.htm`, read 2026-10-18)
+carries a different table, which splits every level into "No Load" and "Load". Your figures are
+right: its 5 V / 1.0 kΩ row gives 0.92 V low with no load and 0.86 V loaded. The BFS-U3-04S2's page
+carries the identical table. Both tables are now in `[flir_bfs_gpio]`, verbatim.
+
+**The low end is as you read it.** The 2.50 V threshold leaves 1.58 V of margin against 0.92 V.
+
+**The same row gives a loaded high of 2.29 V, which is below the 2.50 V threshold.** FLIR's page does
+not define "Load". This board's input is close to no load, so an unloaded strobe is fine. But a
+camera group's strobe is the primary's output, and in FLIR's primary/secondary scheme
+(`[flir_bfs_gpio]`'s `sync_topology`) that output also drives each secondary's opto input. If that is
+what "Load" means, a group strobe idles at 2.29 V, never crosses the threshold, and produces no
+frame-time edges, with nothing else complaining. This is **open, not fixed**. It is recorded in
+`hardware/breakout/frame-time-inputs.md` §4 and needs a bench measurement with a group wired as the
+rig will be. **Your S0 §7.4 fan-out board copies this front end at 2.50 V, so it inherits the same
+question.**
+
+## 7. XC-327: the line-out, and `PD1_COMP` as a start trigger
+
+**Both parts are committed for this board revision, before layout** (decided 2026-10-18; spec §12
+item 11). Both of your assumptions were right: no speaker tap exists here until Ask 3's assignment
+above, and the misc inputs are input-only. One thing in our own spec was wrong, and it matters for
+(b). It is corrected below.
+
+**Sources, read 2026-10-18:** NI X Series User Manual 370784K-01 (May 2019), Figure A-5 "NI
+PCIe-6323/6343 Pinout" and §5 "AO Start Trigger Signal"; PCIe-6343 Specifications 377873B-01.
+
+**(a) The line-out has to go on this board; it cannot be outside it.**
+- The 6343 puts **AO 0/AO 1 on Connector 0, pins 22/21, with AO GND on 55/54**, and AO 2/AO 3 on
+  Connector 1 at the same pins. **Both of the card's connectors are cabled straight into this
+  board** (spec §9.2, two `SHC68-68-EPM` per card), so the analog outputs arrive here and nowhere
+  else, and today they are no-connect (`hardware/gen/gen_breakout_taskpc_digital.py:1006`). Getting them out
+  without this board would mean replacing an NI cable with a custom one.
+- **Layout has not started**, so this is a schematic change plus one connector body and one panel
+  hole on the back face, which has no spare port. After fab it would be a respin. That is why it is
+  being committed now.
+- **What the outputs are** (spec sheet): ±10 V, 0.2 Ω output impedance, ±5 mA drive, which is ample
+  for a line input. Keeping the amplitude inside the amplifier's input range is the engine's job.
+- **The one design question it raises is grounding.** AO GND is the task PC card's analog return,
+  and the amplifier is mains-powered. This board's BNCs are isolated (spec §9.1), so a pure
+  pass-through that touches no plane here is available. That is settled when the copper is drawn,
+  not in this reply.
+
+**(b) `PD1_COMP` reaches the task PC on a P0 line, not a PFI line. A PFI copy is being added.**
+- Today it is **P0.27, Connector 1 pin 46** (`hardware/gen/gen_breakout_taskpc_digital.py:1104`). NI's list of
+  legal AO Start Trigger sources (manual §5, "Using a Digital Source") names PFI 0–15, RTSI, several
+  internal triggers and the **Change Detection Event**, but no P0 line.
+- **Change Detection can watch P0.27 and is a listed source**, so it is a route needing no copper.
+  But NI give no latency figure for it, and the change-detection section's own list of uses (§6)
+  never mentions AO. It is documented and untested. **So a second, buffered copy of `PD1_COMP` goes
+  onto a Connector 0 PFI pin** in the same change as (a). P0.27 stays as it is.
+- **The correction.** This repository's spec §9.2 put P2.0–P2.7 on Connector 1. Figure A-5 puts
+  **all sixteen PFI lines on Connector 0** and none on Connector 1. No wiring moves (every P0 pin here
+  was sourced from that figure), and §9.2 now carries the correction. One consequence: the PFI copy
+  is a digital line on the analog cable, the one thing §9.2's split was arranged to avoid, and that
+  is accepted here for a single low-rate line.
+- **Costs.** The task-PC outbound buffer is full (8 of 8 since finding F1), so the copy needs a new
+  buffer channel. Which PFI line it uses is chosen with the copper. We will name it in this file when
+  it is drawn.
+
+## 8. XC-328: a rig procedure; no third channel needed
+
+**The board fixes what each photodiode channel feeds, not where its sensor sits.** `A_PD1` and `A_PD2`
+are identical copper (TIA, comparator, and the NI, Pi and task-PC fan-out). "Task patch" and "flip
+patch" are roles (spec §3.2). So V1 can move a sensor.
+
+- **Procedure:** keep `A_PD1` on the bottom patch and move `A_PD2`'s sensor to the top patch for the
+  run. The cost is no flip-patch frame clock during V1, which is acceptable for a validation run and
+  not for a session. In the stereoscope the top strip is 3.22 cm and dark too, so the sensor fits
+  there with the mask in place.
+- **Cable:** designed for 6 m, tested 3 to 5 m (spec §6.3.1), and compensated to stay stable to
+  about 50 m (finding M1). An extra screen height of lead makes no electrical difference.
+- **Measure from the analog copies, or match the thresholds.** A display transition is slow, so a
+  comparator edge on it moves with its threshold. If the two channels' thresholds sit at different
+  fractions of their own peaks, the top-minus-bottom difference is biased. Either set both thresholds
+  to the same fraction of each channel's measured peak, or take a fixed-fraction crossing offline from
+  the analog copies (NI, 40 kHz, spec §9.3). Both comparators also reach NI as hardware-timed lines.
+- **A third channel does not exist, and a misc BNC cannot be one.** The sensors are passive and need
+  this board's TIA (spec §6.3.1), while the misc inputs take a voltage. A self-powered amplified
+  photodetector on a misc input would work, but that is new equipment V1 does not need.
