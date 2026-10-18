@@ -1,11 +1,11 @@
-"""Rp1Backend's strobed-capture thread, against a stand-in for libpiolib.
+"""Rp1Backend, against stand-ins for libwlsync_pio.so and the libgpiod bindings.
 
-The backend loads piolib in its constructor rather than at import, so a fake library
-can take its place on a laptop. The fake accepts every configuration call and turns
-the RX FIFO into a list the test fills. What that exercises is the backend's own
-glue: that something drains the FIFO, that what goes wrong reaches check_health(),
-and the order things stop in. What it cannot exercise is silicon -- the PIO program,
-real FIFO timing, the chardev -- which is bench day's.
+The backend loads its library in its constructor rather than at import, so fakes can
+take its place on a laptop. The library fake accepts every configuration call and turns
+the RX FIFO into a list the test fills. What that exercises is the backend's own glue:
+that something drains the FIFO, that what goes wrong reaches check_health(), the order
+things start and stop in. What it cannot exercise is silicon -- the PIO program, real
+FIFO timing, the chardev -- which is bench day's.
 """
 
 import threading
@@ -14,7 +14,8 @@ import time
 import pytest
 
 from wl_sync.rp1 import backend as rp1
-from wl_sync.rp1.backend import Rp1Backend, _PioSmConfig
+from wl_sync.rp1 import program
+from wl_sync.rp1.backend import Rp1Backend
 
 DATA = 16
 
@@ -27,53 +28,96 @@ def stream(*events):
     return entries
 
 
-class _FakePiolib:
-    """Every call succeeds; the RX FIFO is `fifo`, and `log` is the order of events."""
+class _FakeShim:
+    """libwlsync_pio.so: every call succeeds, the RX FIFO is `fifo`, and `log` is the
+    order of events.
+
+    Like piolib, its encoders answer correctly only once a PIO block is open -- piolib's
+    read the CURRENT block -- so a backend that checks its encodings too early is refused
+    here exactly as it would be on the box.
+    """
 
     def __init__(self) -> None:
         self.fifo: list[int] = []
         self.full = False
         self.drains = 0
         self.log: list[str] = []
+        self.opened = False
+        self.clk_sys_hz = 200_000_000
+        self.start_result = 0
+        self.started_with: dict | None = None
         self._lock = threading.Lock()
 
-    def __getattr__(self, name):
-        return lambda *args: 0
+    def wlsync_pio_open(self, index):
+        self.opened = True
+        self.log.append("open")
+        return 0
 
-    def pio_open(self, index):
-        return 1
+    def wlsync_pio_close(self):
+        self.log.append("close")
 
-    def pio_get_default_sm_config(self):
-        return _PioSmConfig()
+    def _encoded(self, value):
+        self.log.append("encode")
+        return value if self.opened else 0xFFFF
 
-    def clock_get_hz(self, clock):
-        return 200_000_000
+    def wlsync_encode_jmp(self, addr):
+        return self._encoded(program.encode_jmp(addr))
 
-    def pio_sm_set_enabled(self, pio, sm, enabled):
-        self.log.append(f"enabled={enabled}")
+    def wlsync_encode_jmp_pin(self, addr):
+        return self._encoded(program.encode_jmp_pin(addr))
+
+    def wlsync_encode_jmp_x_dec(self, addr):
+        return self._encoded(program.encode_jmp_x_dec(addr))
+
+    def wlsync_encode_in_pins(self, count):
+        return self._encoded(program.encode_in_pins(count))
+
+    def wlsync_encode_push_noblock(self):
+        return self._encoded(program.encode_push_noblock())
+
+    def wlsync_encode_mov_isr_x(self):
+        return self._encoded(program.encode_mov_isr_x())
+
+    def wlsync_encode_mov_x_not_null(self):
+        return self._encoded(program.encode_mov_x_not_null())
+
+    def wlsync_clk_sys_hz(self):
+        return self.clk_sys_hz
+
+    def wlsync_start_capture(self, instructions, length, wrap_target, wrap,
+                             data_base, data_count, strobe_pin, clkdiv, seed):
+        self.started_with = {
+            "length": length, "wrap_target": wrap_target, "wrap": wrap,
+            "data_base": data_base, "data_count": data_count, "strobe_pin": strobe_pin,
+            "clkdiv": clkdiv, "seed": seed,
+        }
+        return self.start_result
+
+    def wlsync_sm_set_enabled(self, sm, enabled):
+        self.log.append(f"enabled={bool(enabled)}")
+        return 0
 
     def push(self, entries) -> None:
         with self._lock:
             self.fifo.extend(entries)
 
-    def pio_sm_is_rx_fifo_full(self, pio, sm):
+    def wlsync_sm_rx_full(self, sm):
         self.drains += 1  # the first call of every drain
-        return self.full
+        return 1 if self.full else 0
 
-    def pio_sm_get_rx_fifo_level(self, pio, sm):
+    def wlsync_sm_rx_level(self, sm):
         with self._lock:
             return len(self.fifo)
 
-    def pio_sm_get(self, pio, sm):
+    def wlsync_sm_get(self, sm):
         with self._lock:
             return self.fifo.pop(0)
 
 
 @pytest.fixture
 def lib(monkeypatch, gpiod):
-    fake = _FakePiolib()
-    monkeypatch.setattr(rp1, "_load_piolib", lambda: fake)
-    monkeypatch.setattr(rp1, "_assert_encoders_agree", lambda _lib: None)
+    fake = _FakeShim()
+    monkeypatch.setattr(rp1, "_load_shim", lambda: fake)
     return fake
 
 
@@ -347,3 +391,65 @@ def test_the_hardware_backend_is_built_on_the_chip_it_is_given(monkeypatch):
     monkeypatch.setattr(rp1, "Rp1Backend", lambda *args, **kwargs: built.append((args, kwargs)))
     cli._hardware_backend("/dev/gpiochip4")
     assert built == [((), {"chip_path": "/dev/gpiochip4"})]
+
+
+
+def test_the_shim_is_the_library_looked_for(monkeypatch):
+    """The loader asked for "piolib", falling back to libpiolib.so. piolib's CMake target
+    is `pio`, so what it builds is libpio.so -- and that exports only three of the
+    functions this backend needs anyway, because the rest are static inline. What the
+    backend loads is this repository's shim, pio/wlsync_pio.c."""
+    asked = []
+    monkeypatch.setattr(rp1.ctypes.util, "find_library", lambda name: asked.append(name))
+
+    def refuse(name):
+        asked.append(f"CDLL {name}")
+        raise OSError("not here")
+
+    monkeypatch.setattr(rp1.ctypes, "CDLL", refuse)
+    with pytest.raises(rp1.PiolibError, match="wlsync_pio"):
+        rp1._load_shim()
+    assert asked == ["wlsync_pio", "CDLL libwlsync_pio.so"]
+
+
+def test_the_encodings_are_checked_after_the_block_is_open(lib, gpiod):
+    """piolib's encoders read the CURRENT PIO block, so before pio_open they encode
+    nothing in particular. The check ran before the open, so on the box it would have
+    compared this program's encodings with garbage and refused to start."""
+    Rp1Backend().close()
+    assert lib.log.index("open") < lib.log.index("encode")
+
+
+def test_the_clock_divider_comes_from_the_system_clock(lib):
+    """The divider was computed from clock_get_hz(0). In piolib's enum 0 is clk_gpout0,
+    not clk_sys, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
+    4294967295 as a uint32_t -- so the PIO would have run about 2,000 times slow, and
+    every timestamp with it. 200 MHz over 1 MHz x 2 cycles per tick is exactly 100."""
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert lib.started_with["clkdiv"] == pytest.approx(100.0)
+        assert lib.started_with["seed"] == program.encode_mov_x_not_null()
+        assert (lib.started_with["wrap_target"], lib.started_with["wrap"]) == (
+            program.WRAP_TARGET, program.WRAP)
+    finally:
+        backend.close()
+
+
+def test_a_system_clock_that_cannot_be_real_is_refused(lib):
+    lib.clk_sys_hz = 0xFFFF_FFFF  # what RP1 answers for any clock but clk_sys
+    backend = Rp1Backend()
+    try:
+        with pytest.raises(rp1.PiolibError, match="clk_sys"):
+            backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    finally:
+        backend.close()
+
+
+def test_a_capture_that_cannot_start_raises_rather_than_recording_nothing(lib):
+    lib.start_result = -16  # -EBUSY: no free state machine
+    backend = Rp1Backend()
+    try:
+        with pytest.raises(rp1.PiolibError, match="errno 16"):
+            backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    finally:
+        backend.close()

@@ -139,6 +139,44 @@ Two things from that first setup to know about:
   a repeat, `journalctl -b -1 -n 50` shows whether the previous boot ended in a clean
   shutdown or just stopped.
 
+## Installing wl-sync and its hardware backend, once per box
+
+This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-18.
+
+1. **Build tools and libgpiod's command-line tools:**
+
+       sudo apt-get install -y --no-install-recommends build-essential git gpiod python3-venv python3-dev
+
+2. **piolib, compiled into this repository's shim.** piolib's API is almost entirely
+   `static inline`, so `ctypes` cannot call it directly; `pio/wlsync_pio.c` explains why.
+   The shim includes piolib's sources, so nothing else needs installing:
+
+       git clone --depth 1 https://github.com/raspberrypi/utils.git ~/src/utils
+       git clone https://github.com/jakewesterberg/wl-sync.git ~/src/wl-sync
+       ~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp
+       sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig
+
+   `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
+   `gpio`. If it is `root:root`, piolib's README gives a udev rule.
+3. **wl-sync, with its `pi` extra:**
+
+       python3 -m venv ~/wl-sync-venv
+       ~/wl-sync-venv/bin/pip install -e ~/src/wl-sync[pi]
+
+4. **Confirm the GPIO chip by label.** `gpiodetect` should list `gpiochip0
+   [pinctrl-rp1] (54 lines)`, which is `--gpiochip`'s default.
+5. **Run the hardware mode by hand**, as your own user rather than root:
+
+       ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0 --duration 30
+
+   With nothing wired to the pins, the run should give:
+   - 30 consecutive barcode values;
+   - no edge or word records;
+   - a clean trailer, and a manifest with no gaps or overlaps;
+   - no `capture degraded` lines.
+
+   On the first run, every barcode after the first was 1 s apart to within 147 µs.
+
 ## Before first boot
 
 - Fit the CR2032 to the CM5 IO Board. Nothing on the board can detect its absence.

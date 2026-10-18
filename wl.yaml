@@ -13,19 +13,20 @@ summary: >-
 status:
   phase: >-
     Software: the continuous recorder and the RP1 backend are built and wired
-    into the run loop. The backend covers PIO strobe capture with its own drain
-    thread, libgpiod edge capture, and barcode output. 303 tests run against
-    FakeBackend and a stand-in for libpiolib, and none of it has run on silicon,
-    so the systemd unit still ships --fake. Breakout board: schematic captured,
-    layout not started. wl-xcon's 2026-10-11 asks are answered except the two
-    on session identity.
+    into the run loop, and the backend has run on silicon (wl-sync-rig0, a CM5,
+    2026-10-18). It binds piolib through a C shim, pio/wlsync_pio.c. A 30 s run
+    with nothing wired recorded cleanly, with barcodes 1 s apart to within
+    147 us. The capture paths are still unproven against real signals, so the
+    systemd unit ships --fake. 308 tests. Breakout board: schematic captured,
+    layout not started.
   next: >-
-    Bench day on the CM5 (docs/next-session.md, Step B), then drop --fake from
-    the unit. Before layout: the task PC line-out and the PFI copy of PD1_COMP
-    (spec Sec.12 item 11).
+    Bench day with signals on the pins: first GPIO17 looped to GPIO20, so the
+    box decodes its own barcode; then Task 5b Steps 3-5 (docs/next-session.md).
+    Before layout: the task PC line-out and the PFI copy of PD1_COMP (spec
+    Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "02b6271"
+  describes: "9a0d9d4"
 
 runs_on: [rig/sync]
 builds_on: [dws]
@@ -44,8 +45,16 @@ third_party:
   - name: piolib
     where: rig/sync
     why: >-
-      A C library reached by ctypes, so libpiolib.so comes from the OS rather
-      than from pip — which is exactly why it needs a catalog entry.
+      RP1's PIO API, from raspberrypi/utils. Its API is almost entirely static
+      inline, so ctypes cannot call it: pio/build-shim.sh compiles its sources
+      together with pio/wlsync_pio.c into libwlsync_pio.so on the box. Built and
+      run on silicon against utils b57c48e (2026-10-16).
+  - name: gcc
+    where: rig/sync
+    why: >-
+      Builds libwlsync_pio.so on the box itself, because piolib's headers are
+      Linux-only and its API static inline, so there is no prebuilt library to
+      install.
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.

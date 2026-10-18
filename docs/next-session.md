@@ -1,14 +1,47 @@
 # Next session — sync box
 
-**State at handoff (2026-10-18):** Step A has landed. 303 tests pass, and CI ran green on
-`16d7a71`, the last pushed commit. §6 lists this session's commits. The hardware path is now
-wired into the run loop, and **none of it has run on silicon.** Bench day is next.
+**State at handoff (2026-10-18):** Step A has landed, and **the RP1 backend has now run on
+silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests pass. §6 lists
+this session's commits. What is left of bench day needs signals on the pins.
 
 > **Read this first, because the previous record does not travel.**
 > `.superpowers/sdd/` is gitignored (`.superpowers/sdd/.gitignore` is `*`), so the SDD
 > ledger that carried earlier handoffs exists **only on the machine that wrote it**.
 > Everything from it that still matters has been copied into this file, which is tracked.
 > If you are on a different machine, that ledger is gone and this is all there is.
+
+---
+
+## 0. The first run on silicon, and what it took (2026-10-18)
+
+**The piolib binding could not have worked.** Found on the box, from piolib's own header and
+`nm -D`, the first time it was built:
+
+- **Of the 28 functions the backend bound through `ctypes`, `libpio.so` exports three**
+  (`pio_init`, `pio_open`, `pio_close`). The rest are `static inline` in `piolib.h`,
+  dispatching through a per-chip table of function pointers.
+- **The library is `libpio.so`, not `libpiolib.so`**, so the loader would not have found it
+  anyway.
+- **`clock_get_hz(0)` is `clk_gpout0`, not `clk_sys`**, and RP1 answers every index but
+  `clk_sys` with 4294967295. The clock divider would have been about 2,147 rather than 100.
+- **`pio_null` and `pio_isr` carry flag bits** in piolib's enum. The bare 3 and 6 the backend
+  passed were not those values.
+
+**The fix is a C shim, `pio/wlsync_pio.c`.** `pio/build-shim.sh` compiles it on the box
+together with piolib's sources into `libwlsync_pio.so`. It exports only scalar-argument
+functions, configures the state machine in C, and turns piolib's `exit(1)` on error into
+returned errnos. The encoder check now runs after the block is opened, because piolib's
+encoders read the current block.
+
+**On silicon, with nothing wired to the pins:**
+- PIO 0 opens, `clk_sys` reads 200 MHz, and all seven encodings agree with piolib's.
+- `gpiodetect` shows `gpiochip0 [pinctrl-rp1] (54 lines)`, so bench check 2 is settled.
+- `/dev/pio0` is `root:gpio` with mode `0660`, so the box runs as its own user, not root.
+- A 30 s run recorded 30 consecutive barcode values, a clean trailer, an empty manifest
+  gaps list and no health complaints.
+- Every barcode after the first was 1 s apart to within 147 µs.
+
+`deploy/README.md` gives the steps.
 
 ---
 
@@ -64,14 +97,19 @@ Decided along the way. A `check_health()` failure is logged at ERROR once per ep
 ### Step B — bench day *(on the CM5, which is ready)*
 
 The box is `wl-sync-rig0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from its
-NVMe. It was set up on 2026-10-18; `deploy/README.md`, "Setting up the OS", says how,
-and lists what it still needs: wl-sync with its `pi` extra, and libpiolib built from
-Raspberry Pi's `utils` repository. `ssh wl-sync-rig0` reaches it.
+NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, and
+`deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
 
-Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`. Run the hardware
-mode by hand first:
+**First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
+GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), record
+for a minute, and decode the GPIO20 edges with `barcode.decode_edges`. Every frame should
+decode to the value the box logged. That checks the end-of-frame fix on silicon, where the
+fake could not.
 
-    wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
+Then Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`, which need a
+second board or a signal generator on the strobe and data lines:
+
+    ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0
 
 **Check these first, in this order.** The first three are listed the same way in
 `pio/strobe_capture.pio`.
@@ -79,8 +117,8 @@ mode by hand first:
 1. **`jmp x--, <next instruction>` is a legal one-cycle decrement.** The entire ±100 µs
    argument rests on it. If it is not, the padding scheme collapses and the capture path
    starts losing time again — roughly 2 µs per event, 1.2 ms over a 600-event run.
-2. **Which chardev carries RP1's bank.** Confirm it by **label** (`gpioinfo`), not by hope.
-   Pass it with `--gpiochip`. The default is `/dev/gpiochip0`.
+2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
+   [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
    `pio_sm_set_enabled`. This is spent directly out of the ±100 µs budget and **must be
    measured**, not assumed.
@@ -88,8 +126,9 @@ mode by hand first:
    a guess. The known way to miss it is `emit_pulses`, which spins holding the GIL for up
    to 2 ms per pulse, against Python's 5 ms default switch interval. **A
    `WordsDroppedError` in the journal that coincides with barcode frames is that.**
-5. **The GPIO chip's label.** `_check_chip` warns if the label lacks "rp1". "pinctrl-rp1"
-   is unverified, so record the real one here.
+5. ~~**The GPIO chip's label.**~~ **Settled:** `pinctrl-rp1`, as `_check_chip` expects. Note
+   that `gpiochip10` has 32 lines, so the size check alone would not catch it; the label
+   warning would.
 6. **The frame-time inputs see a high.** FLIR's 16S2/04S2 table gives a *loaded* high of
    2.29 V, below the comparator's 2.50 V threshold. Measure a camera group's strobe wired
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
@@ -198,6 +237,10 @@ Worth keeping, because they caught real defects today.
 | Reply to wl-xcon's asks of 2026-10-11 |
 | wl.yaml: say where the build is |
 | Step A: wire the RP1 backend into the run loop |
+| wl.yaml: Step A has landed |
+| deploy: how the sync box's OS was set up, headless |
+| deploy: the sync box can join the tailnet |
+| RP1 backend: bind piolib through a C shim, and first run on silicon |
 
-**Everything above is verified against `FakeBackend`, and against a stand-in for libpiolib,
-on a laptop. The bench is the first real test of any of it.**
+**The capture logic is verified against fakes on a laptop. On silicon, so far: the shim,
+the encodings, the chip, the pacing and a clean 30 s run, all with nothing wired.**

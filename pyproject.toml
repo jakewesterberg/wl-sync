@@ -12,8 +12,8 @@ dependencies = ["pydantic>=2.6"]
 # for. Develop against 3.11, the floor that actually constrains us.
 
 [project.optional-dependencies]
-# piolib is NOT in here: it is a C library reached by ctypes, so `libpiolib.so`
-# comes from the OS rather than from pip. libgpiod is different -- it ships real
+# piolib is NOT in here: it is a C library reached by ctypes, through a shim built
+# on the box (pio/build-shim.sh -> libwlsync_pio.so), not anything pip can install. libgpiod is different -- it ships real
 # Python bindings, and v2 is required for the LineSettings/edge_detection API and
 # for `EdgeEvent.global_seqno`, which is the only way a kernel-side edge drop is
 # detectable at all.
