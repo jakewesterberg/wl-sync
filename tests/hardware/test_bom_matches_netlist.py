@@ -154,7 +154,8 @@ ONE_OFF_SOURCING = {
 # data even if some future rule change stops covering it. If you ADD sourcing data to a new
 # row, bump this deliberately -- same pinned-baseline idiom as check_breakout_power_netlist
 # .py's own RAIL_BYPASS_EXPECTED and this board's own ERC warning count.
-SOURCED_ROW_COUNT = 18
+# 19 since 2026-10-18: J57, the task-PC line-out's dual BNC (line-out-and-pfi-copy.md).
+SOURCED_ROW_COUNT = 19
 
 
 def _sourcing(row: dict[str, str]) -> tuple[str, str, str]:
@@ -235,7 +236,8 @@ def test_sourcing_check_fires_on_a_wholesale_re_export(raw_bom_rows):
         r for r in reexported
         if r["Footprint"] == BNC_DUAL_FOOTPRINT and _sourcing(r) != BNC_DUAL_SOURCING
     ]
-    assert len(bnc_blanked) == 17, f"expected all 17 dual-BNC rows blanked, got {len(bnc_blanked)}"
+    # 18 bodies since 2026-10-18, when J57 (the task-PC line-out) joined the 17.
+    assert len(bnc_blanked) == 18, f"expected all 18 dual-BNC rows blanked, got {len(bnc_blanked)}"
 
     by_ref = {r["Reference"]: r for r in reexported}
     assert all(_sourcing(by_ref[ref]) != exp for ref, exp in ONE_OFF_SOURCING.items())

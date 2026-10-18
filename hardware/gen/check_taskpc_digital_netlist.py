@@ -140,6 +140,20 @@ MDR0_AI_PIN = {
     0: "68", 1: "33", 2: "65", 3: "30", 4: "28", 5: "60", 6: "25", 7: "57", 8: "34",
 }
 MDR0_AISENSE_PIN = "62"
+
+# The task-PC line-out and PD1_COMP's PFI copy -- hardware/breakout/line-out-and-pfi-copy.md,
+# drawn 2026-10-18. Physical pins from NI's X Series User Manual (370784K-01) Figure A-5,
+# Connector 0: AO 0 = 22, AO 1 = 21, AO GND = 55/54, PFI 7 = 38, D GND = 36.
+LINE_OUT_BNC = "J57"
+# raw AO net -> (series resistor, BNC-side net, centre pad on J57)
+LINE_OUT_CHANNELS = {
+    "AO_L_TPC": ("22", "R221", "AO_L_BNC", "1"),
+    "AO_R_TPC": ("21", "R222", "AO_R_BNC", "3"),
+}
+MDR0_AO_GND_PINS = ("54", "55")
+LINE_OUT_SHELL_PADS = ("2", "4")
+MDR0_PFI7_PIN = "38"
+PFI_SERIES = "R223"
 ANALOG_CHANNELS = list(zip(ANALOG_CONTRACT_NETS, range(9)))
 assert len(ANALOG_CHANNELS) == 9
 
@@ -1041,6 +1055,68 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str], footprints: dict
         f"directly to AGND (NRSE reference, spec Decision 5 / Task 10 Step 3)."
     )
 
+    # --- The task-PC line-out and PD1_COMP's PFI copy (2026-10-18,
+    # hardware/breakout/line-out-and-pfi-copy.md). Every node is pinned EXACTLY: the
+    # line-out's whole point is what its ground does NOT touch. ---
+    for raw, (mdr_pin, r_ref, bnc_net, centre_pad) in LINE_OUT_CHANNELS.items():
+        check(raw in nets, f"missing net: {raw!r} (the task-PC line-out)")
+        check(
+            _refs_on(nets, raw) == {conn0_ref, r_ref}
+            and (conn0_ref, mdr_pin) in _pins_on(nets, raw),
+            f"{raw}: expected Connector 0 pin {mdr_pin} and {r_ref} only, found {nets[raw]}",
+        )
+        check(bnc_net in nets, f"missing net: {bnc_net!r} (the task-PC line-out)")
+        check(
+            _refs_on(nets, bnc_net) == {r_ref, LINE_OUT_BNC}
+            and (LINE_OUT_BNC, centre_pad) in _pins_on(nets, bnc_net),
+            f"{bnc_net}: expected {r_ref} and {LINE_OUT_BNC} pad {centre_pad} only, found "
+            f"{nets[bnc_net]} -- a swapped left/right lands here",
+        )
+        check(values.get(r_ref) == "100", f"{r_ref}: expected 100 ohm, found {values.get(r_ref)!r}")
+    check("AO_GND_TPC" in nets, "missing net: 'AO_GND_TPC' (the line-out's shells)")
+    shells = {(conn0_ref, pin) for pin in MDR0_AO_GND_PINS} | {
+        (LINE_OUT_BNC, pad) for pad in LINE_OUT_SHELL_PADS
+    }
+    check(
+        _pins_on(nets, "AO_GND_TPC") == shells,
+        f"AO_GND_TPC must join Connector 0's AO GND pins to {LINE_OUT_BNC}'s two shells and "
+        f"touch NOTHING else on this board -- NI ties AO GND to D GND on the card, so a "
+        f"board plane here carries the amplifier's return current. Found {nets['AO_GND_TPC']}",
+    )
+    if footprints:
+        check(
+            footprints.get(LINE_OUT_BNC) == BNC_DUAL_FOOTPRINT,
+            f"{LINE_OUT_BNC}: expected the isolated dual BNC footprint, found "
+            f"{footprints.get(LINE_OUT_BNC)!r}",
+        )
+    check("PD1_COMP_PFI" in nets, "missing net: 'PD1_COMP_PFI' (PD1_COMP's PFI copy)")
+    check(
+        _refs_on(nets, "PD1_COMP_PFI") == {conn0_ref, PFI_SERIES}
+        and (conn0_ref, MDR0_PFI7_PIN) in _pins_on(nets, "PD1_COMP_PFI"),
+        f"PD1_COMP_PFI: expected Connector 0 pin {MDR0_PFI7_PIN} (PFI 7) and {PFI_SERIES} "
+        f"only, found {nets['PD1_COMP_PFI']} -- PFI 12-15 are default counter outputs",
+    )
+    check(
+        "PD1_COMP_PFI_BUF" in nets and PFI_SERIES in _refs_on(nets, "PD1_COMP_PFI_BUF")
+        and len(nets["PD1_COMP_PFI_BUF"]) == 2,
+        f"PD1_COMP_PFI_BUF: expected {PFI_SERIES} plus the one level-shift buffer output "
+        f"that drives it, found {nets.get('PD1_COMP_PFI_BUF')}",
+    )
+    check(values.get(PFI_SERIES) == "100", f"{PFI_SERIES}: expected 100 ohm, found {values.get(PFI_SERIES)!r}")
+    conn0_dgnd = {n.pin for n in nets.get("DGND", []) if n.ref == conn0_ref}
+    check(
+        not conn0_dgnd,
+        f"Connector 0 ({conn0_ref}) has pin(s) {sorted(conn0_dgnd)} on DGND. Its AISENSE is "
+        f"on AGND, so that makes it a second component on both grounds after the star "
+        f"point's net tie -- decision D3, reversed 2026-10-18 for exactly this reason",
+    )
+    summary.append(
+        f"Line-out: AO 0/AO 1 (Connector 0 pins 22/21) reach {LINE_OUT_BNC}'s two centres "
+        f"through 100 ohm each, with its shells on AO GND (pins 55/54) and nothing else. "
+        f"PD1_COMP's copy reaches PFI 7 (pin 38) through 100 ohm. No D GND pin on "
+        f"Connector 0, so the star point stays single."
+    )
+
     # --- No two of the named nets checked have collapsed onto the same physical net.
     # Every *_CLAMP net (c[2], never in CONTRACT_NETS) plus the two raw *_TPC nets
     # CONTRACT_NETS does NOT already list (RWD_CMD_TPC/STIM_TRIG_TPC -- this sheet's own
@@ -1375,6 +1451,35 @@ def self_test(
         good_nets, good_values, "3.5mm TRS footprint still exists", "3.5mm TRS footprint reintroduced (synthetic DBG89)", trs_reintroduced,
     )
     results.append(f"3.5mm TRS footprint reintroduced (synthetic ref, any position): caught -- {msg}")
+
+    # --- The line-out and the PFI copy: one control per property that matters. ---
+    conn0 = next(n.ref for n in good_nets["AO_L_TPC"] if n.ref != "R221")
+
+    grounded = copy.deepcopy(good_nets)
+    shell = next(n for n in grounded["AO_GND_TPC"] if n.ref == LINE_OUT_BNC and n.pin == "2")
+    grounded["AO_GND_TPC"].remove(shell)
+    grounded["DGND"].append(shell)
+    msg = _assert_fails(grounded, good_values, "AO_GND_TPC", "line-out shell on DGND", good_footprints)
+    results.append(f"Line-out shell moved onto DGND: caught -- {msg}")
+
+    swapped = copy.deepcopy(good_nets)
+    for net, old, new in (("AO_L_BNC", "1", "3"), ("AO_R_BNC", "3", "1")):
+        swapped[net] = [
+            Node(ref=n.ref, pin=new, pinfunction=n.pinfunction, pintype=n.pintype)
+            if n.ref == LINE_OUT_BNC and n.pin == old else n
+            for n in swapped[net]
+        ]
+    msg = _assert_fails(swapped, good_values, "AO_L_BNC", "line-out left/right swapped", good_footprints)
+    results.append(f"Line-out left/right swapped at {LINE_OUT_BNC}: caught -- {msg}")
+
+    moved = copy.deepcopy(good_nets)
+    moved["PD1_COMP_PFI"] = [
+        Node(ref=n.ref, pin="37", pinfunction=n.pinfunction, pintype=n.pintype)
+        if n.ref == conn0 and n.pin == MDR0_PFI7_PIN else n
+        for n in moved["PD1_COMP_PFI"]
+    ]
+    msg = _assert_fails(moved, good_values, "PD1_COMP_PFI", "PFI copy on PFI 8", good_footprints)
+    results.append(f"PD1_COMP's PFI copy moved to pin 37 (PFI 8): caught -- {msg}")
 
     return results
 

@@ -18,9 +18,12 @@ Four stages, matching the brief's own step numbering:
      which physical connector) is CONFIRMED, not re-derived here -- spec Sec.9.2 (closed
      2026-08-13, formerly open item 3), restated in a schematic text block per the
      brief's own "record the source in a schematic text field": Connector 0 = AI0-15 +
-     P0.0-7 + P1.0-7 (analog + AISENSE); Connector 1 = AI16-31 + P0.8-31 + P2.0-7, of
-     which this design uses only the digital range (P0.8-30, 23 lines) -- all 23 of the
-     task PC's own digital lines, leaving connector 0 exclusively analog.
+     P0.0-7 + all sixteen PFI lines (P1 and P2) (analog + AISENSE); Connector 1 = AI16-31
+     + P0.8-31 and no PFI -- corrected 2026-10-18 against NI Figure A-5, which this said
+     put P2 on Connector 1. This design uses Connector 1's digital range (P0.8-30, 23
+     lines) for all 23 of the task PC's own digital lines. Connector 0 was exclusively
+     analog until 2026-10-18, when it gained the line-out and PD1_COMP's PFI copy
+     (_place_line_out_and_pfi()).
 
      FIX ROUND 1 (task-8-report.md, finding 2): the PHYSICAL pin assigned to each P0.x
      line on Connector 1, and to each AI channel + AISENSE on Connector 0, is now SOURCED
@@ -170,7 +173,9 @@ from kicad_sch import (
     pin_pos,
     write_project_stub,
 )
-from bnc_dual import BNC_DUAL_FOOTPRINT, DualBncAllocator  # noqa: E402
+from bnc_dual import (  # noqa: E402
+    BNC_DUAL_FOOTPRINT, BNC_DUAL_LIB, BNC_DUAL_SYM, DualBncAllocator,
+)
 
 OUT = Path(__file__).resolve().parent.parent / "breakout" / "sheets"
 BREAKOUT_ROOT_SCH = OUT.parent / "breakout.kicad_sch"
@@ -271,6 +276,17 @@ MDR0_AI_PIN = {
 }
 assert set(MDR0_AI_PIN) == set(range(9))
 MDR0_AISENSE_PIN = "62"  # Connector 0's own "AI SENSE" (not "AI SENSE 2", which is
+# Connector 0 pins the line-out and the PFI copy use -- NI X Series User Manual
+# (370784K-01) Figure A-5: AO 0 = 22, AO 1 = 21, AO GND = 55/54, PFI 7 = 38.
+# NO D GND pin, deliberately (decision D3, reversed 2026-10-18): this connector already
+# has AISENSE on AGND, so a D GND pin on DGND would make it the second component after
+# the star-point net tie to touch both grounds, which check_breakout_power_netlist.py
+# exists to forbid. The PFI copy's edge returns through Connector 1's D GND instead.
+MDR0_LINE_OUT_AND_PFI_PINS = {
+    "22": "AO_L_TPC", "21": "AO_R_TPC",
+    "55": "AO_GND_TPC", "54": "AO_GND_TPC",
+    "38": "PD1_COMP_PFI",
+}
 # Connector 1's -- this design uses only Connector 0's analog bank; see spec Decision 5.
 
 # The 9 task-PC analog channels in the fixed order they consume MDR0_AI_PIN's AI0..AI8
@@ -416,6 +432,12 @@ DECOUPLE_DX = GRID(15.24)
 
 # Text-note anchors.
 X_NOTE1, Y_NOTE1 = GRID(20), GRID(15)     # connector split source + P0.x offset
+# The task-PC line-out and PD1_COMP's PFI copy (2026-10-18): the free area right of
+# Connector 0, which no symbol occupies (x 120-260, y 470+).
+X_LINEOUT_R, X_LINEOUT_BNC = GRID(140), GRID(185)
+Y_LINEOUT = (GRID(585), GRID(605))
+Y_PFI_R = GRID(630)
+X_NOTE7, Y_NOTE7 = GRID(120), GRID(650)
 X_NOTE2, Y_NOTE2 = GRID(20), GRID(545)    # Connector 0 placeholder
 X_NOTE3, Y_NOTE3 = GRID(20), GRID(390)    # reward-OR polarity concern
 X_NOTE4, Y_NOTE4 = GRID(400), GRID(15)    # one LED per driver pin -- its own column,
@@ -959,6 +981,13 @@ COMPARATOR_OPTO_LEGS = [
 # 29th buffer-driven LED by moving RHS_STIM_OUT's LED onto a buffered leg (see
 # RHS_STIM_OUT_BUF_LEGS). 29 LEDs x 2 + 8 others = 66 channels = 9 packages, with 6
 # spare -- which is also what finding F4 needs when the camera triggers are respread.
+# The line-out's out-of-band parts: (raw AO net, BNC-side net, series R, J57 unit).
+LINE_OUT_BNC = "J57"
+LINE_OUT_CHANNELS = (
+    ("AO_L_TPC", "AO_L_BNC", "R221", 1),
+    ("AO_R_TPC", "AO_R_BNC", "R222", 2),
+)
+PFI_SERIES_REF = "R223"
 PARALLEL_LEG_REFS = [("U70", "C151"), ("U71", "C152"), ("U72", "C153"), ("U73", "C154")]
 
 # RHS_STIM_OUT's own LED needs a buffered leg, which it did not have before F1. Its
@@ -1031,6 +1060,16 @@ def _place_connector0(sch, refs):
     sch.label("AGND", x, y)
     used.add(MDR0_AISENSE_PIN)
 
+    # The task-PC line-out and PD1_COMP's PFI copy (2026-10-18,
+    # hardware/breakout/line-out-and-pfi-copy.md); _place_line_out_and_pfi() draws the
+    # parts behind these labels. AO GND gets its OWN net, never DGND or AGND: NI ties
+    # it to D GND on the card already, so a board plane on it would carry the
+    # amplifier's return current.
+    for pin, net in MDR0_LINE_OUT_AND_PFI_PINS.items():
+        x, y = pin_pos(X_CONN0, Y_CONN0, pins[pin])
+        sch.label(net, x, y)
+        used.add(pin)
+
     for n in range(1, 69):
         num = str(n)
         if num not in used:
@@ -1050,18 +1089,21 @@ def _place_connector0(sch, refs):
         "AI6=pin25=A_MISC1_TPC  AI7=pin57=A_MISC2_TPC  AI8=pin34=A_MISC3_TPC",
         "AISENSE=pin62 -> AGND (NRSE reference -- spec Decision 5; the easiest wire on",
         "this board to omit by accident, so check_taskpc_digital_netlist.py asserts it).",
-        "Remaining 58 pins (spare AI9-15, P0.0-7/P1.0-7/P2.x, D GND, +5V, AO*, NC) stay",
-        "no_connect: outside this task's own contract -- see _place_connector0()'s own",
-        "docstring.",
+        "Line-out and PFI copy (2026-10-18): AO0=pin22=AO_L_TPC  AO1=pin21=AO_R_TPC",
+        "AO GND=pins55,54=AO_GND_TPC (own net, no board plane)  PFI7=pin38=PD1_COMP_PFI",
+        "No D GND pin here: AISENSE is already on AGND, and one connector on both grounds",
+        "breaks the single star point. All 16 PFI lines are on THIS connector (NI A-5).",
+        "Remaining 53 pins (spare AI9-15, P0.0-7, other PFI, D GND, +5V, NC) stay",
+        "no_connect -- see _place_connector0()'s own docstring.",
     ]):
         sch.text(line, X_NOTE2, Y_NOTE2 + line_idx * NOTE_DY)
 
 
 def _place_connector1(sch, refs):
     """Step 1, Connector 1: digital, per spec Sec.9.2's own confirmed split (AI16-31 +
-    P0.8-31 + P2.0-7). This design's own 23 task-PC digital lines (19 out + 4 in, spec
-    Sec.3.1) all ride here, on the P0.8-P0.30 range of the 24 available on P0.8-31 --
-    leaving P0.31 and all 8 of P2.0-7 spare.
+    P0.8-31; no PFI line is on this connector -- NI Figure A-5, corrected 2026-10-18).
+    This design's own 23 task-PC digital lines (19 out + 4 in, spec Sec.3.1) all ride
+    here, on the P0.8-P0.30 range of the 24 available on P0.8-31 -- leaving P0.31 spare.
 
     FIX ROUND 1 (task-8-report.md, finding 2): physical MDR68 pin assignment is now
     SOURCED, not this sheet's own PRE-fix-round-1 sequential guess (pins "1".."23" for
@@ -1090,7 +1132,7 @@ def _place_connector1(sch, refs):
         "Connector 0/Connector 1 split confirmed from NI's own device specifications",
         "(PCIe-6343 task-PC card; identical to the 6353/6363 on every axis used here,",
         "spec Sec.9.3): Connector 0 = AI0-15 + P0.0-7 + P1.0-7 (analog+AISENSE).",
-        "Connector 1 = AI16-31 + P0.8-31 + P2.0-7 (digital). See spec Sec.9.2, closed",
+        "Connector 1 = AI16-31 + P0.8-31, NO PFI (digital). See spec Sec.9.2, closed",
         "2026-08-13 (formerly open item 3).",
         "All 23 task-PC digital lines (19 out + 4 in) ride Connector 1, P0.8-P0.30 of",
         "the 24 available on P0.8-31. Event data bits occupy P0.8-P0.23, NOT P0.0-",
@@ -1678,6 +1720,56 @@ def _place_reward_or(sch, refs):
         sch.text(line, X_NOTE6, Y_NOTE6 + line_idx * NOTE_DY)
 
 
+def _place_line_out_and_pfi(sch, refs):
+    """The task-PC line-out and PD1_COMP's PFI copy -- hardware/breakout/line-out-and-pfi-copy.md,
+    approved and drawn 2026-10-18 for wl-xcon (XC-327), spec Sec.12 item 11.
+
+    LINE-OUT: AO 0 / AO 1 -> 100 ohm each -> one isolated dual BNC (J57), back face. Its
+    two shells are on AO_GND_TPC and NOTHING ELSE: NI connects AO GND to D GND on the
+    card, so the amplifier's ground meets the card's whatever this board does; what the
+    board controls is whether that return current crosses its own planes, and with
+    isolated shells it never does. No clamp diodes, which would join the card's AO
+    domain to this board's AGND through the rails.
+
+    PFI COPY: PD1_COMP_PFI_BUF (pi-interface's level shifter, channel 1) -> 100 ohm ->
+    PD1_COMP_PFI, Connector 0 pin 38 = PFI 7. PFI 7 because PFI 12-15 are the default
+    counter OUTPUTS, which a counter task would drive against this resistor. The
+    resistor sits on this sheet, beside the connector, for the same reason the
+    frame-time inputs' protection does (frame-time-inputs.md Sec.9).
+
+    REFDES OUT OF BAND (J57, R221-R223), above the board-wide maxima J56/R220, and this
+    is called last in build() -- exactly as _place_parallel_legs() is, so no counter on
+    this sheet or any sibling moves. J57 is placed directly rather than through
+    DualBncAllocator, whose take() mints a next_ref("J"); both of its units carry one
+    combined Value, because two Values on one body fail annotation (bnc_dual.py).
+    """
+    for (raw, bnc_net, r_ref, _), y in zip(LINE_OUT_CHANNELS, Y_LINEOUT):
+        two_pin(sch, "Device", "R", "R", "100", X_LINEOUT_R, y, raw, bnc_net,
+                footprint=FOOTPRINT_R, ref=r_ref)
+    value = "Dual panel BNC: Line-out L (task PC AO 0) | Line-out R (task PC AO 1)"
+    for (_, bnc_net, _, unit), y in zip(LINE_OUT_CHANNELS, Y_LINEOUT):
+        pins = sch.place(BNC_DUAL_LIB, BNC_DUAL_SYM, LINE_OUT_BNC, value, X_LINEOUT_BNC, y,
+                         unit=unit, footprint=BNC_DUAL_FOOTPRINT)
+        centre, shell = ("1", "2") if unit == 1 else ("3", "4")
+        sch.label(bnc_net, *pin_pos(X_LINEOUT_BNC, y, pins[centre]))
+        sch.label("AO_GND_TPC", *pin_pos(X_LINEOUT_BNC, y, pins[shell]))
+    sch.values[LINE_OUT_BNC] = value
+    two_pin(sch, "Device", "R", "R", "100", X_LINEOUT_R, Y_PFI_R, "PD1_COMP_PFI_BUF",
+            "PD1_COMP_PFI", footprint=FOOTPRINT_R, ref=PFI_SERIES_REF)
+    refs["line_out_bnc"] = LINE_OUT_BNC
+    refs["line_out_r"] = [c[2] for c in LINE_OUT_CHANNELS]
+    refs["pfi_r"] = PFI_SERIES_REF
+    for line_idx, line in enumerate([
+        "Task-PC line-out and PD1_COMP's PFI copy (2026-10-18) -- see",
+        "hardware/breakout/line-out-and-pfi-copy.md. J57's shells are on AO_GND_TPC ONLY:",
+        "NI ties AO GND to D GND on the card, so no board plane may carry the amplifier's",
+        "return. PD1_COMP_PFI_BUF comes from pi-interface's SN74LVC541A channel 1 (3.3 V",
+        "out against the card's 2.2 V V_IH); PFI 7, not PFI 12-15, the default counter",
+        "outputs. Place R221-R223 beside Connector 0 in layout. Refdes out of band.",
+    ]):
+        sch.text(line, X_NOTE7, Y_NOTE7 + line_idx * NOTE_DY)
+
+
 def build() -> tuple[Sch, dict]:
     """Returns (sch, refs) -- `refs` maps a role name to the reference designator(s)
     that play it, same convention every generator in this project follows.
@@ -1728,6 +1820,8 @@ def build() -> tuple[Sch, dict]:
     # out-of-band refdes (U70-U73/C151-C154), so its position cannot shift any counter --
     # but keeping it last means that stays true even if it ever gains a next_ref() call.
     _place_parallel_legs(sch, refs)
+    # Out-of-band refdes only (J57, R221-R223), so last for the same reason.
+    _place_line_out_and_pfi(sch, refs)
 
     return sch, refs
 

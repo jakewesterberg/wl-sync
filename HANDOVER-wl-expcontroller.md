@@ -422,3 +422,37 @@ patch" are roles (spec §3.2). So V1 can move a sensor.
 - **A third channel does not exist, and a misc BNC cannot be one.** The sensors are passive and need
   this board's TIA (spec §6.3.1), while the misc inputs take a voltage. A self-powered amplified
   photodetector on a misc input would work, but that is new equipment V1 does not need.
+
+## 7, later on 2026-10-18: XC-327 is drawn
+
+**The PFI copy of `PD1_COMP` is on PFI 7** (Connector 0 pin 38). It comes from the sync box's
+own level shifter through 100 Ω, and P0.27 carries `PD1_COMP` exactly as before. For your
+engine:
+
+- **Route `ao/StartTrigger` from `PFI7`.**
+- **Never configure PFI 7 as an output.** This board drives it. PFI 7 was chosen because
+  PFI 12–15 are the card's default counter outputs (NI X Series manual Table 7-9), which a
+  counter task with default routing would drive against the board. PFI 7 is CTR 3's AUX
+  input by default; leave it unrouted to any counter.
+- **The levels:** it goes high at 3.3 V against the 6343's V_IH of 2.2 V, and low at about
+  0.2 V against its V_IL of 0.8 V.
+
+**The line-out is J57, a dual BNC on the back face:**
+
+- **Its first port** (footprint pads 1–2) carries AO 0, left; **its second** (pads 3–4)
+  carries AO 1, right. Each goes through 100 Ω, which costs under 1 % of amplitude into a
+  line input of 10 kΩ or more. The panel labels will say which is which.
+- **The shells are on AO GND (Connector 0 pins 55 and 54) and nothing else on the board.**
+  NI ties AO GND to D GND on the card, so the amplifier's ground meets the card's ground
+  regardless. The board keeps that return current off its own planes.
+- Keeping the amplitude inside the amplifier's input range is the engine's job, as before.
+
+**One change from the 2026-10-18 proposal:** Connector 0 has no D GND pin, so the PFI edge
+returns through Connector 1's D GND. Tying one would have made Connector 0 a second
+component on both of this board's grounds, after the star-point net tie, because its
+AISENSE is on AGND. That changes nothing for you.
+
+Read against `hardware/breakout/line-out-and-pfi-copy.md`, which cites every figure. The
+schematic, netlist contract and BOM carry it, and all ten sheet checkers pass. **XC-327 can
+close on your side once you have read it.** What is left is layout, which is this
+repository's.

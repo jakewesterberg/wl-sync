@@ -603,7 +603,14 @@ def _place_rwd_dlvr_level_shift(sch, refs):
     (spec Sec.7.1's own prescribed "Task PC (5V) -> Pi" recipe), not because 8 channels of
     level-shifting are needed here.
     """
-    channels = {0: ("RWD_DLVR", "RWD_DLVR_PI")}
+    # Channel 1 (2026-10-18, hardware/breakout/line-out-and-pfi-copy.md): PD1_COMP's copy
+    # for the task PC's PFI 7, which taskpc-digital takes through 100 ohm to Connector 0
+    # pin 38. A DEPARTURE FROM SPEC Sec.7.1's TABLE, stated rather than absorbed: that
+    # table gives "Pi (3.3 V) -> 5 V equipment" to an HCT541 at 5 V, and this drives the
+    # task PC from a 3.3 V LVC541. It holds because the destination is a TTL input --
+    # the 6343's V_IH is 2.2 V (spec 377873B-01), 1.1 V under this output's high -- and
+    # because this is the only free buffer channel on the board.
+    channels = {0: ("RWD_DLVR", "RWD_DLVR_PI"), 1: ("PD1_COMP", "PD1_COMP_PFI_BUF")}
     ref = place_octal_buffer(
         sch, "74xx", "74LS541", "SN74LVC541APW", X_LVLSHIFT, Y_LVLSHIFT, "+3V3",
         channels, refs, "rwd_dlvr_lvl_shift", FOOTPRINT_TSSOP20,

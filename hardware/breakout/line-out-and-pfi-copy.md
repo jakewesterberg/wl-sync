@@ -1,6 +1,7 @@
 # Task-PC line-out and the PFI copy of `PD1_COMP` — proposal
 
-**PROPOSED 2026-10-18, not yet drawn.** It implements spec §12 item 11, committed to wl-xcon
+**APPROVED and DRAWN 2026-10-18**, with D3 reversed while drawing (§3). Originally
+proposed the same day, before it was drawn. It implements spec §12 item 11, committed to wl-xcon
 (XC-327) for before layout. Four choices below (D1–D4) need approval before the generators
 change. Every fact cites its primary source; nothing here is read off a model.
 
@@ -79,12 +80,15 @@ pin 38, which is PFI 7 (P1.7).** P0.27 stays exactly as it is.
   - low: about 0.2 V against V_IL max 0.8 V.
 
   One more CMOS input on `PD1_COMP` adds no load worth counting.
-- **The return path** *(D3)*. Connector 0's D GND pins are no-connect today. Left that way, the
-  PFI edge returns through Connector 1's D GND, in the other cable. **Proposed: tie pin 36
-  (D GND, beside pin 38) to DGND at the connector**, so the edge's return runs next to it.
-  The cost is a second D GND contact between the two cables. They are already joined at
-  both ends: on the card, and in this board's DGND. So the extra loop is small, and it
-  carries only one low-rate line's edges.
+- **The return path** *(D3)*. Connector 0's D GND pins stay no-connect, so the PFI edge
+  returns through Connector 1's D GND, in the parallel cable. **Reversed while drawing,
+  2026-10-18.** This proposed tying pin 36 to DGND, so the return ran beside the signal.
+  But Connector 0 already has AISENSE on AGND, so that would have made it the second
+  component on the board, after the star-point net tie NT1, to touch both grounds.
+  `check_breakout_power_netlist.py` caught it. It is not an electrical bond, because
+  AISENSE is a high-impedance input on the card. But the star-point invariant is worth
+  more than a slightly tighter return loop for a line that changes only at stimulus
+  rate.
 - **What spec §9.2 gives up.** One digital line now rides the analog cable, the thing the
   connector split was arranged to avoid. It is accepted for a single line that changes at
   stimulus rate, not continuously.
@@ -104,8 +108,8 @@ pin 38, which is PFI 7 (P1.7).** P0.27 stays exactly as it is.
 
 ## 5. What drawing it will touch
 
-- **`gen_breakout_taskpc_digital.py`** (Connector 0 lives here): AO 0/1, AO GND, PFI 7 and D GND
-  pin 36 wired; the new BNC body; two 100 Ω resistors. Fix its note that puts P2 on Connector 1
+- **`gen_breakout_taskpc_digital.py`** (Connector 0 lives here): AO 0/1, AO GND and PFI 7
+  wired; the new BNC body; two 100 Ω resistors. Fix its note that puts P2 on Connector 1
   at the same time.
 - **`gen_breakout_pi_interface.py`:** one more channel on the level-shift `SN74LVC541A`, from
   `PD1_COMP` to a new `PD1_COMP_PFI` net, with its 100 Ω.
@@ -123,5 +127,5 @@ pin 38, which is PFI 7 (P1.7).** P0.27 stays exactly as it is.
 |---|---|---|
 | D1 | Line-out connector | One isolated dual BNC body, back face |
 | D2 | PFI line for the `PD1_COMP` copy | PFI 7 (Connector 0 pin 38) |
-| D3 | Tie Connector 0's D GND pin 36 to DGND | Yes |
+| D3 | Tie Connector 0's D GND pin 36 to DGND | ~~Yes~~ **No: reversed while drawing (§3)** |
 | D4 | Series resistance on each AO and on the PFI copy | 100 Ω |

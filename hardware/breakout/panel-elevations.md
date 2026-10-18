@@ -21,8 +21,13 @@ face; the task PC and the Faraday-cage booth are both reached from the rack's ba
 | Face | BNC ports | BNC bodies | Other |
 |---|---|---|---|
 | **Front** (rack-facing) | 14 Intan + 1 reward remote = **15** | **8** (1 spare port) | 2× MDR68 recording NI · recessed reward button · 2× 60 mm intake |
-| **Back** | 15 rig + 1 reward driver out + 2 camera frame-time in = **18** | **9** (0 spare ports) | 2× MDR68 task PC · DB37 eye tracker · M12 supply inlet · CM5 cutouts |
-| | **33** | **17** | |
+| **Back** | 15 rig + 1 reward driver out + 2 camera frame-time in + 2 line-out = **20** | **10** (0 spare ports) | 2× MDR68 task PC · DB37 eye tracker · M12 supply inlet · CM5 cutouts |
+| | **35** | **18** | |
+
+> **2026-10-18: J57, the task-PC line-out, joins the back face** (`line-out-and-pfi-copy.md`).
+> It is one more dual body, both ports used, and its shells are on AO GND only. It takes
+> the back face's last slack, 25.2 mm down to 7.2 mm, so **the back face has no room for
+> any further connector.**
 
 Bodies per sheet, and which face each lands on:
 
@@ -32,6 +37,7 @@ Bodies per sheet, and which face each lands on:
 | `opto-intan` | J46, J48, J50 | 6 | 3 | front |
 | `taskpc-digital` | J5 | 1 (+1 spare) | 1 | front — reward remote |
 | `taskpc-digital` | J6 | 1 (+1 spare) | 1 | back — reward driver out |
+| `taskpc-digital` | J57 | 2 | 1 | back — task-PC line-out, L and R (2026-10-18) |
 | `analog-frontend` | J20, J22, J24, J26, J29 | 10 | 5 | back |
 | `pi-interface` | J13, J15, J17 | 5 (+1 spare) | 3 | back |
 
@@ -68,12 +74,12 @@ of *N* bodies is therefore `(N−1) × 18.0 + 14.40` mm.
 | Item | Qty | Each | Width | Source |
 |---|---|---|---|---|
 | MDR68, task PC NI | 2 | 66.0 | 132.0 | as above |
-| Dual BNC row | 9 | — | **158.4** | 8 × 18.0 + 14.40 |
+| Dual BNC row | 10 | — | **176.4** | 9 × 18.0 + 14.40 (J57 added 2026-10-18) |
 | DB37, ACCES I/O eye tracker | 1 | 69.4 | 69.4 | D-sub 37 flange, mechanical standard (J19) |
 | M12 supply inlet | 1 | 20.0 | 20.0 | `m12_inlet.panel_front_flange_dia_mm` 16.5 + clearance |
 | CM5 port cutouts | 1 | 45.0 | 45.0 | USB-C + Ethernet + USB-A (spec §9.1) |
-| | | | **424.8** | |
-| **Clearance remaining** | | | **25.2** | across 4 inter-group gaps and 2 edge margins |
+| | | | **442.8** | |
+| **Clearance remaining** | | | **7.2** | across 4 inter-group gaps and 2 edge margins — was 25.2 before J57 |
 
 **Both faces fit, and both are tight** — about 25–28 mm of slack across a 450 mm face. That is
 worth knowing before anyone adds a connector: there is roughly one more BNC body of room on
@@ -131,7 +137,7 @@ their thread engagement is not load-bearing.
 
 | Feature | Size | Count | Source |
 |---|---|---|---|
-| BNC port hole | Ø **12.83** mm | 34 (33 used, 1 spare) | `bnc_dual_isolated.panel_hole_dia_mm` |
+| BNC port hole | Ø **12.83** mm | 36 (35 used, 1 spare) — 34 until J57, 2026-10-18 | `bnc_dual_isolated.panel_hole_dia_mm` |
 | BNC vertical pitch within a body | **16.00** mm | — | `.panel_hole_pitch_mm` |
 | BNC column pitch | **18.0** mm | — | this document §2 |
 | M12 inlet hole | Ø **13.5** mm + Ø1.2 mm anti-rotation pin at 45° | 1 | `m12_inlet.panel_hole_dia_mm` |

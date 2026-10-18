@@ -408,6 +408,21 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         f"lands on GPIO23's real physical pin."
     )
 
+    # --- PD1_COMP's PFI copy (2026-10-18, hardware/breakout/line-out-and-pfi-copy.md):
+    # the level shifter's free channel 1, PD1_COMP -> PD1_COMP_PFI_BUF, which
+    # taskpc-digital takes through 100 ohm to the task PC's PFI 7. It must be the SAME
+    # package -- that package's spare channel is the reason no new part is needed. ---
+    pfi_ref = _walk_buffered_channel(nets, values, "PD1_COMP", "PD1_COMP_PFI_BUF", "SN74LVC541APW")
+    check(
+        pfi_ref == lvl_ref,
+        f"PD1_COMP's PFI copy is driven by {pfi_ref}, not the RWD_DLVR level shifter "
+        f"{lvl_ref} whose free channel it was meant to use",
+    )
+    summary.append(
+        f"PD1_COMP's PFI copy confirmed: {lvl_ref} channel drives PD1_COMP_PFI_BUF from "
+        f"PD1_COMP, on the same +3V3 package as RWD_DLVR's level shift."
+    )
+
     # --- Trigger buffer: BARCODE_RAW/BARCODE_RAW/BARCODE_RAW -> the SAME
     # SN74AHCT541PW package's own 3 channels -> BARCODE_PI/CAM_SYNC_EYE/CAM_SYNC_BEH. ---
     barcode_buf = _walk_buffered_channel(nets, values, "BARCODE_RAW", "BARCODE_PI", "SN74AHCT541PW")
@@ -834,6 +849,17 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     msg = _assert_fails(hb_collision, good_values, "collides with one of", "BARCODE_HB reusing BARCODE_PI's own output pin")
     results.append(f"Barcode heartbeat LED channel collision (BARCODE_HB reusing BARCODE_PI's own {hb_buf_ref} output pin): caught -- {msg}")
 
+    # PD1_COMP's PFI copy taking its input from the wrong net: the buffer output stays on
+    # PD1_COMP_PFI_BUF, but its partner input moves off PD1_COMP onto DGND (a tied-off
+    # channel's input), so the copy would carry a constant rather than the photodiode.
+    miswired = copy.deepcopy(good_nets)
+    out_node = next(n for n in miswired["PD1_COMP_PFI_BUF"] if "tri_state" in n.pintype)
+    partner = str(20 - int(out_node.pin))
+    moved = next(n for n in miswired["PD1_COMP"] if n.ref == out_node.ref and n.pin == partner)
+    miswired["PD1_COMP"].remove(moved)
+    miswired["DGND"].append(moved)
+    msg = _assert_fails(miswired, good_values, "PD1_COMP", "PFI copy's input not on PD1_COMP")
+    results.append(f"PD1_COMP's PFI copy fed from a tied-off input instead of PD1_COMP: caught -- {msg}")
     return results
 
 

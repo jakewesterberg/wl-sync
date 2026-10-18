@@ -146,12 +146,13 @@ final instruction placement.
 
 After acceptance: drop `--fake` from `deploy/wl-sync.service` and add `--gpiochip`.
 
-### Before layout *(spec §12 item 11, committed to wl-xcon)*
+### ~~Before layout~~ *(spec §12 item 11) — drawn 2026-10-18*
 
-Draw the task-PC line-out (AO 0/1 from Connector 0) and a buffered PFI copy of `PD1_COMP`.
-The outbound bank is 8/8, so the copy needs a new channel. Regenerating that sheet also
-fixes `gen_breakout_taskpc_digital.py`'s note that puts P2 on Connector 1; spec §9.2 has
-the correction.
+The task-PC line-out (J57) and the PFI copy of `PD1_COMP` (PFI 7) are in the schematic, the
+netlist contract and the BOM. `hardware/breakout/line-out-and-pfi-copy.md` gives the
+reasoning. In layout, keep R221–R223 beside Connector 0. The back face has 7.2 mm of slack
+left, so no further panel connector fits. One fix-up came with it:
+`gen_breakout_taskpc_digital.py` no longer claims P2 is on Connector 1.
 
 ---
 
@@ -248,6 +249,8 @@ Worth keeping, because they caught real defects today.
 | deploy: the sync box can join the tailnet |
 | RP1 backend: bind piolib through a C shim, and first run on silicon |
 | bench: check the box's own barcode, read back through an edge input |
+| Breakout: propose the task-PC line-out and the PFI copy of PD1_COMP |
+| Breakout: draw the task-PC line-out and the PFI copy of PD1_COMP |
 
 **The capture logic is verified against fakes on a laptop. On silicon, so far: the shim,
 the encodings, the chip, the pacing and a clean 30 s run, all with nothing wired.**
