@@ -112,6 +112,22 @@ the NVMe.
    - `od -An -tu4 --endian=big /proc/device-tree/chosen/power/max_current` reads `5000`,
      meaning the supply negotiated the full 5 A;
    - `timedatectl show -p NTPSynchronized` reads `yes`.
+7. **Optionally, join the tailnet**, so the box is reachable from a different subnet,
+   where `.local` names do not reach. `wl-stack/catalog/tailscale.md` is the lab's entry;
+   on Debian, from Tailscale's own repository:
+
+       curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+       curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+       sudo apt-get update && sudo apt-get install -y tailscale
+       sudo systemctl enable --now tailscaled
+       sudo tailscale up --hostname=wl-sync-rig0
+
+   `tailscale up` prints a login link, which a person must open. Then:
+   - **disable key expiry** for the node in the admin console. Otherwise it expires after
+     180 days by default, and a box running unattended quietly drops off;
+   - leave Tailscale SSH off, because key-only `sshd` already works.
+
+   `wl-sync` itself does not need Tailscale, so it is not in `wl.yaml`.
 
 Two things from that first setup to know about:
 
