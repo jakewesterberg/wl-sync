@@ -217,6 +217,21 @@ class _CloseRequest(_FlushBarrier):
     """Close, after everything already queued has gone down."""
 
 
+class _RollRequest(_FlushBarrier):
+    """Close the current sink, then continue into the one `make_sink` builds.
+
+    Carries the factory, not a finished sink, so the new segment is created on the owner
+    thread AFTER the old one's trailer is down. Building it earlier would open the next
+    segment while the previous is still being written.
+    """
+
+    __slots__ = ("make_sink",)
+
+    def __init__(self, make_sink, args: tuple = ()) -> None:
+        super().__init__(args)
+        self.make_sink = make_sink
+
+
 class QueuedSink:
     """Serialises fan-in from several threads onto one owner thread.
 
@@ -297,6 +312,28 @@ class QueuedSink:
         if self._error is not None:
             raise RuntimeError("the sink's owner thread died") from self._error
 
+    def roll(self, make_sink, *close_args) -> None:
+        """Close the current sink with `close(*close_args)` and carry on into `make_sink()`.
+
+        THE OWNER THREAD DOES IT, NOT THE CALLER. Capture threads hold this QueuedSink,
+        not the segment under it, and keep writing through a roll without ever seeing the
+        segment change or waiting on it. Swapping `self.sink` from the caller's thread
+        would race the drain thread's `write` into a half-closed segment. Queued in FIFO
+        order, a roll also splits the stream exactly: records written before it land in
+        the old segment, records written after it in the new one.
+
+        Blocks until the owner thread is done, as `flush()` and `close()` do. A failure
+        in either half is held and raised here and on every later `write`: if the close
+        succeeded but `make_sink()` raised, the old segment is already closed, and the
+        owner thread stops rather than write into it.
+        """
+        with self._gate:
+            self._check()
+            request = _RollRequest(make_sink, close_args)
+            self._queue.put(request)
+        self._await(request)
+        self._check()
+
     def _await(self, barrier: _FlushBarrier) -> None:
         """Wait for the owner thread to reach a barrier -- OR TO HAVE DIED.
 
@@ -323,6 +360,20 @@ class QueuedSink:
                 finally:
                     item.done.set()
                 return
+            if isinstance(item, _RollRequest):
+                try:
+                    close = getattr(self.sink, "close", None)
+                    if close is not None:
+                        close(*item.args)
+                    self.sink = item.make_sink()
+                except BaseException as error:  # noqa: BLE001 - surfaced on roll()
+                    # Return, as a failed write does: the old sink is closed, so
+                    # nothing may write into it again, and _check() now refuses.
+                    self._error = error
+                    return
+                finally:
+                    item.done.set()
+                continue
             if isinstance(item, _FlushBarrier):
                 try:
                     flush = getattr(self.sink, "flush", None)

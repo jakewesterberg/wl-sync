@@ -307,3 +307,80 @@ def test_a_write_accepted_before_close_is_never_silently_dropped():
             f"{len(accepted) - inner.record_count} record(s) were accepted by write() "
             "and then discarded"
         )
+
+
+class _ClosableSink(_RacySink):
+    """A `_RacySink` that remembers how it was closed, so a roll can be checked for
+    closing the OLD segment with the caller's arguments rather than merely dropping it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed_with: tuple | None = None
+
+    def close(self, *args) -> None:
+        self.closed_with = args
+
+
+def test_a_roll_splits_records_at_the_moment_it_was_asked():
+    """Records queued before roll() belong to the old segment and records queued after
+    it to the new one. That is the queue's FIFO order, and it is the whole contract: a
+    visit's folder must hold exactly the records of that visit."""
+    first, second = _ClosableSink(), _ClosableSink()
+    queued = QueuedSink(first)
+    try:
+        for tick in (1, 2, 3):
+            queued.write(Edge(tick_us=tick, gpio=20, level=1))
+        queued.roll(lambda: second, "ended", 7)
+        for tick in (4, 5, 6):
+            queued.write(Edge(tick_us=tick, gpio=20, level=1))
+        queued.flush()
+
+        assert first.lines == ["1", "2", "3"]
+        assert first.closed_with == ("ended", 7)
+        assert second.lines == ["4", "5", "6"]
+        assert second.closed_with is None
+        assert queued.sink is second
+    finally:
+        queued.close()
+
+
+def test_no_record_is_lost_across_a_roll_under_concurrent_writers():
+    """Capture threads keep writing straight through a roll and must never see it. Every
+    record must land in exactly one of the two segments: none lost in the hand-over,
+    none written twice."""
+    first, second = _ClosableSink(), _ClosableSink()
+    queued = QueuedSink(first)
+    try:
+        hammer = threading.Thread(target=_hammer, args=(queued,))
+        hammer.start()
+        time.sleep(0.005)  # let the writers get under way, so the roll lands mid-stream
+        queued.roll(lambda: second)
+        hammer.join()
+        queued.flush()
+    finally:
+        queued.close()
+
+    landed = first.lines + second.lines
+    assert len(landed) == WRITERS * PER_WRITER
+    assert len(set(landed)) == len(landed), "a record was written twice"
+    assert first.closed_with == ()
+
+
+def test_a_failing_new_sink_does_not_die_quietly():
+    """The old segment is already closed by the time make_sink() runs, so a failure here
+    must not leave a sink that quietly accepts records and writes them into a closed
+    file. The error is held, raised by roll(), and raised by every later write."""
+    old = _ClosableSink()
+
+    def make_sink():
+        raise OSError("cannot create the next segment")
+
+    queued = QueuedSink(old)
+    with pytest.raises(RuntimeError, match="owner thread died") as raised:
+        queued.roll(make_sink)
+    assert isinstance(raised.value.__cause__, OSError)
+
+    with pytest.raises(RuntimeError, match="owner thread died") as later:
+        queued.write(Edge(tick_us=1, gpio=20, level=1))
+    assert isinstance(later.value.__cause__, OSError)
+    assert old.lines == []
