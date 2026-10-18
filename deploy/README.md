@@ -29,9 +29,9 @@ Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gp
 
     systemctl status wl-sync          # is it running
     journalctl -u wl-sync -f          # what is it saying
-    ls /data/rig1/unassigned/$(date +%F)/syncbox/    # between visits
+    ls /data/rig1/unassigned/$(date -u +%F)/syncbox/    # between visits (UTC date)
     ls /data/rig1/*/syncbox/                         # one folder per visit
-    cat /data/rig1/unassigned/$(date +%F)/syncbox/manifest.json
+    cat /data/rig1/unassigned/$(date -u +%F)/syncbox/manifest.json
 
 Segments land in `/data/rig1/unassigned/<date>/syncbox/` while no animal is in the rig,
 and in `/data/rig1/<id>/syncbox/` during a visit, where `<id>` is the session id the
@@ -81,10 +81,9 @@ folder per visit. Without the endpoint the box still records, into `unassigned/`
 
 **The token file.** Make the token once, and put the same one on the task PC:
 
-    python3 -c 'import secrets; print(secrets.token_hex(32))' > /tmp/session-token
-    sudo install -d -m 0755 /etc/wl-sync
-    sudo install -m 0600 -o root -g root /tmp/session-token /etc/wl-sync/session-token
-    shred -u /tmp/session-token
+    sudo install -d -m 0700 -o root -g root /etc/wl-sync
+    sudo sh -c "umask 077; python3 -c 'import secrets; print(secrets.token_hex(32))' > /etc/wl-sync/session-token"
+    sudo chmod 0600 /etc/wl-sync/session-token
 
 The unit has no `User=`, so it runs as root and can read a root-only file. Never commit
 the token. If the file is missing, unreadable or empty, the box logs an ERROR naming the

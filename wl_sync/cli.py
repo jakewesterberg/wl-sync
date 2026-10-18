@@ -719,7 +719,9 @@ def _start_endpoint(out: Path, listen: tuple[str, int] | None, token_file: Path 
     host, port = listen
     try:
         return serve(out, requests, token, host, port)
-    except OSError as error:
+    except (OSError, ValueError, OverflowError) as error:
+        # ValueError covers UnicodeError (a hostname that will not encode) and
+        # OverflowError a port socket rejects; nothing at start-up may raise (R18).
         log.error(
             "session endpoint cannot listen on %s:%s (%s); recording without it",
             host, port, error,
@@ -745,7 +747,8 @@ def main(argv: list[str] | None = None) -> int:
         type=_listen_address,
         default=None,
         metavar="HOST:PORT",
-        help="serve the session endpoint here; default none, meaning no endpoint",
+        help="serve the session endpoint here; default none, meaning no endpoint. "
+        "IPv6 is not supported: use an IPv4 address or a hostname",
     )
     record.add_argument(
         "--session-token-file",

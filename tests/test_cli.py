@@ -1419,15 +1419,22 @@ class _Rig:
         self.server = serve(tmp_path, self.requests, TOKEN, "127.0.0.1", 0)
         self.url = "http://127.0.0.1:%d" % self.server.server_address[1]
         self.folder = None
+        self.done = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def _tick(self, _seconds):
+        # Paced while the test is talking to the endpoint, instant afterwards, so a
+        # slow CI box cannot let the loop end before the HTTP calls land.
+        if not self.done.is_set():
+            time.sleep(0.05)
 
     def _run(self):
         self.folder = run(
             out=self.tmp_path,
             backend=FakeBackend(),
             now_fn=_clock_from(START),
-            duration_s=30,
-            tick_fn=lambda _s: time.sleep(0.05),
+            duration_s=200,
+            tick_fn=self._tick,
             requests=self.requests,
         )
 
@@ -1441,6 +1448,7 @@ class _Rig:
             return json.loads(response.read())
 
     def finish(self):
+        self.done.set()
         self.thread.join(WAIT_S)
         assert not self.thread.is_alive(), "run() did not finish"
         self.server.shutdown()
@@ -1458,7 +1466,11 @@ def rig(tmp_path):
 def test_a_task_pc_can_open_and_close_a_session_end_to_end(rig):
     """The whole path a task PC takes: POST open, GET the id back, POST close, over real
     HTTP into a running loop. The session's syncbox/ holds a segment closed with a
-    trailer, so the visit's recording really landed under its id."""
+    trailer, so the visit's recording really landed under its id.
+
+    Closes a coverage gap: run(requests=) and serve() were each tested alone, but
+    nothing proved that a real HTTP call reaches a running loop and moves the
+    recording."""
     rig.thread.start()
     opened = rig.call("POST", "/session/open", {"request_id": "r1"})
     session_id = opened["session_id"]
@@ -1474,7 +1486,10 @@ def test_a_task_pc_can_open_and_close_a_session_end_to_end(rig):
 def test_a_retried_open_after_a_lost_reply_gets_the_same_session(rig):
     """The task PC lost the reply to its open and asks again with the same request_id.
     It must get the session it already opened, not a second one, and the answer says the
-    session is still open (`closed` null)."""
+    session is still open (`closed` null).
+
+    Closes a coverage gap: idempotence was tested on the request queue, never through
+    HTTP into the live loop, which is where a lost reply actually happens."""
     rig.thread.start()
     first = rig.call("POST", "/session/open", {"request_id": "r1"})
     second = rig.call("POST", "/session/open", {"request_id": "r1"})
@@ -1547,7 +1562,16 @@ def test_a_listen_address_that_cannot_bind_logs_an_error_and_the_box_still_recor
 @pytest.mark.parametrize("value", ["8740", "host:", ":8740", "host:abc", "host:65536", "host:-1"])
 def test_a_malformed_listen_value_is_an_argparse_error(tmp_path, value):
     """A typo in --listen is configuration the operator must see, not something to
-    swallow: argparse exits 2."""
+    swallow: argparse exits 2. Closes a coverage gap: --listen's parsing had no test, and
+    an unknown flag also exits 2, so only the positive case below makes this one mean
+    something."""
     with pytest.raises(SystemExit) as excinfo:
-        main(["record", "--fake", "--out", str(tmp_path), "--listen", value])
+        main(["record", "--fake", "--out", str(tmp_path), "--duration", "1",
+              "--listen", value])
     assert excinfo.value.code == 2
+
+
+def test_a_well_formed_listen_value_is_accepted(tmp_path):
+    """The positive half of the malformed-value test: a valid HOST:PORT must run."""
+    assert main(["record", "--fake", "--out", str(tmp_path), "--duration", "1",
+                 "--listen", "127.0.0.1:0"]) == 0
