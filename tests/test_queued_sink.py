@@ -360,28 +360,47 @@ def test_no_record_is_lost_across_a_roll_under_concurrent_writers():
     half = PER_WRITER // 2
     halves_written = threading.Barrier(WRITERS + 1)
     rolled = threading.Event()
+    failures: list[BaseException] = []
+    patience = 10.0  # a regression must FAIL this test, never hang the suite
 
     def run(base):
-        for index in range(half):
-            queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
-        halves_written.wait()
-        rolled.wait()
-        for index in range(half, PER_WRITER):
-            queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
+        try:
+            for index in range(half):
+                queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
+            halves_written.wait(patience)
+            if not rolled.wait(patience):
+                raise TimeoutError("the roll never completed")
+            for index in range(half, PER_WRITER):
+                queued.write(Edge(tick_us=base * 10_000 + index, gpio=20, level=1))
+        except BaseException as error:  # noqa: BLE001 - recorded, then asserted on
+            failures.append(error)
+            halves_written.abort()  # wake the main thread now, not after `patience`
 
     workers = [threading.Thread(target=run, args=(n,)) for n in range(WRITERS)]
     try:
         for worker in workers:
             worker.start()
-        halves_written.wait()
-        queued.roll(lambda: second)
-        rolled.set()
-        for worker in workers:
-            worker.join()
-        queued.flush()
+        try:
+            try:
+                halves_written.wait(patience)
+            except threading.BrokenBarrierError:
+                pass  # a writer died or timed out; `failures` below says which
+            else:
+                queued.roll(lambda: second)
+        finally:
+            rolled.set()
+            for worker in workers:
+                worker.join(patience)
+        if not failures:
+            queued.flush()
     finally:
-        rolled.set()
-        queued.close()
+        try:
+            queued.close()
+        except RuntimeError:
+            if not failures:  # a dead owner thread is already explained by `failures`
+                raise
+    assert not failures, f"a writer failed: {failures[0]!r}"
+    assert not any(worker.is_alive() for worker in workers), "a writer hung"
 
     before = {
         str(base * 10_000 + index) for base in range(WRITERS) for index in range(half)
