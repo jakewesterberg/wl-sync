@@ -2,12 +2,14 @@ import datetime
 import json
 import logging
 import signal
+import threading
 from pathlib import Path
 
 import pytest
 
+from wl_sync import cli
 from wl_sync.backend import FakeBackend
-from wl_sync.barcode import FRAME_US, N_BITS
+from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
     CHECKPOINT_NAME,
     _ValueSource,
@@ -26,7 +28,7 @@ from wl_sync.clock import (
 from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, Edge, read_log
 from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
-from wl_sync.segment import segment_name
+from wl_sync.segment import SegmentWriter, segment_name
 
 UTC = datetime.timezone.utc
 
@@ -663,7 +665,7 @@ def test_the_shipped_unit_starts_a_mode_the_cli_actually_accepts(tmp_path):
     ]
     assert len(exec_start) == 1
     argv = exec_start[0].split("=", 1)[1].split()[1:]  # drop the binary path
-    assert "--fake" in argv, "the unit must ship in fake mode until the RP1 backend lands"
+    assert "--fake" in argv, "the unit must ship in fake mode until bench acceptance"
 
     argv[argv.index("--out") + 1] = str(tmp_path)
     assert main([*argv, "--duration", "1"]) == 0
@@ -716,3 +718,361 @@ def test_run_restores_the_signal_handlers_it_installed(tmp_path):
     finally:
         for received, handler in previous.items():
             signal.signal(received, handler)
+
+
+class _CountsHealthChecks(FakeBackend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.health_checks = 0
+
+    def check_health(self) -> None:
+        self.health_checks += 1
+
+
+def test_the_run_loop_checks_the_backends_health_every_iteration(tmp_path):
+    """Every RP1 capture path fails by going QUIET: a dead pump thread, an overflowed
+    kernel buffer, a PIO FIFO that dropped words. `check_health()` is what turns each
+    into a complaint, its docstring says the run loop must call it once per iteration --
+    and nothing called it, so a day could be recorded with half the rig's signals absent
+    and a clean trailer on the end."""
+    backend = _CountsHealthChecks()
+    run(
+        tmp_path,
+        backend,
+        _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        5,
+        lambda _s: None,
+    )
+    # Once per iteration, and once more after capture stops (see the end-of-run test).
+    assert backend.health_checks == 5 + 1
+
+
+class _ScriptedHealth(FakeBackend):
+    """check_health() raises each scripted message in turn; None is a healthy call."""
+
+    def __init__(self, script) -> None:
+        super().__init__()
+        self._script = iter(script)
+
+    def check_health(self) -> None:
+        message = next(self._script, None)
+        if message is not None:
+            raise RuntimeError(message)
+
+
+def test_a_failed_capture_path_is_logged_and_recording_continues(tmp_path, caplog):
+    """Stopping the box over a degraded capture path loses more than it saves: the other
+    paths, the barcodes every other device aligns on, the rest of the day. So the failure
+    goes to the journal -- this box's only status surface -- and the loop carries on."""
+    failure = "edge capture: 3 edge event(s) lost: the kernel's event buffer overflowed"
+    with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
+        day = run(
+            tmp_path,
+            _ScriptedHealth([failure]),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            3,
+            lambda _s: None,
+        )
+
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any(failure in message for message in errors), errors
+    _, records = read_log(day / segment_name(0))
+    assert len([r for r in records if isinstance(r, BarcodeEmitted)]) == 3
+    assert json.loads((day / "manifest.json").read_text())["segments"][0]["closed"] == "clean"
+
+
+def test_a_persisting_capture_failure_is_logged_once_per_episode(tmp_path, caplog):
+    """A dead capture thread never comes back, so check_health() raises the same thing
+    every second -- 86,400 identical lines a day would bury the journal, the reason the
+    stalled-clock warning is edge-triggered too. A recovery ends the episode, and the
+    same failure after it is news again."""
+    script = ["A", "A", "A", None, "A", "B", "B"]
+    with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
+        run(
+            tmp_path,
+            _ScriptedHealth(script),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            len(script),
+            lambda _s: None,
+        )
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 3, errors
+    assert [m.split(": ")[-1] for m in errors] == ["A", "A", "B"]
+
+
+class _DeliversFromACaptureThread(FakeBackend):
+    """Delivers its edges from its own thread, the way Rp1Backend's edge pump does."""
+
+    def start_edge_capture(self, pins, on_edge):
+        super().start_edge_capture(pins, on_edge)
+        thread = threading.Thread(
+            target=lambda: [on_edge(pins[0], level, 10 + level) for level in (1, 0, 1)],
+            name="capture",
+        )
+        thread.start()
+        thread.join()
+
+
+def test_no_capture_thread_ever_writes_the_segment(tmp_path, monkeypatch):
+    """SegmentWriter is not thread-safe, and its flush() fsyncs. A capture thread that
+    writes into it either races the emit loop -- measured: 313 of 2000 record_count
+    increments lost, so the trailer disagrees with the records above it -- or, under a
+    lock, blocks on the disk and stops draining an 8-deep PIO FIFO. The run loop has to
+    give the segment a single owner thread, which is QueuedSink's job."""
+    writers = []
+    original = SegmentWriter.write
+
+    def spy(self, record):
+        writers.append((threading.current_thread().name, record))
+        original(self, record)
+
+    monkeypatch.setattr(SegmentWriter, "write", spy)
+    day = run(
+        tmp_path,
+        _DeliversFromACaptureThread(),
+        _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        2,
+        lambda _s: None,
+    )
+
+    assert [name for name, r in writers if isinstance(r, Edge)] != []
+    assert "capture" not in {name for name, _ in writers}
+    _, records = read_log(day / segment_name(0))
+    assert [r.level for r in records if isinstance(r, Edge)] == [1, 0, 1]
+
+
+class _DeliversWhileClosing(FakeBackend):
+    """Stopping capture delivers what was still in flight, as a final FIFO drain does."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    def close(self) -> None:
+        self.inject_edge(EDGE_PINS[0], 1, 999)
+        self.closed = True
+
+
+def test_capture_stops_before_the_segment_closes(tmp_path):
+    """Order matters at the end of a run. Close the segment while capture is still live
+    and its last records hit a closed sink -- refused, so the tail of every run is
+    lost, which is where the day's last trials are. Capture stops first, then the
+    segment is closed behind everything it delivered."""
+    backend = _DeliversWhileClosing()
+    day = run(
+        tmp_path,
+        backend,
+        _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        2,
+        lambda _s: None,
+    )
+    assert backend.closed
+    _, records = read_log(day / segment_name(0))
+    assert [r.tick_us for r in records if isinstance(r, Edge)] == [999]
+    assert json.loads((day / "manifest.json").read_text())["segments"][0]["closed"] == "clean"
+
+
+class _Monotonic:
+    """A fake monotonic clock, with a wall clock that runs with it.
+
+    `jitter` is added to each sleep in turn, because a real sleep wakes late, never early.
+    """
+
+    def __init__(self, start=100.0, wall_at_start=None, jitter=()):
+        self.now = start
+        self._start = start
+        self._wall = wall_at_start or datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+        self._jitter = list(jitter)
+        self._sleeps = 0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def wall(self):
+        return self._wall + datetime.timedelta(seconds=self.now - self._start)
+
+    def sleep(self, seconds: float) -> None:
+        assert seconds >= 0, f"asked to sleep {seconds} s"
+        late = self._jitter[self._sleeps % len(self._jitter)] if self._jitter else 0.0
+        self._sleeps += 1
+        self.now += seconds + late
+
+
+class _FramesTakeRealTime(FakeBackend):
+    """A frame occupies the pin for real time, as Rp1Backend.emit_pulses does."""
+
+    def __init__(self, clock: _Monotonic, frame_s) -> None:
+        super().__init__()
+        self._clock = clock
+        self._frame_s = frame_s if isinstance(frame_s, list) else None
+        self._fixed_s = None if isinstance(frame_s, list) else frame_s
+        self.frame_starts: list[float] = []
+        self.frame_ends: list[float] = []
+
+    def emit_pulses(self, pin, pulses):
+        super().emit_pulses(pin, pulses)
+        self.frame_starts.append(self._clock.now)
+        index = len(self.frame_starts) - 1
+        self._clock.now += self._fixed_s if self._frame_s is None else self._frame_s[index]
+        self.frame_ends.append(self._clock.now)
+
+
+def _paced(tmp_path, clock, backend, frames):
+    run(tmp_path, backend, clock.wall, frames, clock.sleep, mono_fn=clock)
+    return backend
+
+
+def test_frames_start_once_per_second_however_long_a_frame_takes(tmp_path):
+    """A frame holds the pin for 200 ms, and the loop then slept a fixed second after
+    it, so on hardware the box ran at 1.2 s per iteration while every bound it states
+    is per second: the crash-loss bound, the checkpoint's staleness, the fsync window.
+    FakeBackend emits instantly, which is why no test saw it. The first frame goes out
+    at once; every frame after it lands on the next wall-clock half second."""
+    clock = _Monotonic()
+    backend = _paced(tmp_path, clock, _FramesTakeRealTime(clock, FRAME_US / 1e6), 5)
+    assert backend.frame_starts == pytest.approx([100.0, 101.5, 102.5, 103.5, 104.5])
+
+
+def test_an_overrun_skips_to_the_next_second_rather_than_bursting(tmp_path):
+    """An iteration that overruns a second boundary -- a slow fsync, a stalled disk --
+    must not be repaid with frames emitted back to back. Two frames inside one decoder
+    window would be indistinguishable from a corrupted one."""
+    clock = _Monotonic()
+    backend = _paced(tmp_path, clock, _FramesTakeRealTime(clock, 1.3), 3)
+    assert backend.frame_starts == pytest.approx([100.0, 102.5, 104.5])
+
+
+def test_a_late_frame_still_leaves_the_decoder_its_idle(tmp_path):
+    """A frame found by the decoder needs IDLE_MIN_US of LOW before its lead edge. Pacing
+    to whole seconds handled a frame that crossed a boundary, but one delayed WITHIN its
+    second -- two fsyncs in write_checkpoint, say -- was followed by the next almost at
+    once, and that next frame could not decode."""
+    clock = _Monotonic()
+    backend = _paced(tmp_path, clock, _FramesTakeRealTime(clock, [0.2, 0.95, 0.2, 0.2]), 4)
+    idles = [
+        later - earlier
+        for earlier, later in zip(backend.frame_ends, backend.frame_starts[1:])
+    ]
+    assert min(idles) >= IDLE_MIN_US / 1e6, idles
+
+
+def test_a_healthy_clock_never_trips_the_clamp_however_the_run_is_phased(tmp_path, caplog):
+    """The barcode value is the wall second a frame reads. An exact one-second period
+    that happens to sit on a second boundary straddles it with ordinary wake-up
+    jitter, reads the same second twice, and the clamp reports "not moving forwards"
+    on a healthy clock, for the whole run. The 1.2 s period never could; a period
+    of exactly 1 s has to be placed away from the boundary, mid-second."""
+    clock = _Monotonic(
+        wall_at_start=datetime.datetime(2026, 8, 16, 9, 0, 0, 999_950, tzinfo=UTC),
+        jitter=(0.0, 0.000_3),
+    )
+    with caplog.at_level(logging.WARNING, logger="wl_sync.cli"):
+        _paced(tmp_path, clock, _FramesTakeRealTime(clock, FRAME_US / 1e6), 60)
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+def _hardware_stand_in(monkeypatch):
+    """Replaces the RP1 constructor, which needs libpiolib, and records its argument."""
+    chips = []
+
+    def hardware(chip_path):
+        chips.append(chip_path)
+        return FakeBackend()
+
+    monkeypatch.setattr(cli, "_hardware_backend", hardware, raising=False)
+    return chips
+
+
+def test_without_fake_the_box_records_on_the_rp1_backend(tmp_path, monkeypatch):
+    """main() refused anything but --fake, "until the RP1 backend (Task 5b) lands". The
+    backend landed and stayed unreachable: the one mode that records the rig was the
+    one the entry point would not start."""
+    chips = _hardware_stand_in(monkeypatch)
+    assert main(["record", "--out", str(tmp_path), "--duration", "1"]) == 0
+    assert chips == ["/dev/gpiochip0"]
+
+
+def test_the_gpio_chip_is_chosen_on_the_command_line(tmp_path, monkeypatch):
+    """Which chardev carries RP1's bank has moved between releases, and bench day
+    confirms it by label. That is a fact about the rig, so it is set where the rig is
+    configured -- the unit's argv -- rather than by editing code on the box."""
+    chips = _hardware_stand_in(monkeypatch)
+    main(["record", "--out", str(tmp_path), "--duration", "1", "--gpiochip", "/dev/gpiochip4"])
+    assert chips == ["/dev/gpiochip4"]
+
+
+class _DegradedWithACount(FakeBackend):
+    """Raises the same KIND of failure each second, with a count that keeps changing,
+    the way a kernel buffer that keeps overflowing does."""
+
+    def __init__(self, kinds_by_call) -> None:
+        super().__init__()
+        self._calls = iter(kinds_by_call)
+        self._n = 0
+
+    def check_health(self) -> None:
+        from wl_sync.backend import CaptureDegraded
+
+        kinds = next(self._calls, None)
+        self._n += 1
+        if kinds:
+            raise CaptureDegraded([(kind, f"{kind}: {self._n} lost") for kind in kinds])
+
+
+def test_a_failure_whose_message_changes_is_still_one_episode(tmp_path, caplog):
+    """Episodes were keyed on the message text, and a dropped-edge message carries a
+    count. A buffer that kept overflowing therefore read as a new failure every second,
+    which is the journal-burying this report exists to prevent. What identifies an
+    episode is which paths are failing and how, not the numbers in the message."""
+    script = [["edges"], ["edges"], ["edges"], ["edges", "codes"], ["edges", "codes"]]
+    with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
+        run(
+            tmp_path,
+            _DegradedWithACount(script),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            len(script),
+            lambda _s: None,
+        )
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 2, errors
+    assert "codes" in errors[1]
+
+
+class _CloseFails(FakeBackend):
+    def close(self) -> None:
+        self.inject_edge(EDGE_PINS[0], 1, 999)
+        raise OSError("release failed")
+
+
+def test_a_failure_stopping_capture_still_closes_the_segment_cleanly(tmp_path, caplog):
+    """If backend.close() raised, the segment was never closed: no trailer, so a run that
+    recorded perfectly read as a crash, and the records close() had just delivered never
+    reached disk. Capture stopping badly is worth an ERROR line, not the day's record."""
+    with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
+        day = run(
+            tmp_path,
+            _CloseFails(),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            2,
+            lambda _s: None,
+        )
+    assert json.loads((day / "manifest.json").read_text())["segments"][0]["closed"] == "clean"
+    _, records = read_log(day / segment_name(0))
+    assert [r.tick_us for r in records if isinstance(r, Edge)] == [999]
+    assert any("release failed" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failure_held_at_the_end_of_a_run_is_still_reported(tmp_path, caplog):
+    """check_health() ran only inside the loop, so whatever capture was holding when the
+    run ended -- the last second, or the final FIFO drain close() does -- was never
+    reported to anyone."""
+    late = "event-code capture: the PIO RX FIFO was full when drained"
+    with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
+        run(
+            tmp_path,
+            _ScriptedHealth([None, None, late]),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            2,
+            lambda _s: None,
+        )
+    assert any(late in r.getMessage() for r in caplog.records)

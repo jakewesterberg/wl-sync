@@ -21,6 +21,19 @@ from collections.abc import Callable, Sequence
 from typing import Protocol
 
 
+class CaptureDegraded(RuntimeError):
+    """What `check_health()` raises: every problem found in one call, not the first.
+
+    `kinds` names each problem without its details -- which path, and what went wrong
+    -- so the run loop can tell a persisting failure from a new one even when its
+    message carries a count that changes every second. The message joins them all.
+    """
+
+    def __init__(self, problems: Sequence[tuple[str, str]]) -> None:
+        self.kinds = frozenset(kind for kind, _ in problems)
+        super().__init__("; ".join(message for _, message in problems))
+
+
 class SyncBackend(Protocol):
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         """Drive pin through (level, duration_us). Timing need not be precise."""
@@ -44,6 +57,21 @@ class SyncBackend(Protocol):
 
     def now_us(self) -> int:
         """Current value of the hardware tick counter."""
+
+    def check_health(self) -> None:
+        """Raise if anything capturing in the background has failed.
+
+        The run loop calls this once per iteration, because a capture path that dies
+        goes quiet rather than complaining. A backend with nothing in the background
+        simply returns.
+        """
+
+    def close(self) -> None:
+        """Stop capturing, delivering whatever was still in flight.
+
+        Called BEFORE the sink is closed, so the last records land in the segment
+        rather than against a closed sink.
+        """
 
 
 class FakeBackend:
@@ -76,6 +104,12 @@ class FakeBackend:
 
     def now_us(self) -> int:
         return self._tick
+
+    def check_health(self) -> None:
+        pass  # dispatch is synchronous, so nothing runs in the background to fail
+
+    def close(self) -> None:
+        pass  # nothing is ever in flight
 
     def inject_word(self, tick: int, word: int) -> None:
         self._tick = tick

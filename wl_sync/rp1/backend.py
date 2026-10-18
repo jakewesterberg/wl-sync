@@ -31,13 +31,16 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
 
+from wl_sync.backend import CaptureDegraded
+from wl_sync.pins import GPIO_MAP
 from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EdgePump, pulse_deadlines
-from wl_sync.rp1.pio_capture import pair_fifo
+from wl_sync.rp1.pio_capture import WordPump
 
 _TICK_HZ = 1_000_000  # the program's idle loop is 2 cycles, clocked at 2 MHz
 _CYCLES_PER_TICK = 2
@@ -45,6 +48,50 @@ _CYCLES_PER_TICK = 2
 # How long before a deadline to stop sleeping and spin. time.sleep overshoots by
 # roughly a millisecond, which is a fifth of a barcode bit slot.
 _SPIN_NS = 2_000_000
+
+# How often the word pump drains the RX FIFO. The joined FIFO is 8 words, i.e. FOUR
+# EVENTS, so this is set against bursts of strobed codes rather than their average
+# rate. A BENCH-DAY NUMBER, not a derived one, and there is a known way to miss it:
+# emit_pulses spins holding the GIL for up to 2 ms per pulse, and Python's default
+# switch interval is 5 ms, so a barcode frame can delay this thread past the FIFO's
+# headroom. A WordsDroppedError that coincides with frames is that.
+_WORD_POLL_S = 0.001
+
+
+log = logging.getLogger(__name__)
+
+# The bank must reach every pin this box uses: GPIO 0-27, from wl_sync.pins.
+_LINES_NEEDED = max(GPIO_MAP.values()) + 1
+
+
+def _check_chip(chip_path: str) -> None:
+    """Refuse a GPIO chip that cannot be RP1's bank, BEFORE anything is recorded.
+
+    The chip used to be opened first inside run(), after the segment file existed, so
+    a wrong --gpiochip crash-looped under Restart=always and left a header-only segment
+    behind on every restart. Checked here, it fails before run() creates anything.
+
+    A missing chip, or one too small for GPIO 0-27, is refused. The LABEL is only
+    warned about: RP1's is believed to read "pinctrl-rp1", which is UNVERIFIED until
+    bench day, and refusing on an unverified string could stop a correctly wired box.
+    """
+    import gpiod
+
+    hint = "confirm RP1's bank with gpioinfo and pass it with --gpiochip"
+    try:
+        chip = gpiod.Chip(chip_path)
+    except OSError as error:
+        raise RuntimeError(f"cannot open {chip_path} ({error}); {hint}") from error
+    with chip:
+        info = chip.get_info()
+    if info.num_lines < _LINES_NEEDED:
+        raise RuntimeError(
+            f"{chip_path} ({info.label}) has {info.num_lines} lines, and this box "
+            f"captures GPIO 0-{_LINES_NEEDED - 1}, so it is not RP1's bank; {hint}"
+        )
+    if "rp1" not in info.label.lower():
+        log.warning("%s is labelled %r, which does not look like RP1's bank; %s",
+                    chip_path, info.label, hint)
 
 
 class PiolibError(RuntimeError):
@@ -70,6 +117,7 @@ class _PioProgram(ctypes.Structure):
 
 _PIO_ORIGIN_ANY = -1
 _PIO_FIFO_JOIN_RX = 2
+_RX_FIFO_WORDS = 8  # joined RX: both 4-deep FIFOs as one
 
 
 def _load_piolib() -> ctypes.CDLL:
@@ -200,6 +248,7 @@ class Rp1Backend:
         # UNVERIFIED: which chardev carries RP1's bank. gpiochip0 on current Pi 5
         # firmware, gpiochip4 on Pi 4, and it has moved between releases -- so it is
         # a parameter, and bench day confirms it by label rather than by hope.
+        _check_chip(chip_path)
         self._lib = _load_piolib()
         if self._lib.pio_init() < 0:
             raise PiolibError("pio_init failed")
@@ -212,6 +261,9 @@ class Rp1Backend:
         self._edge_stop: threading.Event | None = None
         self._edge_thread: threading.Thread | None = None
         self._pump: EdgePump | None = None
+        self._words: WordPump | None = None
+        self._word_stop: threading.Event | None = None
+        self._word_thread: threading.Thread | None = None
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
         # B ticks must share it or the three paths do not align. Captured as close to
@@ -277,32 +329,57 @@ class Rp1Backend:
         lib.pio_sm_exec(self._pio, sm, program.encode_mov_x_not_null())
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         lib.pio_sm_set_enabled(self._pio, sm, True)
-        self._on_word = on_word
-        self._data_count = data_count
 
-    def drain(self) -> None:
-        """Move whatever the FIFO holds into `on_word`. Call from ONE thread.
+        # NOTHING DRAINED THE FIFO until 2026-10-18. drain() existed and nothing called
+        # it, so the first burst of more than four codes filled the FIFO and `push
+        # noblock` discarded every later word without a sound. The pump thread is what
+        # makes the strobed path a capture path at all.
+        self._words = WordPump(on_word, data_count)
+        self._word_stop = threading.Event()
+        self._word_thread = threading.Thread(
+            target=self._pump_words, name="wl-sync-words", daemon=True
+        )
+        self._word_thread.start()
+
+    def drain(self) -> bool:
+        """Move whatever the FIFO holds through the word pump. Returns False when the
+        pump should stop. Called from ONE thread, the pump's own.
 
         Reads an even number of words only. The FIFO can be caught mid-pair, and a
         batch cut between a data word and its counter would make `pair_fifo` raise on
         a stream that is in fact intact -- so the odd tail is left for the next drain.
 
-        Overflow is checked BEFORE draining and raises. `push noblock` drops silently,
-        `pair_fifo` catches a single lost word but not a lost pair, and Task 5b Step 3
-        requires zero dropped words -- so the flag is the only honest witness.
+        Fullness is checked BEFORE draining. `push noblock` drops silently, `pair_fifo`
+        catches a single lost word but not a lost pair, and Task 5b Step 3 requires zero
+        dropped words -- so a full FIFO is the only honest witness. It is HELD by the
+        pump, not raised: see `WordPump` for why capture continues past it.
         """
         lib = self._lib
-        if self._sm is None:
+        if self._sm is None or self._words is None:
             raise PiolibError("start_strobed_capture has not run")
-        if lib.pio_sm_is_rx_fifo_full(self._pio, self._sm):
-            raise PiolibError(
-                "PIO RX FIFO is full: words have been dropped, so event timestamps "
-                "after this point cannot be trusted"
-            )
+        full = bool(lib.pio_sm_is_rx_fifo_full(self._pio, self._sm))
         level = lib.pio_sm_get_rx_fifo_level(self._pio, self._sm)
+        # The level is a witness too: a FIFO that filled between the flag's sample and
+        # this read holds every word it can, and any push into it was dropped.
+        full = full or level >= _RX_FIFO_WORDS
         entries = [lib.pio_sm_get(self._pio, self._sm) for _ in range(level - level % 2)]
-        for tick, word in pair_fifo(entries, self._data_count):
-            self._on_word(tick, word)
+        return self._words.handle(entries, fifo_was_full=full)
+
+    def _pump_words(self) -> None:
+        """Drain the RX FIFO until told to stop. Errors are HELD, never raised.
+
+        One last drain after the stop, because close() stops this thread before it
+        disables the state machine: whatever the FIFO held at that moment is the end of
+        the session's last trial.
+        """
+        try:
+            while not self._word_stop.is_set():
+                if not self.drain():
+                    return
+                time.sleep(_WORD_POLL_S)
+            self.drain()
+        except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+            self._words.error = error
 
     def start_edge_capture(
         self, pins: Sequence[int], on_edge: Callable[[int, int, int], None]
@@ -372,13 +449,27 @@ class Rp1Backend:
         a day can otherwise be recorded with half its signals missing and a clean
         trailer on the end saying nothing was wrong.
         """
-        if self._pump is not None and self._pump.error is not None:
-            error = self._pump.error
-            self._pump.error = None  # reported once; do not spam the journal
-            raise RuntimeError(f"edge capture: {error}") from error
-        if self._edge_thread is not None and not self._edge_thread.is_alive():
-            if not self._edge_stop.is_set():
-                raise RuntimeError("the edge capture thread stopped unexpectedly")
+        # EVERY PATH, EVERY CALL. Raising at the first problem meant a dead edge thread
+        # answered every later call, and the event codes behind it were never looked at
+        # again. A held error is reported once and cleared; a dead thread stays dead and
+        # is reported on every call, and the run loop collapses that into one episode.
+        problems: list[tuple[str, str]] = []
+        held = []
+        for path, pump in (("edge capture", self._pump), ("event-code capture", self._words)):
+            if pump is not None and pump.error is not None:
+                error, pump.error = pump.error, None
+                held.append(error)
+                problems.append((f"{path}: {type(error).__name__}", f"{path}: {error}"))
+        for path, thread, stop in (
+            ("edge capture", self._edge_thread, self._edge_stop),
+            ("event-code capture", self._word_thread, self._word_stop),
+        ):
+            if thread is not None and not thread.is_alive() and not stop.is_set():
+                problems.append(
+                    (f"{path}: stopped", f"the {path} thread stopped unexpectedly")
+                )
+        if problems:
+            raise CaptureDegraded(problems) from (held[0] if held else None)
 
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         """Drive the barcode frame, software-timed against ABSOLUTE deadlines.
@@ -404,7 +495,12 @@ class Rp1Backend:
                 consumer="wl-sync",
             )
         start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-        for level, deadline_ns in pulse_deadlines(pulses, start):
+        # BACK TO LOW WHEN THE LAST PULSE ENDS. Every level is set at its pulse's START,
+        # and a frame ends on TRAIL HIGH, so without this the pin stayed high between
+        # frames. A frame is found by a rising edge after IDLE_MIN_US of LOW, so only
+        # the first barcode of a run decoded.
+        end_ns = start + sum(duration for _, duration in pulses) * 1_000
+        for level, deadline_ns in [*pulse_deadlines(pulses, start), (0, end_ns)]:
             remaining = deadline_ns - time.clock_gettime_ns(time.CLOCK_MONOTONIC)
             if remaining > _SPIN_NS:
                 time.sleep((remaining - _SPIN_NS) / 1e9)
@@ -415,13 +511,17 @@ class Rp1Backend:
     def close(self) -> None:
         """Stop everything this backend started, in the order that loses least.
 
-        The edge thread first, because it calls into the sink and the sink is about to
-        be closed by the caller; then the state machine; then the descriptors.
+        The capture threads first, because they call into the sink and the sink is
+        about to be closed by the caller; then the state machine; then the descriptors.
+        The word pump drains once more on its way out, so it stops before the state
+        machine does.
         """
-        if self._edge_stop is not None:
-            self._edge_stop.set()
-        if self._edge_thread is not None:
-            self._edge_thread.join(timeout=1.0)
+        for stop in (self._edge_stop, self._word_stop):
+            if stop is not None:
+                stop.set()
+        for thread in (self._edge_thread, self._word_thread):
+            if thread is not None:
+                thread.join(timeout=1.0)
         for request in (self._edges, self._out):
             if request is not None:
                 request.release()

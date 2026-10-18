@@ -14,11 +14,12 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-# --fake IS DELIBERATE AND MUST BE REMOVED once the RP1 backend (Task 5b) lands.
-# Until then `main()` rejects any other mode and exits 2 immediately, so a unit
-# without it goes to `failed` within ~5 s of `systemctl enable --now`. Shipping it
-# in fake mode means the crash-stitching, manifest and clock-degradation paths are
-# all exercisable at bring-up; only the hardware capture is missing.
+# --fake IS DELIBERATE UNTIL BENCH ACCEPTANCE (Task 5b Steps 3-5). Without it the
+# box runs the RP1 backend, which is wired into the run loop but has never run on
+# silicon, and a unit that cannot open it restarts every second recording nothing.
+# Fake mode keeps the crash-stitching, manifest and clock-degradation paths
+# exercisable at bring-up. After bench day: drop --fake and add --gpiochip with the
+# chardev confirmed by label.
 ExecStart=/usr/local/bin/wl-sync record --out /data/rig1 --fake
 Restart=always
 RestartSec=1

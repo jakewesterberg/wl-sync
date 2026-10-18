@@ -142,3 +142,16 @@ def test_a_healthy_pump_reports_no_error():
     pump = EdgePump(on_edge=lambda *_: None, origin_ns=0)
     assert pump.handle([_FakeEvent(1, 20, True, 0)]) is True
     assert pump.error is None
+
+
+def test_one_overflow_is_one_report_not_one_per_edge_after_it():
+    """The tracker raised BEFORE it moved its baseline, so after one gap every later,
+    perfectly consecutive edge was measured against the stale number and reported a
+    fresh, growing loss: one 7-event overflow became an ERROR line every second for
+    the rest of the day, each claiming more edges lost than the last."""
+    tracker = SeqnoTracker()
+    tracker.check(1)
+    with pytest.raises(DroppedEdgeError):
+        tracker.check(9)
+    tracker.check(10)  # consecutive with 9, so nothing is lost
+    tracker.check(11)

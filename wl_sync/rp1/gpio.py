@@ -81,13 +81,16 @@ class SeqnoTracker:
         self._previous: int | None = None
 
     def check(self, seqno: int) -> None:
-        if self._previous is not None and seqno != self._previous + 1:
-            missing = seqno - self._previous - 1
+        # The baseline moves BEFORE any raise. Left behind, it measured every later and
+        # perfectly consecutive edge against the stale number, so one overflow became
+        # a new and larger "lost" report on each edge for the rest of the day.
+        previous, self._previous = self._previous, seqno
+        if previous is not None and seqno != previous + 1:
+            missing = seqno - previous - 1
             raise DroppedEdgeError(
-                f"{missing} edge event(s) lost between sequence {self._previous} and "
+                f"{missing} edge event(s) lost between sequence {previous} and "
                 f"{seqno}: the kernel's event buffer overflowed"
             )
-        self._previous = seqno
 
 
 class EdgePump:

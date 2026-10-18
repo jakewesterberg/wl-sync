@@ -6,12 +6,21 @@
 
 Edit `--out` in the unit to the rig's session root before enabling.
 
-**The unit ships in fake mode on purpose.** `ExecStart` carries `--fake`, because
-until the RP1 backend (Task 5b) lands `wl-sync record` rejects any other mode and
-exits 2 — a unit without it goes to `failed` within about five seconds of
-`systemctl enable --now`. Everything except the hardware capture is real in this
-mode, so crash stitching, the manifest and clock degradation can all be verified at
-bring-up. Remove the flag when the backend lands.
+**The unit ships in fake mode on purpose, until bench acceptance.** `ExecStart`
+carries `--fake`. Without it `wl-sync record` runs the RP1 backend, which is wired into
+the run loop (2026-10-18) but has never run on silicon. If the backend cannot be built
+(no libpiolib, a missing chip, a chip too small to be RP1's bank), the unit restarts every
+second and records nothing. A failure later, while starting PIO capture, still leaves one
+empty segment per restart. Everything except the hardware capture is
+real in fake mode, so crash stitching, the manifest and clock degradation can all be
+verified at bring-up.
+
+On bench day, run the hardware mode by hand first, with the GPIO chip confirmed by
+label (`gpioinfo`):
+
+    wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
+
+Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
 
 ## Checking it
 
@@ -58,6 +67,6 @@ so an operator knows what a crash loop looks like as distinct from a healthy run
 
 - Fit the CR2032 to the CM5 IO Board. Nothing on the board can detect its absence.
 - Configure NTP. `timedatectl show -p NTPSynchronized` must report `yes`.
-- **Important:** only `--fake` backend is available until the RP1 backend lands in a
-  later task; the hardware capture will not work yet, but the crash-stitching mechanism
-  is ready to verify at bring-up.
+- **Important:** the unit runs `--fake` until bench acceptance (see above). The hardware
+  capture is wired but unproven, while the crash-stitching mechanism is ready to verify
+  at bring-up.

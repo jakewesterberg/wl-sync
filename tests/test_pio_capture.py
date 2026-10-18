@@ -61,3 +61,55 @@ def test_an_empty_drain_is_not_an_error():
 def test_rejects_impossible_data_width():
     with pytest.raises(ValueError):
         pair_fifo([], 33)
+
+
+def test_a_word_pump_delivers_each_event_in_order():
+    from wl_sync.rp1.pio_capture import WordPump
+
+    seen = []
+    pump = WordPump(on_word=lambda t, w: seen.append((t, w)), data_count=DATA)
+    assert pump.handle(stream((10, 0x0001), (20, 0x0002))) is True
+    assert seen == [(10, 0x0001), (20, 0x0002)]
+    assert pump.error is None
+
+
+def test_a_full_fifo_is_recorded_but_capture_CONTINUES():
+    """Nothing called drain(), so the RX FIFO -- 8 words, 4 events -- filled on the
+    first burst of codes and `push noblock` discarded the rest without a sound. A full
+    FIFO is the only witness that words MAY have gone. If whole pairs went the stream
+    is still intact, so this is a data-quality event like a dropped edge: held for
+    check_health(), and capture carries on."""
+    from wl_sync.rp1.pio_capture import WordPump, WordsDroppedError
+
+    seen = []
+    pump = WordPump(on_word=lambda t, w: seen.append(w), data_count=DATA)
+    pump.handle(stream((10, 1)), fifo_was_full=True)
+    pump.handle(stream((20, 2)))
+
+    assert seen == [1, 2], "capture stopped after a full FIFO"
+    assert isinstance(pump.error, WordsDroppedError)
+
+
+def test_a_desync_stops_the_word_pump_and_is_held():
+    """A single lost word slips the pairing, and from then on every data word is read
+    as a counter and every counter as a data word. Those are plausible timestamps for
+    events that never happened, so the pump stops rather than recording them."""
+    from wl_sync.rp1.pio_capture import WordPump
+
+    seen = []
+    pump = WordPump(on_word=lambda t, w: seen.append(w), data_count=DATA)
+    slipped = stream((10, 1), (20, 2))[1:] + [0]
+    assert pump.handle(slipped) is False
+    assert seen == []
+    assert isinstance(pump.error, DesyncError)
+
+
+def test_a_failing_word_consumer_stops_the_pump_and_is_held():
+    from wl_sync.rp1.pio_capture import WordPump
+
+    def explode(tick, word):
+        raise OSError("the sink is gone")
+
+    pump = WordPump(on_word=explode, data_count=DATA)
+    assert pump.handle(stream((10, 1))) is False
+    assert isinstance(pump.error, OSError)

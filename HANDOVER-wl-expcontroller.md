@@ -299,10 +299,11 @@ above are struck through and replaced in place, dated.
 
 ## 5. XC-091: live reads work on the box itself; here is exactly what you would be reading
 
-1. **Today nothing records the real delivered line.** Without `--fake`, `wl-sync record` exits 2
-   (`wl_sync/cli.py:377`), and the unit ships with `--fake` (`deploy/wl-sync.service:22`). The RP1
-   backend exists but is not yet wired into the run loop (`docs/next-session.md` §1, Step A).
-   Everything below describes the run loop once it is.
+1. **Nothing on the box records the real delivered line until bench day.** *(Updated later on
+   2026-10-18, when Step A landed.)* `wl-sync record` without `--fake` now runs the RP1 backend, but
+   that backend has never run on silicon. So the unit keeps `--fake` until bench acceptance
+   (`deploy/wl-sync.service`), and in fake mode nothing reaches the pins. Everything below describes
+   the hardware mode.
 2. **What is recorded.** GPIO 23 (`rwd_dlvr`, `wl_sync/pins.py:32`) is one of the individually captured
    edge lines (`pins.py:40`). Every transition, rising and falling, is an `E,<tick_us>,23,<level>` line.
    `tick_us` is this box's own microsecond counter, unwrapped within one segment. It is neither wall
@@ -312,9 +313,10 @@ above are struck through and replaced in place, dated.
    of fluid.** An unpowered or unplugged driver, an empty reservoir and a blocked line all still record
    as delivered. The record says what the driver was told to do, not what the animal received.
 4. **When another process can see it.** Records are written as they arrive and pushed to the OS once
-   per emit-loop iteration, with `flush()` and then `fsync()` (`wl_sync/segment.py:110-113`). On
-   hardware an iteration is a 200 ms barcode frame plus a 1 s sleep (`cli.py:266-270`), so new records
-   become visible about every 1.2 s. Between flushes Python's own buffer can push out part of a line,
+   per emit-loop iteration, with `flush()` and then `fsync()` (`wl_sync/segment.py:110-113`).
+   **The loop runs once a second (on the wall clock's half seconds), so new records become visible
+   about once a second.** *(Updated later on 2026-10-18. Before Step A it was a 200 ms barcode frame plus a fixed
+   1 s sleep, about 1.2 s.)* Between flushes Python's own buffer can push out part of a line,
    so a reader can see a torn last line. Drop it and read it on the next pass; `wl_sync.log.read_log`
    already does this (`log.py:155`). The writer holds no lock (`"x"` is create-exclusive, not
    read-exclusive), so any process on the box can open the open segment read-only.
@@ -331,8 +333,9 @@ above are struck through and replaced in place, dated.
    is cut in two, and the outage between segments is bounded only by the day's manifest.
 8. **Edges can be lost without a mark in the file.** If the kernel's edge buffer overflows, the gap
    is detected (libgpiod sequence numbers, `wl_sync/rp1/gpio.py:127`) but not written into the
-   segment. Once Step A is wired, the gap reaches the journal through `check_health()`; until then it
-   is reported nowhere. **A pulse count taken from the file is exact only for a day whose journal
+   segment. Since Step A *(later on 2026-10-18)*, the run loop calls `check_health()` every second,
+   and the gap reaches the journal once per episode as `capture degraded, still recording: …`. The
+   strobed event codes now get the same treatment, and a full PIO FIFO is reported the same way. **A pulse count taken from the file is exact only for a day whose journal
    shows no dropped-edge error.** Putting that mark in the record itself would change the log format,
    which wl-preproc pins, so it is not decided here.
 

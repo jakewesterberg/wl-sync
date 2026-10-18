@@ -11,13 +11,13 @@ complaint, so the error was silent and cumulative for the rest of the session.
 Keeping a working implementation of a format the hardware no longer emits would
 be a trap, not a courtesy.
 
-This module is pure arithmetic and is tested on a laptop. Only the piolib call
-that produces `entries` is hardware-gated.
+This module is pure arithmetic plus `WordPump`'s decisions about failure, and is
+tested on a laptop. Only the piolib calls that produce `entries` are hardware-gated.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 FIFO_WORD_BITS = 32
 
@@ -74,3 +74,52 @@ def pair_fifo(entries: Sequence[int], data_count: int) -> list[tuple[int, int]]:
             )
         paired.append(((~counter) & 0xFFFF_FFFF, word))
     return paired
+
+
+class WordsDroppedError(RuntimeError):
+    """The RX FIFO was full when drained, so `push noblock` may have discarded words."""
+
+
+class WordPump:
+    """Turns RX FIFO batches into `on_word` calls, and survives what goes wrong.
+
+    The PIO counterpart of `wl_sync.rp1.gpio.EdgePump`, SPLIT OUT FOR THE SAME REASON:
+    the thread and the piolib calls around it are hardware, and this is the part that
+    decides what each failure means. Errors are HELD for `check_health()` rather than
+    raised out of the thread, because a pump thread that dies takes the event codes
+    with it while the segment keeps growing from the other paths.
+
+    Three failures, and they are not treated alike:
+
+      * A FULL FIFO means words MAY have been dropped. If whole pairs went, the stream
+        is still intact and every later event is good, so capture CONTINUES, as it does
+        after a dropped edge. If a single word went, the next batch desyncs, below.
+      * A DESYNC means the pairing has slipped, and every later word would be read as
+        the wrong half: plausible timestamps for events that never happened. The pump
+        STOPS. The whole batch is refused, because it cannot be trusted either.
+      * A FAILING CONSUMER means records are not being kept. The pump STOPS.
+    """
+
+    def __init__(self, on_word: Callable[[int, int], None], data_count: int) -> None:
+        self._on_word = on_word
+        self._data_count = data_count
+        self.error: BaseException | None = None
+
+    def handle(self, entries: Sequence[int], fifo_was_full: bool = False) -> bool:
+        """Deliver one drained batch. Returns False when the pump should stop."""
+        if fifo_was_full:
+            self.error = WordsDroppedError(
+                "the PIO RX FIFO was full when drained: event codes may have been lost"
+            )  # recorded, and we keep going
+        try:
+            events = pair_fifo(entries, self._data_count)
+        except DesyncError as error:
+            self.error = error
+            return False
+        for tick, word in events:
+            try:
+                self._on_word(tick, word)
+            except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+                self.error = error
+                return False
+        return True

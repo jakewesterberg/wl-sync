@@ -233,8 +233,9 @@ class QueuedSink:
     document that they must be called from one thread, and this is what makes that
     true again once the RP1 backend delivers from capture threads.
 
-    ADDITIVE BY DESIGN. `Recorder`'s default path is still a direct call, so
-    `FakeBackend`'s synchronous dispatch is untouched. Only the hardware path wraps.
+    ADDITIVE BY DESIGN. `Recorder`'s default path is still a direct call. `cli.run()`
+    wraps its segment on every backend, FakeBackend included, so the tests exercise the
+    path the box runs; for synchronous dispatch the wrapper changes nothing observable.
 
     A FAILING SINK MUST NOT DIE QUIETLY. If the wrapped sink raises, the drain thread
     would otherwise exit and every later record would be accepted and discarded, with

@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import datetime
 import logging
+import math
 import signal
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import time
 from pathlib import Path
 
 from wl_sync.backend import FakeBackend
+from wl_sync.barcode import IDLE_MIN_US
 from wl_sync.clock import (
     BARCODE_EPOCH,
     MAX_BARCODE,
@@ -39,9 +41,13 @@ from wl_sync.pins import (
     GPIO_MAP,
 )
 from wl_sync.segment import SegmentWriter, next_segment_index, segment_name
-from wl_sync.service import BarcodeGenerator, Recorder
+from wl_sync.service import BarcodeGenerator, QueuedSink, Recorder
 
 CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
+
+# LOW the decoder must see before a lead edge, plus margin for the work between the
+# sleep ending and the pin rising: a checkpoint's two fsyncs, the tick read.
+_IDLE_BEFORE_FRAME_S = IDLE_MIN_US / 1e6 + 0.1
 
 # `logging`, not `print`: stdout is block-buffered when it is a pipe, which is what
 # systemd gives a service, so prints can sit unflushed in a daemon that runs all day.
@@ -165,13 +171,19 @@ def _handling(handler, *signums):
             signal.signal(received, previous)
 
 
-def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
+def run(
+    out: Path, backend, now_fn, duration_s: float | None, tick_fn,
+    mono_fn=time.monotonic,
+) -> Path:
     """Record until `duration_s` elapses or a termination signal arrives.
 
-    `now_fn` and `tick_fn` are injected so the whole loop is testable without sleeping:
-    tests pass a scripted clock and a no-op sleep.
+    `now_fn`, `tick_fn` and `mono_fn` are injected so the whole loop is testable without
+    sleeping: tests pass a scripted wall clock, a no-op sleep and, where pacing is under
+    test, a fake monotonic clock. Pacing reads `mono_fn`, never the wall clock, which can
+    jump in both directions.
     """
     started = now_fn()
+    started_mono = mono_fn()  # the same instant, so the pacing grid can be placed on it
 
     # Resolved BEFORE the day directory is created, because on a dead-RTC clock the
     # directory must not be named after the bogus reading. See _resume().
@@ -200,8 +212,14 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
     )
     writer_path = day / segment_name(index)
     writer = SegmentWriter(writer_path, header)
+    # ONE OWNER THREAD FOR THE SEGMENT, on every backend. The RP1 backend delivers from
+    # capture threads, and SegmentWriter is neither thread-safe nor quick: its flush()
+    # fsyncs, so a capture thread calling into it would block on the disk and stop
+    # draining an 8-deep PIO FIFO. Wrapped for FakeBackend too, so the tests run the
+    # path the box runs. See wl_sync.service.QueuedSink.
+    sink = QueuedSink(writer)
 
-    recorder = Recorder(backend, sink=writer)
+    recorder = Recorder(backend, sink=sink)
     recorder.capture_codes(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN)
     recorder.capture_edges(EDGE_PINS)
 
@@ -221,10 +239,19 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
 
     values = _ValueSource(now_fn, first_value)
     generator = BarcodeGenerator(backend, BARCODE_PIN)
+    health = _HealthReport(backend)
 
     stopping = _StopFlag()
     with _handling(stopping, signal.SIGINT, signal.SIGTERM):
         elapsed = 0.0
+        # THE GRID: the wall clock's half seconds, located once on the monotonic clock.
+        # A barcode value is the wall second the frame reads. A one-second period sitting
+        # on a second boundary straddles it with ordinary wake-up jitter, reads one second
+        # twice, and has the clamp report a healthy clock as "not moving forwards" for
+        # the whole run. Mid-second keeps every reading half a second from either edge.
+        # CLOCK_MONOTONIC follows the wall clock's NTP rate adjustments, so the grid
+        # stays put unless the wall clock is stepped.
+        paced_from = started_mono + (0.5 - started.timestamp() % 1.0) % 1.0
         while not stopping.set and (duration_s is None or elapsed < duration_s):
             value = values()
 
@@ -265,12 +292,41 @@ def run(out: Path, backend, now_fn, duration_s: float | None, tick_fn) -> Path:
             # ticks it exists to align by 2^32 us at every 71.6-minute wrap.
             tick = backend.now_us()
             generator.emit_frame(value)
+            frame_end = mono_fn()
             recorder.record_barcode(tick, value)
-            writer.flush()
-            tick_fn(1.0)
+            # A barrier, not a marker: it returns once everything queued above it is on
+            # disk, which keeps spec Sec.4's one-second crash-loss bound exact.
+            sink.flush()
+            health()
+
+            # THE NEXT GRID POINT THAT LEAVES THE DECODER ITS IDLE, not a fixed second
+            # after the frame. On hardware a frame holds the pin for 200 ms, so
+            # `tick_fn(1.0)` made the period 1.2 s while every bound this loop promises
+            # is per second. A frame is found by a rising edge after IDLE_MIN_US of LOW,
+            # so a grid point too close behind a late frame is skipped, as is any point
+            # already past: a debt is never repaid with frames back to back. The target
+            # is always past this frame's end, so two frames can never share a second.
+            now = mono_fn()
+            earliest = max(now, frame_end + _IDLE_BEFORE_FRAME_S)
+            target = paced_from + math.ceil(earliest - paced_from)
+            tick_fn(max(0.0, target - now))
             elapsed += 1.0
 
-        writer.close(now_fn())
+        # Capture stops FIRST, so what it still had in flight reaches a sink that is open.
+        # Closing the sink drains its queue and then closes the segment behind it, and
+        # only after that is the writer's barcode span final.
+        #
+        # A capture that fails to stop does not cost the segment its trailer. Without
+        # one a run that recorded perfectly reads as a crash, and whatever close() had
+        # just delivered would never reach the disk.
+        try:
+            backend.close()
+        except Exception as error:  # noqa: BLE001 - logged; the segment still closes
+            log.error("capture did not stop cleanly, closing the segment anyway: %s", error)
+        # Once more after stopping: whatever capture held at the end -- the last second,
+        # the final FIFO drain -- would otherwise never be reported.
+        health()
+        sink.close(now_fn())
         # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
         # dead-RTC start really does emit -- with "no barcodes were written".
         last = first_value if writer.barcode_last is None else writer.barcode_last
@@ -349,12 +405,53 @@ class _ValueSource:
         return value
 
 
+class _HealthReport:
+    """`backend.check_health()`, called every iteration and reported once per episode.
+
+    A FAILURE IS LOGGED AND RECORDING CONTINUES. A degraded capture path still leaves
+    the other paths and the barcodes every other device aligns on, and stopping the box
+    would lose all of those for the rest of the day.
+
+    EDGE-TRIGGERED, for the reason the stalled-clock warning is. A capture thread that
+    has died never comes back, so check_health() raises the same thing every second,
+    and 86,400 identical lines a day would bury the journal. A healthy call ends the
+    episode, so the same failure after a recovery is reported again.
+    """
+
+    def __init__(self, backend) -> None:
+        self._backend = backend
+        # The kinds of a CaptureDegraded, or the message of any other failure.
+        self._reported: frozenset[str] | str | None = None
+
+    def __call__(self) -> None:
+        try:
+            self._backend.check_health()
+        except Exception as error:  # noqa: BLE001 - reported, never fatal; see above
+            # Keyed on WHICH paths are failing and how, never on the message: a buffer
+            # that keeps overflowing reports a different count every second, and keyed
+            # on text that is a new "episode" every second.
+            episode = getattr(error, "kinds", None) or str(error)
+            if episode != self._reported:
+                log.error("capture degraded, still recording: %s", error)
+            self._reported = episode
+        else:
+            self._reported = None
+
+
 class _StopFlag:
     def __init__(self) -> None:
         self.set = False
 
     def __call__(self, _signum, _frame) -> None:
         self.set = True
+
+
+def _hardware_backend(chip_path: str):
+    """The RP1 backend, imported only here: building it needs libpiolib and a GPIO chip,
+    which exist on the box and nowhere else, so `--fake` never touches either."""
+    from wl_sync.rp1.backend import Rp1Backend
+
+    return Rp1Backend(chip_path=chip_path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -364,6 +461,12 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("--out", type=Path, required=True, help="rig session root")
     record.add_argument("--fake", action="store_true", help="run on the in-memory backend")
     record.add_argument("--duration", type=float, default=None, help="stop after S seconds")
+    record.add_argument(
+        "--gpiochip",
+        default="/dev/gpiochip0",
+        help="chardev carrying RP1's GPIO bank; it has moved between releases, so "
+        "confirm it by label (gpioinfo) rather than trusting the default",
+    )
     args = parser.parse_args(argv)
 
     # To stderr, which systemd routes to the journal via StandardError=journal. Only
@@ -374,13 +477,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(message)s",
     )
 
-    if not args.fake:
-        print("only --fake is available until the RP1 backend (Task 5b) lands")
-        return 2
-
     day = run(
         out=args.out,
-        backend=FakeBackend(),
+        backend=FakeBackend() if args.fake else _hardware_backend(args.gpiochip),
         now_fn=lambda: datetime.datetime.now(datetime.timezone.utc),
         duration_s=args.duration,
         tick_fn=time.sleep,

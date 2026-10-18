@@ -1,77 +1,107 @@
 # Next session — sync box
 
-**State at handoff:** `main` @ `5440d22`, 274 tests passing, CI green on 3.11 and 3.13,
-working tree clean, nothing unpushed.
+**State at handoff (2026-10-18):** Step A has landed. 303 tests pass, and CI ran green on
+`16d7a71`, the last pushed commit. §6 lists this session's commits. The hardware path is now
+wired into the run loop, and **none of it has run on silicon.** Bench day is next.
 
 > **Read this first, because the previous record does not travel.**
 > `.superpowers/sdd/` is gitignored (`.superpowers/sdd/.gitignore` is `*`), so the SDD
-> ledger that carried the last two handoffs exists **only on the machine that wrote it**.
+> ledger that carried earlier handoffs exists **only on the machine that wrote it**.
 > Everything from it that still matters has been copied into this file, which is tracked.
 > If you are on a different machine, that ledger is gone and this is all there is.
 
 ---
 
-## 1. The one open loop, and it is mine
+## 1. What Step A found, beyond its own list
 
-`Rp1Backend.check_health()` exists, its docstring says **"THE RUN LOOP MUST CALL THIS,
-once per iteration"** — and `wl_sync/cli.py` does not call it. Nor does it wrap the sink
-in `QueuedSink`. The hardware path is **built but not wired**.
+Step A was four items: wrap the sink in `QueuedSink`, call `check_health()` every
+iteration, fix the close ordering, and replace the `--fake` gate. All four are done. Working
+through them turned up two more, and both are fixed:
 
-That matters more than it sounds. Every capture path in the RP1 backend fails by going
-**quiet**, not by complaining:
+- **Nothing drained the PIO FIFO.** `Rp1Backend.drain()` existed and nothing called it.
+  The joined RX FIFO holds 8 words, which is **four events**. On the box, the first burst
+  of codes would have filled it, and `push noblock` would have discarded every later word
+  without a sound. `check_health()` did not look at that path either. There is now a
+  word-pump thread. Its decisions live in `WordPump` (`wl_sync/rp1/pio_capture.py`):
+  - a full FIFO is held as an error and capture continues;
+  - a desync, or a failing consumer, stops the pump.
+  `check_health()` reports both. `tests/test_rp1_backend.py` drives that glue against a
+  stand-in for libpiolib.
+- **The loop was not 1 Hz on hardware.** A frame holds the pin for 200 ms, and the loop
+  slept a fixed second after it, so the period was 1.2 s. Frames now land on the wall
+  clock's half seconds, located once on the monotonic clock. A grid point that would leave
+  the decoder less than its 400 ms of idle is skipped. Half seconds rather than whole ones,
+  because an exact 1 s period sitting on a second boundary reads one second twice under
+  jitter, and the clamp then reports a healthy clock as stalled.
 
-| Failure | What you see without `check_health()` |
-|---|---|
-| Edge pump thread dies | Rewards and licks stop appearing. Segment keeps growing. |
-| Kernel event buffer overflows | Edges silently missing. Trailer says `clean`. |
-| PIO RX FIFO drops words | Event codes missing. Nothing raises. |
+**An independent review then found more, all fixed with tests that failed first:**
 
-So a day can be recorded with half the rig's signals absent and a clean trailer on the
-end saying nothing was wrong. Wiring this is the difference between the safeguards
-existing and the safeguards working.
+- **Only the first barcode of a run would have decoded** *(pre-existing, since `0cf94d8`)*.
+  `emit_pulses` set each level at its pulse's start, so after TRAIL HIGH the pin stayed
+  high between frames. The decoder needs a rising edge after 400 ms of LOW, which never
+  came again. The codec's tests could not see it, because their pulse model ends every
+  frame LOW.
+- **One dead capture path hid the other.** `check_health()` raised at the first problem.
+  It now raises `CaptureDegraded` carrying every problem, and the run loop keys episodes on
+  the *kinds* of problem, not the message.
+- **One kernel overflow became a growing "lost" report every second** *(pre-existing)*.
+  `SeqnoTracker` raised before moving its baseline.
+- **A wrong `--gpiochip` left a header-only segment per restart.** The chip is now checked
+  when the backend is built, before `run()` creates anything.
+- **A failing `backend.close()` lost the trailer**, so a good run read as a crash. Now it is
+  logged and the segment still closes. Health is also checked once after capture stops,
+  so a failure in the last second is reported.
+- **A FIFO found holding 8 words now counts as full**, since any push into it was dropped.
 
-**This is laptop work.** It needs `FakeBackend`, not a Pi.
+Decided along the way. A `check_health()` failure is logged at ERROR once per episode
+("capture degraded, still recording: ...") and recording continues. The unit still ships
+`--fake` until bench acceptance (`deploy/README.md`).
 
 ---
 
 ## 2. Next steps, in order
 
-### Step A — wire the hardware path into `run()` *(no Pi needed)*
+### Step B — bench day *(needs a Pi 5 or the CM5)*
 
-1. `Recorder(backend, sink=QueuedSink(writer))` on the hardware path. `QueuedSink` is
-   what makes `on_edge` safe to call from the capture thread; without it a capture
-   thread blocks on `os.fsync()` and the PIO FIFO overflows. **Do not substitute a
-   lock** — that is the thing measured at 229 ms of blocking, and it drops words.
-2. Call `backend.check_health()` once per loop iteration, next to `writer.flush()`.
-   Decide what a raise should do: almost certainly log loudly and keep recording,
-   since stopping the box loses more than a degraded record does.
-3. `close()` ordering: `QueuedSink.close()` drains and closes the wrapped
-   `SegmentWriter`, so `cli.run()`'s existing `writer.barcode_last` read must happen
-   **after** that, and read through `QueuedSink.sink`.
-4. Replace the `--fake` gate at `cli.py:377`. The message still says "until the RP1
-   backend (Task 5b) lands" — it has landed, it is just not connected.
+Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`. Run the hardware
+mode by hand first:
 
-Everything above is testable against `FakeBackend`.
+    wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
 
-### Step B — bench day *(needs a Pi 5)*
-
-Task 5b Steps 3–5, in `docs/superpowers/plans/2026-08-13-sync-box.md`. **Check these
-three first**, in this order — they are listed the same way in
-`pio/strobe_capture.pio`:
+**Check these first, in this order.** The first three are listed the same way in
+`pio/strobe_capture.pio`.
 
 1. **`jmp x--, <next instruction>` is a legal one-cycle decrement.** The entire ±100 µs
    argument rests on it. If it is not, the padding scheme collapses and the capture path
    starts losing time again — roughly 2 µs per event, 1.2 ms over a 600-event run.
-2. **Which chardev carries RP1's bank.** `Rp1Backend(chip_path=...)` defaults to
-   `/dev/gpiochip0`; it has moved between releases. Confirm by **label**, not by hope.
+2. **Which chardev carries RP1's bank.** Confirm it by **label** (`gpioinfo`), not by hope.
+   Pass it with `--gpiochip`. The default is `/dev/gpiochip0`.
 3. **The timebase origin offset** between capturing `_origin_ns` and
    `pio_sm_set_enabled`. This is spent directly out of the ±100 µs budget and **must be
    measured**, not assumed.
+4. **The word pump keeps up.** `_WORD_POLL_S` is 1 ms against a four-event FIFO, and it is
+   a guess. The known way to miss it is `emit_pulses`, which spins holding the GIL for up
+   to 2 ms per pulse, against Python's 5 ms default switch interval. **A
+   `WordsDroppedError` in the journal that coincides with barcode frames is that.**
+5. **The GPIO chip's label.** `_check_chip` warns if the label lacks "rp1". "pinctrl-rp1"
+   is unverified, so record the real one here.
+6. **The frame-time inputs see a high.** FLIR's 16S2/04S2 table gives a *loaded* high of
+   2.29 V, below the comparator's 2.50 V threshold. Measure a camera group's strobe wired
+   as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
-Also on the bench: there is a **known constant** ~2.5 µs bias, because `mov isr, x` runs
-5 cycles after the strobe is observed. Constant is the important word — it is a
-host-side subtraction, not jitter — but measure it rather than trusting the comment,
-since it depends on final instruction placement.
+There is also a **known constant** bias of about 2.5 µs, because `mov isr, x` runs 5
+cycles after the strobe is observed. Constant is the important word: it is a host-side
+subtraction, not jitter. Measure it rather than trusting the comment, since it depends on
+final instruction placement.
+
+After acceptance: drop `--fake` from `deploy/wl-sync.service` and add `--gpiochip`.
+
+### Before layout *(spec §12 item 11, committed to wl-xcon)*
+
+Draw the task-PC line-out (AO 0/1 from Connector 0) and a buffered PFI copy of `PD1_COMP`.
+The outbound bank is 8/8, so the copy needs a new channel. Regenerating that sheet also
+fixes `gen_breakout_taskpc_digital.py`'s note that puts P2 on Connector 1; spec §9.2 has
+the correction.
 
 ---
 
@@ -84,7 +114,28 @@ since it depends on final instruction placement.
 - **`emit_pulses` spins with the GIL** for up to 2 ms per pulse, 36 pulses per frame.
   It could in principle delay the edge pump's *draining* — not its timestamps, which
   are kernel-stamped. With `event_buffer_size=1024` this should be fine; if bench day
-  shows sequence gaps correlated with barcode frames, this is the cause.
+  shows sequence gaps correlated with barcode frames, this is the cause. The word pump
+  is more exposed than the edge pump, because it has a four-event FIFO where the kernel
+  gives edges a 1024-event buffer. That is bench check 4.
+- **A dropped edge, or a full FIFO, leaves no mark in the segment.** It reaches the
+  journal only. Marking it in the file would change the log format, which wl-preproc pins
+  at `90b931e`, so it needs to be done together with wl-preproc.
+- **A desync stops event-code capture for the rest of the run.** It is logged, and the
+  other paths keep recording. Exiting instead would let `Restart=always` bring capture back
+  with a fresh state machine within about two seconds. That was not chosen; reconsider it
+  if bench day shows desyncs.
+- **Four minor review findings, recorded rather than fixed.**
+  - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
+    out, so a thread could still be inside piolib.
+  - Strobes captured while the edge thread's join waits (up to 0.2 s) are discarded when
+    the state machine is disabled.
+  - Held errors are handed from the pump threads to `check_health()` without a lock, so a
+    stop's cause could be overwritten. This was not reproduced.
+  - A desync refuses the valid pairs that came before the slip in the same batch.
+  None changes what a healthy day records.
+- **wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
+  change) are open. They reverse the continuous-recording design's "a day is one session"
+  rule (§3), and need their own design decision. See `HANDOVER-wl-expcontroller.md`.
 
 ---
 
@@ -104,6 +155,10 @@ Each of these was arrived at the hard way. They are load-bearing.
 - **A dropped edge does not stop capture; a failing consumer does.** Deliberate: a few
   lost edges are a small detectable gap, and stopping would cost the rest of the day's
   edges instead.
+- **The next frame's target is always past this frame's end plus the decoder's idle**,
+  so two frames can never share a second, whatever the float error in the clock.
+- **The grid is placed once, at start.** CLOCK_MONOTONIC follows the wall clock's NTP rate
+  adjustments, so it stays mid-second. A wall-clock *step* moves it until the next restart.
 - **Two FIFO words per event, not one.** 16 data lines leave 16 delta bits = 65.535 ms,
   against ~3 s trials. No clock divider fixes it. The upper-bits-clear check on the data
   word is what makes a dropped word detectable rather than a permanent silent swap.
@@ -130,18 +185,14 @@ Worth keeping, because they caught real defects today.
 
 ---
 
-## 6. Today's commits (`0966ecf..5440d22`)
+## 6. This session's commits (2026-10-18)
 
-| SHA | Subject |
-|---|---|
-| `0d9edb3` | mark the barcode before it reaches the wire — 3 deferred defects + residuals |
-| `d6769f0` | stop the suite's result depending on how it was launched |
-| `320af55` | two words per event, because 16 delta bits cannot span a trial gap |
-| `90b0382` | PIO strobe capture program and a piolib backend bound to the real API |
-| `d47e295` | give the sink a single owner thread, because a lock would drop words |
-| `0cf94d8` | edge capture and barcode output via libgpiod v2 |
-| `e32b9db` | background failures must be loud, not fatal and not silent |
-| `5440d22` | backend.py no longer omits edge capture, and says how it fails |
+| Subject |
+|---|
+| Hardware docs: the 16S2's GPIO table, the 6343's PFI pins, and two commitments |
+| Reply to wl-xcon's asks of 2026-10-11 |
+| wl.yaml: say where the build is |
+| Step A: wire the RP1 backend into the run loop |
 
-**Everything above is verified against `FakeBackend` on a laptop. The bench is the first
-real test of any of it.**
+**Everything above is verified against `FakeBackend`, and against a stand-in for libpiolib,
+on a laptop. The bench is the first real test of any of it.**
