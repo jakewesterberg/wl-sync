@@ -41,6 +41,11 @@ The manifest is the thing to read. `gaps` lists spans where this box was **not
 watching** — trials in those spans really happened and were recorded by the other
 devices, but carry no sync-box coverage.
 
+**In `unassigned/`, a gap also spans every visit.** A visit is recorded in its own
+`<id>/syncbox/`, so the between-sessions folder skips from the last barcode before the
+open to the first one after the close. A gap there is an outage only if no session
+folder covers it: check the `<id>/syncbox/manifest.json` of each visit that day.
+
 `overlaps` should be **empty**, and anything in it is an alarm rather than a note.
 It means the barcode counter went backwards or repeated, so one barcode value names
 two different moments and a trial can be attributed to the wrong one. Ordinary
@@ -96,6 +101,16 @@ ERROR and records without the endpoint.
 see the open session id. Opening and closing need the token, so keep the port on the rig
 network.
 
+**On the tailnet, it is reachable from the tailnet too.** `0.0.0.0` listens on every
+interface the box has, so once the box has joined the tailnet (step 7 of [Setting up
+the OS](#setting-up-the-os-once-per-box)), every tailnet device that Tailscale's access
+rules let reach the box can reach the endpoint as well. To serve the rig network only,
+change `--listen` in the installed unit (`/etc/systemd/system/wl-sync.service`) to the
+rig interface's own address, `--listen <rig-address>:8740`, then `sudo systemctl
+daemon-reload` and `sudo systemctl restart wl-sync`. That address must be fixed, and on
+the box when the unit starts: a bind that fails is logged at ERROR, and the box records
+without the endpoint until the service next restarts.
+
 Replace `$TOKEN` with the token. Read, open and close:
 
     curl http://wl-sync-rig0.local:8740/session
@@ -124,7 +139,9 @@ named in the checklist below are unconfirmed; none of it is confirmed until some
 Windows boot.
 
 **Install.** Copy `wlsync_session.m` into a folder on MATLAB's path (`addpath`, or a folder
-MonkeyLogic already puts there). Check with `which wlsync_session`.
+MonkeyLogic already puts there). Check with `which wlsync_session`. It needs MATLAB R2016b
+or later, which is believed and unverified: `matlab.net.http` and `jsonencode` are
+believed to need that release.
 
 **The token.** Put the same token as the task PC's in a text file on the Windows boot, for
 example `C:\wl\session-token`, readable only by the operator's account (remove inherited
@@ -132,8 +149,9 @@ permissions in the file's Security tab, or `icacls C:\wl\session-token /inherita
 Never commit it, and never paste it into a script. The function reads it with
 `strtrim(fileread(...))` and never prints it.
 
-**Where to call it.** Call `wlsync_session('open', box, token_file)` when a session starts and
-`wlsync_session('close', box, token_file)` when it ends, with `box` like `'wl-sync-rig0.local:8740'`.
+**Where to call it.** Call `id = wlsync_session('open', box, token_file)` when a session starts
+and `wlsync_session('close', box, token_file, id)` when it ends, with `box` like
+`'wl-sync-rig0.local:8740'` and `id` the one `'open'` returned.
 NIMH MonkeyLogic is believed to run a user `alert_function.m` with session-level cases (task
 start and end), which would be the likely place. **Confirm this against the installed
 MonkeyLogic version on bench day**, including the exact case names and whether an error
@@ -143,6 +161,11 @@ whatever script launches the run.
 **Use the returned id.** `id = wlsync_session('open', ...)` names MonkeyLogic's data file or
 folder for the visit (for example `2026-10-18_02`), so wl-preproc can pair it with the box's
 `<id>/syncbox/`.
+
+**Close by that id.** With `id`, `'close'` asks the box to close exactly that session, and the
+box refuses (HTTP 409) if it is not the open one. That refusal is what stops a late close from
+ending the next visit's session. Without `id`, `'close'` closes whatever the box says is open
+at that moment, and so skips the refusal. Leave the id out only when closing by hand.
 
 **A failed open must stop the session from starting.** The function raises an error on every
 failure, carrying the box's own message and HTTP status, and `open` retries only what is safe
@@ -154,7 +177,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 1. `wlsync_session('show', box)` returns `''` with nothing open (and the JSON null does not break it).
 2. `id = wlsync_session('open', box, tf)` returns an id like today's `_01`, and `curl .../session` agrees.
 3. `wlsync_session('show', box)` now returns the same id.
-4. `wlsync_session('close', box, tf)` returns that id; `show` returns `''` again.
+4. `wlsync_session('close', box, tf, id)` returns that id; `show` returns `''` again.
 5. Retry with a lost reply: open, then drop the network for a moment (or point at a slow link) so the
    first reply is lost. Exactly one session must result, not two. A hang is a possible outcome,
    because `ConnectTimeout` is believed to bound connecting only (unverified, see item 8): if MATLAB hangs, stop MonkeyLogic, then
@@ -172,11 +195,21 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
     MATLAB's own message, and must not be retried (no 3 s wait).
 11. Name resolution: the Windows boot resolves `wl-sync-rig0.local`. If not, use the box's IP
     address or its tailnet name as `box`.
-12. A 409: with curl, close a session id that is not the open one; the box answers 409 with `open`, which the function would show as `[the open session is ...]`.
+12. A 409: with a session open, `wlsync_session('close', box, tf, old)`, where `old` is an
+    earlier id that is not the open one, errors with HTTP 409 and `[the open session is ...]`,
+    and the open session stays open (`show`).
 13. `wlsync_session('close', box, tf)` with nothing open errors "nothing to close".
 14. `wlsync_session('bogus', box)` errors naming `'open'`, `'close'` and `'show'`.
 15. Open while a session is already open: the new id is returned and a `wlsync:autoclosed`
     warning names the session the box force-closed.
+16. The MATLAB release (`version`) is R2016b or later. That minimum is believed, not
+    confirmed; on an older release, a failure in `matlab.net.http` or `jsonencode` is the
+    likely sign.
+17. MATLAB sends `Content-Length` with the body, not chunked encoding. The box answers a
+    chunked body with HTTP 400 "a valid Content-Length is required", so if item 2 fails
+    with that message, this is why. The box closes the connection with the chunked body
+    unread, so the same cause might instead surface as a reset connection, which the
+    function reports as unreachable even though `show` works.
 
 ## Setting up the OS, once per box
 

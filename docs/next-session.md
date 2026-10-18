@@ -1,7 +1,7 @@
 # Next session — sync box
 
 **State at handoff (2026-10-18):** Step A has landed, and **the RP1 backend has now run on
-silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests passed at that handoff (404 on the branch below). §6 lists
+silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests passed at that handoff (~~404~~ 410 on the branch below, *updated 2026-10-18 after the final review's fixes*). §6 lists
 this session's commits. What is left of bench day needs signals on the pins.
 
 **Session identity is built, and not merged.** It is on branch `session-identity`: the box
@@ -165,8 +165,20 @@ Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`
    appears with a segment in it, that a repeated `request_id` returns the same id, that a wrong
    token gets 401, and that a close naming another id gets 409 with `open`.
 2. **The MonkeyLogic checklist** in `deploy/README.md` ("MonkeyLogic on the dual-boot rig",
-   15 items), once on the Windows boot against the real box. Items 8 to 10 are MATLAB and
-   MonkeyLogic details that nobody has confirmed.
+   ~~15~~ 17 items), once on the Windows boot against the real box. Items 8 to 10 are MATLAB and
+   MonkeyLogic details that nobody has confirmed. *(Added 2026-10-18, after the final review.)*
+   So are items 16 and 17: the believed minimum release, R2016b, and whether MATLAB sends
+   `Content-Length`. The box answers a chunked body with 400, so item 17 decides whether
+   `'open'` and `'close'` work at all.
+3. *(Added 2026-10-18, after the final review.)* **A `GET /session` flood must not cost event
+   codes.** Needs Step B's strobe source. During a burst of strobed codes, flood the endpoint
+   from another machine, for example
+   `seq 5000 | xargs -P 32 -I{} curl -s -o /dev/null http://wl-sync-rig0.local:8740/session`.
+   The journal must show no `WordsDroppedError` (`capture degraded, still recording:
+   event-code capture: the PIO RX FIFO was full when drained ...`). `GET` needs no token, and
+   the endpoint runs one thread per connection with no cap, so a flood competes with the 1 ms
+   word pump for the GIL. If codes drop, cap the handler threads; that was deliberately not
+   done before this measurement.
 
 ### ~~Before layout~~ *(spec §12 item 11) — drawn 2026-10-18*
 
@@ -221,8 +233,15 @@ left, so no further panel connector fits. One fix-up came with it:
 - **`SessionId.parse` accepts a trailing newline**, because its regex is anchored with `$`. The
   endpoint canonicalises what it is given, and the form is pinned by wl-preproc, so this is a
   question for wl-preproc, not a silent fix here.
-- **`write_manifest` scans a crashed segment that has no trailer in full, on the run-loop
-  thread, at every roll out of its folder.** That can skip barcode seconds after an earlier crash.
+- ~~**`write_manifest` scans a crashed segment that has no trailer in full, on the run-loop
+  thread, at every roll out of its folder.** That can skip barcode seconds after an earlier crash.~~
+  **Fixed 2026-10-18, after the final review:** segment summaries are memoised in
+  `wl_sync/manifest.py` (`_summarise_cached`), checked against each file's inode, size and
+  mtime. **What is left:** a crashed segment is still parsed in full once per run of the
+  process, by the first rebuild of its folder's manifest. That is normally the start, before
+  recording begins, where it lengthens the restart's outage. After a restart in the middle of a
+  visit, a crashed segment in that day's `unassigned/` folder is instead parsed at the visit's
+  close, on the run-loop thread.
 - **The unit still has `--fake`** until bench acceptance (above).
 
 ---

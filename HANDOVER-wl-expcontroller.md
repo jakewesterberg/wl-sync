@@ -322,17 +322,46 @@ above are struck through and replaced in place, dated.
    so a reader can see a torn last line. Drop it and read it on the next pass; `wl_sync.log.read_log`
    already does this (`log.py:155`). The writer holds no lock (`"x"` is create-exclusive, not
    read-exclusive), so any process on the box can open the open segment read-only.
-5. **Where it is, and who can reach it.** The record is at `/data/rig1/<YYYY-MM-DD>_01/seg-NNN.log` on
-   the box's own NVMe (the unit file and `cli.day_directory`). **Nothing in this repository makes that
+5. **Where it is, and who can reach it.** ~~The record is at `/data/rig1/<YYYY-MM-DD>_01/seg-NNN.log` on
+   the box's own NVMe (the unit file and `cli.day_directory`).~~ *(Corrected 2026-10-18, later:
+   session identity deleted `cli.day_directory` and changed the layout.)* The record is on the box's
+   own NVMe, under the unit file's `--out /data/rig1`. During a visit it is in
+   `/data/rig1/<id>/syncbox/`, where `<id>` is the id the open returned; between visits it is in
+   `/data/rig1/unassigned/<YYYY-MM-DD>/syncbox/`, named by a UTC date (`wl_sync/sessions.py:48-59`).
+   A visit's record is every `seg-NNN.log` in its folder, from `seg-000`: one segment for each run of
+   the recording process during the visit. **Nothing in this repository makes that
    directory readable from another host.** NAS transfer is out of the design's scope
-   (continuous-recording design §9) and not implemented. So from the task PC, a live read and a
-   session-end read both need the same new thing: the reader Ask 1 asks for.
-6. **There is no session end on this side.** The box records all day, and a segment closes only when
+   (continuous-recording design §9) and not implemented. ~~So from the task PC, a live read and a
+   session-end read both need the same new thing: the reader Ask 1 asks for.~~ *(Corrected
+   2026-10-18, later.)* Ask 1's answer, the session endpoint below, does not change that. It serves
+   the open session's id, not this record; reading the record over the network is a non-goal of the
+   session-identity design (§2), which leaves room for such a route to be added later. So a read
+   from the task PC, live or at session end, still needs something that does not exist yet, and
+   XC-384's wait on XC-087 (wl-xcon `docs/backlog.md:35`, read at `7398d3e`) does not end with
+   XC-087's answer.
+6. ~~**There is no session end on this side.** The box records all day, and a segment closes only when
    the process stops. Your session ends in the middle of a segment, so a session-end read is also a
-   read of an open segment. Live and session-end reads differ only in how often you read.
+   read of an open segment. Live and session-end reads differ only in how often you read.~~
+   *(Corrected 2026-10-18, later: session identity gave the box a session end.)* **A session ends
+   at `POST /session/close`, and its last segment closes then.** The box still records all day, but
+   a segment now closes at every open and every close, not only when the process stops: the run loop
+   writes the segment's trailer, fsyncs it, and carries on in a new segment in the next folder
+   (`wl_sync/cli.py:337-396`, `follow_state`; `wl_sync/segment.py:115-127`). It does this before it
+   answers (`wl_sync/cli.py:440-448`).
+   So once a close has answered 200, nothing more is written to `<id>/syncbox/`, and its last
+   segment is closed, with its trailer; a segment cut short by a crash during the visit still has
+   none (item 7). A session-end read after that 200 reads closed files, and a live read does not.
+   Two limits on where the record ends. The box carries out a close between two of its
+   once-a-second iterations, so the session's record runs up to about a second past the request.
+   And records still in flight when the segment changes go to whichever segment is open when they
+   drain, so an edge from about the last second before that can land in the `unassigned/` segment
+   that follows (session-identity design §3.4), and a pulse in progress at the close is cut in two,
+   as at a restart (item 7).
 7. **A restart splits the record.** It opens the next `seg-NNN` with a new header and a new clock
    epoch. Ticks in different segments cannot be compared as numbers, a pulse that straddles a restart
-   is cut in two, and the outage between segments is bounded only by the day's manifest.
+   is cut in two, and the outage between segments is bounded only by ~~the day's manifest~~ the
+   manifest of the folder they are in *(corrected 2026-10-18, later: there is one manifest per
+   folder now, not one per day)*.
 8. **Edges can be lost without a mark in the file.** If the kernel's edge buffer overflows, the gap
    is detected (libgpiod sequence numbers, `wl_sync/rp1/gpio.py:127`) but not written into the
    segment. Since Step A *(later on 2026-10-18)*, the run loop calls `check_health()` every second,
@@ -504,7 +533,11 @@ All bodies and answers are JSON. Every error is JSON `{"error": "..."}`, never H
 | 503 | the recording loop did not take the request within its timeout, 5 s by default. The request was cancelled and **was not carried out** |
 
 An open while another session is open closes the old one at that moment and reports it in `closed`, logging it at ERROR on the
-box. Recording never stalls at an open or a close, and after every request the recording follows the state file.
+box. ~~Recording never stalls at an open or a close,~~ *(Qualified 2026-10-18, later.)* Recording does not stall at an open or a
+close, with one residual cost. A segment that a crash left without a trailer is parsed in full, once, the first time the recording
+process rebuilds its folder's manifest, and a large one takes seconds. That is normally at the box's start, before it records.
+After a restart in the middle of a visit it can instead fall on a roll: a crashed segment in that day's `unassigned/` folder is
+then parsed at the visit's close. After every request the recording follows the state file.
 
 ## The token, the port, the flags
 
@@ -523,6 +556,9 @@ box. Recording never stalls at an open or a close, and after every request the r
 - **503: nothing happened.** The request was cancelled before the recording loop started it. Retry with the same `request_id`.
 - **500: the outcome is unknown.** `GET /session` before doing anything else, and act on what it says.
 - A 409 on a close means a stale close: the box left the open session alone. Read `open` in the answer.
+  *(Added 2026-10-18, later.)* On a close retried after a lost reply, a 409 whose `open` is `null` or names another id
+  means the session you meant to close is no longer open: the first attempt closed it, or a later open closed it to make
+  room. Nothing needs doing.
 
 ## What the task PC must do
 
@@ -549,10 +585,16 @@ consumers cannot tell which ran"* (wl-xcon `docs/design/decisions/ADR-0005-day-o
 ```
 
 - **A session's segments are in `<root>/<id>/syncbox/`.** That is the layout wl-preproc reads (`<session>/syncbox/*.log`), so
-  copying a session off the box is a plain copy, and wl-xcon's `expcontroller/` can sit beside it in the same folder.
+  copying a session off the box is a plain copy, and wl-xcon's ~~`expcontroller/`~~ `xcon/` can sit beside it in the same folder.
+  *(Corrected 2026-10-18, later: the directory has been `xcon/` since 2026-09-28, as this file's naming note says; wl-xcon
+  `wl_xcon/record.py:37`, wl-preproc `wl_preproc/contracts/paths.py:24-42`.)*
 - **`unassigned/<date>/syncbox/` is never a session.** Its segment headers carry `<date>_00`, which the box never mints, and it holds no
   `session_manifest.yaml`.
 - **An id names the day it opened.** A session open across midnight keeps its id. The first visit of a day is `_01`.
+  *(Added 2026-10-18, later.)* That day is the UTC date of the box's barcode value at the open (`wl_sync/cli.py`,
+  `_barcode_day`), not the local date, and the two differ near midnight. In a timezone ahead of UTC (UTC+), a session
+  opened just after local midnight carries the previous day's date; in one behind UTC (UTC−), a session opened late in
+  the local evening carries the next day's.
 - **`_99` is the last id a day can have.** A 100th open gets 409 with a message.
 - Nothing about the id's form, the log format or the barcode codec has changed.
 
