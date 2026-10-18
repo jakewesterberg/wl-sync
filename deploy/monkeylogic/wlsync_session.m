@@ -41,7 +41,7 @@ function id = wlsync_session(action, box, token_file)
 %       UNVERIFIED) is called "unreachable" and retried. Any other MATLAB
 %       error stops at once as wlsync:internal, so a bug is not mistaken for
 %       a network problem.
-%     * ConnectTimeout bounds connecting only; a lost reply may hang rather
+%     * ConnectTimeout is believed to bound connecting only (UNVERIFIED); a lost reply may hang rather
 %       than time out. If so, stop MonkeyLogic and run 'show'.
 %     * 'close' does not retry: it reads the open id first, and a lost
 %       reply is better answered by 'show' than by a blind second close.

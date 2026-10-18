@@ -157,7 +157,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 4. `wlsync_session('close', box, tf)` returns that id; `show` returns `''` again.
 5. Retry with a lost reply: open, then drop the network for a moment (or point at a slow link) so the
    first reply is lost. Exactly one session must result, not two. A hang is a possible outcome,
-   because `ConnectTimeout` bounds connecting only: if MATLAB hangs, stop MonkeyLogic, then
+   because `ConnectTimeout` is believed to bound connecting only (unverified, see item 8): if MATLAB hangs, stop MonkeyLogic, then
    run `wlsync_session('show', box)` to see what the box did.
 6. A wrong token: the error reads HTTP 401 with the box's message, and the token appears nowhere.
 7. An unreachable box (wrong host, or the box off): the error says unreachable after 4 attempts,
