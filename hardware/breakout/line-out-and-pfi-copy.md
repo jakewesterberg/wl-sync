@@ -1,9 +1,10 @@
-# Task-PC line-out and the PFI copy of `PD1_COMP` — proposal
+# Task-PC line-out and the PFI copy of `PD1_COMP`
 
 **APPROVED and DRAWN 2026-10-18**, with D3 reversed while drawing (§3). Originally
 proposed the same day, before it was drawn. It implements spec §12 item 11, committed to wl-xcon
-(XC-327) for before layout. Four choices below (D1–D4) need approval before the generators
-change. Every fact cites its primary source; nothing here is read off a model.
+(XC-327) for before layout. Its four choices (D1–D4, §6) were approved before drawing, and D3
+was reversed during it. As drawn: the line-out is **J57** with **R221/R222**, and the PFI copy
+goes through **R223**. Every fact cites its primary source; nothing here is read off a model.
 
 wl-xcon's engine plays sound through two of the task PC card's analog outputs. The output is
 started by the task patch's next edge (its engine spec §9.1). That needs two things from this
@@ -37,11 +38,11 @@ Sources:
 
 ## 2. The line-out
 
-**One new isolated dual BNC body on the back face**, the board's existing part:
+**One new isolated dual BNC body on the back face, J57**, the board's existing part:
 
 | | Port A | Port B |
 |---|---|---|
-| Centre | AO 0 (left), through a series resistor | AO 1 (right), through a series resistor |
+| Centre | AO 0 (left), through R221 | AO 1 (right), through R222 |
 | Shell | AO GND (pins 55, 54) | AO GND |
 
 **The shells go to AO GND and to nothing else on the board.** NI ties AO GND to D GND on the
@@ -65,14 +66,15 @@ has no room for any further connector.
 
 ## 3. The PFI copy of `PD1_COMP`
 
-**`PD1_COMP` → a spare channel on `pi-interface`'s `SN74LVC541A` → 100 Ω → Connector 0
+**`PD1_COMP` → a spare channel on `pi-interface`'s `SN74LVC541A` → 100 Ω (R223) → Connector 0
 pin 38, which is PFI 7 (P1.7).** P0.27 stays exactly as it is.
 
 - **Why PFI 7** *(D2)*. It avoids the four default counter outputs (PFI 12–15). If wl-xcon ever
   starts a counter task with default routing, the card drives that output pin, and this board
   would be driving it at the same moment. PFI 7 is CTR 3's AUX by default, which is an input,
   on the counter least likely to be in use. **wl-xcon must route `ao/StartTrigger` from
-  `/Dev/PFI7` and must never configure PFI 7 as an output.** That goes in the reply.
+  `/Dev/PFI7`, must never configure PFI 7 as an output, and must leave it unrouted to any
+  counter.** That went into the reply.
 - **Why that buffer.** It is the only package on the board with channels free (7 of 8).
   `PD1_COMP` is an open-collector comparator output pulled to +3V3, so a 3.3 V buffer is its
   natural reader. The buffer's output against the card's inputs:
@@ -109,10 +111,11 @@ pin 38, which is PFI 7 (P1.7).** P0.27 stays exactly as it is.
 ## 5. What drawing it will touch
 
 - **`gen_breakout_taskpc_digital.py`** (Connector 0 lives here): AO 0/1, AO GND and PFI 7
-  wired; the new BNC body; two 100 Ω resistors. Fix its note that puts P2 on Connector 1
-  at the same time.
+  wired; J57; R221 and R222; and R223, the PFI copy's 100 Ω, beside the connector. Also
+  fixes its note that put P2 on Connector 1.
 - **`gen_breakout_pi_interface.py`:** one more channel on the level-shift `SN74LVC541A`, from
-  `PD1_COMP` to a new `PD1_COMP_PFI` net, with its 100 Ω.
+  `PD1_COMP` to a new `PD1_COMP_PFI_BUF` net. R223 on `taskpc-digital` takes that to
+  `PD1_COMP_PFI`, which is pin 38.
 - **The netlist checkers** for both sheets, `netlist-contract.json`, and the BOM: one dual BNC,
   three resistors.
 - **`panel-elevations.md`**: back face 10 bodies, slack about 7 mm. **Spec** §9.1, §9.6 and
