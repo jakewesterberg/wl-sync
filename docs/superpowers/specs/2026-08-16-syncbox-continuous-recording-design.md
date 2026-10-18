@@ -66,8 +66,14 @@ One directory per **day**; one segment file per **process run**.
 
 The directory carries the **session-id form `YYYY-MM-DD_NN`**, not a bare date:
 `SyncBoxLogHeader` validates `session_id` against it and `session.py` records that the rig
-layout, the ELN and `wl-preproc` all consume it, so the format does not change. A day is one
-session, hence `_01`; a restart joins that directory as a new segment rather than minting `_02`.
+layout, the ELN and `wl-preproc` all consume it, so the format does not change. ~~A day is one
+session, hence `_01`;~~ a restart joins that directory as a new segment rather than minting `_02`.
+
+> **Amended 2026-10-18.** "A day is one session" is superseded by
+> `2026-10-18-session-identity-design.md` (§3.1-§3.3). A session is now one animal's visit; the box mints
+> `_01`, `_02` ... when the task PC asks, and records each visit into `<root>/<id>/syncbox/`. Between visits
+> it records into `unassigned/<date>/syncbox/`. The directory tree above is the pre-amendment layout. A
+> restart still joins the open session's folder as a new segment, and still mints no new id.
 
 **Why segments rather than one appended file.** Because of 2.4, ticks after a gap are not
 comparable to ticks before it. A single file under a single header would be *lying about its

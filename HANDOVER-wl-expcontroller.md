@@ -248,11 +248,13 @@ LM339 at 2.50 V with about 33 mV of hysteresis) and its '541 camera drive with 4
 **Read against** wl-xcon `main` at `a607414`; every wl-xcon passage relied on below was read there.
 Numbered as the 2026-10-11 asks above. Paths without a repository name are this repository's.
 
-## 1, 2. XC-087, XC-088: not answered in this reply
+## 1, 2. XC-087, XC-088: ~~not answered in this reply~~ answered below, in "2026-10-18, later: XC-087 and XC-088 answered"
 
 Both are still open, and they share one mechanism: whatever tells the box the subject changed. That
 reverses the continuous-recording design's "a day is one session" rule (its §3) and `cli.day_directory`'s
 fixed `_01`. It needs its own design decision on this side, and this reply does not make it.
+
+**Update, 2026-10-18, later:** the design decision is made, and the answer is in the section at the end of this file.
 
 ## 3. XC-089: the audio tap
 
@@ -456,3 +458,109 @@ Read against `hardware/breakout/line-out-and-pfi-copy.md`, which cites every fig
 schematic, netlist contract and BOM carry it, and all ten sheet checkers pass. **XC-327 can
 close on your side once you have read it.** What is left is layout, which is this
 repository's.
+
+---
+
+# 2026-10-18, later: XC-087 and XC-088 answered
+
+Answers Asks 1 and 2 above. The design is `docs/superpowers/specs/2026-10-18-session-identity-design.md`; it is built
+on branch `session-identity` of this repository and **not yet merged**, and it has not been called from a task PC. Paths
+without a repository name are this repository's. Every wl-xcon passage relied on below was read in `/Users/jakewesterberg/GitHub/wl-xcon`
+and is cited by file and line; wl-preproc's is cited the same way.
+
+## What we are building to, and why
+
+- **A session is one animal's visit.** wl-xcon's own definition: *"One animal's visit to the rig, cage to cage. One folder, one
+  sync-box recording"* (wl-xcon `docs/superpowers/specs/2026-10-01-session-levels-and-strip-design.md:62`). A brief return to the
+  cage starts a new one (wl-xcon `docs/superpowers/specs/2026-08-31-S8-session-management-design.md:391-392`).
+- **wl-xcon refuses an id it has already used:** *"session id ... is already used under ... every session has its own"*
+  (wl-xcon `wl_xcon/service.py:668-671`). So a guessed or retyped id is not harmless.
+- **What you asked for:** that the value be *"readable rather than inferred, and that the sync box stay the only thing that
+  mints it"* (wl-xcon `docs/pending-wl-sync-amendments.md:55-56`). Ask 2 says the same event is both the subject change and the moment the
+  task PC learns the id (Ask 2, above).
+- **Both asks share one mechanism, as Ask 2 said.** The task PC tells the box when a visit opens and closes, and the box answers
+  with the id.
+
+## The three routes
+
+All bodies and answers are JSON. Every error is JSON `{"error": "..."}`, never HTML.
+
+| Route | Token | Body | 200 answer |
+|---|---|---|---|
+| `GET /session` | none | none | `{"session_id", "opened_at"}`; both are `null` when no session is open |
+| `POST /session/open` | bearer | `{"request_id"}` | `{"session_id", "opened_at", "closed"}`; `closed` is the id this open force-closed, or `null` |
+| `POST /session/close` | bearer | `{"session_id"}` | `{"closed"}` |
+
+| Status | Meaning |
+|---|---|
+| 400 | a bad body or field |
+| 401 | a bad or missing token (with `WWW-Authenticate: Bearer`) |
+| 403 | the box has no token configured, so it refuses opens and closes |
+| 404 | an unknown path |
+| 405 | the wrong method for the path (with `Allow`) |
+| 409 | a close naming a session that is not the open one (the answer carries `open`, the id that is), or a 100th open in one day |
+| 413 | a body over 64 KiB |
+| 500 | any other failure |
+| 503 | the recording loop did not take the request within its timeout, 5 s by default. The request was cancelled and **was not carried out** |
+
+An open while another session is open closes the old one at that moment and reports it in `closed`, logging it at ERROR on the
+box. Recording never stalls at an open or a close, and after every request the recording follows the state file.
+
+## The token, the port, the flags
+
+- **The token** is a shared secret in a file on each machine, sent as `Authorization: Bearer <token>`. It is never committed.
+  `deploy/README.md` ("The session endpoint") gives the commands that make it.
+- **The port** is 8740. The box runs `wl-sync record --listen HOST:PORT --session-token-file PATH`; the shipped unit uses
+  `0.0.0.0:8740` and `/etc/wl-sync/session-token`.
+- **A missing, unreadable or empty token file** means the box serves `GET` only, logs an ERROR, and **keeps recording**. Opens and
+  closes then answer 403.
+- `GET /session` needs no token, so keep the port on the rig network.
+
+## Retrying
+
+- **Use a new `request_id` for every attempt at a new visit,** and the same one when resending after a lost reply. The box returns
+  the session it already opened rather than minting a second and closing the first.
+- **503: nothing happened.** The request was cancelled before the recording loop started it. Retry with the same `request_id`.
+- **500: the outcome is unknown.** `GET /session` before doing anything else, and act on what it says.
+- A 409 on a close means a stale close: the box left the open session alone. Read `open` in the answer.
+
+## What the task PC must do
+
+This is wl-sync's proposal for what wl-xcon builds. It is design §3.6, **not a decision wl-xcon has made**:
+
+- **At a visit's open:** `POST /session/open`, then use the returned id as the session id. **If the box cannot be reached, the task PC
+  refuses to open the visit and says why. It never types an id.** A visit that opened without the box would record under no session.
+- **At the visit's end:** `POST /session/close` with that id.
+- **On a resume:** `GET /session` and carry on in the session it names.
+
+MonkeyLogic on the dual-boot rig is covered the same way, so that *"either controller can drive the same rig and downstream
+consumers cannot tell which ran"* (wl-xcon `docs/design/decisions/ADR-0005-day-one-stack-and-interchangeability.md:29-30`).
+`deploy/monkeylogic/wlsync_session.m` is a MATLAB function making the same two calls. It has never run under MATLAB;
+`deploy/README.md` has the bench-day checklist.
+
+## On disk
+
+```
+<root>/                                  e.g. /data/rig0
+  .wl-sync-session                       the open session, if any
+  2026-10-18_01/syncbox/seg-000.log ...  one folder per visit
+  2026-10-18_02/syncbox/ ...
+  unassigned/2026-10-18/syncbox/ ...     between visits
+```
+
+- **A session's segments are in `<root>/<id>/syncbox/`.** That is the layout wl-preproc reads (`<session>/syncbox/*.log`), so
+  copying a session off the box is a plain copy, and wl-xcon's `expcontroller/` can sit beside it in the same folder.
+- **`unassigned/<date>/syncbox/` is never a session.** Its segment headers carry `<date>_00`, which the box never mints, and it holds no
+  `session_manifest.yaml`.
+- **An id names the day it opened.** A session open across midnight keeps its id. The first visit of a day is `_01`.
+- **`_99` is the last id a day can have.** A 100th open gets 409 with a message.
+- Nothing about the id's form, the log format or the barcode codec has changed.
+
+## What stays unsettled
+
+- **Who writes `session_manifest.yaml` for a MonkeyLogic session.** wl-preproc records it as not yet settled (design §7). The box gives
+  a MonkeyLogic session its id and its `syncbox/` folder, and does not write the manifest.
+- **The copy to the NAS, and `syncbox/DONE`.** Nothing does either yet, on either side.
+- **wl-preproc's pinned wl-sync (`90b931e`) cannot read today's logs.** That is a message for wl-preproc, and independent of this answer.
+
+**XC-087 and XC-088 can close on your side once you have read this and decided the §3.6 proposal.**

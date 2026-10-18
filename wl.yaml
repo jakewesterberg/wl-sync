@@ -16,17 +16,21 @@ status:
     into the run loop, and the backend has run on silicon (wl-sync-rig0, a CM5,
     2026-10-18). It binds piolib through a C shim, pio/wlsync_pio.c. A 30 s run
     with nothing wired recorded cleanly, with barcodes 1 s apart to within
-    147 us. The capture paths are still unproven against real signals, so the
-    systemd unit ships --fake. 308 tests. Breakout board: schematic captured,
-    layout not started.
+    147 us. Session identity (one session per animal's visit, minted over HTTP
+    by the box) is built on branch session-identity and not yet merged; its
+    tests run on a laptop against the fake backend, it has not been called from
+    the task PC, and its MonkeyLogic recipe has never run under MATLAB. The capture paths are still unproven against
+    real signals, so the systemd unit ships --fake. 404 tests. Breakout board:
+    schematic captured, layout not started.
   next: >-
-    Bench day with signals on the pins: first GPIO17 looped to GPIO20, so the
-    box decodes its own barcode; then Task 5b Steps 3-5 (docs/next-session.md).
-    Before layout: the task PC line-out and the PFI copy of PD1_COMP (spec
-    Sec.12 item 11).
+    Merge session-identity. Bench day with signals on the pins: first GPIO17
+    looped to GPIO20, so the box decodes its own barcode; then Task 5b
+    Steps 3-5, the session endpoint from the task PC, and the MonkeyLogic
+    checklist (docs/next-session.md). Before layout: the task PC line-out and
+    the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "9a0d9d4"
+  describes: "437b3df"
 
 runs_on: [rig/sync]
 builds_on: [dws]
@@ -93,3 +97,12 @@ publishes:
       The barcode the sync box emits and everything else decodes to align
       streams onto one clock. The codec is the contract; a change breaks
       alignment for any recording made across the boundary.
+
+  - name: session-endpoint
+    kind: http-api
+    at: wl_sync/endpoint.py
+    stability: provisional
+    what: >-
+      GET /session reads the open session; POST /session/open and /session/close
+      (bearer token) open and close one per animal's visit. The task PC and
+      MonkeyLogic call it; the box is the only thing that mints a session id.

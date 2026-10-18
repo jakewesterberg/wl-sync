@@ -4,6 +4,14 @@
 silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests pass. §6 lists
 this session's commits. What is left of bench day needs signals on the pins.
 
+**Session identity is built, and not merged.** It is on branch `session-identity`: the box
+mints one session per animal's visit when the task PC asks over HTTP (`wl_sync/endpoint.py`,
+`wl_sync/sessions.py`), and records each visit into `<root>/<id>/syncbox/`. Design:
+`docs/superpowers/specs/2026-10-18-session-identity-design.md`. It answers wl-xcon's XC-087 and
+XC-088 (`HANDOVER-wl-expcontroller.md`, "2026-10-18, later"). The tests run on a laptop against
+the fake backend; nothing has called it from the task PC, and the MonkeyLogic recipe
+(`deploy/monkeylogic/wlsync_session.m`) has never run under MATLAB.
+
 > **Read this first, because the previous record does not travel.**
 > `.superpowers/sdd/` is gitignored (`.superpowers/sdd/.gitignore` is `*`), so the SDD
 > ledger that carried earlier handoffs exists **only on the machine that wrote it**.
@@ -104,7 +112,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
 
     ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0 --duration 60
-    ~/wl-sync-venv/bin/python -m wl_sync.bench loopback /tmp/wl-bench/rig0/<today>_01
+    ~/wl-sync-venv/bin/python -m wl_sync.bench loopback "/tmp/wl-bench/rig0/unassigned/$(date -u +%F)/syncbox"
 
 `wl_sync.bench` matches every frame decoded from GPIO20 against the `B` record the box logged,
 and exits non-zero on any mismatch. That checks the end-of-frame fix on silicon, where no fake
@@ -146,6 +154,20 @@ final instruction placement.
 
 After acceptance: drop `--fake` from `deploy/wl-sync.service` and add `--gpiochip`.
 
+### Step B2 — session identity on the bench *(after the branch merges, or from it)*
+
+The loopback above ran with no session open, so it recorded into `unassigned/<date>/syncbox/`.
+Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`) running:
+
+1. **The endpoint from the task PC.** Run the three `curl` commands in `deploy/README.md`
+   ("The session endpoint") from the task PC, not from the box: `GET /session`, then
+   `POST /session/open`, then `POST /session/close`. Check that a folder `<root>/<id>/syncbox/`
+   appears with a segment in it, that a repeated `request_id` returns the same id, that a wrong
+   token gets 401, and that a close naming another id gets 409 with `open`.
+2. **The MonkeyLogic checklist** in `deploy/README.md` ("MonkeyLogic on the dual-boot rig",
+   15 items), once on the Windows boot against the real box. Items 8 to 10 are MATLAB and
+   MonkeyLogic details that nobody has confirmed.
+
 ### ~~Before layout~~ *(spec §12 item 11) — drawn 2026-10-18*
 
 The task-PC line-out (J57) and the PFI copy of `PD1_COMP` (PFI 7) are in the schematic, the
@@ -184,9 +206,24 @@ left, so no further panel connector fits. One fix-up came with it:
     stop's cause could be overwritten. This was not reproduced.
   - A desync refuses the valid pairs that came before the slip in the same batch.
   None changes what a healthy day records.
-- **wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
+- ~~**wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
   change) are open. They reverse the continuous-recording design's "a day is one session"
-  rule (§3), and need their own design decision. See `HANDOVER-wl-expcontroller.md`.
+  rule (§3), and need their own design decision.~~ **Answered 2026-10-18, on branch
+  `session-identity`:** see `HANDOVER-wl-expcontroller.md`, "2026-10-18, later: XC-087 and
+  XC-088 answered". The continuous-recording design's §3 is amended.
+
+### Open items from session identity
+
+- **wl-preproc's pinned wl-sync (`90b931e`) cannot read today's logs.** Its header model forbids
+  the fields added since August, and its reader raises on `B` and `T` records (design §7). The
+  layout is unchanged from what wl-preproc reads, `<session>/syncbox/*.log`; the format is not.
+  A message for wl-preproc.
+- **`SessionId.parse` accepts a trailing newline**, because its regex is anchored with `$`. The
+  endpoint canonicalises what it is given, and the form is pinned by wl-preproc, so this is a
+  question for wl-preproc, not a silent fix here.
+- **`write_manifest` scans a crashed segment that has no trailer in full, on the run-loop
+  thread, at every roll out of its folder.** That can skip barcode seconds after an earlier crash.
+- **The unit still has `--fake`** until bench acceptance (above).
 
 ---
 
