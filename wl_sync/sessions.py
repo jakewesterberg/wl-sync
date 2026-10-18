@@ -138,7 +138,7 @@ def write_open(root: Path, session: OpenSession) -> None:
 
 
 def clear_open(root: Path) -> None:
-    """Forget the open session. Absent already is fine: a close is idempotent here."""
+    """Forget the open session. Clearing an already-absent state file is harmless."""
     try:
         (root / SESSION_STATE_NAME).unlink()
     except FileNotFoundError:

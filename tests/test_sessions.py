@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 
 import pytest
@@ -58,11 +59,25 @@ def test_the_100th_open_of_a_day_is_refused(tmp_path):
         next_id(tmp_path, DAY)
 
 
-def test_opening_creates_the_folder_before_saving_state(tmp_path):
+def test_opening_creates_the_folder_before_saving_state(tmp_path, monkeypatch):
     opened = open_session(tmp_path, "r1", NOW, DAY)
     assert (tmp_path / str(opened.session.session_id)).is_dir()
     assert (tmp_path / SESSION_STATE_NAME).is_file()
     assert read_open(tmp_path).session_id == opened.session.session_id
+
+    # The order: a failure while saving must leave the id spent (folder present) and
+    # no state behind, so the next open cannot reissue it.
+    other = tmp_path / "other"
+    other.mkdir()
+
+    def fail(root, session):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("wl_sync.sessions.write_open", fail)
+    with pytest.raises(OSError):
+        open_session(other, "r1", NOW, DAY)
+    assert (other / "2026-10-18_01").is_dir()
+    assert read_open(other) is None
 
 
 def test_reopening_with_the_same_request_id_returns_the_same_session(tmp_path):
@@ -104,8 +119,31 @@ def test_closing_clears_the_saved_session(tmp_path):
     assert read_open(tmp_path) is None
 
 
-def test_a_corrupt_state_file_reads_as_no_session_open(tmp_path, caplog):
-    (tmp_path / SESSION_STATE_NAME).write_text("{not json")
+GOOD = {
+    "session_id": "2026-10-18_01",
+    "opened_at": "2026-10-18T09:30:00+00:00",
+    "request_id": "r1",
+}
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{not json",
+        "[1, 2]",
+        json.dumps({k: v for k, v in GOOD.items() if k != "request_id"}),
+        json.dumps({**GOOD, "session_id": "not-an-id"}),
+        json.dumps({**GOOD, "opened_at": "2026-10-18T09:30:00"}),
+    ],
+    ids=["invalid-json", "not-an-object", "missing-key", "bad-id", "naive-time"],
+)
+def test_a_corrupt_state_file_reads_as_no_session_open(tmp_path, caplog, content):
+    """Closes a coverage gap in existing code: each refusal branch of read_open.
+
+    These cases passed when written, because read_open already handled them; they pin
+    the behaviour so a later edit cannot turn a torn file into a startup crash.
+    """
+    (tmp_path / SESSION_STATE_NAME).write_text(content)
     with caplog.at_level(logging.ERROR, logger="wl_sync.sessions"):
         assert read_open(tmp_path) is None
     assert any(
