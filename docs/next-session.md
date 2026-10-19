@@ -279,6 +279,16 @@ left, so no further panel connector fits. One fix-up came with it:
     3. make the unit wait for sync, with a timeout.
 
     1 and 2 are recommended. 3 delays recording.
+- **`wl_sync.barcode.decode_edges` is quadratic on long records.** `_level_at`
+  (`wl_sync/barcode.py:74-80`) scans the edge list from its start on each call, and
+  `decode_edges` calls it about 38 times per frame (`:113-131`). Decoding four hours of barcode
+  took 687 s in wl-phantom's tests, so a day's record takes hours. wl-preproc decodes whole
+  sessions with this function (`timebase/segments.py`, `timebase/_syncbox_log.py`).
+  - A `bisect` on the sorted ticks would make it linear with identical output.
+  - The codec is pinned by wl-preproc, so the outputs must stay identical, and wl-preproc should
+    be told when the fix lands.
+  - Until then, wl-phantom decodes one frame at a time (its `clockfit.barcode_frames`).
+  - *Found 2026-10-19, by wl-phantom's phase 1.*
 - **A crash and a reboot in the middle of a session were both tested on the box,** and both
   passed:
   - the box resumed into the open session;
