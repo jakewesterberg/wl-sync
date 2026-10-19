@@ -308,9 +308,15 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
        python3 -m venv ~/wl-sync-venv
        ~/wl-sync-venv/bin/pip install -e ~/src/wl-sync[pi]
 
-4. **Confirm the GPIO chip by label.** `gpiodetect` should list `gpiochip0
+4. **Link the command the unit runs.** `ExecStart` calls `/usr/local/bin/wl-sync`, and
+   nothing above creates it:
+
+       sudo ln -sfn ~/wl-sync-venv/bin/wl-sync /usr/local/bin/wl-sync
+
+   *(Added 2026-10-19, found by the first install of the unit on `wl-sync-rig0`.)*
+5. **Confirm the GPIO chip by label.** `gpiodetect` should list `gpiochip0
    [pinctrl-rp1] (54 lines)`, which is `--gpiochip`'s default.
-5. **Run the hardware mode by hand**, as your own user rather than root:
+6. **Run the hardware mode by hand**, as your own user rather than root:
 
        ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0 --duration 30
 

@@ -164,6 +164,15 @@ Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`
    `POST /session/open`, then `POST /session/close`. Check that a folder `<root>/<id>/syncbox/`
    appears with a segment in it, that a repeated `request_id` returns the same id, that a wrong
    token gets 401, and that a close naming another id gets 409 with `open`.
+
+   **Done from a Mac over the tailnet, 2026-10-19,** with the unit installed on `wl-sync-rig0`
+   (`--out /data/rig0 --fake`, started, not enabled at boot). Every check above passed:
+   `2026-10-19_01` minted, the retry returned it with `closed: null`, 401 without and with a
+   wrong token, 409 naming the open id on a stale close, then a clean close. The barcode ran
+   unbroken across both rolls (`…568 → 569`, `…584 → 585`), every closed segment has its
+   trailer, and the session's manifest is clean. The suite also passed on the box itself (409,
+   1 skip: KiCad). **What is left of this item** is the task PC itself: its network path and
+   its client, not the box.
 2. **The MonkeyLogic checklist** in `deploy/README.md` ("MonkeyLogic on the dual-boot rig",
    ~~15~~ 17 items), once on the Windows boot against the real box. Items 8 to 10 are MATLAB and
    MonkeyLogic details that nobody has confirmed. *(Added 2026-10-18, after the final review.)*
