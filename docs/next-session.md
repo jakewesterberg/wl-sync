@@ -253,6 +253,40 @@ left, so no further panel connector fits. One fix-up came with it:
   close, on the run-loop thread.
 - **The unit still has `--fake`** until bench acceptance (above).
 
+### Found on the box, 2026-10-19 (not fixed; each needs a decision)
+
+- **Code words and barcodes are timed by different clocks, and NTP slews one of them.**
+  - Code-word ticks come from RP1's PIO counter, which runs off the crystal and is joined to
+    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:227-230`, `:270`).
+  - Barcode (`B`) and edge ticks come from `CLOCK_MONOTONIC`, which follows NTP's frequency
+    correction.
+  - On the box NTP was applying **−6.5 ppm** (`timedatectl timesync-status`), so the two paths
+    drift about 6.5 µs per second.
+  - That uses up the ±100 µs budget about 15 s into a segment, and reaches about 4 ms after 10
+    minutes.
+  - Nothing has measured it yet, because no code words have been captured on silicon. Bench day
+    measures it (wl-phantom's design, §5.5).
+  - The fix needs its own design. One option is to re-anchor the PIO counter against
+    `CLOCK_MONOTONIC` continuously and convert with the fitted rate. Moving edges and barcodes onto
+    PIO is another.
+- **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
+  NTP has synced.**
+  - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).
+  - At boot the unit started at 12.5 s, and NTP synced at 33.5 s.
+  - The options:
+    1. re-judge trust at every roll;
+    2. also roll once when NTP first syncs;
+    3. make the unit wait for sync, with a timeout.
+
+    1 and 2 are recommended. 3 delays recording.
+- **A crash and a reboot in the middle of a session were both tested on the box,** and both
+  passed:
+  - the box resumed into the open session;
+  - the crashed segment is marked `crash`;
+  - a stop at reboot writes a clean trailer;
+  - no barcode value repeated;
+  - the outages show as gaps.
+
 ### Recorded, not fixed, from the session-identity build
 
 The build's ledger is gone (see the note at the top). These are the findings it parked as harmless
