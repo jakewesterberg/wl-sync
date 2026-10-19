@@ -279,6 +279,29 @@ left, so no further panel connector fits. One fix-up came with it:
     3. make the unit wait for sync, with a timeout.
 
     1 and 2 are recommended. 3 delays recording.
+- **A 4-hour soak of the RP1 backend with nothing wired passed** (2026-10-19, 11:42–15:42 UTC,
+  `wl-sync record --out ~/wl-soak/rig0 --duration 14400`, run as the user beside the fake-mode
+  service). Results:
+  - 14 400 consecutive barcode values, clean trailer, no gaps or overlaps, no
+    `capture degraded` lines;
+  - 22 min of CPU in 4 h, and RSS flat at 35.9 MB;
+  - NTP quiet after its initial sync.
+
+  Two things it showed:
+  - **The first frame is off the grid by design.** It is emitted at start and the second waits
+    for the wall-clock grid, 1.444 s later in this run. So a fit of `B` ticks against values
+    sees one start-up outlier per process.
+  - **The emit loop sometimes wakes about 4 ms late.** 420 of the 14 400 intervals were off by
+    3.5–4.5 ms, in pairs: runs of late frames that end, about 210 runs in 4 h. 4 ms is one tick
+    of a 250 Hz kernel timer.
+    - It is harmless to alignment, because the tick is sampled after the wake, just before
+      emission.
+    - **It bears directly on bench check 4.** The word pump polls every 1 ms against a
+      four-event FIFO. A 4 ms late wake during a burst of words 1 ms apart would overflow it.
+      Bench day must test word bursts, and the poll may need a different waiting strategy.
+  - The start-up journal line says `first barcode 214573321`, but the first `B` record is
+    `…322`. The line probably prints the resumed value rather than the first one emitted.
+    This is cosmetic.
 - **`wl_sync.barcode.decode_edges` is quadratic on long records.** `_level_at`
   (`wl_sync/barcode.py:74-80`) scans the edge list from its start on each call, and
   `decode_edges` calls it about 38 times per frame (`:113-131`). Decoding four hours of barcode
