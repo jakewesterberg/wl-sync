@@ -1,10 +1,10 @@
 # Next session — sync box
 
 **State at handoff (2026-10-18):** Step A has landed, and **the RP1 backend has now run on
-silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests passed at that handoff (~~404~~ 410 on the branch below, *updated 2026-10-18 after the final review's fixes*). §6 lists
+silicon**: 30 s on the CM5 with nothing wired, recording clean (§0). 308 tests passed at that handoff (~~404~~ 410 with session identity, below, *updated 2026-10-18 after the final review's fixes*). §6 lists
 this session's commits. What is left of bench day needs signals on the pins.
 
-**Session identity is built, and not merged.** It is on branch `session-identity`: the box
+**Session identity is built, and merged to main (2026-10-19).** The box
 mints one session per animal's visit when the task PC asks over HTTP (`wl_sync/endpoint.py`,
 `wl_sync/sessions.py`), and records each visit into `<root>/<id>/syncbox/`. Design:
 `docs/superpowers/specs/2026-10-18-session-identity-design.md`. It answers wl-xcon's XC-087 and
@@ -154,7 +154,7 @@ final instruction placement.
 
 After acceptance: drop `--fake` from `deploy/wl-sync.service` and add `--gpiochip`.
 
-### Step B2 — session identity on the bench *(after the branch merges, or from it)*
+### Step B2 — session identity on the bench *(on main since 2026-10-19)*
 
 The loopback above ran with no session open, so it recorded into `unassigned/<date>/syncbox/`.
 Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`) running:
@@ -220,8 +220,8 @@ left, so no further panel connector fits. One fix-up came with it:
   None changes what a healthy day records.
 - ~~**wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
   change) are open. They reverse the continuous-recording design's "a day is one session"
-  rule (§3), and need their own design decision.~~ **Answered 2026-10-18, on branch
-  `session-identity`:** see `HANDOVER-wl-expcontroller.md`, "2026-10-18, later: XC-087 and
+  rule (§3), and need their own design decision.~~ **Answered 2026-10-18, merged to main
+  2026-10-19:** see `HANDOVER-wl-expcontroller.md`, "2026-10-18, later: XC-087 and
   XC-088 answered". The continuous-recording design's §3 is amended.
 
 ### Open items from session identity
@@ -243,6 +243,29 @@ left, so no further panel connector fits. One fix-up came with it:
   visit, a crashed segment in that day's `unassigned/` folder is instead parsed at the visit's
   close, on the run-loop thread.
 - **The unit still has `--fake`** until bench acceptance (above).
+
+### Recorded, not fixed, from the session-identity build
+
+The build's ledger is gone (see the note at the top). These are the findings it parked as harmless
+enough to leave, which the final whole-branch review agreed with:
+
+- **A missed close leaves the session open.** The box keeps recording the empty rig into it, through
+  midnight and through reboots, until the next open force-closes it with an ERROR line. That is spec
+  §3.1's rule, not a bug, but it explains a session folder that runs into the night.
+- **The endpoint has no cap on handler threads.** Step B2 item 3 measures whether that matters.
+- **An open that fails after saving its state** (a failed directory fsync) logs the OSError at ERROR
+  and the move into the session, but no "opened" or forced-close line.
+- **Untested paths:**
+  - a corrupt state file, and a hand-deleted session folder, at the run level (the unit tests cover
+    `read_open`);
+  - `--session-token-file` without `--listen`, which logs a WARNING;
+  - the endpoint shutting down when `run` raises;
+  - a token file that is present but unreadable.
+- **Test hygiene.** The end-to-end tests' teardown does not set `done` when an assertion fails, so a
+  failing test runs its thread to the end, about 10 s. `tests/test_cli.py` also has one older
+  `thread.join()` without a timeout.
+- **`next_id` counts a stray regular file named like an id**, so that id is skipped. This is
+  conservative.
 
 ---
 

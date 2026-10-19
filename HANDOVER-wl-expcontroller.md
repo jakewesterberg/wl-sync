@@ -493,7 +493,8 @@ repository's.
 # 2026-10-18, later: XC-087 and XC-088 answered
 
 Answers Asks 1 and 2 above. The design is `docs/superpowers/specs/2026-10-18-session-identity-design.md`; it is built
-on branch `session-identity` of this repository and **not yet merged**, and it has not been called from a task PC. Paths
+~~on branch `session-identity` of this repository and **not yet merged**~~ and merged to this repository's main
+(2026-10-19), and it has not been called from a task PC. Paths
 without a repository name are this repository's. Every wl-xcon passage relied on below was read in `/Users/jakewesterberg/GitHub/wl-xcon`
 and is cited by file and line; wl-preproc's is cited the same way.
 
