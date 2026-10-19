@@ -48,6 +48,17 @@ writes today fails in two places:
 Every one of these changes landed after the pin, between 2026-08-17 and 2026-08-22 (`git log
 90b931e..main -- wl_sync/log.py` in wl-sync).
 
+**Moving the pin is not enough on its own** *(added 2026-10-19, before the delivery was pushed;
+found by the wl-phantom design's builder check)*. wl-preproc's `timebase/_syncbox_log.py:49-63`
+finds the box's barcodes by decoding `Edge` records on `gpio_map["barcode_out"]`, which is the
+shape its `synth/syncbox.py:36-41` writes. The real box never captures that line:
+
+- GPIO17 is its own output, and its edge inputs are GPIO20–27 (`wl_sync/pins.py:40`).
+- It records each barcode it emits as a `B` record instead (`wl_sync/log.py:17-19`).
+
+So a real box log yields no barcodes through that function. The ask, in full: read the box's own
+barcodes from its `B` records, and have `synth/syncbox.py` write them the same way.
+
 **wl-sync's own fault, recorded so it is not repeated:** `SCHEMA_VERSION` is still `1`. The
 format changed without a version bump, so nothing in a log tells an old reader why it fails. The
 new fields all have defaults, so a current reader still reads August's logs. The change is
