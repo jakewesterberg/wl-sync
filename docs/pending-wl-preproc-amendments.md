@@ -1,7 +1,10 @@
 # Amendments to wl-preproc
 
 **Delivered 2026-10-19** as the dated section "2026-10-19: from wl-sync" of a new
-`HANDOVER-wl-sync.md` in wl-preproc (`be8e95d`, committed there locally; not yet pushed).
+`HANDOVER-wl-sync.md` in wl-preproc, pushed to its `main` as `1b1771d` and `a85c5c5`. The
+same two commits also sit, by accident, on wl-preproc's `plan/ni-clock` as `be8e95d` and
+`a12b12b`: another session switched that checkout to its branch between this repository's read
+and its commit. They are identical in content.
 Answers are read there. The format follows the convention wl-xcon uses for both repositories
 (wl-xcon `docs/pending-wl-preproc-amendments.md`).
 
