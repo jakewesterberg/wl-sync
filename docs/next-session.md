@@ -308,6 +308,12 @@ left, so no further panel connector fits. One fix-up came with it:
   took 687 s in wl-phantom's tests, so a day's record takes hours. wl-preproc decodes whole
   sessions with this function (`timebase/segments.py`, `timebase/_syncbox_log.py`).
   - A `bisect` on the sorted ticks would make it linear with identical output.
+  - **Fixed on branch `decode-bisect` (2026-10-28), not yet merged.** `_level_at` now bisects
+    the sorted ticks. Four hours (532,800 edges, 14,400 frames) decode in 0.25 s. Two tests
+    in `tests/test_barcode.py` hold it there:
+    - one compares the new decoder with a verbatim copy of the old linear-scan decoder, over
+      300 messy records (a one-off sweep of 5,000 found no mismatch);
+    - one decodes four hours within 30 s. The old code was still running at 90 s.
   - The codec is pinned by wl-preproc, so the outputs must stay identical, and wl-preproc should
     be told when the fix lands.
   - Until then, wl-phantom decodes one frame at a time (its `clockfit.barcode_frames`).

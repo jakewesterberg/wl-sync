@@ -25,6 +25,7 @@ their own edges; the barcode carries identity, not timing.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -71,13 +72,18 @@ def edges_from_samples(
     return edges
 
 
-def _level_at(edges: Sequence[tuple[int, int]], tick_us: int) -> int:
-    level = 0
-    for edge_tick, edge_level in edges:
-        if edge_tick > tick_us:
-            break
-        level = edge_level
-    return level
+def _level_at(
+    edges: Sequence[tuple[int, int]], ticks: Sequence[int], tick_us: int
+) -> int:
+    """The line's level at ``tick_us``: that of the last edge at or before it, LOW before any.
+
+    ``edges`` must be sorted and ``ticks`` must be their ticks, in the same order. A binary
+    search, so ``decode_edges`` is linear in a record's length: the scan it replaces walked
+    from the first edge on every call, about 38 calls a frame, and took 687 s on four hours.
+    Edges that share a tick resolve to the last of them, exactly as that scan did.
+    """
+    index = bisect_right(ticks, tick_us)
+    return edges[index - 1][1] if index else 0
 
 
 def decode_edges(
@@ -95,6 +101,7 @@ def decode_edges(
     ordered = sorted(edges)
     if not ordered:
         return []
+    ticks = [tick for tick, _ in ordered]
 
     barcodes: list[Barcode] = []
     last_falling: int | None = start_us
@@ -110,25 +117,25 @@ def decode_edges(
         if ordered[-1][0] < start + FRAME_US:
             continue
 
-        if _level_at(ordered, start + _QUARTER) != 1:
+        if _level_at(ordered, ticks, start + _QUARTER) != 1:
             continue
-        if _level_at(ordered, start + 3 * _QUARTER) != 1:
+        if _level_at(ordered, ticks, start + 3 * _QUARTER) != 1:
             continue
-        if _level_at(ordered, start + WRAPPER_US + _QUARTER) != 0:
+        if _level_at(ordered, ticks, start + WRAPPER_US + _QUARTER) != 0:
             continue
-        if _level_at(ordered, start + WRAPPER_US + 3 * _QUARTER) != 0:
+        if _level_at(ordered, ticks, start + WRAPPER_US + 3 * _QUARTER) != 0:
             continue
 
         data_start = start + 2 * WRAPPER_US
         value = 0
         for bit in range(N_BITS):
             centre = data_start + bit * BIT_SLOT_US + BIT_SLOT_US // 2
-            value = (value << 1) | _level_at(ordered, centre)
+            value = (value << 1) | _level_at(ordered, ticks, centre)
 
         gap2 = data_start + N_BITS * BIT_SLOT_US
-        if _level_at(ordered, gap2 + WRAPPER_US // 2) != 0:
+        if _level_at(ordered, ticks, gap2 + WRAPPER_US // 2) != 0:
             continue
-        if _level_at(ordered, gap2 + WRAPPER_US + WRAPPER_US // 2) != 1:
+        if _level_at(ordered, ticks, gap2 + WRAPPER_US + WRAPPER_US // 2) != 1:
             continue
 
         barcodes.append(Barcode(value=value, start_us=start))

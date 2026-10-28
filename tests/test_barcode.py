@@ -106,3 +106,111 @@ def test_generator_jitter_does_not_break_decoding():
 def test_value_out_of_32_bit_range_rejected():
     with pytest.raises(ValueError):
         encode(1 << 32)
+
+
+# ---- decode_edges is linear, and decodes exactly what the linear scan did ----------
+#
+# wl-preproc pins this codec and decodes whole sessions with it, so making it fast must not
+# change a single decoded frame. The reference below is decode_edges as it was before the
+# bisect (wl-sync c186111): a level lookup that scans the edges from their start. It is kept
+# here, not in the package, so that the package has one decoder.
+
+
+def _reference_level_at(edges, tick_us):
+    level = 0
+    for edge_tick, edge_level in edges:
+        if edge_tick > tick_us:
+            break
+        level = edge_level
+    return level
+
+
+def _reference_decode(edges, start_us=None):
+    from wl_sync.barcode import BIT_SLOT_US, N_BITS, WRAPPER_US
+
+    quarter = WRAPPER_US // 4
+    ordered = sorted(edges)
+    if not ordered:
+        return []
+    barcodes = []
+    last_falling = start_us
+    for tick, level in ordered:
+        if level == 0:
+            last_falling = tick
+            continue
+        if last_falling is None or tick - last_falling < IDLE_MIN_US:
+            continue
+        start = tick
+        if ordered[-1][0] < start + FRAME_US:
+            continue
+        if _reference_level_at(ordered, start + quarter) != 1:
+            continue
+        if _reference_level_at(ordered, start + 3 * quarter) != 1:
+            continue
+        if _reference_level_at(ordered, start + WRAPPER_US + quarter) != 0:
+            continue
+        if _reference_level_at(ordered, start + WRAPPER_US + 3 * quarter) != 0:
+            continue
+        data_start = start + 2 * WRAPPER_US
+        value = 0
+        for bit in range(N_BITS):
+            centre = data_start + bit * BIT_SLOT_US + BIT_SLOT_US // 2
+            value = (value << 1) | _reference_level_at(ordered, centre)
+        gap2 = data_start + N_BITS * BIT_SLOT_US
+        if _reference_level_at(ordered, gap2 + WRAPPER_US // 2) != 0:
+            continue
+        if _reference_level_at(ordered, gap2 + WRAPPER_US + WRAPPER_US // 2) != 1:
+            continue
+        barcodes.append(Barcode(value=value, start_us=start))
+        last_falling = None
+    return barcodes
+
+
+def _messy_record(rng, n_frames):
+    """Frames with jitter, spurious glitches, duplicated and coincident edges, a cut-off
+    tail: everything that makes a lookup's tie-breaking and boundaries matter."""
+    edges = []
+    for index in range(n_frames):
+        tick = INTERVAL_US * (index + 1) + rng.randint(-2_000, 2_000)
+        for level, duration in encode(rng.getrandbits(32)):
+            edges.append((tick + rng.choice((0, 0, 0, -1, 1, 2_500)), level))
+            tick += duration
+        edges.append((tick, 0))
+    for _ in range(n_frames * 3):  # glitches, some landing exactly on sample centres
+        t = rng.randint(0, INTERVAL_US * (n_frames + 1))
+        edges.append((t, rng.randint(0, 1)))
+        if rng.random() < 0.3:
+            edges.append((t, 1 - edges[-1][1]))  # a coincident opposite edge
+    edges.extend(rng.sample(edges, k=len(edges) // 20))  # exact duplicates
+    cut = rng.randint(len(edges) * 9 // 10, len(edges))
+    return sorted(edges)[:cut]
+
+
+def test_decode_matches_the_linear_scan_reference():
+    """The bisect must decode exactly what the linear scan did, glitches and ties included.
+
+    This guards an invariant rather than driving a change: it passes on the old code by
+    construction, and fails if the faster lookup ever breaks a tie differently.
+    """
+    import random
+
+    rng = random.Random(20261028)
+    for trial in range(300):
+        edges = _messy_record(rng, rng.randint(1, 6))
+        start = rng.choice((None, 0, rng.randint(0, INTERVAL_US)))
+        assert decode_edges(edges, start_us=start) == _reference_decode(edges, start), trial
+
+
+def test_a_four_hour_record_decodes_in_seconds():
+    """14,400 frames, one a second for four hours, as the box writes in a long session.
+    The linear scan took 687 s on this in wl-phantom's tests (docs/next-session.md), and a
+    day's record took hours; the bound leaves a slow CI runner ample room."""
+    import time
+
+    values = [1_000 + index for index in range(14_400)]
+    edges = emit(values)
+    began = time.perf_counter()
+    decoded = decode_edges(edges, start_us=0)
+    elapsed = time.perf_counter() - began
+    assert [b.value for b in decoded] == values
+    assert elapsed < 30, f"decoding four hours took {elapsed:.1f} s"
