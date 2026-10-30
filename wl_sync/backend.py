@@ -89,6 +89,10 @@ class StampLag:
 
 
 class SyncBackend(Protocol):
+    timebase: str
+    """Which clocks this backend's ticks count, written into every segment header
+    (`wl_sync.log.SyncBoxLogHeader.timebase` defines the values)."""
+
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
         """Drive pin through (level, duration_us). Timing need not be precise."""
 
@@ -159,6 +163,8 @@ class SyncBackend(Protocol):
 
 class FakeBackend:
     """Records outputs and dispatches injected inputs. Test double only."""
+
+    timebase = "fake"
 
     def __init__(self) -> None:
         self.emitted: list[tuple[int, list[tuple[int, int]]]] = []

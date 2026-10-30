@@ -209,6 +209,10 @@ def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
 class Rp1Backend:
     """`SyncBackend` on RP1 PIO. One state machine for strobed capture."""
 
+    # W counts RP1's PIO counter, joined to CLOCK_MONOTONIC once in
+    # start_strobed_capture; B and E count CLOCK_MONOTONIC (SyncBoxLogHeader.timebase).
+    timebase = "split"
+
     def __init__(self, pio_index: int = 0, chip_path: str = "/dev/gpiochip0") -> None:
         # Which chardev carries RP1's bank has moved between releases (gpiochip4 on a
         # Pi 4), so it is a parameter. Confirmed by label on the CM5 2026-10-18:

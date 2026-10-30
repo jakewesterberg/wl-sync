@@ -1937,13 +1937,13 @@ def _headers(root):
     }
 
 
-def _open_then_close(tmp_path, **run_kwargs):
+def _open_then_close(tmp_path, backend=None, **run_kwargs):
     """Three segments from one process: between sessions, the visit, between sessions."""
     requests = queue.SimpleQueue()
     script = {1: [_request("open", "r1")], 3: [_request("close", "2026-08-16_01")]}
     run(
         out=tmp_path,
-        backend=FakeBackend(),
+        backend=backend or FakeBackend(),
         now_fn=_clock_from(START),
         duration_s=6,
         tick_fn=_requesting(requests, script),
@@ -1979,6 +1979,18 @@ def test_every_segment_of_one_process_carries_its_id_and_a_restart_a_new_one(
     restarted = [h for path, h in _headers(tmp_path).items() if path not in first]
     assert len(restarted) == 1
     assert restarted[0].process_uuid not in (None, process)
+
+
+def test_every_segment_names_its_backends_timebase(tmp_path):
+    """The header says which clocks its ticks are on, as the backend that made them
+    declares it, in every segment of the process: the first and each one after a roll."""
+
+    class _Split(FakeBackend):
+        timebase = "split"
+
+    assert {h.timebase for h in _open_then_close(tmp_path / "a").values()} == {"fake"}
+    headers = _open_then_close(tmp_path / "b", backend=_Split())
+    assert {h.timebase for h in headers.values()} == {"split"}
 
 
 def test_a_measured_barcode_delay_reaches_every_segment(tmp_path):

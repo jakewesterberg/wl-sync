@@ -1087,3 +1087,10 @@ def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_p
         tick_us=second.tick_us, path="E", gpio=20, count=2, bound="exact",
         cause="buffer_overflow", before_us=first.tick_us, after_us=second.tick_us,
     )
+
+
+def test_the_rp1_backend_declares_its_split_timebase():
+    """W ticks count RP1's PIO counter, joined to CLOCK_MONOTONIC once at capture start;
+    B and E ticks count CLOCK_MONOTONIC. Every header this backend writes says so, until
+    the one-clock build changes the arrangement and the value with it."""
+    assert Rp1Backend.timebase == "split"

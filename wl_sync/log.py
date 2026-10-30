@@ -175,6 +175,28 @@ class SyncBoxLogHeader(BaseModel):
     None is not zero. Zero is a measurement. A reader with None uses each tick as it is,
     and records the delay as unmeasured."""
 
+    timebase: str | None = Field(default=None, min_length=1)
+    """Which clocks this segment's ticks count, as the backend that made them declares
+    it (`SyncBackend.timebase`). Every tick is placed on one origin and one wrap count
+    (`process_uuid`); this says whether they also share one rate.
+
+      * "split": `W` ticks count RP1's PIO counter, which runs off RP1's own crystal and
+        is joined to CLOCK_MONOTONIC once, when capture starts. `B` and `E` ticks count
+        CLOCK_MONOTONIC, which NTP slews. So `W` drifts from `B` and `E` by that
+        crystal's rate error, relative to NTP, times the time since the process started.
+        The rate is unmeasured; at 50 ppm it is 0.18 s an hour. Every segment
+        `wl-sync record` wrote before this field existed is "split".
+      * "fake": the test backend (`wl_sync.backend.FakeBackend`), which the box's unit
+        runs until bench acceptance (`--fake`). No hardware clock is involved, and no
+        capture path delivers anything real.
+
+    FREE TEXT, NOT A CLOSED SET. A later box can name a new arrangement -- the one-clock
+    build (docs/superpowers/specs/2026-10-30-one-clock-design.md) will -- and a reader
+    pinned before that value existed must still read the segment. A reader that meets a
+    value it does not know should take the paths' relative rates as unknown. None means
+    the segment was written before this field existed (2026-10-30). Empty is refused:
+    None already means unknown."""
+
     @field_validator("session_id")
     @classmethod
     def _session_id_well_formed(cls, value: str) -> str:

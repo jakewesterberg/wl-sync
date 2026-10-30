@@ -264,6 +264,41 @@ def test_the_process_uuid_and_barcode_delay_round_trip(tmp_path, delay_us):
     assert (read_back.process_uuid, read_back.barcode_delay_us) == (PROCESS_UUID, delay_us)
 
 
+def test_a_header_written_before_the_timebase_still_reads(tmp_path):
+    """None means "written before this field existed": the segment's clocks are whatever
+    the box had then, which for every segment written so far is the split one."""
+    path = tmp_path / "seg-002.log"
+    path.write_text(json.dumps(BEFORE_THE_FIELDS) + "\nB,1000,214573322\n", encoding="utf-8")
+
+    header, _ = read_log(path)
+
+    assert header.timebase is None
+
+
+@pytest.mark.parametrize("timebase", ["split", "fake", "rp1-pio"])
+def test_the_timebase_round_trips_whatever_it_names(tmp_path, timebase):
+    """FREE TEXT, NOT A CLOSED SET. A value this version does not define -- "rp1-pio",
+    the one-clock build -- must still read, so that a reader pinned today reads the
+    segments of a box built later. A closed set would cost wl-preproc a second pin move
+    for each new arrangement of clocks."""
+    header = SyncBoxLogHeader.model_validate(
+        {**HEADER.model_dump(mode="json"), "timebase": timebase}
+    )
+    path = tmp_path / "syncbox.log"
+    write_log(path, header, [])
+
+    read_back, _ = read_log(path)
+
+    assert read_back.timebase == timebase
+
+
+def test_header_rejects_an_empty_timebase():
+    """Empty is not "unknown": None says that. An empty string would be a writer that
+    forgot to say, and a reader could not tell it from a deliberate value."""
+    with pytest.raises(ValueError):
+        SyncBoxLogHeader.model_validate({**HEADER.model_dump(mode="json"), "timebase": ""})
+
+
 def test_header_rejects_a_negative_barcode_delay():
     """The B tick is read BEFORE the frame is emitted, so the lead edge rises after it,
     never before. A negative delay is a sign error, and a reader adding it would move

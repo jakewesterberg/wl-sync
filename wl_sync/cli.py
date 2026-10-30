@@ -239,14 +239,16 @@ def _segment_factory(
     trust: ClockTrust,
     process_uuid: str,
     barcode_delay_us: int | None,
+    timebase: str,
 ) -> tuple[Path, Callable[[], SegmentWriter]]:
     """The path of the next segment in `folder`, and a zero-argument factory that writes it.
 
     THE ONLY PLACE A SEGMENT HEADER IS DEFINED. The start of run() and every roll build
     their segment here, so a field added to the header cannot reach the first segment of
-    a run and miss the ones after a session change. `process_uuid` and `barcode_delay_us`
-    have no defaults here for the same reason: a call that forgot one would write a
-    header saying "written before this field existed" or "unmeasured", and be wrong.
+    a run and miss the ones after a session change. `process_uuid`, `barcode_delay_us`
+    and `timebase` have no defaults here for the same reason: a call that forgot one
+    would write a header saying "written before this field existed" or "unmeasured", and
+    be wrong.
 
     A FACTORY, NOT A WRITER, because QueuedSink.roll() calls it on the owner thread after
     the old segment's trailer is written. Opening the file here, on the run loop's thread,
@@ -274,6 +276,7 @@ def _segment_factory(
         clock_reason=trust.reason,
         process_uuid=process_uuid,
         barcode_delay_us=barcode_delay_us,
+        timebase=timebase,
     )
     path = folder / segment_name(index)
 
@@ -487,6 +490,7 @@ def run(
         trust=trust,
         process_uuid=process_uuid,
         barcode_delay_us=barcode_delay_us,
+        timebase=backend.timebase,
     )
     writer = make_writer()
     # ONE OWNER THREAD FOR THE SEGMENT, on every backend. The RP1 backend delivers from
@@ -591,6 +595,7 @@ def run(
             trust=roll_trust,
             process_uuid=process_uuid,
             barcode_delay_us=barcode_delay_us,
+            timebase=backend.timebase,
         )
         sink.roll(make_writer, now_fn())
         # The outgoing writer's span is final now that its trailer is written.
