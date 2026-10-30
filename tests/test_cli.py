@@ -2,6 +2,7 @@ import collections
 import datetime
 import json
 import logging
+import math
 import os
 import queue
 import signal
@@ -35,10 +36,18 @@ from wl_sync.clock import (
     value_from_clock,
     write_checkpoint,
 )
-from wl_sync.log import TICK_WRAP_US, SyncBoxLogHeader, BarcodeEmitted, Edge, read_log
+from wl_sync.log import (
+    TICK_WRAP_US,
+    BarcodeEmitted,
+    CodeWord,
+    Edge,
+    SyncBoxLogHeader,
+    read_log,
+)
 from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import SegmentWriter, segment_name
+from wl_sync.service import Recorder
 from concurrent.futures import Future
 
 from wl_sync.sessions import (
@@ -2557,3 +2566,295 @@ def test_the_endpoint_is_shut_down_when_run_raises(tmp_path, monkeypatch):
     assert not [t for t in threading.enumerate() if t.name == "wl-sync-endpoint"]
     with pytest.raises(OSError):
         socket.create_connection(("127.0.0.1", port), timeout=2.0).close()
+
+
+# THE ROLL BARRIER (session-identity spec Sec.3.4, amended 2026-10-30; wl-preproc's ask
+# 4b). wl-preproc never reads unassigned/, so a code word captured before a close and
+# delivered after the roll was a session's last code lost.
+
+
+class _SlowWordPump(FakeBackend):
+    """Delivers code words from a pump thread of its own, as Rp1Backend does, on a clock
+    that runs in real time, and says how far it has delivered by the word pump's rule: the
+    clock read just before a poll, once that poll has delivered everything it found.
+
+    A word can be held back from the pump -- a pump starved of the CPU, say. A held pump
+    does not poll at all, so it cannot move its mark past what it holds."""
+
+    _LATE_S = 0.05  # how long after the run loop first asks a "late" word is delivered
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._origin_ns = time.monotonic_ns()
+        self._lock = threading.Lock()
+        self._captured: collections.deque = collections.deque()
+        self._held_until = 0.0
+        self._held_until_asked = False
+        self._then = None
+        self._through = None
+        self._stop = threading.Event()
+        self._thread = None
+        self.asked: list[float] = []  # time.monotonic() at each delivered_through()
+
+    def now_us(self) -> int:
+        return ((time.monotonic_ns() - self._origin_ns) // 1000) & 0xFFFF_FFFF
+
+    def capture(self, word, *, held_s=0.0, then=None):
+        """A strobe now. The pump does not reach it for `held_s`. `then` runs on the pump
+        thread right after the poll that delivers it."""
+        with self._lock:
+            self._captured.append((self.now_us(), word))
+            self._held_until = max(self._held_until, time.monotonic() + held_s)
+            self._then = then
+
+    def capture_delivered_late(self, word, *, then=None):
+        """A strobe now, which the pump reaches only _LATE_S after the run loop next asks
+        how far delivery has got -- after the boundary is read, wherever that falls."""
+        with self._lock:
+            self._captured.append((self.now_us(), word))
+            self._held_until = math.inf
+            self._held_until_asked = True
+            self._then = then
+
+    def start_strobed_capture(self, data_base, data_count, strobe_pin, on_word):
+        super().start_strobed_capture(data_base, data_count, strobe_pin, on_word)
+        self._thread = threading.Thread(target=self._pump, name="slow-words", daemon=True)
+        self._thread.start()
+
+    def _poll(self) -> None:
+        began = self.now_us()
+        with self._lock:
+            if time.monotonic() < self._held_until:
+                return
+            found = list(self._captured)
+            self._captured.clear()
+            then, self._then = (self._then, None) if found else (None, self._then)
+        for tick, word in found:
+            self._on_word(tick, word)
+        self._through = (began - 1) & 0xFFFF_FFFF
+        if then is not None:
+            then()
+
+    def _pump(self) -> None:
+        while not self._stop.is_set():
+            self._poll()
+            time.sleep(0.001)
+
+    def delivered_through(self):
+        self.asked.append(time.monotonic())
+        with self._lock:
+            if self._held_until_asked:
+                self._held_until_asked = False
+                self._held_until = time.monotonic() + self._LATE_S
+        marks = super().delivered_through()
+        marks["event-code capture"] = self._through
+        return marks
+
+    def close(self) -> None:
+        self._stop.set()
+        self._thread.join()
+        with self._lock:
+            self._held_until = 0.0  # the final drain, as Rp1Backend's
+        self._poll()
+
+
+def _visit(tmp_path, backend, before_close, iterations=5):
+    """Open at iteration 2, then at the end of iteration 3 run `before_close` and request
+    the close, which iteration 4 carries out after its frame. Returns each CodeWord's tick
+    by word, in the session's segment and in the between-sessions segment after it."""
+    requests = queue.SimpleQueue()
+    opening, closing = _request("open", "r1"), _request("close", "2026-08-16_01")
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        if state["n"] == 1:
+            requests.put(opening)
+        if state["n"] == 3:
+            before_close()
+            requests.put(closing)
+
+    run(tmp_path, backend, _clock_from(START), iterations, tick_fn, requests=requests)
+    assert closing.reply.result(timeout=0) == SessionId.parse("2026-08-16_01")
+
+    def words(path):
+        _, records = read_log(path)
+        return {r.word: r.tick_us for r in records if isinstance(r, CodeWord)}
+
+    session = tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0)
+    assert _has_trailer(session)
+    return words(session), words(unassigned_dir(tmp_path, DAY) / segment_name(1))
+
+
+def _boundaries(monkeypatch):
+    """Every boundary a roll takes, as the run loop reads it."""
+    taken = []
+    original = Recorder.now
+
+    def spy(self):
+        taken.append(original(self))
+        return taken[-1]
+
+    monkeypatch.setattr(Recorder, "now", spy)
+    return taken
+
+
+def test_a_word_captured_before_a_close_but_delivered_after_it_lands_in_the_session(
+    tmp_path,
+):
+    """The ask. The word is captured before the close is requested, and its pump delivers
+    it only after the run loop has taken the close. It used to land in whichever segment
+    was open when it drained -- the between-sessions one, which wl-preproc never reads --
+    and the session lost its last code."""
+    backend = _SlowWordPump()
+    in_session, after = _visit(
+        tmp_path, backend, lambda: backend.capture_delivered_late(0x42)
+    )
+    assert 0x42 in in_session, f"landed after the close: {after}"
+    assert 0x42 not in after
+
+
+def test_a_word_captured_after_the_boundary_lands_in_the_new_segment(
+    tmp_path, monkeypatch, caplog
+):
+    """The barrier waits for what was captured up to the boundary and no further. A word
+    captured just after it -- right after the poll that delivered the last word before it
+    -- and still undelivered when that poll has moved the mark past the boundary, goes to
+    the next segment, and the roll does not wait for it."""
+    taken = _boundaries(monkeypatch)
+    backend = _SlowWordPump()
+
+    def before_close():
+        backend.capture_delivered_late(
+            0x42, then=lambda: backend.capture(0x43, held_s=1.0)
+        )
+
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        in_session, after = _visit(tmp_path, backend, before_close)
+
+    boundary = taken[-1]  # the close's
+    assert in_session[0x42] <= boundary < after[0x43]
+    assert 0x43 not in in_session
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+class _EdgesStalled(FakeBackend):
+    """An edge path whose pump has stopped moving its mark."""
+
+    def __init__(self, mark: int) -> None:
+        super().__init__()
+        self.mark = mark
+        self.asked: list[float] = []
+
+    def delivered_through(self):
+        self.asked.append(time.monotonic())
+        marks = super().delivered_through()
+        marks["edge capture"] = self.mark
+        return marks
+
+
+def test_a_stalled_path_costs_the_roll_its_bound_and_a_warning_but_not_the_roll(
+    tmp_path, caplog
+):
+    """A path that has not caught up within ROLL_BARRIER_TIMEOUT_S is named in a WARNING,
+    with its mark and the boundary, and the roll goes ahead. A stalled path is already
+    the health check's to report, so this is not a second failure mode."""
+    write_open(tmp_path, OpenSession(SessionId.parse("2026-08-16_01"), START, "r1"))
+    backend = _EdgesStalled(mark=4_000_000)
+    backend.set_now_us(9_000_000)
+    requests = queue.SimpleQueue()
+    closing = _request("close", "2026-08-16_01")
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        folder = run(
+            tmp_path, backend, _clock_from(START), 3,
+            _requesting(requests, {1: [closing]}), requests=requests,
+        )
+
+    assert closing.reply.result(timeout=0) == SessionId.parse("2026-08-16_01")
+    waited = backend.asked[-1] - backend.asked[0]
+    assert cli.ROLL_BARRIER_TIMEOUT_S - 0.01 <= waited < cli.ROLL_BARRIER_TIMEOUT_S + 0.1
+    assert _has_trailer(tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0))
+    assert folder == unassigned_dir(tmp_path, DAY)
+    assert len(_values(folder / segment_name(0))) == 1
+    [warning] = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert "edge capture" in warning
+    assert "4000000" in warning and "9000000" in warning
+
+
+class _BarrierCosts(_FramesTakeRealTime):
+    """Each roll's barrier costs `cost_s` of the run loop's time."""
+
+    def __init__(self, clock, frame_s, cost_s) -> None:
+        super().__init__(clock, frame_s)
+        self._cost_s = cost_s
+        self._charged_after = None
+
+    def delivered_through(self):
+        if self._charged_after != len(self.frame_starts):
+            self._charged_after = len(self.frame_starts)
+            self._clock.now += self._cost_s
+        return super().delivered_through()
+
+
+def test_a_roll_keeps_the_barcode_cadence_even_when_its_barrier_runs_to_the_bound(
+    tmp_path,
+):
+    """A barrier sits on the run loop between a frame and the next. Charged its whole
+    bound at an open and at a close, frames still go out once a second on the grid."""
+    clock = _Monotonic()
+    backend = _BarrierCosts(clock, FRAME_US / 1e6, cli.ROLL_BARRIER_TIMEOUT_S)
+    requests = queue.SimpleQueue()
+    script = {1: [_request("open", "r1")], 3: [_request("close", "2026-08-16_01")]}
+    scripted = _requesting(requests, script)
+
+    def tick_fn(seconds):
+        clock.sleep(seconds)
+        scripted(seconds)
+
+    run(tmp_path, backend, clock.wall, 6, tick_fn, mono_fn=clock, requests=requests)
+    assert backend._charged_after is not None, "no roll asked how far delivery had got"
+    assert backend.frame_starts == pytest.approx([100.0, 101.5, 102.5, 103.5, 104.5, 105.5])
+
+
+class _ScriptedStampLag(FakeBackend):
+    """stamp_lag() gives each scripted reading in turn, then the last one again."""
+
+    def __init__(self, script) -> None:
+        super().__init__()
+        self._script = list(script)
+
+    def stamp_lag(self):
+        return self._script.pop(0) if len(self._script) > 1 else self._script[0]
+
+
+def test_an_edge_later_than_the_barrier_allows_is_warned_of_once_per_episode(
+    tmp_path, caplog
+):
+    """The edge mark rests on the kernel buffering an edge within EDGE_STAMP_LAG_US of
+    stamping it. The edge pump bounds that lag from above on every read; the health
+    report warns when edges go over, once per episode as it reports failures, and the
+    end of the run says the largest bound seen, so a quiet run confirms the assumption."""
+    from wl_sync.backend import StampLag
+
+    def lag(max_us, over):
+        return StampLag(max_us=max_us, over=over, allowance_us=20_000)
+
+    # One reading per health check: six iterations, then once more after stopping.
+    script = [None, lag(3_000, 0), lag(31_000, 1), lag(31_000, 4), lag(31_000, 4),
+              lag(45_000, 5), lag(45_000, 5)]
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        run(tmp_path, _ScriptedStampLag(script), _clock_from(START), len(script) - 1,
+            lambda _s: None)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2, warnings
+    assert "31000 us" in warnings[0] and "20000 us" in warnings[0]
+    assert "45000 us" in warnings[1]
+    [summary] = [m for m in caplog.messages if m.startswith("edges reached the pump")]
+    assert "45000 us" in summary and "20000 us" in summary and "5 over" in summary
+
+
+def test_a_backend_with_no_edge_lag_says_nothing_about_it(tmp_path, caplog):
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        run(tmp_path, FakeBackend(), _clock_from(START), 2, lambda _s: None)
+    assert not [m for m in caplog.messages if m.startswith("edges reached the pump")]

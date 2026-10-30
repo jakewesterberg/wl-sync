@@ -40,10 +40,10 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 
-from wl_sync.backend import CaptureDegraded
+from wl_sync.backend import CaptureDegraded, StampLag
 from wl_sync.pins import GPIO_MAP
 from wl_sync.rp1 import program
-from wl_sync.rp1.gpio import EdgePump, pulse_deadlines
+from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import WordPump
 
 _TICK_HZ = 1_000_000  # the program's idle loop is 2 cycles, clocked at 2 MHz
@@ -60,6 +60,12 @@ _SPIN_NS = 2_000_000
 # switch interval is 5 ms, so a barcode frame can delay this thread past the FIFO's
 # headroom. A WordsDroppedError that coincides with frames is that.
 _WORD_POLL_S = 0.001
+
+# The edge request's event_buffer_size: the kernel's buffer, and the one libgpiod reads
+# into. Generous, because the kernel's buffer overflows SILENTLY and the only witness is
+# the sequence-number gap EdgePump records and check_health reports. It must hold a
+# whole read (EDGE_READ_MAX), or the edge pump would take every full read for a short one.
+_EDGE_EVENT_BUFFER = 1024
 
 
 log = logging.getLogger(__name__)
@@ -293,17 +299,24 @@ class Rp1Backend:
         catches a single lost word but not a lost pair, and Task 5b Step 3 requires zero
         dropped words -- so a full FIFO is the only honest witness. It is HELD by the
         pump, not raised: see `WordPump` for why capture continues past it.
+
+        The clock is read BEFORE the FIFO is looked at, and handed over only when no half
+        pair is left behind: that is how far this drain can say the pump has delivered
+        (`WordPump.handle`), which a roll waits on.
         """
         lib = self._lib
         if self._sm is None or self._words is None:
             raise PiolibError("start_strobed_capture has not run")
+        polled_at = self.now_us()
         full = bool(lib.wlsync_sm_rx_full(self._sm))
         level = lib.wlsync_sm_rx_level(self._sm)
         # The level is a witness too: a FIFO that filled between the flag's sample and
         # this read holds every word it can, and any push into it was dropped.
         full = full or level >= _RX_FIFO_WORDS
         entries = [lib.wlsync_sm_get(self._sm) for _ in range(level - level % 2)]
-        return self._words.handle(entries, fifo_was_full=full)
+        return self._words.handle(
+            entries, fifo_was_full=full, polled_at=None if level % 2 else polled_at
+        )
 
     def _pump_words(self) -> None:
         """Drain the RX FIFO until told to stop. Errors are HELD, never raised.
@@ -340,6 +353,12 @@ class Rp1Backend:
         import gpiod
         from gpiod.line import Clock, Direction, Edge
 
+        if _EDGE_EVENT_BUFFER < EDGE_READ_MAX:
+            raise ValueError(
+                f"an edge buffer of {_EDGE_EVENT_BUFFER} cannot hold a whole read "
+                f"(EDGE_READ_MAX, {EDGE_READ_MAX}): every full read would look short, "
+                "and the edge pump's mark would pass edges still in the kernel"
+            )
         settings = gpiod.LineSettings(
             direction=Direction.INPUT,
             edge_detection=Edge.BOTH,
@@ -349,10 +368,7 @@ class Rp1Backend:
             self._chip_path,
             config={tuple(pins): settings},
             consumer="wl-sync",
-            # Generous, because the kernel's buffer overflows SILENTLY and the only
-            # witness is the sequence-number gap EdgePump records and check_health
-            # reports.
-            event_buffer_size=1024,
+            event_buffer_size=_EDGE_EVENT_BUFFER,
         )
         self._pump = EdgePump(on_edge, self._origin_ns)
         self._edge_stop = threading.Event()
@@ -368,16 +384,42 @@ class Rp1Backend:
         it: the segment keeps growing from the other two paths and nothing says that
         rewards and licks stopped being recorded. `check_health()` is what makes that
         loud, and the run loop is expected to call it every second.
+
+        Each pass is one wait and at most one read (`EdgePump.pump_once`), which also
+        moves the mark a roll waits on. The wait is EDGE_WAIT_S, 20 ms; it was 0.2 s.
         """
         while not self._edge_stop.is_set():
             try:
-                if not self._edges.wait_edge_events(timeout=0.2):
-                    continue
-                if not self._pump.handle(self._edges.read_edge_events()):
+                if not self._pump.pump_once(self._edges, self.now_us):
                     return
             except BaseException as error:  # noqa: BLE001 - surfaced by check_health
                 self._pump.error = error
                 return
+
+    def delivered_through(self) -> dict[str, int | None]:
+        """How far each capture path started has delivered (`SyncBackend`), as each pump
+        last published it: `WordPump.handle` and `EdgePump.pump_once` give the rules.
+
+        A PATH WHOSE THREAD HAS STOPPED IS LEFT OUT. It has delivered all it ever will,
+        so a roll has nothing to wait for. Kept in, its last mark made every later open
+        and close wait out the whole bound and log a WARNING about records it would
+        never deliver. `check_health()` is what reports the stop.
+        """
+        marks: dict[str, int | None] = {}
+        for path, pump, thread in (
+            ("event-code capture", self._words, self._word_thread),
+            ("edge capture", self._pump, self._edge_thread),
+        ):
+            if pump is not None and thread is not None and thread.is_alive():
+                marks[path] = pump.delivered_through
+        return marks
+
+    def stamp_lag(self) -> StampLag | None:
+        """The edge pump's witness (`EdgePump.pump_once`); None before its first read."""
+        pump = self._pump
+        if pump is None or pump.stamp_lag_max_us is None:
+            return None
+        return StampLag(pump.stamp_lag_max_us, pump.stamp_lag_over, EDGE_STAMP_LAG_US)
 
     def check_health(self) -> None:
         """Raise if anything this backend runs in the background has failed.

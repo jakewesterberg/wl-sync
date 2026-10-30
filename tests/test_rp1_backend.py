@@ -252,13 +252,22 @@ def gpiod(monkeypatch):
             module.sets.append((module.clock.ns, value))
 
         def wait_edge_events(self, timeout):
+            # The real one is select() on the request's fd: with no edges it returns
+            # False once the whole timeout has passed, never sooner. `module.edges` is
+            # the kernel's buffer, which a test fills.
             if module.edge_failure is not None:
                 raise module.edge_failure
-            time.sleep(0.001)
-            return False
+            deadline = time.monotonic() + timeout
+            while not module.edges:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.0005)
+            return True
 
-        def read_edge_events(self):
-            return []
+        def read_edge_events(self, max_events=None):
+            taken = module.edges[:max_events]
+            del module.edges[:max_events]
+            return taken
 
         def release(self):
             pass
@@ -266,6 +275,7 @@ def gpiod(monkeypatch):
     def request_lines(path, config, consumer, **kwargs):
         if path not in module.chips:
             raise FileNotFoundError(path)
+        module.requested.append(kwargs)
         return _Request()
 
     class Chip:
@@ -290,6 +300,8 @@ def gpiod(monkeypatch):
     module.Chip = Chip
     module.clock = _FakeTime()
     module.edge_failure = None
+    module.edges = []
+    module.requested = []
     monkeypatch.setitem(sys.modules, "gpiod", module)
     monkeypatch.setitem(sys.modules, "gpiod.line", line)
     return module
@@ -501,3 +513,229 @@ def test_the_recorders_clock_is_not_read_before_the_origin_moves(lib, gpiod, mon
     assert isinstance(word, CodeWord) and word.tick_us == 300
     assert isinstance(barcode, BarcodeEmitted) and barcode.tick_us == 1_000
     assert barcode.tick_us < TICK_WRAP_US
+
+
+def _manual_clock(monkeypatch):
+    """The box clock, moved only by the test; sleeps are real, so the pump threads run."""
+    import types
+
+    now = types.SimpleNamespace(ns=10**12)
+    monkeypatch.setattr(
+        rp1,
+        "time",
+        types.SimpleNamespace(
+            CLOCK_MONOTONIC=1,
+            clock_gettime_ns=lambda _clock: now.ns,
+            sleep=time.sleep,
+            monotonic=time.monotonic,
+        ),
+    )
+    return now
+
+
+def test_the_word_pump_never_claims_a_word_it_has_not_delivered(lib, gpiod, monkeypatch):
+    """How far the word pump has delivered, which the run loop's roll barrier waits on.
+
+    The pump reads the clock just before each poll, and moves its mark there (less the few
+    microseconds a strobe's two words take to reach the FIFO) only once that poll has
+    delivered every word it found. A word still being delivered holds the mark back, and
+    so does half a pair: the data word of a strobe whose counter is not in the FIFO yet."""
+    from wl_sync.rp1.pio_capture import WORDS_LAG_US
+
+    now = _manual_clock(monkeypatch)
+    delivering, release = threading.Event(), threading.Event()
+    seen = []
+
+    def on_word(tick, word):
+        delivering.set()
+        release.wait(5)
+        seen.append(word)
+
+    backend = _started(lib, on_word)  # the origin is now: now_us() reads 0
+
+    def mark():
+        return backend.delivered_through()["event-code capture"]
+
+    try:
+        now.ns += 1_000_000_000  # 1 s in: a poll there moves the mark to just before it
+        assert _until(lambda: mark() == 1_000_000 - WORDS_LAG_US - 1)
+
+        now.ns += 1_000_000  # a strobe at 1 001 000 us
+        lib.push(stream((1_001_000, 1)))
+        assert delivering.wait(1)
+        now.ns += 4_000_000  # the clock runs on while the word is being delivered
+        time.sleep(0.02)
+        assert mark() < 1_001_000
+        release.set()
+        assert _until(lambda: seen == [1])
+        assert _until(lambda: mark() >= 1_001_000)
+
+        now.ns += 1_000_000  # 1 006 000 us: a strobe whose counter word is not in yet
+        lib.push([2])
+        drains = lib.drains + 3
+        assert _until(lambda: lib.drains >= drains)
+        held = mark()
+        assert held < 1_006_000
+        now.ns += 1_000_000
+        drains = lib.drains + 3
+        assert _until(lambda: lib.drains >= drains)
+        assert mark() == held, "a poll that left half a pair behind moved the mark"
+        lib.push([(~1_006_000) & 0xFFFFFFFF])
+        assert _until(lambda: seen == [1, 2])
+        assert _until(lambda: mark() >= 1_006_000)
+    finally:
+        release.set()
+        backend.close()
+
+
+def test_the_backend_says_how_far_each_capture_path_has_delivered(lib, gpiod):
+    """Raw now_us() readings, one per path started, named as check_health() names them.
+    Unwrapping them is the Recorder's: the shared clock holds the wrap count."""
+    backend = Rp1Backend()
+    assert backend.delivered_through() == {}
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    backend.start_edge_capture([20, 21], lambda gpio, level, tick: None)
+    try:
+        assert _until(
+            lambda: None not in backend.delivered_through().values(), timeout=2.0
+        )
+        assert set(backend.delivered_through()) == {"event-code capture", "edge capture"}
+    finally:
+        backend.close()
+
+
+def test_with_prompt_delivery_both_paths_pass_a_boundary_well_inside_the_bound(lib, gpiod):
+    """The roll barrier's normal cost, on real threads. The word pump polls every
+    millisecond; an idle edge line moves its mark once per timed-out wait. So both paths
+    pass a boundary within a few edge waits, far inside ROLL_BARRIER_TIMEOUT_S: a roll with
+    prompt delivery never runs the barrier to its bound."""
+    from wl_sync.cli import ROLL_BARRIER_TIMEOUT_S
+    from wl_sync.service import Recorder
+
+    class _Sink:
+        def write(self, record):
+            pass
+
+    backend = Rp1Backend()
+    recorder = Recorder(backend, sink=_Sink())
+    recorder.capture_codes(0, DATA, DATA)
+    recorder.capture_edges([20, 21])
+    try:
+        assert _until(lambda: None not in recorder.delivered_through().values(), 2.0)
+        took = []
+        for _ in range(5):
+            boundary = recorder.now()
+            began = time.monotonic()
+            assert _until(
+                lambda: min(recorder.delivered_through().values()) >= boundary, 1.0
+            )
+            took.append(time.monotonic() - began)
+        assert max(took) < ROLL_BARRIER_TIMEOUT_S, took
+    finally:
+        backend.close()
+
+
+def test_a_capture_path_that_has_stopped_is_not_waited_for(lib, gpiod, caplog):
+    """A pump whose thread has exited has delivered all it ever will, so a roll has
+    nothing to wait for. It used to keep its last mark, and every later open and close
+    then waited out ROLL_BARRIER_TIMEOUT_S and logged a WARNING about records it would
+    "deliver late". check_health() is what reports the stop."""
+    import logging
+
+    from wl_sync import cli
+    from wl_sync.service import Recorder
+
+    class _Sink:
+        def write(self, record):
+            pass
+
+    backend = Rp1Backend()
+    recorder = Recorder(backend, sink=_Sink())
+    recorder.capture_codes(0, DATA, DATA)
+    recorder.capture_edges([20, 21])
+
+    def barrier():
+        began = time.monotonic()
+        cli._await_delivery(recorder, recorder.now())
+        return time.monotonic() - began
+
+    try:
+        assert _until(lambda: None not in recorder.delivered_through().values(), 2.0)
+        with caplog.at_level(logging.WARNING, logger=cli.log.name):
+            gpiod.edge_failure = OSError("EIO")
+            assert _until(lambda: not backend._edge_thread.is_alive())
+            assert set(backend.delivered_through()) == {"event-code capture"}
+            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S / 4
+
+            lib.push(stream((10, 1))[1:] + [0])  # the pairing slips: the word pump stops
+            assert _until(lambda: not backend._word_thread.is_alive())
+            assert backend.delivered_through() == {}
+            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S / 4
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    finally:
+        backend.close()
+
+
+def test_the_edge_buffer_holds_a_whole_read(lib, gpiod, monkeypatch):
+    """The edge pump takes a read shorter than EDGE_READ_MAX for an empty kernel buffer,
+    and libgpiod caps each read at the buffer it allocates from event_buffer_size. A
+    smaller buffer would make every full read look short, and move the mark past edges
+    still waiting in the kernel."""
+    from wl_sync.rp1.gpio import EDGE_READ_MAX
+
+    backend = Rp1Backend()
+    try:
+        backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    finally:
+        backend.close()
+    [edges] = [kwargs for kwargs in gpiod.requested if "event_buffer_size" in kwargs]
+    assert edges["event_buffer_size"] >= EDGE_READ_MAX
+
+    monkeypatch.setattr(rp1, "_EDGE_EVENT_BUFFER", EDGE_READ_MAX - 1)
+    backend = Rp1Backend()
+    try:
+        with pytest.raises(ValueError, match="EDGE_READ_MAX"):
+            backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    finally:
+        backend.close()
+
+
+def _edge_now_less(backend, seqno, us):
+    """An edge the kernel stamped `us` before now, on the backend's own timebase."""
+    import types
+
+    rising = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
+    return types.SimpleNamespace(
+        global_seqno=seqno,
+        line_offset=20,
+        event_type=rising.RISING_EDGE,
+        Type=rising,
+        timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - us * 1_000,
+    )
+
+
+def test_the_edge_pump_witnesses_how_late_edges_reach_it(lib, gpiod):
+    """The roll barrier assumes the kernel buffers an edge within EDGE_STAMP_LAG_US of
+    stamping it. Each read bounds that from above -- the clock when the read returned,
+    less the edge's stamp -- and the backend reports the largest bound, and how many
+    edges went over, for the health report to log."""
+    from wl_sync.rp1.gpio import EDGE_STAMP_LAG_US
+
+    seen = []
+    backend = Rp1Backend()
+    assert backend.stamp_lag() is None
+    time.sleep(0.1)  # so an edge stamped 50 ms ago is after the origin
+    backend.start_edge_capture([20], lambda gpio, level, tick: seen.append(tick))
+    try:
+        gpiod.edges.append(_edge_now_less(backend, 1, 1_000))
+        assert _until(lambda: len(seen) == 1)
+        lag = backend.stamp_lag()
+        assert lag.allowance_us == EDGE_STAMP_LAG_US
+        assert lag.max_us >= 1_000  # an upper bound: it can never be less than the truth
+
+        gpiod.edges.append(_edge_now_less(backend, 2, 50_000))
+        assert _until(lambda: len(seen) == 2)
+        lag = backend.stamp_lag()
+        assert lag.max_us >= 50_000 and lag.over >= 1
+    finally:
+        backend.close()

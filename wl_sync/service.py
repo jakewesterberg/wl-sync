@@ -134,6 +134,22 @@ class _BoxClock:
                 delta -= TICK_WRAP_US
             return now + delta
 
+    def unwrap_reading(self, raw: int) -> int:
+        """A raw `now_us()` READING taken earlier, unwrapped: the value congruent to `raw`
+        mod 2^32 at or before `now()`.
+
+        For readings only, such as how far a capture path has delivered, never for ticks.
+        A reading cannot lie after now, since it came from this clock earlier, so "at or
+        before" is exact for one up to 71.6 min old, where `unwrap`'s nearest is exact only
+        to 35.8 min. That matters for a capture path that has stalled: nearest would carry
+        a mark more than 35.8 min old a wrap FORWARD, past any boundary, and a roll would
+        stop waiting for a path that has delivered nothing. A tick can lie after now (see
+        above), which is why ticks get nearest.
+        """
+        with self._lock:
+            now = self._now_locked()
+            return now - (now - raw) % TICK_WRAP_US
+
 
 class _MemorySink:
     """The historical behaviour: hold everything, sort on read. Correct for tests and
@@ -217,6 +233,27 @@ class Recorder:
         self._sink.write(
             BarcodeEmitted(tick_us=self._clock.unwrap(tick), value=value)
         )
+
+    def now(self) -> int:
+        """The box clock now, unwrapped: the timebase every record lands on. A roll takes
+        its boundary from here (wl_sync.cli)."""
+        return self._clock.now()
+
+    def delivered_through(self) -> dict[str, int | None]:
+        """`backend.delivered_through()` on the box clock: for each capture path started, an
+        unwrapped reading W such that every record that path captured at or before W has
+        reached the sink. None for a path that cannot say yet.
+
+        THE BACKEND KNOWS WHEN, THIS CLOCK KNOWS WHICH WRAP. The pumps see their buffers
+        empty and can read `now_us()`, but they hold no wrap count; this clock does, so the
+        split is the one ticks already follow. PER PATH, NOT ONE MINIMUM: a minimum of raw
+        readings picks the wrong path across a wrap, and the run loop names the path that
+        is behind.
+        """
+        return {
+            path: None if raw is None else self._clock.unwrap_reading(raw)
+            for path, raw in self._backend.delivered_through().items()
+        }
 
     def records(self) -> list[Record]:
         """Tick-sorted, and empty when a streaming sink was supplied -- nothing is held."""

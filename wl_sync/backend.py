@@ -18,6 +18,7 @@ hardware/breakout/camera-sync-change.md and frame-time-inputs.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 
@@ -32,6 +33,23 @@ class CaptureDegraded(RuntimeError):
     def __init__(self, problems: Sequence[tuple[str, str]]) -> None:
         self.kinds = frozenset(kind for kind, _ in problems)
         super().__init__("; ".join(message for _, message in problems))
+
+
+@dataclass(frozen=True)
+class StampLag:
+    """The edge path's witness for the assumption a roll's boundary rests on: that the
+    kernel puts an edge in its buffer within `allowance_us` of stamping it.
+
+    `max_us` is the largest upper bound seen this run on that delay: the clock when the
+    edge pump's read returned, less the edge's stamp. The bound also counts how late the
+    pump itself was, so one over the allowance means the assumption could not be
+    confirmed, not that it failed. `over` counts the edges whose bound exceeded the
+    allowance, and only ever grows.
+    """
+
+    max_us: int
+    over: int
+    allowance_us: int
 
 
 class SyncBackend(Protocol):
@@ -57,6 +75,26 @@ class SyncBackend(Protocol):
 
     def now_us(self) -> int:
         """Current value of the hardware tick counter."""
+
+    def delivered_through(self) -> dict[str, int | None]:
+        """How far each capture path has delivered, which a roll waits on.
+
+        One entry per path started, named as check_health() names it: a raw `now_us()`
+        reading W such that every record the path captured at a reading at or before W
+        has been passed to its callback. None until the path can say.
+
+        Raw, as every tick a backend hands over is. The wrap count belongs to the
+        Recorder's one clock, which unwraps these and compares them with the roll's
+        boundary (wl_sync.cli._await_delivery).
+
+        A path that will deliver nothing more, because its thread has stopped, is left
+        out: there is nothing to wait for.
+        """
+
+    def stamp_lag(self) -> StampLag | None:
+        """How late edges have reached this process after the kernel stamped them, as an
+        upper bound (`StampLag`), for the health report. None for a backend with no such
+        delay, or before the first edge."""
 
     def check_health(self) -> None:
         """Raise if anything capturing in the background has failed.
@@ -121,6 +159,26 @@ class FakeBackend:
                 f"injected tick {tick} is {distance} us from now_us() {self._tick}; "
                 "call set_now_us() so the clock is near the tick"
             )
+
+    def delivered_through(self) -> dict[str, int | None]:
+        """Every path started has delivered through now, because dispatch is synchronous:
+        a record is delivered before inject_* returns. Read through now_us(), so a
+        subclass with a clock of its own says its own now.
+
+        A SUBCLASS THAT DELIVERS ASYNCHRONOUSLY, from a thread or a queue of its own, MUST
+        OVERRIDE THIS. Otherwise it claims records it has not delivered, and a roll's
+        barrier passes without them.
+        """
+        now = self.now_us()
+        marks: dict[str, int | None] = {}
+        if self._on_word is not None:
+            marks["event-code capture"] = now
+        if self._on_edge is not None:
+            marks["edge capture"] = now
+        return marks
+
+    def stamp_lag(self) -> StampLag | None:
+        return None  # no kernel between an injected edge and its delivery
 
     def check_health(self) -> None:
         pass  # dispatch is synchronous, so nothing runs in the background to fail

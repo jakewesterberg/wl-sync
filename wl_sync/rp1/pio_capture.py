@@ -81,6 +81,13 @@ class WordsDroppedError(RuntimeError):
     """The RX FIFO was full when drained, so `push noblock` may have discarded words."""
 
 
+# How long after a strobe edge both of its words are in the RX FIFO, with room to spare.
+# The program (wl_sync.rp1.program) runs at 2 MHz, 0.5 us a cycle. The idle loop tests
+# the strobe every 2 cycles, and the capture path pushes its second word 7 cycles after
+# leaving the loop, so the pair is in within 10 cycles, 5 us. Doubled.
+WORDS_LAG_US = 10
+
+
 class WordPump:
     """Turns RX FIFO batches into `on_word` calls, and survives what goes wrong.
 
@@ -99,15 +106,37 @@ class WordPump:
         the wrong half: plausible timestamps for events that never happened. The pump
         STOPS. The whole batch is refused, because it cannot be trusted either.
       * A FAILING CONSUMER means records are not being kept. The pump STOPS.
+
+    `delivered_through` is how far it has delivered, as a raw `now_us()` reading (see
+    `handle`), for the run loop's roll barrier. None until the first drain that can say.
     """
 
     def __init__(self, on_word: Callable[[int, int], None], data_count: int) -> None:
         self._on_word = on_word
         self._data_count = data_count
         self.error: BaseException | None = None
+        self.delivered_through: int | None = None
 
-    def handle(self, entries: Sequence[int], fifo_was_full: bool = False) -> bool:
-        """Deliver one drained batch. Returns False when the pump should stop."""
+    def handle(
+        self,
+        entries: Sequence[int],
+        fifo_was_full: bool = False,
+        polled_at: int | None = None,
+    ) -> bool:
+        """Deliver one drained batch. Returns False when the pump should stop.
+
+        `polled_at` is `now_us()` read just before the drain that produced `entries`. The
+        drain passes it only when it read every word the FIFO held when it looked: an even
+        level, with no half pair left behind. Every strobe more than WORDS_LAG_US before
+        that reading had both its words in the FIFO by then, so once this batch is
+        delivered, so is every strobe at or before `polled_at - WORDS_LAG_US - 1`, and
+        `delivered_through` moves there. The allowance means the rule does not depend on
+        how long the shim takes to read the level.
+
+        "Before" is on the box clock, where the reading is from, not by the words' own
+        ticks: those count the RP1 crystal, which drifts from the box clock over a run.
+        A batch that fails moves nothing.
+        """
         if fifo_was_full:
             self.error = WordsDroppedError(
                 "the PIO RX FIFO was full when drained: event codes may have been lost"
@@ -123,4 +152,6 @@ class WordPump:
             except BaseException as error:  # noqa: BLE001 - surfaced by check_health
                 self.error = error
                 return False
+        if polled_at is not None:
+            self.delivered_through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF
         return True

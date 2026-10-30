@@ -95,6 +95,11 @@ NTP_POLL_TIMEOUT_S = 0.3
 # answer puts the wait back to NTP_POLL_INTERVAL_S.
 NTP_POLL_BACKOFF_MAX_S = 300.0
 
+# The longest a roll waits for the capture paths to deliver what they captured up to its
+# boundary, and how often it looks. See _await_delivery for the arithmetic.
+ROLL_BARRIER_TIMEOUT_S = 0.2
+_BARRIER_POLL_S = 0.001
+
 # `logging`, not `print`: stdout is block-buffered when it is a pipe, which is what
 # systemd gives a service, so prints can sit unflushed in a daemon that runs all day.
 # journald is this box's only status surface (spec Sec.7, Sec.10) -- the heartbeat LED
@@ -258,6 +263,74 @@ def _segment_factory(
         return SegmentWriter(path, header)
 
     return path, make
+
+
+def _await_delivery(recorder: Recorder, boundary: int) -> None:
+    """Wait until every capture path has delivered everything it captured up to
+    `boundary`, or for ROLL_BARRIER_TIMEOUT_S. The roll that follows then closes the
+    outgoing segment behind all of it (session-identity spec Sec.3.4, amended 2026-10-30).
+
+    WHY WAITING IS ENOUGH. The capture threads deliver into the QueuedSink, which keeps
+    queue order, and the roll is queued behind everything delivered before it. So all
+    that each path has delivered when this returns lands in the outgoing segment. The B
+    records are the run loop's own, written before it got here. A record captured after
+    the boundary lands in the new segment, unless it is delivered while this waits.
+
+    "UP TO THE BOUNDARY" MEANS CAPTURED BY THEN on the box clock, which the boundary is
+    read from. An edge's tick is that clock, stamped by the kernel. A code word's tick
+    counts the RP1 crystal, which drifts from the box clock by its ppm over a run, so a
+    word captured just before the boundary can carry a tick just after it.
+
+    THE WAIT IN NORMAL OPERATION. A roll runs after a frame, and the next frame is due
+    about 0.8 s after that one ends.
+      * The word pump polls every millisecond (rp1.backend._WORD_POLL_S), so it passes
+        the boundary within a few milliseconds.
+      * The edge pump moves its mark after each wait of EDGE_WAIT_S, 20 ms: to T - 1 when
+        the wait times out, and to T - 20 ms - 1 when a read empties the kernel's buffer,
+        where T is the clock read just before the wait (rp1.gpio.EdgePump.pump_once). On
+        an idle line, the first wait to begin after the boundary times out within
+        2 x 20 ms = 40 ms of it. On a busy line, the first wait to begin 20 ms after the
+        boundary does so by 40 ms and ends by 60 ms.
+      * With ~5 ms for Python's thread switch interval, that is about 65 ms at most. The
+        rest of an open's or close's iteration is normally tens of milliseconds too (the
+        flush's fsync, the state file's two, the trailer's, two manifest rebuilds, and
+        the NTP probe: 62 ms cold, 9 ms warm on wl-sync-rig0), so a roll does not cost a
+        frame in normal operation.
+    The edge pump's wait was 0.2 s, which alone would have made the idle case 0.4 s.
+
+    WITH A PATH STALLED, THE BOUND IS A BUDGET, NOT A GUARANTEE. The wait then runs to
+    ROLL_BARRIER_TIMEOUT_S, 0.2 s. Beside a cold probe and two of the worst fsyncs seen
+    (229 ms) that is 0.2 + 0.062 + 2 x 0.229 = 0.72 s, inside the 0.8 s. But the
+    iteration also holds the state file's fsyncs, a probe allowed 5 s, and, when two
+    requests are queued, two rolls and two waits, so a frame can be skipped. A path
+    whose thread has stopped is not waited for at all (Rp1Backend.delivered_through),
+    which removes the likeliest way here.
+
+    A PATH THAT DOES NOT CATCH UP IS NAMED, AND THE ROLL GOES AHEAD. A WARNING gives the
+    path, its mark and the boundary, and what the path delivers late lands in the new
+    segment. Nothing is raised: a stalled path is check_health()'s to report.
+
+    Real time, not the run loop's injected clocks: what it waits on is other threads.
+    """
+    deadline = time.monotonic() + ROLL_BARRIER_TIMEOUT_S
+    while True:
+        behind = {
+            path: mark
+            for path, mark in recorder.delivered_through().items()
+            if mark is None or mark < boundary
+        }
+        if not behind or time.monotonic() >= deadline:
+            break
+        time.sleep(_BARRIER_POLL_S)
+    for path, mark in sorted(behind.items()):
+        log.warning(
+            "rolling before %s has delivered everything captured up to the boundary: "
+            "delivered through %s, boundary %d us; what it delivers late lands in the "
+            "next segment",
+            path,
+            "nothing yet" if mark is None else f"{mark} us",
+            boundary,
+        )
 
 
 @contextlib.contextmanager
@@ -451,8 +524,17 @@ def run(
         judged. See clock.evaluate_roll for why NTP alone is not enough.
 
         A failure IN the roll propagates: the sink is dead and can record nothing.
+
+        THE BOUNDARY IS READ FIRST, and every record captured up to it lands in the
+        outgoing segment (_await_delivery). At an open or close that is after the request
+        has been taken and carried out, so all that was captured before the request is on
+        the outgoing side. wl-preproc never reads unassigned/, so before this a code word
+        captured before a close and delivered after the roll was lost to its session.
+        The roll when NTP first syncs waits too: it costs a few tens of milliseconds, and
+        every segment boundary then means the same thing.
         """
         nonlocal folder, session_id, carried_last, rolls
+        _await_delivery(recorder, recorder.now())
         rolls += 1
         old_folder, outgoing = folder, sink.sink
         written_at = now_fn()
@@ -733,6 +815,7 @@ def run(
         # Once more after stopping: whatever capture held at the end -- the last second,
         # the final FIFO drain -- would otherwise never be reported.
         health()
+        health.summary()
         sink.close(now_fn())
         # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
         # dead-RTC start really does emit -- with "no barcodes were written".
@@ -866,12 +949,21 @@ class _HealthReport:
     has died never comes back, so check_health() raises the same thing every second,
     and 86,400 identical lines a day would bury the journal. A healthy call ends the
     episode, so the same failure after a recovery is reported again.
+
+    IT ALSO WATCHES THE EDGE WITNESS (`backend.stamp_lag()`). A roll's boundary assumes
+    the kernel buffers an edge within an allowance of stamping it (rp1.gpio,
+    EDGE_STAMP_LAG_US), and the edge pump bounds that delay from above on every read.
+    Edges going over are a WARNING, once per episode: an episode lasts while each check
+    finds more of them. `summary()` gives the largest bound of the run, so a quiet run
+    says the assumption held.
     """
 
     def __init__(self, backend) -> None:
         self._backend = backend
         # The kinds of a CaptureDegraded, or the message of any other failure.
         self._reported: frozenset[str] | str | None = None
+        self._lag_over = 0
+        self._lag_episode = False
 
     def __call__(self) -> None:
         try:
@@ -886,6 +978,39 @@ class _HealthReport:
             self._reported = episode
         else:
             self._reported = None
+        self._watch_stamp_lag()
+
+    def _watch_stamp_lag(self) -> None:
+        lag = self._backend.stamp_lag()
+        over = 0 if lag is None else lag.over
+        if over > self._lag_over:
+            if not self._lag_episode:
+                log.warning(
+                    "an edge reached the pump up to %d us after the kernel stamped it, "
+                    "more than the %d us a roll's boundary allows the kernel to buffer "
+                    "it in (%d edges over so far). The bound includes the pump's own "
+                    "delay, so the kernel may still be within it; if not, an edge "
+                    "stamped just before a roll can land in the next segment",
+                    lag.max_us,
+                    lag.allowance_us,
+                    lag.over,
+                )
+            self._lag_episode = True
+        else:
+            self._lag_episode = False
+        self._lag_over = over
+
+    def summary(self) -> None:
+        """The run's largest edge witness, if the backend has one, for the journal."""
+        lag = self._backend.stamp_lag()
+        if lag is not None:
+            log.info(
+                "edges reached the pump at most %d us after the kernel stamped them this "
+                "run; a roll's boundary allows the kernel %d us (%d over)",
+                lag.max_us,
+                lag.allowance_us,
+                lag.over,
+            )
 
 
 class _StopFlag:

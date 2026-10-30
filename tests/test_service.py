@@ -405,3 +405,74 @@ def test_interleaved_delivery_near_a_wrap_still_maps_each_record_to_its_true_tim
     backend.inject_edge(REWARD_PIN, 1, (wrap - 200) & _MASK)  # before it, delivered second
     backend.inject_word((wrap + 400) & _MASK, 0x0002)
     assert [r.tick_us for r in sink.written[-3:]] == [wrap + 300, wrap - 200, wrap + 400]
+
+
+# How far a capture path has delivered, on the box clock (Recorder.delivered_through). A
+# mark is a now_us() READING, so it is unwrapped at or before now, never to the nearest
+# value as ticks are. The two agree for a mark under 35.8 min old; each test below also
+# holds the mark past that, where nearest carries it a wrap FORWARD, past the boundary,
+# and a roll would stop waiting for a path that has delivered nothing since.
+
+_STALE_US = 40 * 60 * 1_000_000  # 40 min: a path that stalled one roll ago
+
+
+class _MarkedBackend(FakeBackend):
+    """An edge path whose mark the test sets."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.mark = None
+
+    def delivered_through(self):
+        return {"edge capture": self.mark}
+
+
+def _marked():
+    backend = _MarkedBackend()
+    recorder = Recorder(backend, sink=_CollectingSink())
+    recorder.capture_edges([REWARD_PIN])
+    return backend, recorder
+
+
+def test_a_mark_read_just_before_a_wrap_is_exact_and_behind_a_boundary_after_it():
+    backend, recorder = _marked()
+    backend.set_now_us(TICK_WRAP_US - 100)
+    recorder.now()
+    backend.mark = TICK_WRAP_US - 101
+
+    backend.set_now_us(TICK_WRAP_US + 50)  # the clock wraps, and the roll comes
+    boundary = recorder.now()
+    assert boundary == TICK_WRAP_US + 50
+    assert recorder.delivered_through() == {"edge capture": TICK_WRAP_US - 101}
+
+    backend.set_now_us(TICK_WRAP_US + 50 + _STALE_US)  # stalled, and a roll 40 min on
+    boundary = recorder.now()
+    [mark] = recorder.delivered_through().values()
+    assert mark == TICK_WRAP_US - 101 < boundary
+
+
+def test_a_mark_below_the_origin_is_negative_and_exact():
+    """The edge pump's short-read mark, T - 20 ms - 1, taken 5 ms after capture began."""
+    backend, recorder = _marked()
+    backend.set_now_us(5_000)
+    recorder.now()
+    backend.mark = (5_000 - 20_001) % TICK_WRAP_US
+    assert recorder.delivered_through() == {"edge capture": -15_001}
+
+    backend.set_now_us(5_000 + _STALE_US)
+    boundary = recorder.now()
+    [mark] = recorder.delivered_through().values()
+    assert mark == -15_001 < boundary
+
+
+def test_a_mark_forty_minutes_stale_stays_behind_the_boundary():
+    """Nearest would put this mark 1895 s AHEAD of the boundary."""
+    backend, recorder = _marked()
+    backend.set_now_us(1_000_000_000)
+    recorder.now()
+    backend.mark = 999_999_999
+
+    backend.set_now_us(1_000_000_000 + _STALE_US)
+    boundary = recorder.now()
+    [mark] = recorder.delivered_through().values()
+    assert mark == 999_999_999 < boundary

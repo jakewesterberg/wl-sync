@@ -130,14 +130,50 @@ Three repositories already depend on a rule this repository does not yet impleme
   never see a folder change, and are never blocked by one.
 - **A roll closes the current segment cleanly, with its trailer, and opens the next segment in
   the new folder**, between two emit-loop iterations. The barcode continues across it without a
-  gap: the next frame lands in the new folder. Records queued during the roll go to whichever
+  gap: the next frame lands in the new folder. ~~Records queued during the roll go to whichever
   segment is open when they drain. That costs at most one second of edges landing on the
-  boundary's far side; wl-preproc fits each segment separately anyway.
+  boundary's far side; wl-preproc fits each segment separately anyway.~~ **Amended 2026-10-30:**
+  every record captured before the roll's boundary lands in the closing segment (below).
 
   > **Amended 2026-10-30.** One roll stays in its folder. A run that began before NTP synced
   > rolls once when NTP first syncs (continuous-recording spec §7). A roll at an open or a
   > close still always changes folders. The header's `process_uuid` tells any roll from a
   > restart.
+
+  > **Amended 2026-10-30 (wl-preproc's ask 4b).** Every record captured before a roll's boundary
+  > lands in the closing segment. wl-preproc never reads `unassigned/`, so under the struck rule
+  > a code word captured before a close but delivered after the roll was lost to its session.
+  >
+  > - **The boundary** is the box clock's reading (`now_us()`, unwrapped) when the run loop
+  >   begins the roll. At an open or a close, the run loop has by then taken the request and
+  >   carried it out, so everything captured before the request is before the boundary.
+  > - **Before it closes the segment, the run loop waits** until every capture path has
+  >   delivered everything it captured up to the boundary. Each path says how far it has
+  >   delivered, and the queue into the segment keeps its order, so all of it lands ahead of
+  >   the trailer. A path whose thread has stopped has delivered all it ever will, and is not
+  >   waited for.
+  > - **For edges this rests on one assumption: the kernel puts an edge in its buffer within
+  >   20 ms of stamping it.** The kernel stamps an edge in its interrupt handler and buffers it
+  >   afterwards, from a thread, so the box cannot see an edge in between. The 20 ms is an
+  >   allowance, not a measurement. The box bounds the delay from above on every read and
+  >   warns in the journal when an edge goes over; bench day measures it directly, under
+  >   load. Should it ever exceed 20 ms, an edge stamped just before the boundary can land in
+  >   the new segment.
+  > - **"Captured" is on the box clock.** An edge's tick is that clock. A code word's tick
+  >   counts the RP1's crystal, which drifts from the box clock by its error in ppm times the
+  >   recording process's lifetime: about 0.18 s per hour at 50 ppm, 1.8 s after ten hours. So
+  >   a word captured just before the boundary can carry a tick up to that much after it, and
+  >   still be in the closing segment.
+  > - **A record captured after the boundary lands in the new segment**, unless it is delivered
+  >   while the run loop is still waiting. In normal operation the wait is tens of
+  >   milliseconds, about 65 ms at most.
+  > - **The wait is bounded at 0.2 s**, so in normal operation a roll does not cost a barcode
+  >   frame. A path that has not caught up by then is named in a journal WARNING, with how
+  >   far it had delivered and the boundary, and the roll goes ahead. What that path delivers
+  >   late lands in the new segment. A stalled path is already reported by the health check.
+  >   With a path stalled, the frame is a budget, not a guarantee: a slow disk, or two
+  >   requests carried out in one iteration, can cost one.
+  > - **The roll when NTP first syncs waits the same way.**
 - **The box's per-folder `manifest.json`** keeps its present meaning and format, now one per
   folder rather than one per day.
 
