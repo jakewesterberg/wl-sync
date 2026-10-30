@@ -49,6 +49,11 @@ devices, but carry no sync-box coverage.
 open to the first one after the close. A gap there is an outage only if no session
 folder covers it: check the `<id>/syncbox/manifest.json` of each visit that day.
 
+**A 2 s gap between two segments with the same `process_uuid`** (added 2026-10-30) is not
+an outage either. After NTP's first sync the box rolls once in place, and if that sync
+stepped the clock by a fraction of a second, the frame grid is placed again and one barcode
+value may be skipped. The box was watching throughout.
+
 `overlaps` should be **empty**, and anything in it is an alarm rather than a note.
 It means the barcode counter went backwards or repeated, so one barcode value names
 two different moments and a trial can be attributed to the wrong one. Ordinary
@@ -82,7 +87,9 @@ the platform does not expose one.
 
 - **`process_uuid`** names the process that wrote the segment. It is one UUID, made when
   `wl-sync record` starts and written into every segment that process writes. Every restart
-  makes a new one. Segments with the same id are on one clock. A new id is a restart. The
+  makes a new one. Segments with the same id are on one clock: one origin, but code words
+  still drift from barcodes and edges at RP1's crystal error (see `wl_sync/log.py`). A new
+  id is a restart. The
   id does not say whether anything lies between two segments; the `B` values do. The
   start's journal line prints it.
 - **`barcode_delay_us`** is how long after a `B` record's tick the frame's lead edge reaches

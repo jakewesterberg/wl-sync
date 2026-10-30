@@ -75,14 +75,21 @@ class SyncBoxLogHeader(BaseModel):
     """Which recorder process wrote this segment. `wl-sync record` makes one UUID4 when
     the process starts and writes it, in canonical form, into every segment that process
     writes, before and after every roll. Every new process makes a new one. None means
-    the segment was written before this field existed (2026-10-30). Every segment written
-    since carries one.
+    the segment was written before this field existed (2026-10-30). Every segment
+    `wl-sync record` has written since carries one; a log built with `write_log`, such
+    as a synthetic one, need not.
 
     THE CONTRACT A READER MAY RELY ON:
 
     - Segments with the same id were written by one process, so their ticks are on one
       clock: the box clock in `wl_sync.service` (`_BoxClock`), on which every path's
       ticks are placed. They compare by number, wherever the segments are.
+    - "One clock" means one origin and one wrap count, not one rate. `B` and `E` ticks
+      count CLOCK_MONOTONIC. `W` ticks count RP1's own crystal, joined to it once, when
+      capture starts, so they drift from `B` and `E` by that crystal's rate error times
+      the time since the process started: about 0.18 s an hour at 50 ppm. The real rate
+      is unmeasured, and the fix is open (wl-sync
+      docs/superpowers/specs/2026-10-30-one-clock-design.md).
     - Two segments in one folder, with consecutive `segment_index` and the same id, are
       not a restart. The index goes up by one between them, and the ticks run on, on
       that one clock, which a roll does not reset.
@@ -103,11 +110,16 @@ class SyncBoxLogHeader(BaseModel):
 
     A reader that needs adjacency checks the `B` values across the boundary. Where
     nothing lies between, the second segment's first value normally follows the
-    first's last by one, as consecutive frames do within a segment.
+    first's last by one, as consecutive frames do within a segment. Across a roll in
+    place it can follow by two: NTP's first sync can step the clock by a fraction of a
+    second, the frame grid is then placed mid-second again (`wl_sync.cli.run`), and that
+    frame may skip one value. The gap is elapsed time, not a loss. Treat +1 or +2 across
+    a roll in place as adjacent.
 
     Records cross a roll as they cross any point in a file, ordered within each path
-    (`ordering`). A record captured just before a roll can land in the next segment
-    (session-identity spec Sec.3.4).
+    (`ordering`). A roll waits up to 0.2 s for each capture path to deliver what it
+    captured before the boundary; a record delivered later lands in the next segment
+    (session-identity spec Sec.3.4, amended 2026-10-30).
 
     A UUID, NOT A PID: pids repeat across boots, and `boot_id` cannot tell two processes
     in one boot apart. The canonical spelling is enforced (`_process_uuid_canonical`),

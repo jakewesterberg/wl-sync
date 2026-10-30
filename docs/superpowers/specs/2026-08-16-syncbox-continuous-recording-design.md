@@ -97,7 +97,8 @@ segment cannot write a trailer.
 > - **`process_uuid`**: a UUID4 made once per recorder process and written into every segment it
 >   writes. Two segments with the same id are on one clock. The id promises that, and not that
 >   the two are adjacent in time; the `B` values say whether they are. A new id is a restart,
->   and a new clock.
+>   and a new clock. "One clock" is one origin and one wrap count, not one rate: `W` ticks count
+>   RP1's crystal and drift from `B` and `E` from capture start (`2026-10-30-one-clock-design.md`).
 > - **`barcode_delay_us`**: the bench loopback's measured delay from a `B` tick to the frame's lead
 >   edge on the wire. A reader adds it to `B` ticks, except the first of each process, which is
 >   later by an unmeasured amount. `null` means unmeasured.

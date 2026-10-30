@@ -10,19 +10,31 @@ Answers are read there. The format follows the convention wl-xcon uses for both 
 
 These are written here rather than applied there. The claims about wl-preproc were read at
 wl-preproc `6fcad33` and re-read at `02fd6c0` before delivery. The claims about wl-sync were read
-at wl-sync `2a95b8f`.
+at wl-sync `2a95b8f`. *(2026-10-30: everything added since, including the answers below and notes
+4 and 5, was checked against wl-sync `ab06425` and wl-preproc `main` at `4bd10f1`.)*
 
-There are two asks and one note:
+The 2026-10-19 delivery held two asks and one note. wl-preproc answered both asks on 2026-10-22, in
+its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 
-1. Move the pin, because the pinned wl-sync cannot read the logs the box writes today.
-2. A question: may wl-sync tighten `SessionId.parse`?
+1. ~~Move the pin.~~ **Answered:** done on 2026-10-22.
+2. ~~May wl-sync tighten `SessionId.parse`?~~ **Answered yes**, and done.
 3. A note, not an ask: what the session-identity change means for what wl-preproc reads.
-4. *(Added 2026-10-30, not yet delivered.)* A note: two header fields, and a third moment a
-   segment starts.
+
+*Added 2026-10-30, not yet delivered:*
+
+- **wl-sync's answers to wl-preproc's 2026-10-22 items 3, 4, 5 and 6** (below).
+- **Note 4:** two header fields, and a third moment a segment starts.
+- **Note 5:** what a session's last records do now.
 
 ---
 
-# OPEN — 1. The pinned wl-sync cannot read today's logs
+# ANSWERED — 1. The pinned wl-sync cannot read today's logs
+
+**Answered and done by wl-preproc on 2026-10-22.** Its `e8f1350` moved the pin to wl-sync `27c0e97`,
+and its barcodes are now the box's `B` records (its HANDOVER-wl-sync.md, answer 1). Between `27c0e97`
+and what the box runs today (`4f1739c`), `wl_sync/log.py` and `wl_sync/segment.py` changed only in
+docstrings, so that pin reads what the deployed box writes. What follows is the 2026-10-19 text, kept
+as the record.
 
 ## The ask
 
@@ -87,7 +99,7 @@ backward-compatible for reading, but not forward-compatible.
   - A segment begun before NTP synced still says `ntp_unsynchronized`, which was true when it
     began.
   - `clock_reason` is still a free string, so nothing wl-preproc reads changes shape.
-  - This update has not been delivered to wl-preproc.
+  - This update has not been delivered to wl-preproc. It is repeated in the answers below.
 
 ---
 
@@ -144,6 +156,37 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 
 ---
 
+# ANSWERS — wl-preproc's 2026-10-22 items 3, 4, 5 and 6 (2026-10-30, not yet delivered)
+
+- **Item 3, "Please confirm that two segments in one session folder never share a clock: that a
+  roll at an open or a close always changes folders."**
+  - The second half holds: a roll at an open or a close always changes folders.
+  - The first half no longer does. Two segments in one folder can share a clock in two cases:
+    - when the box rolls once in place at NTP's first sync (note 4);
+    - when a failed read of the box's session state rolls the recording out to `unassigned/` and
+      back in (rare).
+  - Every header now names its process (`process_uuid`, note 4). The same id means one clock and
+    no restart; a different id, or `null`, means a restart and a new clock.
+  - "One clock" there is one origin and one wrap count, not one rate. Code words drift from
+    barcodes and edges (note 4).
+- **Item 4, the two asks: both are built.**
+  - The measured barcode delay is `barcode_delay_us`, in `73f4395` (note 4).
+  - Records captured before a folder change now land in the closing segment, in `4043737`
+    (note 5).
+- **Item 5:** noted. Clock trust has since changed: it is judged again at every roll (`2b420c0`;
+  answer 1 above has the detail). That commit runs on the box since 2026-10-30.
+- **Item 6, unwrap against the box's one clock: fixed in `d309bf1`, and running on the box since
+  2026-10-30.**
+  - One box clock now unwraps every path. It places each raw tick at the value nearest the box's
+    `now_us()`, which the 1 Hz barcode loop keeps current.
+  - A path silent for 71.6 min or more, or whose first record comes that late, now lands
+    correctly.
+  - Runs that never missed a wrap give identical values.
+  - Your pin gets it once it moves past `d309bf1`; every commit in notes 4 and 5 is later.
+  - No real session carries the old fault: the box's unit still runs `--fake` until bench day.
+
+---
+
 # NOTE — 4. Two header fields, and a third moment a segment starts (2026-10-30, not an ask)
 
 **Not yet delivered.** It is for wl-preproc before its pin moves past the second of these two
@@ -155,13 +198,26 @@ wl-sync commits:
 The order was agreed with wl-preproc on 2026-10-30.
 
 - **A new segment also starts once at NTP's first sync, in the same folder.** After a power-up
-  the box starts before NTP has synced. It asks again every 10 s. The first time NTP says it
-  has synced, the box closes that segment and starts the next one in the folder it is already
-  in. That is the third moment a segment starts, beside an open or close and a restart.
+  the box starts before NTP has synced. It asks again every 10 s, backing off to every 300 s
+  after asks that fail. The first time NTP says it has synced, the box closes that segment and
+  starts the next one in the folder it is already in, one loop iteration later. If a session
+  open or close rolls in that iteration, that roll asks NTP itself, and there is no roll in
+  place. That is the third moment a segment starts, beside an open or close and a restart.
 - **`process_uuid` tells that apart from a restart.** Every header now carries it.
   - It is one UUID4, made when the recording process starts.
   - It is the same in every segment that process writes, and new after every restart.
   - Segments with the same id are on one clock: their ticks compare by number.
+  - **"One clock" is one origin and one wrap count, not one rate.**
+    - `B` and `E` ticks count the box's CLOCK_MONOTONIC.
+    - `W` ticks count RP1's own crystal, joined to that clock once, when capture starts, which
+      is once per process.
+    - So code words drift from barcodes and edges by RP1's crystal error times the time since
+      the process started: about 0.18 s an hour at 50 ppm.
+    - The real rate is unmeasured; bench day measures it.
+    - wl-preproc places code words by barcodes, so this reaches its data.
+    - The fix is open: wl-sync `docs/superpowers/specs/2026-10-30-one-clock-design.md` is a
+      draft, to be decided after bench day. No real session is affected yet; the unit runs
+      `--fake`.
   - A different id, or `null`, is a restart and a new clock. `null` means the segment was
     written before the field existed.
 - **The field names are `process_uuid` and `barcode_delay_us`.** Both default to `null`, so old
@@ -207,7 +263,8 @@ captured before its boundary", which comes after the two commits in note 4.
   - records captured AFTER the boundary but delivered during the wait land in the closing
     segment, at most about 65 ms of them normally;
   - a code word's tick comes from the RP1 crystal, so a word in the closing segment can carry
-    a tick slightly after the boundary.
+    a tick after the boundary by that crystal's drift since the process started (note 4).
+    That is about 0.18 s an hour at 50 ppm, and the real rate is unmeasured.
 - **One assumption is unmeasured until bench day:** the kernel buffers an edge within 20 ms of
   stamping it. A runtime check warns if it ever looks otherwise.
 

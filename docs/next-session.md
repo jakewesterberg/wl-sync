@@ -226,9 +226,11 @@ left, so no further panel connector fits. One fix-up came with it:
 - **A dropped edge, or a full FIFO, leaves no mark in the segment.** It reaches the
   journal only. Marking it in the file would change the log format, which wl-preproc pins
   (at `27c0e97` since 2026-10-22), so it needs to be done together with wl-preproc.
-  **2026-10-30:** wl-preproc asked for it in the same pin move as the header fields. An `L`
-  record is being built on branch `loss-record`; it does not merge until the user approves
-  the format.
+  **2026-10-30:** wl-sync proposed a loss record in the same pin move as the header fields.
+  wl-preproc's session agreed, in a message between the two sessions on 2026-10-30, and named
+  what it would do with one. Its user had not yet been asked, and no wl-preproc document
+  records the request. An `L` record is built and reviewed on branch `loss-record`; it does not
+  merge until the user approves the format.
 - **A desync stops event-code capture for the rest of the run.** It is logged, and the
   other paths keep recording. Exiting instead would let `Restart=always` bring capture back
   with a fresh state machine within about two seconds. That was not chosen; reconsider it
@@ -300,6 +302,16 @@ left, so no further panel connector fits. One fix-up came with it:
     second state machine stamps each barcode's lead edge from a GPIO17→GPIO19 loopback, and
     edges are mapped onto that count in software. It lists what bench day must measure to
     decide (B1–B7), and six questions for the user.
+- **After a power-up on a box whose RTC is dead, the NTP roll keeps a now-trusted segment in the
+  previous day's folder** *(found in the final review, 2026-10-30; not fixed; the user's call)*.
+  - Between sessions the box resumes the checkpoint's `unassigned/<day>/` folder. If the clock
+    then reads 2000-01-01 and NTP syncs to the next day, the roll in place stays in that folder.
+  - The trusted segment then carries the earlier day's id and the new day's barcode values. It
+    stays there until the first session opens; there is no midnight roll between visits.
+  - wl-preproc never reads `unassigned/`, so the impact is low. But
+    `ls unassigned/$(date -u +%F)` finds nothing.
+  - **Options:** let the NTP roll move to today's `unassigned/` when the day differs, which is a
+    folder-changing roll that `process_uuid` already covers; or document the behaviour.
 - **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
   NTP has synced.**
   - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).
