@@ -16,7 +16,7 @@ at wl-sync `2a95b8f`. *(2026-10-30: everything added since, including the answer
 The 2026-10-19 delivery held two asks and one note. wl-preproc answered both asks on 2026-10-22, in
 its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 
-1. ~~Move the pin.~~ **Answered:** done on 2026-10-22.
+1. ~~Move the pin.~~ **Answered** on 2026-10-22, and done (its `e8f1350`).
 2. ~~May wl-sync tighten `SessionId.parse`?~~ **Answered yes**, and done.
 3. A note, not an ask: what the session-identity change means for what wl-preproc reads.
 
@@ -30,11 +30,11 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 
 # ANSWERED — 1. The pinned wl-sync cannot read today's logs
 
-**Answered and done by wl-preproc on 2026-10-22.** Its `e8f1350` moved the pin to wl-sync `27c0e97`,
-and its barcodes are now the box's `B` records (its HANDOVER-wl-sync.md, answer 1). Between `27c0e97`
-and what the box runs today (`4f1739c`), `wl_sync/log.py` and `wl_sync/segment.py` changed only in
-docstrings, so that pin reads what the deployed box writes. What follows is the 2026-10-19 text, kept
-as the record.
+**Answered by wl-preproc on 2026-10-22, and done.** Its `e8f1350` (committed 2026-10-27) moved the
+pin to wl-sync `27c0e97`, and its barcodes are now the box's `B` records (its HANDOVER-wl-sync.md,
+answer 1). Between `27c0e97` and what the box runs today (`4f1739c`), `wl_sync/log.py` and
+`wl_sync/segment.py` changed only in docstrings, so that pin reads what the deployed box writes.
+What follows is the 2026-10-19 text, kept as the record.
 
 ## The ask
 
