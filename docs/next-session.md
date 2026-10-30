@@ -153,6 +153,17 @@ cycles after the strobe is observed. Constant is the important word: it is a hos
 subtraction, not jitter. Measure it rather than trusting the comment, since it depends on
 final instruction placement.
 
+**For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
+§3 lists the measurements that decide how code words and barcodes get onto one clock (B1–B7).
+The cheapest two can be done on this same bench day:
+- **B1:** `dmesg | grep arch_timer` on the box. Then, with GPIO16 jumpered to GPIO20, find the
+  rate of code words against edges converted to `CLOCK_MONOTONIC_RAW`. Under 0.01 ppm means RP1
+  and the CPU share a reference, and the design's simplest option is enough.
+- **B4:** whether a PIO state machine can see GPIO17's barcode with no extra wire.
+
+Run wl-phantom's ±100 µs check on a recorder process hours old, not a fresh one: the drift grows
+from capture start, which happens once per process.
+
 After acceptance: drop `--fake` from `deploy/wl-sync.service` and add `--gpiochip`.
 
 ### Step B2 — session identity on the bench *(on main since 2026-10-19)*
