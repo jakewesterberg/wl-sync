@@ -29,6 +29,7 @@ from wl_sync.clock import (
     MAX_BARCODE,
     ClockTrust,
     evaluate_clock,
+    evaluate_roll,
     next_value,
     read_checkpoint,
     write_checkpoint,
@@ -73,8 +74,9 @@ log = logging.getLogger(__name__)
 
 def probe_ntp_synchronized() -> bool | None:
     """True/False from timedatectl, or None when it cannot be asked -- a laptop, a
-    container. None is 'unknown', which evaluate_clock deliberately does not treat as
-    untrusted."""
+    container, or a call that failed. None is 'unknown', which evaluate_clock
+    deliberately does not treat as untrusted. At a roll, run() replaces it with the
+    run's last definite answer, so a failure never upgrades trust."""
     try:
         completed = subprocess.run(
             ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
@@ -270,7 +272,10 @@ def run(
     # directory must not be named after the bogus reading. See _resume().
     checkpoint_path = out / CHECKPOINT_NAME
     checkpoint = read_checkpoint(checkpoint_path)
-    first_value, trust, day_date = _resume(started, checkpoint, probe_ntp_synchronized())
+    # The run's last DEFINITE answer from the NTP probe, refreshed at every roll whose
+    # probe answers. A roll whose probe fails falls back to it (see follow_state).
+    ntp_known = probe_ntp_synchronized()
+    first_value, trust, day_date = _resume(started, checkpoint, ntp_known)
 
     # WHICH FOLDER THIS RUN RECORDS INTO is decided by the state file, not the date. A
     # session that is open stays open across a restart AND across midnight (spec 3.1: "a
@@ -323,7 +328,7 @@ def run(
         probe_boot_id() or "-",
     )
 
-    values = _ValueSource(now_fn, first_value)
+    values = _ValueSource(now_fn, first_value, mono_fn)
     generator = BarcodeGenerator(backend, BARCODE_PIN)
     health = _HealthReport(backend)
 
@@ -352,7 +357,7 @@ def run(
 
         A failure IN the roll propagates; the caller completes the future first.
         """
-        nonlocal folder, session_id, carried_last
+        nonlocal folder, session_id, carried_last, ntp_known
         current = read_open(out)
         if current is not None:
             new_folder, new_id = session_dir(out, current.session_id), current.session_id
@@ -364,15 +369,38 @@ def run(
             new_folder, new_id = unassigned_dir(out, day), unassigned_id(day)
 
         old_folder, outgoing = folder, sink.sink
+        # JUDGED AGAIN HERE, never carried over from the start: a box powered up before
+        # NTP synced otherwise flags every segment of the run. The probe goes first so
+        # that the wall and monotonic readings sit together, and the wall reading is the
+        # header's `written_at`, so a segment says when it was judged. See
+        # clock.evaluate_roll for why NTP alone is not enough.
+        #
+        # A FAILED PROBE NEVER UPGRADES TRUST. None means "could not ask". On the box,
+        # where timedatectl exists, that is a probe that timed out or hit a D-Bus fault,
+        # not an answer, and taken as "not untrusted" it turned the start's definite
+        # False into a trusted segment. So a None keeps the run's last answer. A run
+        # whose probe has never answered (a laptop, a container) still holds None,
+        # and is judged as the start judges it.
+        answer = probe_ntp_synchronized()
+        if answer is not None:
+            ntp_known = answer
+        written_at = now_fn()
+        roll_trust = evaluate_roll(written_at, values.emitting(), ntp_known)
         new_segment, make_writer = _segment_factory(
-            new_folder, new_id, rig=out.name, written_at=now_fn(), trust=trust
+            new_folder, new_id, rig=out.name, written_at=written_at, trust=roll_trust
         )
         sink.roll(make_writer, now_fn())
         # The outgoing writer's span is final now that its trailer is written.
         if outgoing.barcode_last is not None:
             carried_last = outgoing.barcode_last
         folder, session_id = new_folder, new_id
-        log.info("recording into %s (session %s)", new_folder, new_id)
+        log.info(
+            "recording into %s (session %s): clock_trusted=%s clock_reason=%s",
+            new_folder,
+            new_id,
+            roll_trust.trusted,
+            roll_trust.reason or "-",
+        )
 
         # BOTH FOLDERS' MANIFESTS. The old one now has its closed segment to record. The
         # new one is written now, not when the recording leaves it, so a session entered
@@ -578,10 +606,12 @@ class _ValueSource:
     floor alone is a correct (if imprecise) barcode source for as long as the run lasts.
     """
 
-    def __init__(self, now_fn, first_value: int) -> None:
+    def __init__(self, now_fn, first_value: int, mono_fn=time.monotonic) -> None:
         self._now_fn = now_fn
+        self._mono_fn = mono_fn
         self._first = first_value
         self._last: int | None = None
+        self._last_chosen_at = 0.0  # mono_fn() when `_last` was chosen
         self._clamped = False
 
     def __call__(self) -> int:
@@ -596,14 +626,16 @@ class _ValueSource:
             from_clock = next_value(self._now_fn(), None)
         except ValueError:
             from_clock = None  # pre-epoch or out of range: the floor is all we have
+        chosen_at = self._mono_fn()  # beside the wall reading: see emitting()
         if from_clock is not None and from_clock >= floor:
             self._clamped = False
-            return self._issue(from_clock)
+            return self._issue(from_clock, chosen_at)
         if not self._clamped:
             # EDGE-TRIGGERED, deliberately. Spec Sec.7 names "time moved backwards" as a
-            # trust condition and nothing recorded it mid-run -- the header is written
-            # at startup and must not be rewritten afterwards, so a journal line is the
-            # only honest place for it. Warning once per episode rather than once per
+            # trust condition and nothing recorded it mid-run -- a header is written
+            # when its segment opens and must not be rewritten afterwards, so a journal
+            # line is the only honest place for it until a roll opens the next segment
+            # (clock.evaluate_roll). Warning once per episode rather than once per
             # frame, because a stalled clock binds every second and 86,400 identical
             # lines a day would bury everything else in the journal.
             log.warning(
@@ -614,9 +646,41 @@ class _ValueSource:
                 floor,
             )
         self._clamped = True
-        return self._issue(floor)
+        return self._issue(floor, chosen_at)
 
-    def _issue(self, value: int) -> int:
+    def emitting(self) -> int:
+        """The value the box is on now: the last one chosen, plus the whole seconds the
+        monotonic clock has advanced since it was chosen.
+
+        WHAT A ROLL'S TRUST IS JUDGED ON (clock.evaluate_roll), which compares it with
+        the wall clock. A roll is carried out in the iteration whose frame it follows,
+        so the last value alone is right in the ordinary case. It is advanced anyway,
+        because the work between a frame and the roll -- the flush barrier, the open's
+        fsyncs -- can stall on a slow disk, and the seconds of a stall would otherwise
+        read as the wall clock running ahead of the values.
+
+        ON THE MONOTONIC CLOCK, the one the loop paces on, so that this is the box's own
+        count. Reading the wall clock here would compare the wall clock with itself, and
+        a step would never be seen.
+
+        ANCHORED WHERE THE VALUE WAS CHOSEN, not where its frame went out. A value is
+        the wall second read at that instant, so advancing it from the same instant
+        compares like with like. The frame follows a few milliseconds later, after the
+        checkpoint's two fsyncs.
+
+        Good to ONE SECOND. The value is a whole second, and the wall clock was some
+        fraction into it when it was read, so on a clock that agrees with the values
+        this trails value_from_clock(now) by 0 or 1. The tolerance it is judged against
+        is 60 s.
+
+        Called only after a value has been chosen, since a roll follows a frame. The
+        start value stands in before that.
+        """
+        if self._last is None:
+            return self._first
+        return self._last + math.floor(self._mono_fn() - self._last_chosen_at)
+
+    def _issue(self, value: int, chosen_at: float) -> int:
         """Record the decision and hand it back, refusing anything unencodable.
 
         THE CEILING IS CHECKED HERE BECAUSE HERE IS THE ONLY PLACE A VALUE IS CHOSEN.
@@ -628,7 +692,7 @@ class _ValueSource:
         """
         if value > MAX_BARCODE:
             raise ValueError(f"barcode value out of 32-bit range: {value}")
-        self._last = value
+        self._last, self._last_chosen_at = value, chosen_at
         return value
 
 

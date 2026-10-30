@@ -25,6 +25,7 @@ from wl_sync.cli import (
 from wl_sync.endpoint import serve
 from wl_sync.clock import (
     BARCODE_EPOCH,
+    CLOCK_TRUST_TOLERANCE_S,
     MAX_BARCODE,
     read_checkpoint,
     value_from_clock,
@@ -1477,6 +1478,258 @@ def test_a_session_entered_by_a_roll_has_a_manifest_at_once(tmp_path):
     # The end of the run still rebuilds it, with the segment now closed.
     final = json.loads(written.read_text())
     assert [(s["file"], s["closed"]) for s in final["segments"]] == [(segment_name(0), "clean")]
+
+
+# --- clock trust at a roll -------------------------------------------------------------
+
+STEP_S = 2 * CLOCK_TRUST_TOLERANCE_S
+
+
+class _SteppableWall:
+    """A now_fn that advances a second per call, as _clock_from does, and can be STEPPED:
+    what an NTP step does, moving the wall clock and leaving the monotonic one alone."""
+
+    def __init__(self, start):
+        self._next = start
+
+    def __call__(self):
+        reading = self._next
+        self._next += datetime.timedelta(seconds=1)
+        return reading
+
+    def step(self, seconds):
+        self._next += datetime.timedelta(seconds=seconds)
+
+    def set(self, when):
+        self._next = when
+
+
+class _StepsTheWallDuringAFrame(FakeBackend):
+    """Steps `wall` while frame `frame` (1-based) is on the wire: after the loop chose
+    that frame's value, and before it carries out a request that iteration drains."""
+
+    def __init__(self, wall, frame, seconds):
+        super().__init__()
+        self._wall, self._frame, self._seconds = wall, frame, seconds
+        self._frames = 0
+
+    def emit_pulses(self, pin, pulses):
+        super().emit_pulses(pin, pulses)
+        self._frames += 1
+        if self._frames == self._frame:
+            self._wall.step(self._seconds)
+
+
+def _ntp_answers(monkeypatch, synced):
+    """The NTP probe answers `state["synced"]` at the moment it is asked."""
+    state = {"synced": synced}
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda: state["synced"])
+    return state
+
+
+def _either_side_of_an_open(tmp_path, now_fn, *, backend=None, then=None):
+    """Record three frames with an open queued after the first, which carries it out
+    after frame 2; `then()` runs between frames 1 and 2, before the open reaches the loop.
+    Returns the paths of the between-sessions segment the run began in and of the
+    session segment the open rolled into."""
+    requests = queue.SimpleQueue()
+    state = {"n": 0}
+
+    def tick_fn(_seconds):
+        state["n"] += 1
+        if state["n"] == 1:
+            if then is not None:
+                then()
+            requests.put(_request("open", "r1"))
+
+    run(
+        out=tmp_path,
+        backend=backend or FakeBackend(),
+        now_fn=now_fn,
+        duration_s=3,
+        tick_fn=tick_fn,
+        requests=requests,
+    )
+    return (
+        unassigned_dir(tmp_path, DAY) / segment_name(0),
+        tmp_path / "2026-08-16_01" / "syncbox" / segment_name(0),
+    )
+
+
+def _trust(segment):
+    header, _ = read_log(segment)
+    return header.clock_trusted, header.clock_reason
+
+
+def test_a_session_opened_after_ntp_syncs_is_trusted(tmp_path, monkeypatch):
+    """THE FAULT FOUND ON THE BOX, 2026-10-19. After a power-up the unit started at
+    12.5 s and NTP synced at 33.5 s, and every segment that day said
+    ntp_unsynchronized: trust was judged once, when the process started, and every roll
+    reused it. A segment opened after the sync must say what is true when it opens.
+
+    The run's first segment keeps the judgement made at the start."""
+    ntp = _ntp_answers(monkeypatch, synced=False)
+    before, after = _either_side_of_an_open(
+        tmp_path, _clock_from(START), then=lambda: ntp.update(synced=True)
+    )
+
+    assert _trust(before) == (False, "ntp_unsynchronized")
+    assert _trust(after) == (True, "")
+
+
+def test_a_roll_while_ntp_is_still_unsynchronized_says_so(tmp_path, monkeypatch):
+    _ntp_answers(monkeypatch, synced=False)
+    _, after = _either_side_of_an_open(tmp_path, _clock_from(START))
+    assert _trust(after) == (False, "ntp_unsynchronized")
+
+
+def test_a_probe_that_fails_at_a_roll_never_upgrades_trust(tmp_path, monkeypatch):
+    """A FAILED PROBE IS NOT AN ANSWER. On the box timedatectl exists, so None at a roll
+    means the probe failed (a timeout, a D-Bus hiccup), not that it cannot be asked.
+    Taken as "not untrusted", it turned the start's definite False into trusted: NTP
+    still unsynchronised, the values tracking an unverified clock, the session marked
+    good. The roll keeps the run's last answer instead."""
+    ntp = _ntp_answers(monkeypatch, synced=False)
+    before, after = _either_side_of_an_open(
+        tmp_path, _clock_from(START), then=lambda: ntp.update(synced=None)
+    )
+
+    assert _trust(before) == (False, "ntp_unsynchronized")
+    assert _trust(after) == (False, "ntp_unsynchronized")
+
+
+def test_a_probe_that_has_never_answered_is_not_untrusted_at_a_roll(tmp_path):
+    """The other half of the rule. A laptop or a CI container cannot ask at all, so every
+    probe in the run says None, and a roll there is judged on the values alone, as the
+    start is (tests/test_clock.py)."""
+    _, after = _either_side_of_an_open(tmp_path, _clock_from(START))
+    assert _trust(after) == (True, "")
+
+
+def test_a_run_that_began_clamped_ahead_says_so_at_every_roll(tmp_path, monkeypatch):
+    """No step in THIS run, and still off the clock. An earlier run left the checkpoint
+    100 s ahead of a correct clock, so this run starts clamped at checkpoint + 1 and its
+    floor keeps every value 100 s ahead for as long as it lasts. NTP is synchronised
+    throughout, so only the value check catches the roll. The first segment names the
+    cause; the roll names what it measured."""
+    write_checkpoint(tmp_path / CHECKPOINT_NAME, value_from_clock(START) + 100)
+    _ntp_answers(monkeypatch, synced=True)
+    before, after = _either_side_of_an_open(tmp_path, _clock_from(START))
+
+    assert _trust(before) == (False, "clock_behind_checkpoint")
+    assert _trust(after) == (False, "barcode_off_clock")
+
+
+def test_a_dead_coin_cell_recovers_trust_at_the_first_roll_after_ntp(tmp_path, monkeypatch):
+    """The recovery path for a dead CR2032. The run starts before the epoch and records on
+    its floor from an hour-old checkpoint. NTP then sets the clock, the next value jumps
+    to it, and a session opened after that is trusted: the values are wall time again."""
+    write_checkpoint(tmp_path / CHECKPOINT_NAME, value_from_clock(START) - 3600)
+    ntp = _ntp_answers(monkeypatch, synced=False)
+    wall = _SteppableWall(datetime.datetime(2000, 1, 1, tzinfo=UTC))
+
+    def ntp_sets_the_clock():
+        wall.set(START)
+        ntp.update(synced=True)
+
+    before, after = _either_side_of_an_open(tmp_path, wall, then=ntp_sets_the_clock)
+
+    assert _trust(before) == (False, "clock_before_epoch")
+    assert _values(before)[-1] == value_from_clock(START)
+    assert _trust(after) == (True, "")
+
+
+def test_a_backward_step_leaves_a_later_roll_untrusted(tmp_path, monkeypatch):
+    """A SYNCHRONISED CLOCK DOES NOT MAKE THE VALUES RIGHT. The wall clock steps back
+    past the tolerance between two frames; the run's floor (_ValueSource) holds every
+    later value ahead of it, for the rest of the run, while NTP reports itself synced
+    throughout. Re-asking NTP alone would mark the session trusted, and its values are
+    two minutes off. The start was trusted; the roll is not, and that is correct."""
+    _ntp_answers(monkeypatch, synced=True)
+    wall = _SteppableWall(START)
+    before, after = _either_side_of_an_open(tmp_path, wall, then=lambda: wall.step(-STEP_S))
+
+    assert _trust(before) == (True, "")
+    assert _trust(after) == (False, "barcode_off_clock")
+
+
+def test_a_forward_step_at_a_roll_is_untrusted(tmp_path, monkeypatch):
+    """The other direction. The wall clock steps forward past the tolerance while the
+    frame before the roll is on the wire, so the next frame -- the session's first --
+    jumps to the clock. Across this boundary the values claim minutes passed where one
+    frame did, which is exactly the gap arithmetic the flag says not to believe."""
+    _ntp_answers(monkeypatch, synced=True)
+    wall = _SteppableWall(START)
+    before, after = _either_side_of_an_open(
+        tmp_path, wall, backend=_StepsTheWallDuringAFrame(wall, frame=2, seconds=STEP_S)
+    )
+
+    assert _trust(before) == (True, "")
+    assert _trust(after) == (False, "barcode_off_clock")
+    assert _values(after)[0] - _values(before)[-1] > CLOCK_TRUST_TOLERANCE_S
+
+
+def test_a_forward_step_the_values_have_followed_is_trusted(tmp_path, monkeypatch):
+    """Not crying wolf. The values re-read the wall clock at every frame, so a clock that
+    stepped forward BEFORE the last frame has been followed, and the values agree with it
+    again by the roll. This is the box whose coin cell read slow at power-up and which NTP
+    then corrected. A rule that measured the values against the start rather than
+    against what is being emitted would flag every later segment of that day: the fault
+    this fixes, in another form."""
+    _ntp_answers(monkeypatch, synced=True)
+    wall = _SteppableWall(START)
+    before, after = _either_side_of_an_open(tmp_path, wall, then=lambda: wall.step(STEP_S))
+
+    # The jump is inside the segment before the roll, not across it.
+    first, last = _values(before)
+    assert last - first > CLOCK_TRUST_TOLERANCE_S
+    assert _values(after)[0] - last < CLOCK_TRUST_TOLERANCE_S
+    assert _trust(after) == (True, "")
+
+
+def test_a_roll_on_a_dead_clock_still_says_so(tmp_path):
+    """A pre-epoch clock names no barcode value to compare with, and value_from_clock
+    raises there. The roll must report it, not die of it: spec Sec.7, the box records
+    anyway."""
+    opening = _request("open", "r1")
+    _record(tmp_path, {1: [opening]}, 3, start=datetime.datetime(2000, 1, 1, tzinfo=UTC))
+    assert _trust(tmp_path / "2020-01-01_01" / "syncbox" / segment_name(0)) == (
+        False,
+        "clock_before_epoch",
+    )
+
+
+def test_a_roll_says_how_far_its_clock_can_be_trusted(tmp_path, monkeypatch, caplog):
+    """journald is the box's status surface (spec Sec.7, Sec.10). The start's line says
+    whether the clock is trusted; a roll's line said only where it was recording, so a
+    segment that changed its judgement at a roll changed it silently."""
+    _ntp_answers(monkeypatch, synced=True)
+    wall = _SteppableWall(START)
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        _either_side_of_an_open(tmp_path, wall, then=lambda: wall.step(-STEP_S))
+
+    [line] = [m for m in caplog.messages if m.startswith("recording into")]
+    assert "clock_trusted=False" in line
+    assert "clock_reason=barcode_off_clock" in line
+
+
+def test_the_value_being_emitted_now_advances_on_the_monotonic_clock():
+    """What a roll compares with the wall clock: the last value chosen, plus the whole
+    seconds the monotonic clock -- the one the loop paces on -- has advanced since. The
+    wall clock is not read, or the check would compare the clock with itself."""
+    mono = {"now": 50.0}
+    wall = {"now": BARCODE_EPOCH + datetime.timedelta(seconds=1000.5)}
+    source = _ValueSource(lambda: wall["now"], first_value=1000, mono_fn=lambda: mono["now"])
+
+    assert source() == 1000
+    assert source.emitting() == 1000
+    mono["now"] = 50.99
+    assert source.emitting() == 1000
+    mono["now"] = 51.0
+    assert source.emitting() == 1001
+    wall["now"] += datetime.timedelta(seconds=STEP_S)  # a step moves the wall clock only
+    mono["now"] = 55.5
+    assert source.emitting() == 1005
 
 
 # ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------

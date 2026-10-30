@@ -359,6 +359,24 @@ still guarantees it. This is a deliberate trade against alarm fatigue: a flag th
 every ordinary NTP correction, or on every crash restart, is a flag nobody reads on the one
 box where it means something.
 
+> **Amended 2026-10-30.** Each segment is judged when it begins.
+>
+> - A run's first segment is judged at the start, as above.
+> - A segment begun by a roll (a session opened or closed) is judged at the roll. It is trusted
+>   only if both of these hold:
+>   - NTP does not report itself unsynchronised;
+>   - the barcode value being emitted agrees with the wall clock to within the same tolerance.
+>     Disagreement is `barcode_off_clock`.
+> - A probe that cannot be answered at a roll takes the run's last definite answer, so a failed
+>   probe never upgrades trust. A run whose probe has never answered (a laptop, a container) is
+>   judged as at the start.
+> - A clock before the epoch is `clock_before_epoch`, as at the start. One past the 32-bit
+>   ceiling is `barcode_off_clock`, not a raise: the box records anyway.
+>
+> NTP alone cannot vouch for the values: after a backwards step the floor keeps them ahead of a
+> clock NTP has since corrected. Until this date a roll reused the start's judgement, so a box
+> powered up before NTP synced flagged every segment of that run. See `clock.evaluate_roll`.
+
 **There is no panel indicator available for this.** The heartbeat LED is a buffered leg off
 `BARCODE_RAW` itself, so it blinks with the barcode waveform; software could only change its
 pattern by corrupting the barcode. `journalctl` and `systemctl status` are the honest status

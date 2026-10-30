@@ -6,8 +6,10 @@ import pytest
 from wl_sync.clock import (
     BARCODE_EPOCH,
     CLOCK_TRUST_TOLERANCE_S,
+    MAX_BARCODE,
     ClockTrust,
     evaluate_clock,
+    evaluate_roll,
     next_value,
     read_checkpoint,
     value_from_clock,
@@ -177,6 +179,79 @@ def test_reasons_accumulate():
         now, checkpoint=value_from_clock(now) + 500, ntp_synchronized=False
     )
     assert "behind_checkpoint" in trust.reason and "ntp_unsynchronized" in trust.reason
+
+
+# --- a roll: a segment that begins inside a run --------------------------------------
+
+
+def test_a_roll_is_trusted_when_the_values_track_a_synchronised_clock():
+    now = at(2026, 8, 16, 12, 0)
+    assert evaluate_roll(now, value_from_clock(now), ntp_synchronized=True) == ClockTrust(
+        trusted=True, reason=""
+    )
+
+
+@pytest.mark.parametrize("direction", [+1, -1], ids=["values-ahead", "values-behind"])
+def test_values_off_the_clock_are_tolerated_up_to_the_tolerance_either_way(direction):
+    """The agreement check, at its boundary. `>`, not `>=`, for the reason evaluate_clock
+    uses `<`: a tolerance of N must tolerate a discrepancy of N, or the constant does not
+    mean what it says. Both directions, because both break gap arithmetic: values ahead
+    of the clock (it stepped back, and the floor holds them there) and values behind it
+    (it stepped forward after the last frame, and the next frame jumps)."""
+    now = at(2026, 8, 16, 12, 0)
+    clock = value_from_clock(now)
+    tolerated = clock + direction * CLOCK_TRUST_TOLERANCE_S
+    off = clock + direction * (CLOCK_TRUST_TOLERANCE_S + 1)
+
+    assert evaluate_roll(now, tolerated, ntp_synchronized=True) == ClockTrust(True, "")
+    assert evaluate_roll(now, off, ntp_synchronized=True) == ClockTrust(
+        False, "barcode_off_clock"
+    )
+
+
+def test_a_roll_on_an_unsynchronised_clock_is_untrusted_however_well_the_values_agree():
+    now = at(2026, 8, 16, 12, 0)
+    assert evaluate_roll(now, value_from_clock(now), ntp_synchronized=False) == ClockTrust(
+        False, "ntp_unsynchronized"
+    )
+
+
+def test_unknown_ntp_state_at_a_roll_is_not_by_itself_untrusted():
+    """None keeps the meaning it has at the start: timedatectl could not be asked."""
+    now = at(2026, 8, 16, 12, 0)
+    assert evaluate_roll(now, value_from_clock(now), ntp_synchronized=None).trusted is True
+
+
+def test_a_roll_reports_every_reason_that_holds():
+    now = at(2026, 8, 16, 12, 0)
+    trust = evaluate_roll(now, value_from_clock(now) + 500, ntp_synchronized=False)
+    assert trust == ClockTrust(False, "barcode_off_clock,ntp_unsynchronized")
+
+
+def test_a_roll_on_a_pre_epoch_clock_says_so_rather_than_raising():
+    """A dead coin cell with NTP not yet synced: the clock names no barcode value to
+    compare with, and value_from_clock raises. The box records anyway (spec Sec.7), so
+    the roll reports the reason the start reports for the same clock -- the one that
+    sends someone to the CR2032."""
+    trust = evaluate_roll(at(2000, 1, 1), 5_000, ntp_synchronized=False)
+    assert trust == ClockTrust(False, "clock_before_epoch,ntp_unsynchronized")
+
+
+def test_a_roll_on_a_clock_past_the_ceiling_is_off_rather_than_fatal():
+    """A clock past ~2156 names no barcode value, so no value can agree with it. Mid-run
+    the value source already survives such a reading on its floor; a roll that raised
+    here would end a live recording at the next open (spec Sec.7: the box records
+    anyway), leave the outgoing segment without a trailer, and crash-loop the restart."""
+    past_the_ceiling = BARCODE_EPOCH + datetime.timedelta(seconds=MAX_BARCODE + 1)
+    trust = evaluate_roll(past_the_ceiling, MAX_BARCODE, ntp_synchronized=True)
+    assert trust == ClockTrust(False, "barcode_off_clock")
+
+
+def test_a_naive_reading_at_a_roll_is_a_caller_bug():
+    """Unlike a broken clock, a naive datetime silently means "local time" and would
+    misjudge every roll. It raises, as value_from_clock does."""
+    with pytest.raises(ValueError, match="timezone-aware"):
+        evaluate_roll(datetime.datetime(2026, 8, 16, 12, 0), 0, ntp_synchronized=True)
 
 
 def test_value_from_clock_raises_at_32bit_ceiling():

@@ -58,9 +58,10 @@ unreliable. The manifest carries `clock_reason` next to it, which says which:
 | `clock_reason` | what it means |
 |---|---|
 | `clock_before_epoch` | the clock reads before 2020 — a dead or missing CR2032 on the CM5 IO Board, or a Pi with no RTC and no network. The box records anyway, resuming from the checkpoint; see `hardware/assembly-checklist.md` |
-| `clock_behind_checkpoint` | the clock is more than 60 s behind where this box had already counted to. It moved backwards or stalled by more than an ordinary NTP correction |
+| `clock_behind_checkpoint` | the clock is more than 60 s behind where this box had already counted to. It moved backwards or stalled by more than an ordinary NTP correction. Judged when the process starts, so it appears only on a run's first segment; the run's later segments say `barcode_off_clock` while its values stay ahead |
 | `checkpoint_exhausted` | the saved counter sits at the 32-bit ceiling — corruption, or the year 2156. Seen only alongside `clock_before_epoch`; the box restarts from the epoch rather than refusing to start |
-| `ntp_unsynchronized` | `timedatectl` reports NTP has never synced |
+| `ntp_unsynchronized` | `timedatectl` reported NTP not synchronised when the segment began. Each segment is judged when it begins, so after a power-up the flag stops at the first segment begun after NTP syncs; one begun before keeps it until it closes, which between sessions can be hours. If `timedatectl` cannot be asked at a session open or close, the new segment takes the run's last answer, so a failed probe never makes a segment look better |
+| `barcode_off_clock` | only on a segment begun by a session open or close: the barcode value the box was emitting was more than 60 s off the wall clock, in either direction. Usually the clock was stepped, by NTP, while the box was recording: after a step back the values stay ahead for the rest of the run, however right NTP has made the clock, and a step forward just before the open or close makes that boundary claim time that never passed. Otherwise the run began with its values clamped ahead of the clock, and its first segment then says `clock_behind_checkpoint`; or the clock reads past 2156, which no value can name. Not, on its own, a coin-cell problem |
 | `unreadable_header` / `unreadable_segment` | the segment itself could not be read — media or permissions, not the clock. `closed: "unreadable"` marks the same thing |
 
 An ordinary crash and restart does **not** set this flag: the trust test carries 60 s

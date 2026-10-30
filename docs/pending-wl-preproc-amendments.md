@@ -72,11 +72,20 @@ backward-compatible for reading, but not forward-compatible.
 - **`B` records** give the tick at which the box emitted each barcode, on the box's own
   timebase. wl-preproc may find them useful beside decoding the barcode from edges. Whether to
   use them is wl-preproc's call.
-- **`clock_trusted` / `clock_reason`** on every segment. One known fault on wl-sync's side, found
+- **`clock_trusted` / `clock_reason`** on every segment. ~~One known fault on wl-sync's side, found
   on the box on 2026-10-19 and not yet fixed: after a power-up, every segment that day is
   flagged `ntp_unsynchronized`, even once NTP has synced. Trust is judged once, when the process
   starts, and that races NTP at boot. Until this is fixed, do not treat that flag on its own as
-  a fault in the data.
+  a fault in the data.~~
+  - **Fixed 2026-10-30**, in the wl-sync commit that adds this note ("cli, clock: judge clock
+    trust again at every roll"). It reaches wl-preproc once its pin moves past that commit.
+  - Each segment is now judged when it begins. A segment begun by a session open or close asks
+    NTP again. It is also untrusted if the barcode value the box is emitting is more than 60 s off
+    the wall clock, under a new reason, **`barcode_off_clock`**.
+  - A segment begun before NTP synced still says `ntp_unsynchronized`, which was true when it
+    began.
+  - `clock_reason` is still a free string, so nothing wl-preproc reads changes shape.
+  - This update has not been delivered to wl-preproc.
 
 ---
 

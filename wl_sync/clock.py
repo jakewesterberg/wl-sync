@@ -182,3 +182,77 @@ def evaluate_clock(
     if ntp_synchronized is False:
         reasons.append("ntp_unsynchronized")
     return ClockTrust(trusted=not reasons, reason=",".join(reasons))
+
+
+def evaluate_roll(
+    now: datetime.datetime, emitting: int, ntp_synchronized: bool | None
+) -> ClockTrust:
+    """Whether gap arithmetic across a ROLL can be believed: the judgement for a segment
+    that begins inside a run, when a session opens or closes. The first segment of a run
+    is judged by evaluate_clock, at the start; every later one is judged here, when it
+    begins. Until 2026-10-30 a roll reused the start's judgement, and on the box after a
+    power-up -- unit started at 12.5 s, NTP synced at 33.5 s -- every segment that day
+    said ntp_unsynchronized long after NTP had synced.
+
+    TWO CONDITIONS, BOTH NOW. NTP must not report itself unsynchronised, asked again at
+    the roll; a roll that cannot ask keeps the run's last answer (see the end). And
+    `emitting`, the barcode value the box is on at `now`, must agree with
+    `value_from_clock(now)`. The second is the one that is easy to leave out. A run's
+    values come from the wall clock, but under a floor (`wl_sync.cli._ValueSource`):
+    after the clock steps BACKWARDS the floor holds every later value ahead of it for
+    the rest of the run, and a clock that NTP has since made right says nothing about
+    values that are not taken from it. Asking NTP alone would mark that segment trusted
+    with every value in it off by the step. A clock that steps FORWARDS is followed at
+    the next frame, so the values agree again by the roll after -- unless the step lands
+    between the last frame and the roll, in which case the next frame jumps and the
+    boundary claims time that never passed. Comparing what is being emitted, rather
+    than anything fixed at the start, gets both right.
+
+    THE REASON IS `barcode_off_clock`. Named for what was measured, not for a guessed
+    cause, because several causes produce it: a step either way, a stall the floor
+    carried, a resume clamped ahead of a slow clock. Named for the barcode rather than
+    the clock because at a roll the clock is often the part that is right -- NTP has
+    usually just corrected it -- and what cannot be believed is the values. A `clock_*`
+    name would send an operator to a coin cell on a box whose clock is fine. Direction-
+    neutral, unlike clock_behind_checkpoint, because either direction breaks the
+    arithmetic.
+
+    THE SAME TOLERANCE as evaluate_clock, for the same reason: a small NTP step either
+    way is ordinary and not worth anyone's attention. `>`, NOT `>=`, so a tolerance of N
+    tolerates a discrepancy of N, as evaluate_clock's `<` does. The cost is the one it
+    states: a step inside the tolerance goes unmarked. `emitting` is known to within a
+    second (`_ValueSource.emitting`), which against 60 s is immaterial.
+
+    A pre-epoch reading is `clock_before_epoch`, the reason the start gives the same
+    clock: it names no value to compare with, and that reason is the one that sends
+    someone to the CR2032. A reading past the 32-bit ceiling (~2156) names no value
+    either, so nothing can agree with it: `barcode_off_clock`. It does NOT raise, as
+    it does in `_resume`. There a raise refuses a start; here it would end a live
+    recording at the next open or close, which `_ValueSource` already survives on its
+    floor. Spec Sec.7: the box records anyway. Only a naive reading raises, because it
+    is a caller bug that silently means "local time" and would misjudge every roll.
+
+    `ntp_synchronized` IS THE RUN'S LAST DEFINITE ANSWER, not necessarily this roll's
+    (wl_sync.cli.run). None means "could not ask", and a roll that could not ask falls
+    back to the last answer the run had, from the start or an earlier roll. So a probe
+    that fails never upgrades trust. Until 2026-10-30 the rule was that None "keeps its
+    meaning: not untrusted". On the box, where timedatectl exists, that turned a timed-out
+    probe after a definite False into a trusted segment. None therefore reaches here
+    only from a run whose probe has never answered -- a laptop, a container -- and
+    there it is not untrusted, as at the start (evaluate_clock).
+    """
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("clock reading must be timezone-aware")
+    reasons = []
+    if now < BARCODE_EPOCH:
+        reasons.append("clock_before_epoch")
+    else:
+        try:
+            off = abs(value_from_clock(now) - emitting) > CLOCK_TRUST_TOLERANCE_S
+        except ValueError:  # past the 32-bit ceiling: the one raise left at this point
+            off = True
+        if off:
+            reasons.append("barcode_off_clock")
+    if ntp_synchronized is False:
+        reasons.append("ntp_unsynchronized")
+    return ClockTrust(trusted=not reasons, reason=",".join(reasons))
