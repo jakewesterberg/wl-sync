@@ -70,7 +70,8 @@ through them turned up two more, and both are fixed:
   stand-in for libpiolib.
 - **The loop was not 1 Hz on hardware.** A frame holds the pin for 200 ms, and the loop
   slept a fixed second after it, so the period was 1.2 s. Frames now land on the wall
-  clock's half seconds, located once on the monotonic clock. A grid point that would leave
+  clock's half seconds, located on the monotonic clock (again after a wall-clock step, since
+  `bbc994a`). A grid point that would leave
   the decoder less than its 400 ms of idle is skipped. Half seconds rather than whole ones,
   because an exact 1 s period sitting on a second boundary reads one second twice under
   jitter, and the clamp then reports a healthy clock as stalled.
@@ -421,8 +422,13 @@ Each of these was arrived at the hard way. They are load-bearing.
   edges instead.
 - **The next frame's target is always past this frame's end plus the decoder's idle**,
   so two frames can never share a second, whatever the float error in the clock.
-- **The grid is placed once, at start.** CLOCK_MONOTONIC follows the wall clock's NTP rate
-  adjustments, so it stays mid-second. A wall-clock *step* moves it until the next restart.
+- **The grid is placed at start, and again after a wall-clock step** *(since `bbc994a`,
+  2026-10-30)*. CLOCK_MONOTONIC follows the wall clock's NTP rate adjustments, so slewing
+  keeps it mid-second. A step used to leave it at an arbitrary phase until the next restart,
+  where a late wake near a second edge read one second high and the floor carried that
+  second for the rest of the process. The re-place costs at most one skipped value, which can
+  fall across the NTP-sync roll. A backward step still leaves values ahead, by the floor's
+  design.
 - **Two FIFO words per event, not one.** 16 data lines leave 16 delta bits = 65.535 ms,
   against ~3 s trials. No clock divider fixes it. The upper-bits-clear check on the data
   word is what makes a dropped word detectable rather than a permanent silent swap.

@@ -184,6 +184,10 @@ The order was agreed with wl-preproc on 2026-10-30.
     request rolls the recording out to `unassigned/` and back in.
   - To know whether two segments are adjacent, check the `B` values across the boundary. After
     a roll in place, the second segment's first value normally follows the first's last by one.
+    It can follow by TWO when NTP's first sync stepped the clock by a fraction of a second: the
+    box then places its frame grid mid-second again (wl-sync `bbc994a`), and that frame may
+    skip one value. The gap is real elapsed time, not a loss. So treat +1 or +2 across a roll
+    in place as adjacent.
 
 The definitions are the field docstrings in wl-sync's `wl_sync/log.py`.
 
