@@ -53,6 +53,17 @@ def test_the_unassigned_folder_never_counts_as_a_session(tmp_path):
     assert next_id(tmp_path, DAY) == sid("2026-10-18_01")
 
 
+def test_a_stray_regular_file_named_like_an_id_still_takes_that_id(tmp_path):
+    """Pins present behaviour, DELIBERATELY: next_id globs names, not directories, so a
+    stray regular file called 2026-10-18_02 makes the next id _03. That is conservative --
+    skipping an id that may be in use is harmless, reissuing one is not -- and docs
+    /next-session.md records it as accepted. Do not "fix" it to is_dir() without
+    deciding that on purpose."""
+    (tmp_path / "2026-10-18_01").mkdir()
+    (tmp_path / "2026-10-18_02").write_text("not a session")
+    assert next_id(tmp_path, DAY) == sid("2026-10-18_03")
+
+
 def test_the_100th_open_of_a_day_is_refused(tmp_path):
     (tmp_path / "2026-10-18_99").mkdir()
     with pytest.raises(SessionsExhausted):

@@ -2,6 +2,7 @@ import collections
 import datetime
 import json
 import logging
+import os
 import queue
 import signal
 import socket
@@ -922,7 +923,8 @@ class _DeliversFromACaptureThread(FakeBackend):
             name="capture",
         )
         thread.start()
-        thread.join()
+        thread.join(10.0)
+        assert not thread.is_alive(), "the capture thread did not finish"
 
 
 def test_no_capture_thread_ever_writes_the_segment(tmp_path, monkeypatch):
@@ -2305,6 +2307,11 @@ class _Rig:
 def rig(tmp_path):
     made = _Rig(tmp_path)
     yield made
+    # On ANY exit, a failed assertion included: without this a failing test left run()
+    # ticking at 0.05 s for its 200 frames (about 10 s) before the thread ended.
+    made.done.set()
+    if made.thread.is_alive():
+        made.thread.join(WAIT_S)
     made.server.shutdown()
     made.server.server_close()
 
@@ -2421,3 +2428,132 @@ def test_a_well_formed_listen_value_is_accepted(tmp_path):
     """The positive half of the malformed-value test: a valid HOST:PORT must run."""
     assert main(["record", "--fake", "--out", str(tmp_path), "--duration", "1",
                  "--listen", "127.0.0.1:0"]) == 0
+
+
+# ---- recorded untested paths, from the session-identity build ---------------------------
+
+
+def test_a_corrupt_state_file_records_between_sessions_and_logs_it(tmp_path, caplog):
+    """Pins present behaviour (it does not discriminate a regression in read_open, which
+    its unit tests do). At the run level a corrupt state file must not refuse to start:
+    the run records into unassigned/<day>/syncbox, logs the corruption at ERROR naming the
+    file, and leaves the file where it is for the operator to look at."""
+    state = tmp_path / sessions.SESSION_STATE_NAME
+    state.write_text("{not json")
+    with caplog.at_level(logging.ERROR):
+        folder = run(
+            out=tmp_path,
+            backend=FakeBackend(),
+            now_fn=_clock_from(START),
+            duration_s=2,
+            tick_fn=lambda _s: None,
+        )
+    assert folder == unassigned_dir(tmp_path, DAY)
+    header, _ = read_log(folder / segment_name(0))
+    assert header.session_id == "2026-08-16_00"
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any("is corrupt" in m and str(state) in m for m in errors), errors
+    assert state.read_text() == "{not json"
+
+
+def test_a_hand_deleted_session_folder_is_recreated_and_recorded_into(tmp_path):
+    """Pins present behaviour. The state file says 2026-08-16_02 is open but its folder
+    was deleted by hand. The run does not refuse and does not fall back to unassigned/:
+    it mkdirs the folder again and records there, as segment 0 of a fresh folder, still
+    under the open session's id. The state file is untouched, so the session stays open."""
+    session_id = SessionId.parse("2026-08-16_02")
+    write_open(
+        tmp_path, OpenSession(session_id, datetime.datetime(2026, 8, 16, 8, 0, tzinfo=UTC), "r1")
+    )
+    folder = tmp_path / "2026-08-16_02" / "syncbox"
+    assert not folder.exists()
+
+    result = run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(START),
+        duration_s=2,
+        tick_fn=lambda _s: None,
+    )
+    assert result == folder
+    header, _ = read_log(folder / segment_name(0))
+    assert header.session_id == "2026-08-16_02"
+    assert not (tmp_path / "unassigned").exists()
+    assert read_open(tmp_path).session_id == session_id
+
+
+def test_a_token_file_without_listen_logs_a_warning_and_records(tmp_path, caplog):
+    """Pins present behaviour: with no --listen there is no endpoint for a token to
+    protect, so the flag is ignored, loudly, at WARNING, and the box records."""
+    token_file = tmp_path / "token"
+    token_file.write_text(TOKEN + "\n")
+    with caplog.at_level(logging.WARNING):
+        code = main(
+            ["record", "--fake", "--out", str(tmp_path / "rig"), "--duration", "1",
+             "--session-token-file", str(token_file)]
+        )
+    assert code == 0
+    assert _unassigned_segments(tmp_path / "rig")
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("--session-token-file" in r.getMessage() and "--listen" in r.getMessage()
+               for r in warnings)
+    assert TOKEN not in caplog.text
+
+
+def test_a_present_but_unreadable_token_file_logs_an_error_and_the_box_records(
+    tmp_path, caplog
+):
+    """Pins present behaviour: a token file that exists but cannot be read (mode 000) is
+    the same as a missing one -- ERROR with the path and the exception type, GET-only
+    endpoint, and the box records. It does not refuse to start (R18)."""
+    token_file = tmp_path / "token"
+    token_file.write_text(TOKEN + "\n")
+    token_file.chmod(0)
+    try:
+        if os.access(token_file, os.R_OK):
+            pytest.skip("this user can read a mode-000 file (root)")
+        with caplog.at_level(logging.ERROR):
+            code = main(
+                ["record", "--fake", "--out", str(tmp_path / "rig"), "--duration", "1",
+                 "--listen", "127.0.0.1:0", "--session-token-file", str(token_file)]
+            )
+    finally:
+        token_file.chmod(0o600)
+    assert code == 0
+    assert _unassigned_segments(tmp_path / "rig")
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any(str(token_file) in m and "PermissionError" in m and "GET only" in m
+               for m in errors), errors
+    assert TOKEN not in caplog.text
+
+
+def test_the_endpoint_is_shut_down_when_run_raises(tmp_path, monkeypatch):
+    """main() starts the endpoint before run() and must stop it on the way out of a run
+    that raises: no serving thread is left, and the port refuses connections. A
+    try/finally removed from main() fails this."""
+    servers = []
+    real_serve = cli.serve
+
+    def spy(*args, **kwargs):
+        servers.append(real_serve(*args, **kwargs))
+        return servers[-1]
+
+    def boom(**_kwargs):
+        raise RuntimeError("run blew up")
+
+    monkeypatch.setattr(cli, "serve", spy)
+    monkeypatch.setattr(cli, "run", boom)
+    with pytest.raises(RuntimeError, match="run blew up"):
+        main(["record", "--fake", "--out", str(tmp_path), "--duration", "1",
+              "--listen", "127.0.0.1:0"])
+
+    (server,) = servers
+    port = server.server_address[1]
+    deadline = time.monotonic() + WAIT_S
+    while time.monotonic() < deadline and any(
+        t.name == "wl-sync-endpoint" and t.is_alive() for t in threading.enumerate()
+    ):
+        time.sleep(0.01)
+    assert not [t for t in threading.enumerate() if t.name == "wl-sync-endpoint"]
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=2.0).close()
