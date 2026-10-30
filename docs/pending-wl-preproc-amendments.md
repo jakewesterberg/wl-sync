@@ -17,6 +17,8 @@ There are two asks and one note:
 1. Move the pin, because the pinned wl-sync cannot read the logs the box writes today.
 2. A question: may wl-sync tighten `SessionId.parse`?
 3. A note, not an ask: what the session-identity change means for what wl-preproc reads.
+4. *(Added 2026-10-30, not yet delivered.)* A note: two header fields, and a third moment a
+   segment starts.
 
 ---
 
@@ -124,7 +126,8 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
   `_RECORDING_GLOBS`). Nothing to change.
 - **A session folder can hold several segments.** The box closes one segment and starts the next
   at every open and close, and at every restart. Inside a folder, the header's `segment_index`
-  orders them (it counts from 0 within that folder).
+  orders them (it counts from 0 within that folder). *(2026-10-30: and once at NTP's first sync,
+  in the same folder. See note 4.)*
 - **Between visits the box records into `<root>/unassigned/<YYYY-MM-DD>/syncbox/`,** with the
   header id `<date>_00`, which is never minted for a session. That folder never holds a
   `session_manifest.yaml`. wl-preproc's watcher takes a folder as a session only once its
@@ -133,3 +136,48 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 - **An id names the UTC day it opened, and keeps that id across midnight.**
 - **The box writes its own `manifest.json` in each folder.** wl-preproc does not read it, and
   does not need to.
+
+---
+
+# NOTE — 4. Two header fields, and a third moment a segment starts (2026-10-30, not an ask)
+
+**Not yet delivered.** It is for wl-preproc before its pin moves past the second of these two
+wl-sync commits:
+
+- `73f4395`, "log, cli: every header names its process and the measured barcode delay";
+- the next one, "cli: roll once in place when NTP first syncs".
+
+The order was agreed with wl-preproc on 2026-10-30.
+
+- **A new segment also starts once at NTP's first sync, in the same folder.** After a power-up
+  the box starts before NTP has synced. It asks again every 10 s. The first time NTP says it
+  has synced, the box closes that segment and starts the next one in the folder it is already
+  in. That is the third moment a segment starts, beside an open or close and a restart.
+- **`process_uuid` tells that apart from a restart.** Every header now carries it.
+  - It is one UUID4, made when the recording process starts.
+  - It is the same in every segment that process writes, and new after every restart.
+  - Segments with the same id are on one clock: their ticks compare by number.
+  - A different id, or `null`, is a restart and a new clock. `null` means the segment was
+    written before the field existed.
+- **The field names are `process_uuid` and `barcode_delay_us`.** Both default to `null`, so old
+  logs still read. `schema_version` stays 1. A reader pinned before `73f4395` rejects both
+  fields, because the header forbids unknown ones.
+- **Ids are canonical, so compare them as text.** The header refuses any other spelling of a
+  UUID: upper case, no hyphens, braces, or a `urn:` prefix.
+- **Readers add `barcode_delay_us` to `B` ticks** to get the time the frame's lead edge reached
+  the wire.
+  - It is in µs and always ≥ 0, because the tick is read before the frame goes out.
+  - `null` means unmeasured: use each tick as it is.
+  - The value is the bench loopback's median, measured through the box's own edge input.
+- **The first `B` of each process is an exception.** On the box, its frame also waits for the
+  output line to be requested, after its tick is read. So its lead edge is later by an amount
+  nothing measures, and the loopback never includes that frame.
+- **Two segments with the same id need not be adjacent in time.** The id promises a shared
+  clock, not adjacency.
+  - In `unassigned/`, a visit normally lies between two of them.
+  - In a session folder this happens rarely: a failed read of the box's session state during a
+    request rolls the recording out to `unassigned/` and back in.
+  - To know whether two segments are adjacent, check the `B` values across the boundary. After
+    a roll in place, the second segment's first value normally follows the first's last by one.
+
+The definitions are the field docstrings in wl-sync's `wl_sync/log.py`.

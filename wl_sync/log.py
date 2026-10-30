@@ -98,6 +98,9 @@ class SyncBoxLogHeader(BaseModel):
       once during a request (`read_open` then says "none open"), the recording rolls out
       to `unassigned/`, and the next request rolls it back in.
 
+    Nothing lies between the two segments of a roll in place, which the box makes once,
+    when NTP first syncs (`wl_sync.cli.run`), in whichever folder it is recording.
+
     A reader that needs adjacency checks the `B` values across the boundary. Where
     nothing lies between, the second segment's first value normally follows the
     first's last by one, as consecutive frames do within a segment.

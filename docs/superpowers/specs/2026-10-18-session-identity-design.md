@@ -120,7 +120,8 @@ Three repositories already depend on a rule this repository does not yet impleme
 - **A segment header is unchanged.** `session_id` is the folder's id. Segments in `unassigned/`
   carry the day's `_00`, which `SessionId.parse` accepts, so the header's validation is
   unchanged. `_00` is never minted for a session (my call). The segment index counts within its
-  folder, as it does in a day directory today.
+  folder, as it does in a day directory today. *(2026-10-30: the header has since gained
+  `process_uuid` and `barcode_delay_us`; see continuous-recording spec §3.)*
 
 ### 3.4 Rolling the recording
 
@@ -132,6 +133,11 @@ Three repositories already depend on a rule this repository does not yet impleme
   gap: the next frame lands in the new folder. Records queued during the roll go to whichever
   segment is open when they drain. That costs at most one second of edges landing on the
   boundary's far side; wl-preproc fits each segment separately anyway.
+
+  > **Amended 2026-10-30.** One roll stays in its folder. A run that began before NTP synced
+  > rolls once when NTP first syncs (continuous-recording spec §7). A roll at an open or a
+  > close still always changes folders. The header's `process_uuid` tells any roll from a
+  > restart.
 - **The box's per-folder `manifest.json`** keeps its present meaning and format, now one per
   folder rather than one per day.
 

@@ -19,7 +19,8 @@ Type=simple
 # silicon, and a unit that cannot open it restarts every second recording nothing.
 # Fake mode keeps the crash-stitching, manifest and clock-degradation paths
 # exercisable at bring-up. After bench day: drop --fake and add --gpiochip with the
-# chardev confirmed by label.
+# chardev confirmed by label, and --barcode-delay-us N with the delay the loopback
+# measured (deploy/README.md). Without it every header says the delay is unmeasured.
 #
 # --listen / --session-token-file serve the session endpoint the task PC opens and
 # closes visits through. The token is a root-owned file made at install time, never

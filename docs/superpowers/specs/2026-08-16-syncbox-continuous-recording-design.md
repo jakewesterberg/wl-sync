@@ -74,6 +74,9 @@ session, hence `_01`;~~ a restart joins that directory as a new segment rather t
 > `_01`, `_02` ... when the task PC asks, and records each visit into `<root>/<id>/syncbox/`. Between visits
 > it records into `unassigned/<date>/syncbox/`. The directory tree above is the pre-amendment layout. A
 > restart still joins the open session's folder as a new segment, and still mints no new id.
+>
+> **Amended 2026-10-30.** One process can now write more than one segment into a folder (a roll in
+> place when NTP first syncs, §7), so a second segment is not always a restart: `process_uuid` says.
 
 **Why segments rather than one appended file.** Because of 2.4, ticks after a gap are not
 comparable to ticks before it. A single file under a single header would be *lying about its
@@ -383,6 +386,16 @@ box where it means something.
 > - A probe that cannot be answered at a roll takes the run's last definite answer, so a failed
 >   probe never upgrades trust. A run whose probe has never answered (a laptop, a container) is
 >   judged as at the start.
+> - A run whose last definite answer is "not synchronised" asks again every 10 s
+>   (`cli.NTP_POLL_INTERVAL_S`). At the first "synchronised" it rolls once into a new segment
+>   in the same folder, judged as any roll is. The roll waits for the next frame, whose value is
+>   read after any step the sync made, and is dropped if a session opened or closed in that
+>   iteration. The new segment has the same `process_uuid` (§3)
+>   and the next `segment_index`. "Could not ask" never triggers it. Once NTP has said yes in
+>   a run, at the start, at an open or close, or here, the run stops asking. So that a poll
+>   does not cost a frame, its probe times out after 0.3 s (`cli.NTP_POLL_TIMEOUT_S`), which fits
+>   in the ~0.75 s after a frame with ~0.45 s to spare. Each failed poll doubles the wait, up to
+>   300 s, until a definite answer resets it to 10 s.
 > - A clock before the epoch is `clock_before_epoch`, as at the start. One past the 32-bit
 >   ceiling is `barcode_off_clock`, not a raise: the box records anyway.
 >

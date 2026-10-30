@@ -5,6 +5,7 @@ import logging
 import queue
 import signal
 import socket
+import subprocess
 import threading
 import time
 import urllib.request
@@ -21,6 +22,7 @@ from wl_sync.cli import (
     _ValueSource,
     main,
     probe_boot_id,
+    probe_ntp_synchronized,  # the real one: the fixture below replaces cli's copy
     run,
 )
 from wl_sync.endpoint import serve
@@ -1858,6 +1860,392 @@ def test_a_barcode_delay_that_is_not_a_whole_non_negative_number_is_refused(
         main(["record", "--out", str(tmp_path), "--fake", "--barcode-delay-us", value])
     assert excinfo.value.code == 2
     assert seen == {}
+
+
+# --- one roll in place, when NTP first syncs (2026-10-30) ------------------------------
+
+
+HANG = object()  # an `answer` meaning: timedatectl hangs, so the probe hits its timeout
+
+# The real probe's own default (`probe_ntp_synchronized`), which the start and every
+# open or close use.
+PROBE_DEFAULT_TIMEOUT_S = 5.0
+
+
+class _SteppableMonotonic(_Monotonic):
+    """_Monotonic whose wall clock can be stepped, as NTP's first sync usually steps it:
+    the wall clock moves and the monotonic one does not."""
+
+    def step_wall(self, seconds):
+        self._wall += datetime.timedelta(seconds=seconds)
+
+
+def _awaiting_ntp(
+    tmp_path, monkeypatch, answer, frames, script=None, timeouts=None,
+    clock=None, frame_s=None, after_sleep=None,
+):
+    """Record `frames` frames on a fake monotonic clock, with the NTP probe answering
+    `answer(now)` at monotonic `now`, and return the monotonic times it was asked at.
+
+    The run starts at 100 s, where the start's probe is asked. Frame n goes out at
+    99 + n s, and the loop polls after it, so a poll is due on whole seconds. `script`
+    queues requests as `_requesting` does: one queued at n is carried out after frame
+    n + 1.
+
+    The probe is injected as the tests above inject it, by replacing
+    `cli.probe_ntp_synchronized`, and takes the real one's `timeout_s`. An answer of
+    HANG holds the clock for the whole timeout, as subprocess.run does before it kills
+    timedatectl, and then answers None. `timeouts`, if given, collects the timeout each
+    call was made with, None where the caller left the default.
+
+    `clock` replaces the default _Monotonic, `frame_s` makes each frame hold the pin
+    that long (_FramesTakeRealTime), and `after_sleep()` runs after every sleep."""
+    if clock is None:
+        clock = _Monotonic(wall_at_start=START + datetime.timedelta(seconds=0.5))
+    asked = []
+
+    def probe(timeout_s=None):
+        asked.append(clock.now)
+        if timeouts is not None:
+            timeouts.append(timeout_s)
+        reply = answer(clock.now)
+        if reply is HANG:
+            clock.now += PROBE_DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
+            return None
+        return reply
+
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", probe)
+    requests = queue.SimpleQueue()
+    put = _requesting(requests, script or {})
+
+    def tick_fn(seconds):
+        put(seconds)
+        clock.sleep(seconds)
+        if after_sleep is not None:
+            after_sleep()
+
+    backend = FakeBackend() if frame_s is None else _FramesTakeRealTime(clock, frame_s)
+    run(tmp_path, backend, clock.wall, frames, tick_fn, mono_fn=clock, requests=requests)
+    return asked
+
+
+def _segments(folder):
+    return sorted(path.name for path in folder.glob("seg-*.log"))
+
+
+def test_a_run_begun_before_ntp_synced_rolls_once_in_place_when_it_syncs(
+    tmp_path, monkeypatch, caplog
+):
+    """THE REST OF THE BOOT-TRUST FIX, the user's option 2. After a power-up the box
+    starts before NTP syncs, so its first segment says ntp_unsynchronized, and between
+    sessions that segment can run for hours: judging trust again at an open or close
+    (2b420c0) ends it only when a session changes. Once NTP first says yes, the box
+    rolls once, into the same folder, and the new segment is judged as any roll is."""
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        asked = _awaiting_ntp(tmp_path, monkeypatch, lambda now: now >= 105, frames=40)
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    before, after = folder / segment_name(0), folder / segment_name(1)
+    assert _trust(before) == (False, "ntp_unsynchronized")
+    assert _trust(after) == (True, "")
+    assert _has_trailer(before)
+    first, second = read_log(before)[0], read_log(after)[0]
+    assert second.process_uuid == first.process_uuid
+    assert second.segment_index == first.segment_index + 1
+    # Asked at the start, then 10 s later, when it said yes, and never again.
+    assert asked == [100.0, 110.0]
+    # The yes came after frame 11, and the roll after the next frame, frame 12.
+    # One recording: the frame after the roll is the next value, and the manifest sees
+    # neither a gap nor an overlap.
+    assert len(_values(before)) == 12
+    assert _values(after)[0] == _values(before)[-1] + 1
+    summary = json.loads((folder / "manifest.json").read_text())
+    assert (summary["gaps"], summary["overlaps"]) == ([], [])
+    [line] = [m for m in caplog.messages if m.startswith("recording into")]
+    assert "NTP synchronized" in line and str(after) in line
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (lambda now: False, [100.0, 110.0, 120.0, 130.0]),
+        # Each failed poll doubles the wait: 10 s, then 20 s, then 40 s.
+        (lambda now: False if now < 101 else None, [100.0, 110.0, 130.0]),
+    ],
+    ids=["no", "no-then-cannot-ask"],
+)
+def test_no_roll_while_ntp_keeps_saying_no_or_cannot_be_asked(
+    tmp_path, monkeypatch, answer, expected
+):
+    """None is "could not ask", never "yes": a probe that times out must not start a
+    segment marked as synced. The run keeps asking."""
+    asked = _awaiting_ntp(tmp_path, monkeypatch, answer, frames=35)
+
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+    assert asked == expected
+
+
+def test_a_hanging_ntp_probe_costs_the_poll_no_frame(tmp_path, monkeypatch):
+    """A POLL MUST NOT COST A FRAME. timedatectl can hang (D-Bus, timedated), and the
+    probe's own timeout is 5 s, which a roll at an open or close can afford once, but a
+    poll repeating every 10 s cannot: every hang would skip five barcodes. The poll asks
+    with NTP_POLL_TIMEOUT_S instead, and a hang is None, which never rolls. The start's
+    probe keeps the default.
+
+    Frames hold the pin for 200 ms, as on the box (barcode.FRAME_US), so this measures
+    the real budget: the ~0.75 s between a frame's end and the next grid point. With
+    frames that took no time, any timeout up to a whole second would pass."""
+    assert cli.NTP_POLL_TIMEOUT_S == 0.3
+    timeouts = []
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: False if now < 101 else HANG, frames=80,
+        timeouts=timeouts, frame_s=FRAME_US / 1e6,
+    )
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0)]
+    # Every frame went out on the grid: 80 consecutive values, none skipped.
+    values = _values(folder / segment_name(0))
+    assert values == list(range(values[0], values[0] + 80))
+    assert timeouts == [None] + [cli.NTP_POLL_TIMEOUT_S] * (len(timeouts) - 1)
+    # Polled as each frame ends, 0.2 s into its second. The waits double from the end of
+    # each hung probe: 10 s, then 20, then 40.
+    assert asked == pytest.approx([100.0, 110.2, 131.2, 172.2])
+
+
+def test_the_poll_probe_is_bounded_by_its_own_timeout(monkeypatch):
+    """The real probe, with subprocess injected: it hands timedatectl the timeout it is
+    given, 5 s by default for a roll, and reads a timeout as None, "could not ask"."""
+    seen = []
+
+    def hangs(command, **kwargs):
+        seen.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(cli.subprocess, "run", hangs)
+
+    assert probe_ntp_synchronized(timeout_s=cli.NTP_POLL_TIMEOUT_S) is None
+    assert probe_ntp_synchronized() is None
+    assert seen == [cli.NTP_POLL_TIMEOUT_S, PROBE_DEFAULT_TIMEOUT_S]
+
+
+def test_failed_polls_back_off_to_the_cap_and_a_definite_answer_resets(
+    tmp_path, monkeypatch
+):
+    """After a failed poll the wait doubles, up to NTP_POLL_BACKOFF_MAX_S, so a box whose
+    timedatectl keeps failing is asked ever less often. Any definite answer puts it
+    back to NTP_POLL_INTERVAL_S. The cap is lowered here to 40 s, to reach it in a
+    short run; the shipped one is 300 s."""
+    assert cli.NTP_POLL_BACKOFF_MAX_S == 300
+    monkeypatch.setattr(cli, "NTP_POLL_BACKOFF_MAX_S", 40.0)
+
+    def answer(now):
+        if now < 101 or now >= 210:
+            return False
+        return None  # the polls at 110, 130 and 170 fail
+
+    asked = _awaiting_ntp(tmp_path, monkeypatch, answer, frames=131)
+
+    # Waits of 10, 20, 40, then 40 again (80, capped), then back to 10 after the "no".
+    assert asked == [100.0, 110.0, 130.0, 170.0, 210.0, 220.0, 230.0]
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+
+
+def test_a_run_that_cannot_ask_ntp_never_polls(tmp_path, monkeypatch):
+    """A laptop or a container: no definite answer at the start, so nothing to wait for."""
+    asked = _awaiting_ntp(tmp_path, monkeypatch, lambda now: None, frames=35)
+
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+    assert asked == [100.0]
+
+
+def test_a_run_begun_synced_never_polls_and_never_rolls(tmp_path, monkeypatch):
+    """Synced at the start, so its first segment is already judged synced. NTP saying
+    no later is not asked about, and would not undo a roll this run never needed."""
+    asked = _awaiting_ntp(tmp_path, monkeypatch, lambda now: now < 101, frames=35)
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0)]
+    assert _trust(folder / segment_name(0)) == (True, "")
+    assert asked == [100.0]
+
+
+SYNC_STEP_S = 3600
+
+
+@pytest.mark.parametrize("step_lands", ["at the poll that hears yes", "before that frame"])
+def test_the_ntp_roll_is_judged_after_a_frame_taken_after_the_sync(
+    tmp_path, monkeypatch, step_lands
+):
+    """NTP'S FIRST SYNC USUALLY STEPS THE CLOCK, and says it is synchronised in the same
+    call. A step landing after this iteration's frame and before the poll, judged at
+    once, compared the value from before the step with the clock after it, and spent
+    the one roll on a segment flagged barcode_off_clock until a session changed. The
+    roll now waits for the next frame, whose value is read after the step, so it is
+    trusted wherever the step lands. Found by review, with a probe this is built on."""
+    clock = _SteppableMonotonic(wall_at_start=START + datetime.timedelta(seconds=0.5))
+    stepped = []
+
+    def step_once():
+        if not stepped:
+            clock.step_wall(SYNC_STEP_S)
+            stepped.append(clock.now)
+
+    def answer(now):
+        if now < 105:
+            return False
+        if step_lands == "at the poll that hears yes":
+            step_once()
+        return True
+
+    def after_sleep():
+        if step_lands == "before that frame" and clock.now >= 105:
+            step_once()
+
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, answer, frames=40, clock=clock, after_sleep=after_sleep
+    )
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    before, after = folder / segment_name(0), folder / segment_name(1)
+    assert asked == [100.0, 110.0]
+    assert _trust(before) == (False, "ntp_unsynchronized")
+    assert _trust(after) == (True, "")
+    # The jump is inside the segment already flagged, not across the roll.
+    assert _values(before)[-1] - _values(before)[0] > SYNC_STEP_S
+    assert _values(after)[0] == _values(before)[-1] + 1
+
+
+def test_a_session_roll_in_the_next_iteration_leaves_the_ntp_roll_nothing_to_do(
+    tmp_path, monkeypatch
+):
+    """The NTP roll waits one iteration. A session opened in that iteration has already
+    asked NTP and judged its own segment, so the NTP roll is dropped rather than adding
+    an empty segment straight after it."""
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 105, frames=20,
+        script={11: [_request("open", "r1")]},
+    )
+
+    # The poll after frame 11 hears yes; the open is carried out after frame 12.
+    assert asked == [100.0, 110.0, 111.0]
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0)]
+    assert _trust(session / segment_name(0)) == (True, "")
+
+
+def test_ntp_is_asked_at_most_once_every_ten_seconds(tmp_path, monkeypatch):
+    """A probe costs 9-62 ms on the box, on the run loop's thread, where a frame is due
+    every second. Ten seconds is counted from the last time anything asked, a session
+    open's own probe included."""
+    assert cli.NTP_POLL_INTERVAL_S == 10
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: False, frames=35,
+        script={4: [_request("open", "r1")]},
+    )
+
+    # The start; the open, carried out after frame 5; then every 10 s from the open.
+    assert asked == [100.0, 104.0, 114.0, 124.0, 134.0]
+    assert _segments(tmp_path / "2026-08-16_01" / "syncbox") == [segment_name(0)]
+
+
+def test_a_session_opened_after_the_ntp_roll_still_rolls(tmp_path, monkeypatch):
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 105, frames=20,
+        script={14: [_request("open", "r1")]},
+    )
+
+    between = unassigned_dir(tmp_path, DAY)
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(between) == [segment_name(0), segment_name(1)]
+    assert _segments(session) == [segment_name(0)]
+    assert _trust(between / segment_name(1)) == (True, "")
+    assert _has_trailer(between / segment_name(1))
+    assert len(_values(between / segment_name(1))) == 3  # frames 13 to 15
+    assert _trust(session / segment_name(0)) == (True, "")
+    assert len({h.process_uuid for h in _headers(tmp_path).values()}) == 1
+    assert asked == [100.0, 110.0, 114.0]
+
+
+def test_a_session_opened_before_sync_whose_probe_says_yes_leaves_no_ntp_roll(
+    tmp_path, monkeypatch
+):
+    """The open's own probe found NTP synced and judged the session's segment on it, so
+    the run is no longer waiting: no poll, and no roll in the session's folder."""
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 103, frames=30,
+        script={4: [_request("open", "r1")]},
+    )
+
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0)]
+    assert _trust(session / segment_name(0)) == (True, "")
+    assert asked == [100.0, 104.0]
+
+
+def test_a_session_opened_before_sync_rolls_in_its_own_folder_when_ntp_syncs(
+    tmp_path, monkeypatch
+):
+    """The case wl-preproc will see. The open's probe still says no, so the session's
+    first segment is unsynchronised; NTP then syncs and the roll lands in the session's
+    folder, as seg-001 of the same process, with no gap between the two."""
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 108, frames=20,
+        script={4: [_request("open", "r1")]},
+    )
+
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0), segment_name(1)]
+    before, after = session / segment_name(0), session / segment_name(1)
+    assert _trust(before) == (False, "ntp_unsynchronized")
+    assert _trust(after) == (True, "")
+    assert _has_trailer(before)
+    first, second = read_log(before)[0], read_log(after)[0]
+    assert (second.session_id, second.segment_index) == (first.session_id, 1)
+    assert second.process_uuid == first.process_uuid
+    assert _values(after)[0] == _values(before)[-1] + 1
+    summary = json.loads((session / "manifest.json").read_text())
+    assert [s["file"] for s in summary["segments"]] == [segment_name(0), segment_name(1)]
+    assert summary["gaps"] == []
+    assert asked == [100.0, 104.0, 114.0]
+
+
+def test_once_rolled_for_ntp_a_run_stops_asking_even_if_ntp_says_no_again(
+    tmp_path, monkeypatch
+):
+    """Once, for the first sync. A session open later in the run asks for itself, and
+    its "no" judges that segment, but the poll does not come back."""
+    asked = _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: 105 <= now < 115, frames=40,
+        script={19: [_request("open", "r1")]},
+    )
+
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0), segment_name(1)]
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0)]
+    assert _trust(session / segment_name(0)) == (False, "ntp_unsynchronized")
+    assert asked == [100.0, 110.0, 119.0]
+
+
+def test_a_reused_open_still_rolls_nowhere_while_the_run_waits_for_ntp(
+    tmp_path, monkeypatch
+):
+    """The roll in place is its own path. The early return that keeps a retried open
+    (same request_id, so `reused`) from rolling is unchanged."""
+    first, retry = _request("open", "r1"), _request("open", "r1")
+    _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: False, frames=10,
+        script={2: [first], 6: [retry]},
+    )
+
+    assert retry.reply.result(timeout=0).reused
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0)]
+    assert len(_values(session / segment_name(0))) == 7  # frames 4 to 10
 
 
 # ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------

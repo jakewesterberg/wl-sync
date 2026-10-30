@@ -1,4 +1,8 @@
-"""One log segment: one process run's worth of records, appended as they arrive.
+"""One log segment: records from one process run, appended as they arrive.
+
+A run writes one or more segments: its first, then one more at every roll (a session
+opening or closing, and once when NTP first syncs). All of them carry the run's
+`process_uuid` (wl_sync.log.SyncBoxLogHeader), which is what tells a roll from a restart.
 
 WHY SEGMENTS AND NOT ONE FILE PER DAY. RP1's tick counter wraps every ~71.6 minutes and
 the unwrap offset is in memory, so ticks after a restart are not comparable BY NUMBER to

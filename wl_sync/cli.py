@@ -2,9 +2,12 @@
 
 The box is the first device on each day and the last off, and it runs continuously
 while every other device starts and stops blocks inside that run. Each process run
-writes one segment into the folder of the session that is open -- or, with none open,
-into the between-sessions folder for the day -- and a restart joins that folder rather
-than beginning a new one. systemd's Restart=always is what makes the stitching automatic.
+writes one or more segments, all carrying its `process_uuid`. The first goes into the
+folder of the session that is open -- or, with none open, into the between-sessions
+folder for the day. A roll begins another: when a session opens or closes, and once
+when NTP first syncs. A restart joins the open session's folder, or the day's
+between-sessions folder, rather than beginning a new one. systemd's Restart=always is
+what makes the stitching automatic.
 """
 
 from __future__ import annotations
@@ -66,6 +69,32 @@ CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
 # sleep ending and the pin rising: a checkpoint's two fsyncs, the tick read.
 _IDLE_BEFORE_FRAME_S = IDLE_MIN_US / 1e6 + 0.1
 
+# How long the run loop waits between asking NTP whether it has synced, while a run that
+# began unsynchronised waits for the first sync (see run()). A probe runs timedatectl on
+# the loop's own thread, between two frames, and costs 9 ms warm and 62 ms cold on
+# wl-sync-rig0, where a frame is due every second. Ten seconds ends the unsynchronised
+# stretch within ten seconds of the sync, where it used to last until a session changed.
+NTP_POLL_INTERVAL_S = 10.0
+
+# A POLL MUST NOT COST A FRAME, so its probe has its own timeout. The probe's default
+# 5 s, kept for the start and for a roll at an open or close, would let a hung
+# timedatectl (D-Bus, timedated) hold the loop past five frames at every poll. Measured
+# on wl-sync-rig0, the probe takes 62 ms cold and 9 ms warm, so 0.3 s is about five times
+# the cold case.
+#
+# A BUDGET, NOT A GUARANTEE. The poll runs after a 200 ms frame, and the loop then has
+# ~0.75 s before the next grid point, so a probe that hangs to its timeout fits with
+# ~0.45 s to spare. Anything else slow in the same second eats that spare: a flush
+# fsync has been measured at 229 ms. A slow fsync together with a hung probe could
+# still skip one frame. A poll that times out is None, "could not ask", which never
+# triggers the roll.
+NTP_POLL_TIMEOUT_S = 0.3
+
+# After a poll that fails (None), the wait before the next one doubles, up to this cap,
+# so a box whose timedatectl keeps failing is asked less and less often. Any definite
+# answer puts the wait back to NTP_POLL_INTERVAL_S.
+NTP_POLL_BACKOFF_MAX_S = 300.0
+
 # `logging`, not `print`: stdout is block-buffered when it is a pipe, which is what
 # systemd gives a service, so prints can sit unflushed in a daemon that runs all day.
 # journald is this box's only status surface (spec Sec.7, Sec.10) -- the heartbeat LED
@@ -73,17 +102,21 @@ _IDLE_BEFORE_FRAME_S = IDLE_MIN_US / 1e6 + 0.1
 log = logging.getLogger(__name__)
 
 
-def probe_ntp_synchronized() -> bool | None:
+def probe_ntp_synchronized(timeout_s: float = 5) -> bool | None:
     """True/False from timedatectl, or None when it cannot be asked -- a laptop, a
-    container, or a call that failed. None is 'unknown', which evaluate_clock
-    deliberately does not treat as untrusted. At a roll, run() replaces it with the
-    run's last definite answer, so a failure never upgrades trust."""
+    container, or a call that failed or ran past `timeout_s`. None is 'unknown', which
+    evaluate_clock deliberately does not treat as untrusted. At a roll, run() replaces
+    it with the run's last definite answer, so a failure never upgrades trust.
+
+    5 s by default, for the start and for a roll at an open or close, which happen
+    rarely and can afford it (2b420c0 kept it: a shorter one turns more probes into
+    failures). The poll for NTP's first sync passes NTP_POLL_TIMEOUT_S instead."""
     try:
         completed = subprocess.run(
             ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=timeout_s,
             check=True,
         )
     except (OSError, subprocess.SubprocessError):
@@ -289,9 +322,23 @@ def run(
     # directory must not be named after the bogus reading. See _resume().
     checkpoint_path = out / CHECKPOINT_NAME
     checkpoint = read_checkpoint(checkpoint_path)
-    # The run's last DEFINITE answer from the NTP probe, refreshed at every roll whose
-    # probe answers. A roll whose probe fails falls back to it (see follow_state).
+    # The run's last DEFINITE answer from the NTP probe, refreshed whenever a probe
+    # answers. A roll whose probe fails falls back to it (see ask_ntp).
     ntp_known = probe_ntp_synchronized()
+    # When NTP was last asked, on the monotonic clock: the start's probe follows
+    # `started_mono` at once. The poll in the loop waits `ntp_poll_wait_s` from it:
+    # NTP_POLL_INTERVAL_S, doubled after each failed poll up to NTP_POLL_BACKOFF_MAX_S.
+    ntp_asked_at = started_mono
+    ntp_poll_wait_s = NTP_POLL_INTERVAL_S
+    # Whether NTP has said yes at any point in this run. Until it has, a run whose last
+    # definite answer is no keeps asking, and rolls once at the first yes (the loop).
+    ntp_synced = ntp_known is True
+    # Set when the poll hears the first yes; the roll it asks for waits for the next
+    # iteration's frame (see the loop).
+    ntp_roll_due = False
+    # How many rolls this run has made, so the loop can tell whether a session roll
+    # judged a segment in a given iteration.
+    rolls = 0
     first_value, trust, day_date = _resume(started, checkpoint, ntp_known)
 
     # WHICH FOLDER THIS RUN RECORDS INTO is decided by the state file, not the date. A
@@ -364,51 +411,50 @@ def run(
     # box (spec Sec.4). See the end of the loop.
     carried_last: int | None = None
 
-    def follow_state(day: datetime.date) -> None:
-        """Make the recording follow the state file, rolling only if it does not already.
+    def ask_ntp(*, polling: bool = False) -> None:
+        """Ask NTP whether it has synced, and note when it was asked.
 
-        THE STATE FILE IS WHAT A RESTART WOULD RESUME, so it is what the recording must
-        match -- after EVERY request, including one that failed. open_session saves the
-        state and only then fsyncs the directory; if that fsync raises, the state already
-        names the new session while the caller was told the open failed. Left in the old
-        folder, the retry (same request_id, so `reused`) would roll nowhere and the box
-        would record the new animal into the previous one's folder until a restart: a
-        session folder holding two animals. Reading the state back instead of trusting the
-        outcome closes that, for opens and closes alike. A refusal changes no state, so
-        this is a no-op for it.
+        A FAILED PROBE NEVER UPGRADES TRUST. None means "could not ask". On the box,
+        where timedatectl exists, that is a probe that timed out or hit a D-Bus fault,
+        not an answer, and taken as "not untrusted" it turned the start's definite
+        False into a trusted segment. So a None keeps the run's last answer. A run
+        whose probe has never answered (a laptop, a container) still holds None,
+        and is judged as the start judges it. A None never counts as the first sync.
 
-        No session open and already between sessions stays put: there is no midnight roll
-        between visits.
-
-        A failure IN the roll propagates; the caller completes the future first.
+        `polling` is the loop's poll for the first sync: its probe is bounded by
+        NTP_POLL_TIMEOUT_S, and its failure doubles the wait before the next poll. A
+        definite answer from any probe resets the wait.
         """
-        nonlocal folder, session_id, carried_last, ntp_known
-        current = read_open(out)
-        if current is not None:
-            new_folder, new_id = session_dir(out, current.session_id), current.session_id
-            if folder == new_folder:
-                return
+        nonlocal ntp_known, ntp_asked_at, ntp_synced, ntp_poll_wait_s
+        if polling:
+            answer = probe_ntp_synchronized(timeout_s=NTP_POLL_TIMEOUT_S)
         else:
-            if folder.is_relative_to(out / "unassigned"):
-                return
-            new_folder, new_id = unassigned_dir(out, day), unassigned_id(day)
-
-        old_folder, outgoing = folder, sink.sink
-        # JUDGED AGAIN HERE, never carried over from the start: a box powered up before
-        # NTP synced otherwise flags every segment of the run. The probe goes first so
-        # that the wall and monotonic readings sit together, and the wall reading is the
-        # header's `written_at`, so a segment says when it was judged. See
-        # clock.evaluate_roll for why NTP alone is not enough.
-        #
-        # A FAILED PROBE NEVER UPGRADES TRUST. None means "could not ask". On the box,
-        # where timedatectl exists, that is a probe that timed out or hit a D-Bus fault,
-        # not an answer, and taken as "not untrusted" it turned the start's definite
-        # False into a trusted segment. So a None keeps the run's last answer. A run
-        # whose probe has never answered (a laptop, a container) still holds None,
-        # and is judged as the start judges it.
-        answer = probe_ntp_synchronized()
-        if answer is not None:
+            answer = probe_ntp_synchronized()
+        ntp_asked_at = mono_fn()
+        if answer is None:
+            if polling:
+                ntp_poll_wait_s = min(2 * ntp_poll_wait_s, NTP_POLL_BACKOFF_MAX_S)
+        else:
             ntp_known = answer
+            ntp_poll_wait_s = NTP_POLL_INTERVAL_S
+        if answer is True:
+            ntp_synced = True
+
+    def roll(new_folder: Path, new_id: SessionId, why: str) -> None:
+        """Close the current segment and continue in a new one in `new_folder`, which
+        may be the folder it is already in. `why` is for the journal.
+
+        THE NEW SEGMENT IS JUDGED HERE, never carried over from the start: a box powered
+        up before NTP synced otherwise flags every segment of the run. The caller asks
+        NTP first (ask_ntp) so that the wall and monotonic readings sit together, and
+        the wall reading is the header's `written_at`, so a segment says when it was
+        judged. See clock.evaluate_roll for why NTP alone is not enough.
+
+        A failure IN the roll propagates: the sink is dead and can record nothing.
+        """
+        nonlocal folder, session_id, carried_last, rolls
+        rolls += 1
+        old_folder, outgoing = folder, sink.sink
         written_at = now_fn()
         roll_trust = evaluate_roll(written_at, values.emitting(), ntp_known)
         new_segment, make_writer = _segment_factory(
@@ -426,9 +472,10 @@ def run(
             carried_last = outgoing.barcode_last
         folder, session_id = new_folder, new_id
         log.info(
-            "recording into %s (session %s): clock_trusted=%s clock_reason=%s",
-            new_folder,
+            "recording into %s (session %s, %s): clock_trusted=%s clock_reason=%s",
+            new_segment,
             new_id,
+            why,
             roll_trust.trusted,
             roll_trust.reason or "-",
         )
@@ -436,7 +483,9 @@ def run(
         # BOTH FOLDERS' MANIFESTS. The old one now has its closed segment to record. The
         # new one is written now, not when the recording leaves it, so a session entered
         # by an open has a manifest for the whole visit rather than none; its new segment
-        # is left out, as a start leaves out its own (see build_manifest).
+        # is left out, as a start leaves out its own (see build_manifest). A roll in
+        # place has one folder, rebuilt once: a first rebuild with nothing left out
+        # would list the new segment as a crash, since it has no trailer yet.
         #
         # ON THE RUN LOOP'S THREAD, so these must be cheap, and they are: a segment some
         # earlier rebuild in this process summarised is not parsed again while it is
@@ -445,7 +494,11 @@ def run(
         # still pay for is a crashed segment in a folder no rebuild in this process has
         # seen: after a restart in the middle of a visit, a crashed segment in that day's
         # unassigned/ folder is parsed once, at the visit's close.
-        for rebuilt, still_open in ((old_folder, None), (new_folder, new_segment)):
+        if new_folder == old_folder:
+            rebuilds = [(new_folder, new_segment)]
+        else:
+            rebuilds = [(old_folder, None), (new_folder, new_segment)]
+        for rebuilt, still_open in rebuilds:
             try:
                 write_manifest(rebuilt, excluding=still_open)
             except Exception as error:  # noqa: BLE001 - recording matters more than the summary
@@ -453,6 +506,40 @@ def run(
                 # again, so its manifest stays as it is until someone rebuilds it; an
                 # unassigned/ folder is rebuilt when the recording next comes into it.
                 log.error("could not rebuild the manifest of %s: %s", rebuilt, error)
+
+    def follow_state(day: datetime.date) -> None:
+        """Make the recording follow the state file, rolling only if it does not already.
+
+        THE STATE FILE IS WHAT A RESTART WOULD RESUME, so it is what the recording must
+        match -- after EVERY request, including one that failed. open_session saves the
+        state and only then fsyncs the directory; if that fsync raises, the state already
+        names the new session while the caller was told the open failed. Left in the old
+        folder, the retry (same request_id, so `reused`) would roll nowhere and the box
+        would record the new animal into the previous one's folder until a restart: a
+        session folder holding two animals. Reading the state back instead of trusting the
+        outcome closes that, for opens and closes alike. A refusal changes no state, so
+        this is a no-op for it.
+
+        No session open and already between sessions stays put: there is no midnight roll
+        between visits. THESE EARLY RETURNS ARE WHAT KEEP A REUSED REQUEST FROM ROLLING.
+        The one roll that stays in its folder, when NTP first syncs, does not come
+        through here; it calls roll() itself (see the loop).
+
+        A failure IN the roll propagates; the caller completes the future first.
+        """
+        current = read_open(out)
+        if current is not None:
+            new_folder, new_id = session_dir(out, current.session_id), current.session_id
+            if folder == new_folder:
+                return
+            why = "session opened"
+        else:
+            if folder.is_relative_to(out / "unassigned"):
+                return
+            new_folder, new_id = unassigned_dir(out, day), unassigned_id(day)
+            why = "session closed"
+        ask_ntp()
+        roll(new_folder, new_id, why)
 
     def carry_out(request: SessionRequest, value: int) -> None:
         """Do what `request` asks and complete its future, whatever happens.
@@ -568,6 +655,7 @@ def run(
             # to the session that was open when it was emitted, and the next one to the
             # session this makes. Drained with get_nowait() because the loop must never
             # wait on an endpoint it does not need.
+            rolls_before_requests = rolls
             while requests is not None:
                 try:
                     request = requests.get_nowait()
@@ -577,6 +665,46 @@ def run(
                 # carrying that out would open a session nobody is waiting for.
                 if request.reply.set_running_or_notify_cancel():
                     carry_out(request, value)
+
+            # ONE ROLL IN PLACE, WHEN NTP FIRST SYNCS (the user's option 2, 2026-10-30).
+            # After a power-up the box starts before NTP syncs, so its first segment says
+            # ntp_unsynchronized, and a roll at an open or close re-judges that only when
+            # a session changes, which between visits can be hours away. So while the
+            # run's last definite answer is no, the loop asks again every
+            # NTP_POLL_INTERVAL_S, and at the first yes it rolls once into a new segment IN
+            # THE SAME FOLDER, judged as any roll is (evaluate_roll). The new segment
+            # carries the same process_uuid and the next segment_index, which is how a
+            # reader tells this roll from a restart.
+            #
+            # THE ROLL WAITS ONE ITERATION. NTP's first sync usually steps the clock and
+            # reports itself synchronised in the same call. A step that lands after
+            # this iteration's frame and before the poll would be judged against a value
+            # read before it: past the tolerance that is barcode_off_clock, and the one
+            # roll would be spent on it. So the yes sets `ntp_roll_due`, and the roll
+            # happens after the next frame, whose value is read after the step. If a
+            # session opened or closed in that iteration, its roll has already asked NTP
+            # and judged a segment, so the NTP roll is dropped.
+            #
+            # A BUDGET FOR THE POLL: its probe gives up after NTP_POLL_TIMEOUT_S, which
+            # fits in the ~0.75 s after the frame with ~0.45 s to spare, and each poll
+            # that fails doubles the wait before the next, up to NTP_POLL_BACKOFF_MAX_S
+            # (see ask_ntp).
+            #
+            # Once NTP has said yes in this run it is not asked here again: at the start,
+            # at this roll, or at an open or close, whose roll has already judged its own
+            # segment. A None is "could not ask" and changes nothing. Placed after the
+            # requests, so that an open in this iteration counts as the last ask.
+            if ntp_roll_due:
+                ntp_roll_due = False
+                if rolls == rolls_before_requests:
+                    roll(folder, session_id, "NTP synchronized")
+            if (
+                not ntp_synced
+                and ntp_known is False
+                and mono_fn() - ntp_asked_at >= ntp_poll_wait_s
+            ):
+                ask_ntp(polling=True)
+                ntp_roll_due = ntp_synced
 
             # THE NEXT GRID POINT THAT LEAVES THE DECODER ITS IDLE, not a fixed second
             # after the frame. On hardware a frame holds the pin for 200 ms, so

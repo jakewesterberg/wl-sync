@@ -188,7 +188,8 @@ def evaluate_roll(
     now: datetime.datetime, emitting: int, ntp_synchronized: bool | None
 ) -> ClockTrust:
     """Whether gap arithmetic across a ROLL can be believed: the judgement for a segment
-    that begins inside a run, when a session opens or closes. The first segment of a run
+    that begins inside a run, when a session opens or closes, or in place once NTP first
+    syncs (wl_sync.cli.run). The first segment of a run
     is judged by evaluate_clock, at the start; every later one is judged here, when it
     begins. Until 2026-10-30 a roll reused the start's judgement, and on the box after a
     power-up -- unit started at 12.5 s, NTP synced at 33.5 s -- every segment that day
