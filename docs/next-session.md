@@ -278,7 +278,37 @@ left, so no further panel connector fits. One fix-up came with it:
     2. also roll once when NTP first syncs;
     3. make the unit wait for sync, with a timeout.
 
-    1 and 2 are recommended. 3 delays recording.
+    The user chose 1 and 2 (2026-10-30).
+  - **Option 1 is on `main` as `2b420c0`.**
+    - A segment begun by a session open or close asks NTP again.
+    - It is also untrusted, as `barcode_off_clock`, if the value being emitted is more than 60 s
+      off the wall clock.
+    - A probe that fails at a roll falls back to the run's last definite answer, so it never
+      upgrades trust.
+    - The probe costs 62 ms cold and 9 ms warm on wl-sync-rig0.
+    - Not yet deployed.
+  - **Option 2 is held.** It would roll inside the same folder, and wl-preproc's merged reader
+    would take that for a box restart. Agreed with wl-preproc on 2026-10-30:
+    - Each header first gains a per-process id: a UUID4 made at process start, the same in every
+      segment that process writes.
+    - It lands in one commit with ask 4a's barcode-delay field (null = unmeasured), so
+      wl-preproc moves its pin once.
+    - The header has `extra="forbid"`, so a new field breaks every older pinned reader.
+    - Nothing new is deployed to the box until wl-preproc says its pin has moved.
+- **Code words were timed 71.6 min early after a gap: fixed on `main` as `d309bf1`, not yet
+  deployed.**
+  - Found by wl-preproc (its ask 6).
+  - **The fault:** each path (W, E, B) had its own unwrapper, which noticed a 32-bit wrap only
+    when its next raw tick was lower.
+    - W and E missed a wrap whenever they went 71.6 min without a record, or first spoke more
+      than 71.6 min after start.
+    - Every later record on that path was then 4294.97 s early against the barcodes, silently.
+  - **The fix:** one clock of the box's `now_us()`, kept current by the 1 Hz barcode loop.
+    - Every path takes the value matching its raw tick that is nearest that clock.
+    - Runs that never missed a wrap give identical values.
+- **Still to build for wl-preproc's ask 4b:** records captured before a folder change must land in
+  the closing segment. Spec §3.4 allows up to a second on the far side, so a session's last
+  codes can land in `unassigned/`, which wl-preproc never reads.
 - **A 4-hour soak of the RP1 backend with nothing wired passed** (2026-10-19, 11:42–15:42 UTC,
   `wl-sync record --out ~/wl-soak/rig0 --duration 14400`, run as the user beside the fake-mode
   service). Results:

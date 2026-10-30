@@ -20,7 +20,9 @@ status:
     by the box) is built and merged to main (2026-10-19); its
     tests run on a laptop against the fake backend, it has not been called from
     the task PC, and its MonkeyLogic recipe has never run under MATLAB. The capture paths are still unproven against
-    real signals, so the systemd unit ships --fake. 410 tests. Breakout board:
+    real signals, so the systemd unit ships --fake. 440 tests. Two fixes from
+    2026-10-30 are on main and not yet deployed: one clock unwraps every
+    delivery path, and clock trust is judged again at every roll. Breakout board:
     schematic captured, layout not started.
   next: >-
     Bench day with signals on the pins: first GPIO17
@@ -30,7 +32,7 @@ status:
     the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "0920921"
+  describes: "2b420c0"
 
 runs_on: [rig/sync]
 builds_on: [dws]

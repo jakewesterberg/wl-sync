@@ -77,8 +77,8 @@ backward-compatible for reading, but not forward-compatible.
   flagged `ntp_unsynchronized`, even once NTP has synced. Trust is judged once, when the process
   starts, and that races NTP at boot. Until this is fixed, do not treat that flag on its own as
   a fault in the data.~~
-  - **Fixed 2026-10-30**, in the wl-sync commit that adds this note ("cli, clock: judge clock
-    trust again at every roll"). It reaches wl-preproc once its pin moves past that commit.
+  - **Fixed 2026-10-30 in `2b420c0`** ("cli, clock: judge clock trust again at every roll"). It
+    reaches wl-preproc once its pin moves past that commit.
   - Each segment is now judged when it begins. A segment begun by a session open or close asks
     NTP again. It is also untrusted if the barcode value the box is emitting is more than 60 s off
     the wall clock, under a new reason, **`barcode_off_clock`**.
