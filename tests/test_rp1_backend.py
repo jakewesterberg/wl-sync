@@ -639,7 +639,12 @@ def test_a_capture_path_that_has_stopped_is_not_waited_for(lib, gpiod, caplog):
     """A pump whose thread has exited has delivered all it ever will, so a roll has
     nothing to wait for. It used to keep its last mark, and every later open and close
     then waited out ROLL_BARRIER_TIMEOUT_S and logged a WARNING about records it would
-    "deliver late". check_health() is what reports the stop."""
+    "deliver late". check_health() is what reports the stop.
+
+    A barrier that waits for a dead path takes the whole timeout and logs that WARNING, so
+    each barrier here must end before the timeout, and no WARNING may appear. The first
+    barrier still waits for the live word pump, which a loaded runner can delay past a
+    quarter of the timeout (0.056 s seen against a bound of 0.05 s)."""
     import logging
 
     from wl_sync import cli
@@ -665,12 +670,12 @@ def test_a_capture_path_that_has_stopped_is_not_waited_for(lib, gpiod, caplog):
             gpiod.edge_failure = OSError("EIO")
             assert _until(lambda: not backend._edge_thread.is_alive())
             assert set(backend.delivered_through()) == {"event-code capture"}
-            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S / 4
+            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S
 
             lib.push(stream((10, 1))[1:] + [0])  # the pairing slips: the word pump stops
             assert _until(lambda: not backend._word_thread.is_alive())
             assert backend.delivered_through() == {}
-            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S / 4
+            assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S
         assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
     finally:
         backend.close()
