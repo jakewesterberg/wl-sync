@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,11 +71,88 @@ class SyncBoxLogHeader(BaseModel):
     ordering: Literal["per-path", "global"] = "per-path"
     clock_trusted: bool = True
     clock_reason: str = ""
+    process_uuid: str | None = None
+    """Which recorder process wrote this segment. `wl-sync record` makes one UUID4 when
+    the process starts and writes it, in canonical form, into every segment that process
+    writes, before and after every roll. Every new process makes a new one. None means
+    the segment was written before this field existed (2026-10-30). Every segment written
+    since carries one.
+
+    THE CONTRACT A READER MAY RELY ON:
+
+    - Segments with the same id were written by one process, so their ticks are on one
+      clock: the box clock in `wl_sync.service` (`_BoxClock`), on which every path's
+      ticks are placed. They compare by number, wherever the segments are.
+    - Two segments in one folder, with consecutive `segment_index` and the same id, are
+      not a restart. The index goes up by one between them, and the ticks run on, on
+      that one clock, which a roll does not reset.
+    - A different id, or None, means a new process began the later segment. That is a
+      restart, and a restart begins a new clock, whose ticks are not comparable by
+      number with the earlier segment's (spec Sec.3).
+
+    THE ID PROMISES A SHARED CLOCK, NOT ADJACENCY. Something can lie between two such
+    segments, recorded in another folder on the same clock:
+    - In `unassigned/`, a visit normally does, recorded in its session's own folder.
+    - In a session's folder, normally nothing does, because the box does not go back
+      into a session folder it has left. It can, though. If reading the state file fails
+      once during a request (`read_open` then says "none open"), the recording rolls out
+      to `unassigned/`, and the next request rolls it back in.
+
+    A reader that needs adjacency checks the `B` values across the boundary. Where
+    nothing lies between, the second segment's first value normally follows the
+    first's last by one, as consecutive frames do within a segment.
+
+    Records cross a roll as they cross any point in a file, ordered within each path
+    (`ordering`). A record captured just before a roll can land in the next segment
+    (session-identity spec Sec.3.4).
+
+    A UUID, NOT A PID: pids repeat across boots, and `boot_id` cannot tell two processes
+    in one boot apart. The canonical spelling is enforced (`_process_uuid_canonical`),
+    so a reader can compare ids as text: one UUID spelled two ways would read as two
+    processes, and so as a restart.
+
+    NOT `run_id`, although this package calls one recorder process a run (`cli.run()`).
+    "Run" means something else to the people who read this header. wl-preproc's runs are
+    SpikeGLX runs, and deploy/README.md uses "the run" for a MonkeyLogic task. A "run id"
+    beside those reads as one of them."""
+
+    barcode_delay_us: int | None = Field(default=None, ge=0)
+    """How long after a `B` record's tick the barcode frame's lead rising edge reaches
+    the wire, in µs, as the bench loopback measures it: the median "lead edge after its
+    logged tick" that `python -m wl_sync.bench loopback` prints. None means unmeasured,
+    and stays the default until bench day measures it. The box is given the value with
+    `wl-sync record --barcode-delay-us N` (deploy/README.md), and writes it into every
+    segment of the run.
+
+    ADD IT TO A `B` TICK to get the wire time: `tick_us + barcode_delay_us`. It is never
+    negative, because the tick is read before the frame goes out (`wl_sync.cli.run`,
+    spec Sec.5): after the checkpoint is written, immediately before emission. The
+    lead edge therefore rises after the tick, and this is how long after. The loopback
+    sees that edge as an `E` record on an input wired to the barcode output, so the sum
+    is where this box's own edge capture places the lead edge.
+
+    EXCEPT THE FIRST `B` OF EACH `process_uuid`. That record carries an extra delay
+    that nothing measures. On the box, `Rp1Backend.emit_pulses` requests the output line
+    during the first frame, after that frame's tick is read, so its lead edge rises later
+    by however long the request takes. The loopback reports a segment's first frame as
+    not checkable, so its median never includes this one.
+
+    None is not zero. Zero is a measurement. A reader with None uses each tick as it is,
+    and records the delay as unmeasured."""
 
     @field_validator("session_id")
     @classmethod
     def _session_id_well_formed(cls, value: str) -> str:
         SessionId.parse(value)
+        return value
+
+    @field_validator("process_uuid")
+    @classmethod
+    def _process_uuid_canonical(cls, value: str | None) -> str | None:
+        # uuid.UUID also accepts upper case, no hyphens, braces and a urn: prefix. The
+        # round trip through str() rejects all of them.
+        if value is not None and str(uuid.UUID(value)) != value:
+            raise ValueError(f"process_uuid must be a UUID in canonical form, got {value!r}")
         return value
 
     @field_validator("written_at")

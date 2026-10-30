@@ -89,6 +89,19 @@ segment cannot write a trailer.
 **Segment header** extends `SyncBoxLogHeader` with: `segment_index`, `ordering` (see §5),
 `clock_trusted`, `clock_reason`. `boot_id` and `written_at` already exist.
 
+> **Amended 2026-10-30.** Two more fields, both `null` by default, so older segments still read:
+>
+> - **`process_uuid`**: a UUID4 made once per recorder process and written into every segment it
+>   writes. Two segments with the same id are on one clock. The id promises that, and not that
+>   the two are adjacent in time; the `B` values say whether they are. A new id is a restart,
+>   and a new clock.
+> - **`barcode_delay_us`**: the bench loopback's measured delay from a `B` tick to the frame's lead
+>   edge on the wire. A reader adds it to `B` ticks, except the first of each process, which is
+>   later by an unmeasured amount. `null` means unmeasured.
+>
+> `schema_version` stays 1. A reader built before this rejects both fields, because the header
+> forbids unknown ones. See `wl_sync/log.py`.
+
 **Segment trailer**, defined here because the whole crash/clean distinction rests on it: a
 single final line `T,<closed_at_iso>,<barcode_first>,<barcode_last>,<record_count>`, written
 and `fsync`ed only during a clean shutdown. Its **presence** means clean; its **absence** means

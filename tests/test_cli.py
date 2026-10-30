@@ -8,6 +8,7 @@ import socket
 import threading
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 import pytest
@@ -1730,6 +1731,133 @@ def test_the_value_being_emitted_now_advances_on_the_monotonic_clock():
     wall["now"] += datetime.timedelta(seconds=STEP_S)  # a step moves the wall clock only
     mono["now"] = 55.5
     assert source.emitting() == 1005
+
+
+# --- the per-process id and the barcode delay, in every header (2026-10-30) ------------
+
+
+def _headers(root):
+    """Every segment header under `root`, by the segment's path relative to it."""
+    return {
+        path.relative_to(root): read_log(path)[0]
+        for path in sorted(root.rglob("seg-*.log"))
+    }
+
+
+def _open_then_close(tmp_path, **run_kwargs):
+    """Three segments from one process: between sessions, the visit, between sessions."""
+    requests = queue.SimpleQueue()
+    script = {1: [_request("open", "r1")], 3: [_request("close", "2026-08-16_01")]}
+    run(
+        out=tmp_path,
+        backend=FakeBackend(),
+        now_fn=_clock_from(START),
+        duration_s=6,
+        tick_fn=_requesting(requests, script),
+        requests=requests,
+        **run_kwargs,
+    )
+    headers = _headers(tmp_path)
+    assert len(headers) == 3
+    return headers
+
+
+def test_every_segment_of_one_process_carries_its_id_and_a_restart_a_new_one(
+    tmp_path, caplog
+):
+    """THE CONTRACT wl-preproc will read a roll by. Until now it took every segment as
+    its own clock, which is true only while every roll changes folders. A roll that stays
+    in its folder breaks that, so the header says which process wrote it: the same id
+    across a roll, whose ticks share one clock, and a new id after a restart, whose ticks
+    do not."""
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        first = _open_then_close(tmp_path)
+
+    ids = {header.process_uuid for header in first.values()}
+    assert len(ids) == 1 and None not in ids, ids
+    [process] = ids
+    assert uuid.UUID(process).version == 4
+    assert str(uuid.UUID(process)) == process
+    # The start's journal line names it, so an operator can find the process a segment
+    # came from.
+    assert process in caplog.messages[0]
+
+    _record(tmp_path, {}, 2, start=START + datetime.timedelta(minutes=5))  # a restart
+    restarted = [h for path, h in _headers(tmp_path).items() if path not in first]
+    assert len(restarted) == 1
+    assert restarted[0].process_uuid not in (None, process)
+
+
+def test_a_measured_barcode_delay_reaches_every_segment(tmp_path):
+    headers = _open_then_close(tmp_path, barcode_delay_us=1234)
+    assert {header.barcode_delay_us for header in headers.values()} == {1234}
+
+
+def test_without_a_measured_delay_every_segment_says_unmeasured(tmp_path):
+    headers = _open_then_close(tmp_path)
+    assert {header.barcode_delay_us for header in headers.values()} == {None}
+
+
+def _main_captures_run(monkeypatch, tmp_path):
+    """main() with run() replaced by a recorder of the arguments it was given."""
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+        return tmp_path
+
+    monkeypatch.setattr(cli, "run", fake_run)
+    return seen
+
+
+def test_the_barcode_delay_is_given_on_the_command_line(tmp_path, monkeypatch):
+    """How the systemd unit tells the box what bench day measured."""
+    seen = _main_captures_run(monkeypatch, tmp_path)
+    main(["record", "--out", str(tmp_path), "--fake", "--barcode-delay-us", "850"])
+    assert seen["barcode_delay_us"] == 850
+
+    seen.clear()
+    main(["record", "--out", str(tmp_path), "--fake", "--barcode-delay-us", "0"])
+    assert seen["barcode_delay_us"] == 0
+
+    seen.clear()
+    assert cli.BARCODE_DELAY_MAX_US == 100_000
+    main(["record", "--out", str(tmp_path), "--fake", "--barcode-delay-us", "100000"])
+    assert seen["barcode_delay_us"] == 100_000
+
+    seen.clear()
+    main(["record", "--out", str(tmp_path), "--fake"])
+    assert seen["barcode_delay_us"] is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "-1",
+        "1.5",
+        "850us",
+        "",
+        # int() accepts all four of these. None is how anyone writes a delay in a unit.
+        "8_50",
+        "+850",
+        " 850",
+        "٨٥٠",  # 850 in Arabic-Indic digits
+        # Past the cap: 850 us typed in nanoseconds, and a whole second.
+        "850000",
+        "1000000",
+    ],
+)
+def test_a_barcode_delay_that_is_not_a_whole_non_negative_number_is_refused(
+    tmp_path, monkeypatch, value
+):
+    """A typo in the unit is configuration the operator must see, as with --listen: an
+    argparse error (exit 2), not a header carrying a wrong correction for a whole day.
+    ASCII digits only, and no more than BARCODE_DELAY_MAX_US."""
+    seen = _main_captures_run(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["record", "--out", str(tmp_path), "--fake", "--barcode-delay-us", value])
+    assert excinfo.value.code == 2
+    assert seen == {}
 
 
 # ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------

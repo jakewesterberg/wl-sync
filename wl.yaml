@@ -78,8 +78,9 @@ publishes:
     stability: stable
     what: >-
       The header on every sync box log: schema_version, session_id, rig,
-      boot_id, written_at, the gpio_map, the segment index and ordering, and
-      whether the clock was trusted with the reason if not. wl-preproc
+      boot_id, written_at, the gpio_map, the segment index and ordering,
+      whether the clock was trusted with the reason if not, the id of the
+      process that wrote it, and the measured barcode delay. wl-preproc
       re-exports it to docs/schemas/syncbox_log_header.json rather than
       redefining it, and its CI diffs that export so a drift here fails there.
 

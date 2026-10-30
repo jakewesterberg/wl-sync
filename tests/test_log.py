@@ -1,4 +1,5 @@
 import datetime
+import json
 
 import pytest
 from pydantic import ValidationError
@@ -23,6 +24,9 @@ HEADER = SyncBoxLogHeader(
     written_at=datetime.datetime(2027, 3, 14, 11, 0, tzinfo=datetime.timezone.utc),
     gpio_map={"barcode_out": 17, "code_data_base": 2, "code_strobe": 18},
 )
+
+# A canonical UUID4, as `wl-sync record` mints one per process.
+PROCESS_UUID = "0b4f1c7e-3d52-4a8e-9f61-2c7d8e9a0b13"
 
 
 def test_monotonic_ticks_pass_through():
@@ -185,6 +189,8 @@ def test_every_non_default_header_field_round_trips(tmp_path):
             "ordering": "global",
             "clock_trusted": False,
             "clock_reason": "clock_before_epoch",
+            "process_uuid": PROCESS_UUID,
+            "barcode_delay_us": 850,
         }
     )
     path = tmp_path / "syncbox.log"
@@ -192,6 +198,89 @@ def test_every_non_default_header_field_round_trips(tmp_path):
     read_back, _ = read_log(path)
     assert read_back == header
     assert (read_back.segment_index, read_back.ordering) == (7, "global")
+
+
+# --- the per-process id and the barcode delay (2026-10-30) ------------------------------
+
+# The header exactly as a box wrote it from 2026-08-17 until these two fields existed:
+# no process_uuid, no barcode_delay_us.
+BEFORE_THE_FIELDS = {
+    "schema_version": 1,
+    "session_id": "2026-10-19_00",
+    "rig": "rig0",
+    "boot_id": "5c0f6a52-7b43-4f0e-8d0c-3f1e2a9b8c71",
+    "written_at": "2026-10-19T11:42:00.123456Z",
+    "gpio_map": {"barcode_out": 17, "code_strobe": 18},
+    "segment_index": 2,
+    "ordering": "per-path",
+    "clock_trusted": False,
+    "clock_reason": "ntp_unsynchronized",
+}
+
+
+def test_a_header_written_before_the_process_uuid_and_delay_still_reads(tmp_path):
+    """New readers must still read old logs: wl-preproc reads every segment the box has
+    ever written with this model. Both fields are None there, meaning "written before
+    this field existed" for the one and "unmeasured" for the other."""
+    path = tmp_path / "seg-002.log"
+    path.write_text(json.dumps(BEFORE_THE_FIELDS) + "\nB,1000,214573322\n", encoding="utf-8")
+
+    header, records = read_log(path)
+
+    assert header.process_uuid is None
+    assert header.barcode_delay_us is None
+    assert header.segment_index == 2
+    assert records == [BarcodeEmitted(tick_us=1000, value=214573322)]
+
+
+@pytest.mark.parametrize("delay_us", [0, 850])
+def test_the_process_uuid_and_barcode_delay_round_trip(tmp_path, delay_us):
+    """Zero is a measurement, not "unmeasured": a writer or reader that tested the delay
+    for truth would turn a measured 0 into None."""
+    header = SyncBoxLogHeader.model_validate(
+        {
+            **HEADER.model_dump(mode="json"),
+            "process_uuid": PROCESS_UUID,
+            "barcode_delay_us": delay_us,
+        }
+    )
+    path = tmp_path / "syncbox.log"
+    write_log(path, header, [BarcodeEmitted(tick_us=1_000, value=212_000_000)])
+
+    read_back, _ = read_log(path)
+
+    assert read_back == header
+    assert (read_back.process_uuid, read_back.barcode_delay_us) == (PROCESS_UUID, delay_us)
+
+
+def test_header_rejects_a_negative_barcode_delay():
+    """The B tick is read BEFORE the frame is emitted, so the lead edge rises after it,
+    never before. A negative delay is a sign error, and a reader adding it would move
+    every barcode the wrong way."""
+    with pytest.raises(ValidationError):
+        SyncBoxLogHeader.model_validate(
+            {**HEADER.model_dump(mode="json"), "barcode_delay_us": -1}
+        )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not-a-uuid",
+        PROCESS_UUID.upper(),
+        PROCESS_UUID.replace("-", ""),
+        "{" + PROCESS_UUID + "}",
+        "urn:uuid:" + PROCESS_UUID,
+    ],
+)
+def test_header_rejects_a_process_uuid_not_in_canonical_form(text):
+    """wl-preproc compares these ids to tell a roll from a restart, and compares them as
+    text. The same UUID spelled two ways would read as two processes, and so as a
+    restart, so only the canonical spelling is accepted."""
+    with pytest.raises(ValidationError):
+        SyncBoxLogHeader.model_validate(
+            {**HEADER.model_dump(mode="json"), "process_uuid": text}
+        )
 
 
 def test_header_rejects_a_negative_segment_index():

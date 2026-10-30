@@ -24,6 +24,9 @@ label (`gpioinfo`):
     wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
 
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
+*(Added 2026-10-30.)* Once the loopback (`docs/next-session.md`, Step B) has measured the
+barcode delay, also add `--barcode-delay-us N`, where N is the median "lead edge after its
+logged tick" it printed, in whole µs. Without it every header says the delay is unmeasured.
 
 ## Checking it
 
@@ -74,6 +77,18 @@ is no checkpoint interval any more — the checkpoint is written every second �
 rebooted" — under `Restart=always` those look identical from a timestamp, and
 telling them apart is the first question a crash loop raises. Empty (`""`) means
 the platform does not expose one.
+
+*Added 2026-10-30:* two more header fields. Segments written before then have `null` in both.
+
+- **`process_uuid`** names the process that wrote the segment. It is one UUID, made when
+  `wl-sync record` starts and written into every segment that process writes. Every restart
+  makes a new one. Segments with the same id are on one clock. A new id is a restart. The
+  id does not say whether anything lies between two segments; the `B` values do. The
+  start's journal line prints it.
+- **`barcode_delay_us`** is how long after a `B` record's tick the frame's lead edge reaches
+  the wire, in µs. Add it to a `B` tick to get the wire time. The exception is the first
+  `B` of each process, which is later by an amount nothing measures. The delay is `null`
+  until bench day measures it and the unit passes `--barcode-delay-us` (above).
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.

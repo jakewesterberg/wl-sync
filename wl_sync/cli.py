@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -179,12 +180,16 @@ def _segment_factory(
     rig: str,
     written_at: datetime.datetime,
     trust: ClockTrust,
+    process_uuid: str,
+    barcode_delay_us: int | None,
 ) -> tuple[Path, Callable[[], SegmentWriter]]:
     """The path of the next segment in `folder`, and a zero-argument factory that writes it.
 
     THE ONLY PLACE A SEGMENT HEADER IS DEFINED. The start of run() and every roll build
     their segment here, so a field added to the header cannot reach the first segment of
-    a run and miss the ones after a session change.
+    a run and miss the ones after a session change. `process_uuid` and `barcode_delay_us`
+    have no defaults here for the same reason: a call that forgot one would write a
+    header saying "written before this field existed" or "unmeasured", and be wrong.
 
     A FACTORY, NOT A WRITER, because QueuedSink.roll() calls it on the owner thread after
     the old segment's trailer is written. Opening the file here, on the run loop's thread,
@@ -210,6 +215,8 @@ def _segment_factory(
         segment_index=index,
         clock_trusted=trust.trusted,
         clock_reason=trust.reason,
+        process_uuid=process_uuid,
+        barcode_delay_us=barcode_delay_us,
     )
     path = folder / segment_name(index)
 
@@ -251,8 +258,13 @@ def run(
     out: Path, backend, now_fn, duration_s: float | None, tick_fn,
     mono_fn=time.monotonic,
     requests: queue.SimpleQueue[SessionRequest] | None = None,
+    barcode_delay_us: int | None = None,
 ) -> Path:
     """Record until `duration_s` elapses or a termination signal arrives.
+
+    `barcode_delay_us` is the bench loopback's measured delay from a `B` tick to the
+    frame's lead edge, written into every segment's header; None until it is measured
+    (see SyncBoxLogHeader.barcode_delay_us).
 
     `requests` is how the task PC's open and close reach the recording (spec 3.1-3.4).
     The endpoint puts a SessionRequest on it and waits on its future; this loop carries
@@ -267,6 +279,11 @@ def run(
     """
     started = now_fn()
     started_mono = mono_fn()  # the same instant, so the pacing grid can be placed on it
+    # This process's id, in every segment it writes (SyncBoxLogHeader.process_uuid).
+    # Made HERE, once per call, not at import: the Recorder below, and with it the one
+    # clock every tick is placed on, is also made once per call, and the id names that
+    # clock. main() calls run() once, so one call is one process.
+    process_uuid = str(uuid.uuid4())
 
     # Resolved BEFORE the day directory is created, because on a dead-RTC clock the
     # directory must not be named after the bogus reading. See _resume().
@@ -299,7 +316,13 @@ def run(
     write_manifest(folder)
 
     writer_path, make_writer = _segment_factory(
-        folder, session_id, rig=out.name, written_at=started, trust=trust
+        folder,
+        session_id,
+        rig=out.name,
+        written_at=started,
+        trust=trust,
+        process_uuid=process_uuid,
+        barcode_delay_us=barcode_delay_us,
     )
     writer = make_writer()
     # ONE OWNER THREAD FOR THE SEGMENT, on every backend. The RP1 backend delivers from
@@ -319,13 +342,15 @@ def run(
     # itself. One line, everything an operator needs to tell a healthy start from a
     # degraded one without opening a file.
     log.info(
-        "recording %s (session %s): first barcode %d, clock_trusted=%s clock_reason=%s boot_id=%s",
+        "recording %s (session %s): first barcode %d, clock_trusted=%s clock_reason=%s "
+        "boot_id=%s process_uuid=%s",
         writer_path,
         session_id,
         first_value,
         trust.trusted,
         trust.reason or "-",
         probe_boot_id() or "-",
+        process_uuid,
     )
 
     values = _ValueSource(now_fn, first_value, mono_fn)
@@ -387,7 +412,13 @@ def run(
         written_at = now_fn()
         roll_trust = evaluate_roll(written_at, values.emitting(), ntp_known)
         new_segment, make_writer = _segment_factory(
-            new_folder, new_id, rig=out.name, written_at=written_at, trust=roll_trust
+            new_folder,
+            new_id,
+            rig=out.name,
+            written_at=written_at,
+            trust=roll_trust,
+            process_uuid=process_uuid,
+            barcode_delay_us=barcode_delay_us,
         )
         sink.roll(make_writer, now_fn())
         # The outgoing writer's span is final now that its trailer is written.
@@ -762,6 +793,30 @@ def _listen_address(text: str) -> tuple[str, int]:
     return host, port
 
 
+# The largest --barcode-delay-us accepted: 100 ms. The real delay is the software path
+# from reading the counter to the pin rising, microseconds to a few milliseconds. More
+# than this is a unit or measurement error, such as nanoseconds typed as microseconds,
+# and every header of the day would carry it as a correction.
+BARCODE_DELAY_MAX_US = 100_000
+
+
+def _barcode_delay(text: str) -> int:
+    """Parse `--barcode-delay-us`: whole microseconds, from 0 to BARCODE_DELAY_MAX_US,
+    as ASCII digits only. Anything else is an argparse error (exit 2), for the reason
+    `--listen` is one.
+
+    Digits only, because int() also takes a sign, surrounding spaces, underscores
+    ("8_50") and non-ASCII digits, none of which is how anyone writes a delay in a unit
+    file. That also refuses a negative delay, which is a sign error: the tick is read
+    before the frame goes out, so the edge follows it."""
+    if not (text.isascii() and text.isdigit()) or int(text) > BARCODE_DELAY_MAX_US:
+        raise argparse.ArgumentTypeError(
+            f"expected a whole number of microseconds from 0 to {BARCODE_DELAY_MAX_US}, "
+            f"in digits, got {text!r}"
+        )
+    return int(text)
+
+
 def _read_token(path: Path | None) -> str | None:
     """The bearer token, or None -- meaning the endpoint answers GET only.
 
@@ -842,6 +897,15 @@ def main(argv: list[str] | None = None) -> int:
         help="file holding the bearer token (one line) that POSTs must present; "
         "without it the endpoint serves GET only",
     )
+    record.add_argument(
+        "--barcode-delay-us",
+        type=_barcode_delay,
+        default=None,
+        metavar="N",
+        help="the bench loopback's measured delay from a B record's tick to the frame's "
+        "lead edge, in whole microseconds, written into every segment header; default "
+        "none, meaning unmeasured",
+    )
     args = parser.parse_args(argv)
 
     # To stderr, which systemd routes to the journal via StandardError=journal. Only
@@ -862,6 +926,7 @@ def main(argv: list[str] | None = None) -> int:
             duration_s=args.duration,
             tick_fn=time.sleep,
             requests=requests if server is not None else None,
+            barcode_delay_us=args.barcode_delay_us,
         )
     finally:
         if server is not None:
