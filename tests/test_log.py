@@ -94,6 +94,16 @@ def test_header_rejects_malformed_session_id():
         SyncBoxLogHeader.model_validate(payload)
 
 
+@pytest.mark.parametrize("lenient", ["2027-03-14_01\n", "٢٠٢٧-03-14_01"])
+def test_header_rejects_a_session_id_that_is_not_canonical(lenient):
+    """A header's id must print back as itself, because wl-preproc matches it against
+    the folder name as text."""
+    payload = HEADER.model_dump(mode="json")
+    payload["session_id"] = lenient
+    with pytest.raises(ValidationError):
+        SyncBoxLogHeader.model_validate(payload)
+
+
 def test_barcode_records_round_trip(tmp_path):
     path = tmp_path / "syncbox.log"
     records = [

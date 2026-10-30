@@ -91,7 +91,12 @@ backward-compatible for reading, but not forward-compatible.
 
 ---
 
-# OPEN — 2. A question: may wl-sync tighten `SessionId.parse`?
+# ANSWERED — 2. A question: may wl-sync tighten `SessionId.parse`?
+
+**Answered yes** by wl-preproc on 2026-10-22, in its HANDOVER-wl-sync.md, item 2: nothing
+there relies on the lenient form. **Done 2026-10-30**, in the wl-sync commit "session:
+SessionId.parse takes only the canonical form": `re.fullmatch` with `[0-9]`. The box's
+`/session/close` still forgives one trailing newline, now explicitly in the endpoint.
 
 ## The question
 

@@ -403,6 +403,22 @@ def test_a_trailing_newline_in_a_close_id_is_canonicalised(rig):
     assert rig.seen[0].argument == "2026-10-18_01"
 
 
+def test_a_close_id_in_non_ascii_digits_is_refused(rig):
+    status, payload, _ = rig.call(
+        "POST", "/session/close", {"session_id": "٢٠٢٦-10-18_01"}
+    )
+    assert status == 400
+    assert "malformed session id" in payload["error"]
+    assert rig.requests.empty()
+
+
+def test_only_one_trailing_newline_is_forgiven(rig):
+    status, payload, _ = rig.call("POST", "/session/close", {"session_id": "2026-10-18_01\n\n"})
+    assert status == 400
+    assert payload["error"].startswith("malformed session id: '2026-10-18_01\\n\\n'")
+    assert rig.requests.empty()
+
+
 def test_the_stdlib_error_paths_are_json_too(rig):
     host, port = rig.server.server_address[:2]
     connection = http.client.HTTPConnection(host, port, timeout=WAIT_S)

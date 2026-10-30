@@ -10,7 +10,10 @@ import datetime
 import re
 from dataclasses import dataclass
 
-_SESSION_ID_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})$")
+# fullmatch and [0-9], not match and \d: `$` matches before a final newline, and `\d`
+# takes any Unicode decimal digit, which int() converts. Either let text through that
+# prints back as a different string. Every id the box mints matches this already.
+_SESSION_ID_RE = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})_([0-9]{2})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +23,7 @@ class SessionId:
 
     @classmethod
     def parse(cls, text: str) -> SessionId:
-        match = _SESSION_ID_RE.match(text)
+        match = _SESSION_ID_RE.fullmatch(text)
         if match is None:
             raise ValueError(f"malformed session id: {text!r}, expected YYYY-MM-DD_NN")
         year, month, day, index = (int(group) for group in match.groups())

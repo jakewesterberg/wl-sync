@@ -355,9 +355,15 @@ def _post_close(handler: _Handler, body: dict[str, Any] | None) -> tuple[int, di
     if not isinstance(session_id, str):
         raise _Reply(HTTPStatus.BAD_REQUEST, {"error": "session_id must be a string"})
     try:
-        canonical = str(SessionId.parse(session_id))
-    except ValueError as error:
-        raise _Reply(HTTPStatus.BAD_REQUEST, {"error": str(error)}) from None
+        # One trailing newline is forgiven HERE, deliberately, for a client that sends a
+        # line as read; SessionId.parse itself accepts only the canonical form.
+        canonical = str(SessionId.parse(session_id.removesuffix("\n")))
+    except ValueError:
+        # Name what the client SENT, not the newline-stripped text parse() saw.
+        raise _Reply(
+            HTTPStatus.BAD_REQUEST,
+            {"error": f"malformed session id: {session_id!r}, expected YYYY-MM-DD_NN"},
+        ) from None
     result, failure = _call(handler, "close", canonical)
     if failure is not None:
         return failure

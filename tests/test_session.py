@@ -23,3 +23,19 @@ def test_index_is_zero_padded():
 def test_rejects_malformed(bad):
     with pytest.raises(ValueError):
         SessionId.parse(bad)
+
+
+@pytest.mark.parametrize(
+    "lenient",
+    [
+        "2027-03-14_01\n",  # `$` matches before a final newline
+        "٢٠٢٧-03-14_01",  # Arabic-Indic digits: `\d` takes any Nd
+        "2027-03-14_０１",  # fullwidth digits
+    ],
+)
+def test_rejects_text_that_would_not_print_back_as_itself(lenient):
+    """Only a canonical id parses, so `str(SessionId.parse(text)) == text` for every
+    text that parses. wl-preproc takes SessionId from here and agreed to the tightening
+    (its answers of 2026-10-22, item 2)."""
+    with pytest.raises(ValueError):
+        SessionId.parse(lenient)
