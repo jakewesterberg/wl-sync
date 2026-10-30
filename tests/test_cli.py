@@ -728,6 +728,30 @@ def test_a_start_says_what_it_started(tmp_path, caplog):
     assert str(value_from_clock(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC))) in message
 
 
+def test_the_journal_names_the_first_barcode_actually_emitted(tmp_path, caplog):
+    """The start line said "first barcode N" with the value _resume() computed, but the
+    first frame reads the clock again and usually emits a later one: on the box on
+    2026-10-19 the line said ...321 and the first B record was ...322. An operator
+    matching the journal against the data needs the value that went onto the wire, so it
+    gets its own line, once, after the first frame; the start line names the floor."""
+    start = datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        folder = run(
+            out=tmp_path,
+            backend=FakeBackend(),
+            now_fn=_clock_from(start),
+            duration_s=3,
+            tick_fn=lambda _seconds: None,
+        )
+    _, records = read_log(folder / segment_name(0))
+    first = next(r.value for r in records if isinstance(r, BarcodeEmitted))
+    assert first == value_from_clock(start) + 1  # the case the old line got wrong
+    assert [m for m in caplog.messages if m.startswith("first barcode")] == [
+        f"first barcode {first} emitted"
+    ]
+    assert f"barcodes from {value_from_clock(start)}" in caplog.messages[0]
+
+
 def test_a_clock_that_stops_moving_forwards_is_reported(tmp_path, caplog):
     """Spec Sec.7 names "time moved backwards" as a trust condition, and nothing
     recorded it mid-run: the header is written at startup and must not be rewritten, so

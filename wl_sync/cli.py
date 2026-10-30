@@ -462,7 +462,7 @@ def run(
     # itself. One line, everything an operator needs to tell a healthy start from a
     # degraded one without opening a file.
     log.info(
-        "recording %s (session %s): first barcode %d, clock_trusted=%s clock_reason=%s "
+        "recording %s (session %s): barcodes from %d, clock_trusted=%s clock_reason=%s "
         "boot_id=%s process_uuid=%s",
         writer_path,
         session_id,
@@ -686,6 +686,7 @@ def run(
         # CLOCK_MONOTONIC follows the wall clock's NTP rate adjustments, so the grid
         # stays put unless the wall clock is stepped.
         paced_from = started_mono + (0.5 - started.timestamp() % 1.0) % 1.0
+        announced_first = False
         while not stopping.set and (duration_s is None or elapsed < duration_s):
             value = values()
 
@@ -728,6 +729,13 @@ def run(
             generator.emit_frame(value)
             frame_end = mono_fn()
             recorder.record_barcode(tick, value)
+            if not announced_first:
+                # THE VALUE THAT WENT ONTO THE WIRE, which the start line cannot know: it
+                # names the floor _resume() computed, and the first frame reads the clock
+                # again, so it usually emits a later value (on the box, 2026-10-19: the
+                # start line said ...321, the first B record was ...322).
+                log.info("first barcode %d emitted", value)
+                announced_first = True
             # A barrier, not a marker: it returns once everything queued above it is on
             # disk, which keeps spec Sec.4's one-second crash-loss bound exact.
             sink.flush()
