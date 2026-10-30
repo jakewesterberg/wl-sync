@@ -222,10 +222,13 @@ left, so no further panel connector fits. One fix-up came with it:
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
     out, so a thread could still be inside piolib.
-  - Strobes captured while the edge thread's join waits (up to 0.2 s) are discarded when
-    the state machine is disabled.
-  - Held errors are handed from the pump threads to `check_health()` without a lock, so a
-    stop's cause could be overwritten. This was not reproduced.
+  - Strobes captured while the edge thread's join waits are discarded when the state machine
+    is disabled. The join now waits for the edge thread's last look (`EdgePump.finish`): about
+    0.12 s on the box's clock, at most 0.82 s on a clock that stands still, inside
+    `_STOP_JOIN_S` (1 s).
+  - Held errors are handed from the word pump's thread to `check_health()` without a lock, so
+    a stop's cause could be overwritten. This was not reproduced. The edge pump's hand-off is
+    locked (`EdgePump.take_error`, `fe5a13d`).
   - A desync refuses the valid pairs that came before the slip in the same batch.
   None changes what a healthy day records.
 - ~~**wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
@@ -330,7 +333,18 @@ left, so no further panel connector fits. One fix-up came with it:
 - **`SeqnoTracker` reports false edge drops when two lines' events arrive out of order**, which
   the camera lines GPIO26/27 make routine (the kernel numbers events in the hard IRQ and buffers
   them from per-line threads). Found 2026-10-30 in the kernel source; unverified on hardware.
-  Being fixed on branch `seqno`.
+  **Fixed on local `main` as `fe5a13d`, not pushed.**
+  - A gap in the request's numbers is held until the roll barrier's watermark passes the read
+    that showed it (20–40 ms on a healthy pump), or 1024 events later, and closes silently if
+    its number arrives.
+  - Each line's own numbers and levels name the cause of a real loss: a kernel buffer overflow,
+    coalesced interrupts (two events in a row at one level), or, with no line to blame,
+    unaccounted. Each is its own `DroppedEdgeError` subclass.
+  - At stop, the edge thread's last look delivers the kernel's whole backlog and settles every
+    held gap before `close()` releases the request.
+  - The commit message lists the known limits, each pinned by a test.
+  - **Bench day:** look for the reorder on GPIO26/27 at camera rate. The commit's fix assumes it,
+    from the kernel source.
 - **A 4-hour soak of the RP1 backend with nothing wired passed** (2026-10-19, 11:42–15:42 UTC,
   `wl-sync record --out ~/wl-soak/rig0 --duration 14400`, run as the user beside the fake-mode
   service). Results:

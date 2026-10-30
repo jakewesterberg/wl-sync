@@ -20,11 +20,13 @@ status:
     by the box) is built and merged to main (2026-10-19); its
     tests run on a laptop against the fake backend, it has not been called from
     the task PC, and its MonkeyLogic recipe has never run under MATLAB. The capture paths are still unproven against
-    real signals, so the systemd unit ships --fake. 516 tests. On 2026-10-30 one
+    real signals, so the systemd unit ships --fake. 574 tests. On 2026-10-30 one
     clock came to unwrap every delivery path and clock trust is judged at every
     roll (both deployed); headers gained process_uuid and barcode_delay_us, the
-    box rolls once when NTP first syncs, and a roll waits for records captured
-    before it (these on main, not deployed until wl-preproc's pin moves). Breakout board:
+    box rolls once when NTP first syncs, a roll waits for records captured
+    before it, the frame grid is placed again after a wall-clock step, and edges
+    that reach the kernel's buffer out of order are no longer reported lost
+    (these on main, not deployed until wl-preproc's pin moves). Breakout board:
     schematic captured, layout not started.
   next: >-
     Bench day with signals on the pins: first GPIO17
@@ -34,7 +36,7 @@ status:
     the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "bdd84e7"
+  describes: "fe5a13d"
 
 runs_on: [rig/sync]
 builds_on: [dws]
