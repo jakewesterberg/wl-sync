@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wl_sync.log import BarcodeEmitted, Edge, read_log
+from wl_sync.log import BarcodeEmitted, Edge, Loss, read_log
 from wl_sync.segment import (
     SegmentWriter,
     next_segment_index,
@@ -162,3 +162,22 @@ def test_a_failed_header_write_leaves_no_half_made_segment(tmp_path):
 
     assert not path.exists(), "a segment with no header was left on disk"
     assert next_segment_index(tmp_path) == 0, "the segment index was burned"
+
+
+def test_a_loss_record_is_written_read_back_and_counted_in_the_trailer(tmp_path):
+    """The trailer's count is every record the segment holds, so a reader can check it
+    against what read_log returns. An L record is one of them."""
+    path = tmp_path / segment_name(0)
+    loss = Loss(
+        tick_us=1_500, path="E", gpio=20, count=2, bound="exact",
+        cause="buffer_overflow", before_us=1_000, after_us=1_500,
+    )
+    writer = SegmentWriter(path, HEADER)
+    writer.write(Edge(tick_us=1_000, gpio=20, level=1))
+    writer.write(loss)
+    writer.write(BarcodeEmitted(tick_us=2_000, value=500))
+    writer.close(CLOSED_AT)
+
+    _, records = read_log(path)
+    assert records == [Edge(tick_us=1_000, gpio=20, level=1), loss, BarcodeEmitted(2_000, 500)]
+    assert path.read_text().splitlines()[-1] == f"T,{CLOSED_AT.isoformat()},500,500,3"

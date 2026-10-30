@@ -36,6 +36,42 @@ class CaptureDegraded(RuntimeError):
 
 
 @dataclass(frozen=True)
+class CaptureLoss:
+    """Events a capture path saw and could not record, as a backend reports them. The
+    Recorder makes each one an L record (wl_sync.log.Loss), on the box clock, in the
+    stream of the path that reported it; that docstring defines every field.
+
+    `cause`, `count`, `bound` and `gpio` are the record's own. The rest place it:
+
+      * `after`: the RAW tick of the first record of the path known to follow the loss,
+        as every tick a backend hands over is raw. None when nothing of the path follows
+        it: the loss lies after everything the path has delivered, so the window opens
+        at the highest tick the path has delivered and has no end.
+      * `span_us`: how far before `after` the last record known to precede the loss lies,
+        in us, exactly. None when no such record is known. A DISTANCE, NOT A TICK,
+        because that record can be any age: a line quiet for hours, then an overflow.
+        A raw tick more than half a wrap old would be placed a wrap off, while `after`
+        is recent, being what showed the loss.
+      * `ahead`: the loss is reported just before the record at `after`, which the
+        backend delivers next, so the L record takes that record's tick. Otherwise it is
+        reported once later records have been delivered, and sits at the highest tick
+        its path has written.
+
+    A backend reports only a loss whose count it can bound below by 1. A report the
+    Recorder cannot make into a valid record is dropped there with an ERROR, never
+    raised back into the capture path (Recorder._on_loss).
+    """
+
+    cause: str
+    count: int
+    bound: str
+    gpio: int | None = None
+    after: int | None = None
+    span_us: int | None = None
+    ahead: bool = False
+
+
+@dataclass(frozen=True)
 class StampLag:
     """The edge path's witness for the assumption a roll's boundary rests on: that the
     kernel puts an edge in its buffer within `allowance_us` of stamping it.
@@ -62,16 +98,23 @@ class SyncBackend(Protocol):
         data_count: int,
         strobe_pin: int,
         on_word: Callable[[int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
         """Latch data_count contiguous pins on each strobe edge.
 
-        Calls on_word(tick_us, word). The contiguity requirement is PIO's.
+        Calls on_word(tick_us, word). The contiguity requirement is PIO's. Calls
+        on_loss(CaptureLoss) for code words it lost, from the thread that calls on_word,
+        so a loss keeps its place among the words.
         """
 
     def start_edge_capture(
-        self, pins: Sequence[int], on_edge: Callable[[int, int, int], None]
+        self,
+        pins: Sequence[int],
+        on_edge: Callable[[int, int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
-        """Capture transitions on individual pins. Calls on_edge(gpio, level, tick_us)."""
+        """Capture transitions on individual pins. Calls on_edge(gpio, level, tick_us),
+        and on_loss(CaptureLoss) for edges it lost, from the same thread."""
 
     def now_us(self) -> int:
         """Current value of the hardware tick counter."""
@@ -81,7 +124,9 @@ class SyncBackend(Protocol):
 
         One entry per path started, named as check_health() names it: a raw `now_us()`
         reading W such that every record the path captured at a reading at or before W
-        has been passed to its callback. None until the path can say.
+        has been passed to its callback. None until the path can say. A gap the path has
+        seen and cannot yet call a loss holds W back, so that if it is one, its L record
+        is passed on first (rp1.gpio.EdgePump.pump_once).
 
         Raw, as every tick a backend hands over is. The wrap count belongs to the
         Recorder's one clock, which unwraps these and compares them with the roll's
@@ -118,8 +163,10 @@ class FakeBackend:
     def __init__(self) -> None:
         self.emitted: list[tuple[int, list[tuple[int, int]]]] = []
         self._on_word: Callable[[int, int], None] | None = None
+        self._word_loss: Callable[[CaptureLoss], None] | None = None
         self._edge_pins: list[int] = []
         self._on_edge: Callable[[int, int, int], None] | None = None
+        self._edge_loss: Callable[[CaptureLoss], None] | None = None
         self._tick = 0
 
     def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
@@ -131,14 +178,20 @@ class FakeBackend:
         data_count: int,
         strobe_pin: int,
         on_word: Callable[[int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
         self._on_word = on_word
+        self._word_loss = on_loss
 
     def start_edge_capture(
-        self, pins: Sequence[int], on_edge: Callable[[int, int, int], None]
+        self,
+        pins: Sequence[int],
+        on_edge: Callable[[int, int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
         self._edge_pins = list(pins)
         self._on_edge = on_edge
+        self._edge_loss = on_loss
 
     def now_us(self) -> int:
         return self._tick
@@ -198,3 +251,20 @@ class FakeBackend:
         self._require_in_contract(tick)
         if self._on_edge is not None and gpio in self._edge_pins:
             self._on_edge(gpio, level, tick)
+
+    def inject_word_loss(self, loss: CaptureLoss) -> None:
+        """Report a loss on the code-word path, as Rp1Backend's word pump reports a
+        desync. Any W cause, in the shape its cause has (wl_sync.log.LOSS_SHAPES): the
+        Recorder places what it is given."""
+        if loss.after is not None:
+            self._require_in_contract(loss.after)
+        if self._word_loss is not None:
+            self._word_loss(loss)
+
+    def inject_edge_loss(self, loss: CaptureLoss) -> None:
+        """Report a loss on the edge path, as Rp1Backend's edge pump reports an overflow,
+        a pair at one level or an unaccounted number."""
+        if loss.after is not None:
+            self._require_in_contract(loss.after)
+        if self._edge_loss is not None:
+            self._edge_loss(loss)

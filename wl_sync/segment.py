@@ -23,7 +23,7 @@ import os
 import re
 from pathlib import Path
 
-from wl_sync.log import BarcodeEmitted, Edge, Record, SyncBoxLogHeader
+from wl_sync.log import BarcodeEmitted, Record, SyncBoxLogHeader, record_line
 
 SEGMENT_PATTERN = "seg-*.log"
 _SEGMENT_RE = re.compile(r"^seg-(\d+)\.log$")
@@ -97,17 +97,13 @@ class SegmentWriter:
             raise
 
     def write(self, record: Record) -> None:
-        """Write a record to the segment."""
-        if isinstance(record, Edge):
-            line = f"E,{record.tick_us},{record.gpio},{record.level}"
-        elif isinstance(record, BarcodeEmitted):
-            line = f"B,{record.tick_us},{record.value}"
+        """Write a record to the segment. Every record counts towards the trailer's
+        count, an L record as much as any (wl_sync.log.Loss)."""
+        if isinstance(record, BarcodeEmitted):
             if self.barcode_first is None:
                 self.barcode_first = record.value
             self.barcode_last = record.value
-        else:
-            line = f"W,{record.tick_us},{record.word}"
-        self._handle.write(line + "\n")
+        self._handle.write(record_line(record) + "\n")
         self.record_count += 1
 
     def flush(self) -> None:
@@ -121,6 +117,7 @@ class SegmentWriter:
 
         The trailer's format is: T,<isoformat>,<first_barcode>,<last_barcode>,<count>
         The barcode span fields are empty strings when the segment carried no barcodes.
+        <count> is every record above it, of every type: what read_log returns.
         """
         first = "" if self.barcode_first is None else self.barcode_first
         last = "" if self.barcode_last is None else self.barcode_last

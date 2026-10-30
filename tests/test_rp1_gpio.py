@@ -1059,6 +1059,28 @@ def test_the_last_look_delivers_a_backlog_larger_than_one_read():
     assert pump.take_error() is None
 
 
+def test_a_dying_pump_reports_its_held_gap_but_writes_no_record_for_it():
+    """The edge thread died on a read error with a gap held for its window: number 2,
+    between two lines that explain nothing. abandon() holds the stop and makes the gap
+    final, returning the loss for the journal. Forced final, the gap's count could be 0
+    -- its event may have been a moment from arriving -- so, as at the stop, it has no
+    L record. It closes a coverage gap a re-review found: the behaviour was built."""
+    from wl_sync.rp1.gpio import DroppedEdgeError, EdgePump
+
+    losses = []
+    request = _Request([[_ev(1, 26, 1, True), _ev(3, 27, 1, True)]])
+    pump = EdgePump(on_edge=lambda g, l, t: None, origin_ns=0, on_loss=losses.append)
+    _pump_through(pump, request, [50_000])
+    assert pump._seqnos.holding
+
+    stop = OSError(5, "Input/output error")
+    lost = pump.abandon(stop)
+    assert isinstance(lost, DroppedEdgeError) and "1 edge event" in str(lost)
+    assert losses == []
+    assert pump.take_error() is stop
+    assert not pump._seqnos.holding
+
+
 def test_a_race_and_a_merge_on_one_event_count_one_loss():
     """GPIO20 rose and fell (3, 4) before its thread ran, merged; a third edge's hard IRQ
     (5) landed while the thread built that event, after the stamp was cleared, and the
@@ -1078,3 +1100,624 @@ def test_a_race_and_a_merge_on_one_event_count_one_loss():
     assert error.coalesced == {20: 1} and error.lost == 1
     _pump_through(pump, request, [80_000, 110_000])
     assert pump.take_error() is None, "the race's number reported as unexplained"
+
+
+# --- L records: each loss is written where the pump finds it (2026-10-30) -----------------
+#
+# wl-preproc decodes a session's events from the segment, and a lost edge or code word is
+# silent there. Each loss the pumps find is also written into the segment as an L record,
+# through the Recorder and into a real SegmentWriter, beside the journal line it always
+# had. The test plays each pump's thread on the scripted clock of a _Request.
+
+import datetime  # noqa: E402
+
+from wl_sync.backend import FakeBackend  # noqa: E402
+from wl_sync.log import CodeWord, Edge, Loss, read_log  # noqa: E402
+from wl_sync.rp1.gpio import EdgePump  # noqa: E402
+from wl_sync.rp1.pio_capture import WordPump, WordsDroppedError  # noqa: E402
+from wl_sync.segment import SegmentWriter  # noqa: E402
+from wl_sync.service import QueuedSink, Recorder  # noqa: E402
+from tests.test_log import HEADER  # noqa: E402
+
+_CLOSED = datetime.datetime(2026, 10, 30, 12, 0, tzinfo=datetime.timezone.utc)
+
+
+class _Pumped(FakeBackend):
+    """The Recorder's backend, with edges and code words coming through the real pumps:
+    the edge pump runs against a scripted _Request, whose clock is the box clock, and the
+    word pump is handed FIFO batches as Rp1Backend.drain hands them."""
+
+    def __init__(self, request):
+        super().__init__()
+        self.request = request
+
+    def now_us(self):
+        return self.request.now & 0xFFFF_FFFF
+
+    def start_edge_capture(self, pins, on_edge, on_loss=None):
+        super().start_edge_capture(pins, on_edge, on_loss)
+        self.edges = EdgePump(on_edge, origin_ns=0, on_loss=on_loss)
+
+    def start_strobed_capture(self, data_base, data_count, strobe_pin, on_word, on_loss=None):
+        super().start_strobed_capture(data_base, data_count, strobe_pin, on_word, on_loss)
+        self.words = WordPump(on_word, data_count, on_loss)
+
+    def delivered_through(self):
+        return {"edge capture": self.edges.delivered_through}
+
+    def pump(self, *nows):
+        for now in nows:
+            self.request.now = now
+            assert self.edges.pump_once(self.request, self.request.now_us)
+
+
+def _recording(tmp_path, script):
+    backend = _Pumped(_Request(script))
+    path = tmp_path / "seg-000.log"
+    writer = SegmentWriter(path, HEADER)
+    recorder = Recorder(backend, sink=writer)
+    recorder.capture_codes(0, 16, 16)
+    recorder.capture_edges([20, 21, 26, 27])
+    backend.recorder = recorder
+    return backend, writer, path
+
+
+def _segment(writer, path):
+    writer.close(_CLOSED)
+    return read_log(path)[1]
+
+
+def _so_far(writer, path):
+    writer.flush()
+    return read_log(path)[1]
+
+
+def _losses(records):
+    return [record for record in records if isinstance(record, Loss)]
+
+
+def _words(*pairs):
+    """FIFO entries for (tick, word) strobes: the data word, then the raw down-counter."""
+    entries = []
+    for tick, word in pairs:
+        entries += [word, (~tick) & 0xFFFF_FFFF]
+    return entries
+
+
+def test_an_overflow_is_written_just_before_the_event_that_shows_it(tmp_path):
+    """GPIO20's own numbers jump from 2 to 5: the kernel threw two of its events away. The
+    loss is final at once, and its record goes into the segment immediately before the
+    event that showed it, at that event's tick, so it keeps that event's place in the
+    edge stream. Its window runs from the line's event before the loss to that event, and
+    the count is exact: the line numbered every event it lost."""
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(5, 20, 5, True, 40_400),
+    ]
+    backend, writer, path = _recording(tmp_path, [events, None])
+    backend.pump(50_000, 80_000)
+
+    assert _segment(writer, path) == [
+        Edge(tick_us=40_000, gpio=20, level=1),
+        Edge(tick_us=40_100, gpio=20, level=0),
+        Loss(
+            tick_us=40_400, path="E", gpio=20, count=2, bound="exact",
+            cause="buffer_overflow", before_us=40_100, after_us=40_400,
+        ),
+        Edge(tick_us=40_400, gpio=20, level=1),
+    ]
+
+
+def test_a_pair_at_one_level_is_written_just_before_its_second_event(tmp_path):
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(3, 20, 3, False, 40_200), _ev(4, 20, 4, True, 40_300),
+        _ev(5, 26, 1, True, 40_400), _ev(6, 26, 2, True, 40_500),
+    ]
+    backend, writer, path = _recording(tmp_path, [events, None])
+    backend.pump(50_000, 80_000)
+
+    records = _segment(writer, path)
+    assert _losses(records) == [
+        Loss(
+            tick_us=40_200, path="E", gpio=20, count=1, bound="at_least",
+            cause="coalesced", before_us=40_100, after_us=40_200,
+        ),
+        Loss(
+            tick_us=40_500, path="E", gpio=26, count=1, bound="at_least",
+            cause="coalesced", before_us=40_400, after_us=40_500,
+        ),
+    ]
+    for loss in _losses(records):  # each sits just before the event that closed its pair
+        after = records[records.index(loss) + 1]
+        assert (after.tick_us, after.gpio) == (loss.after_us, loss.gpio)
+
+
+def test_the_second_of_two_pairs_in_a_row_writes_no_loss_record(tmp_path):
+    """Three events in a row at one level on GPIO20. In the IRQ thread's race, one damaged
+    edge makes two pairs, and only the first pair's window holds the lost edge: the
+    second is the race's own re-run, and claims a loss its window need not hold. So the
+    count of the second pair cannot be bounded below by one, and it gets no L record.
+    The journal still counts both, as it always has."""
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, True, 40_100),
+        _ev(3, 20, 3, True, 40_200),
+    ]
+    backend, writer, path = _recording(tmp_path, [events, None])
+    backend.pump(50_000, 80_000)
+
+    assert backend.edges.take_error().coalesced == {20: 2}
+    assert _losses(_segment(writer, path)) == [
+        Loss(
+            tick_us=40_100, path="E", gpio=20, count=1, bound="at_least",
+            cause="coalesced", before_us=40_000, after_us=40_100,
+        ),
+    ]
+
+
+def test_a_number_nothing_explains_is_written_once_its_window_closes(tmp_path):
+    """Number 4 never comes. Nothing goes into the segment while it still could: the read
+    after the one that showed the gap began inside the IRQ thread's allowance. Once the
+    window closes, its record goes in, after the edges written meanwhile and at the
+    highest tick the path has written, so it is not out of order among them. Its window
+    is the two numbers around the gap: 3 before it and 5, which showed it."""
+    events = [
+        _ev(1, 26, 1, True, 40_000), _ev(2, 27, 1, True, 40_000),
+        _ev(3, 26, 2, False, 41_000), _ev(5, 26, 3, True, 42_000),
+        _ev(6, 27, 2, False, 42_000),
+    ]
+    script = [events, [_ev(7, 26, 4, False, 55_000)], None, None]
+    backend, writer, path = _recording(tmp_path, script)
+
+    backend.pump(50_000, 60_000)
+    assert _losses(_so_far(writer, path)) == []
+    backend.pump(70_001)
+
+    records = _segment(writer, path)
+    assert records[-1] == Loss(
+        tick_us=55_000, path="E", gpio=None, count=1, bound="at_least",
+        cause="unaccounted", before_us=41_000, after_us=42_000,
+    )
+    assert len(_losses(records)) == 1
+
+
+def test_a_swap_that_fills_writes_no_loss_record(tmp_path):
+    backend, writer, path = _recording(
+        tmp_path, [_frames(1, 2, 3, 5), _frames(4, 6, 7), None]
+    )
+    backend.pump(50_000, 50_100, 80_000)
+    assert _losses(_segment(writer, path)) == []
+    assert backend.edges.error is None
+
+
+def test_a_gap_forced_final_by_the_stop_is_journalled_but_not_written(tmp_path):
+    """The last look ends on its pass cap with number 2 still inside its window: on a
+    clock that stands still no window closes, and the event may have been a moment from
+    arriving. Its count cannot be bounded below by one, so no L record. The journal
+    reports it, as before."""
+    from wl_sync.rp1 import gpio
+
+    first = [_ev(1, 26, 1, True), _ev(3, 26, 2, False)]
+    backend, writer, path = _recording(tmp_path, [first])
+    backend.pump(50_000)
+    backend.request.script = [[_ev(4 + k, 26, 3 + k, k % 2 == 0)] for k in range(200)]
+    backend.edges.finish(backend.request, backend.request.now_us)
+
+    error = backend.edges.take_error()
+    assert isinstance(error, gpio.UnaccountedEdgeError) and error.lost == 1
+    assert _losses(_segment(writer, path)) == []
+
+
+def test_a_desync_is_written_after_the_last_word_with_its_window_open(tmp_path):
+    """The pairing slips, the batch is refused, and the word pump stops: no code word
+    follows the loss in this process, so its window has no end. Four entries refused are
+    at least two strobes, none of them recorded."""
+    backend, writer, path = _recording(tmp_path, [])
+    backend.request.now = 10_000
+    assert backend.words.handle(_words((1_000, 0x8001), (2_000, 0x0001)))
+    slipped = _words((3_000, 0x0002), (4_000, 0x0003))[1:] + [0x0004]
+    assert backend.words.handle(slipped) is False
+
+    records = _segment(writer, path)
+    assert records == [
+        CodeWord(tick_us=1_000, word=0x8001),
+        CodeWord(tick_us=2_000, word=0x0001),
+        Loss(
+            tick_us=2_000, path="W", gpio=None, count=2, bound="at_least",
+            cause="desync", before_us=2_000, after_us=None,
+        ),
+    ]
+    assert "pairing has slipped" in str(backend.words.error)
+
+
+def test_a_full_fifo_writes_no_loss_record(tmp_path):
+    """A FIFO found full MAY have dropped words: if no strobe came while it was full,
+    nothing was lost. The count cannot be bounded below by one, so no L record. The
+    journal reports it, as before."""
+    backend, writer, path = _recording(tmp_path, [])
+    backend.request.now = 10_000
+    assert backend.words.handle(_words((1_000, 0x8001)), fifo_was_full=True)
+
+    assert _segment(writer, path) == [CodeWord(tick_us=1_000, word=0x8001)]
+    assert isinstance(backend.words.error, WordsDroppedError)
+
+
+def _lateness(stream):
+    """How far each record sits behind the highest tick written before it in its stream
+    (0 for one in order), by position."""
+    late, highest = [], None
+    for tick in stream:
+        late.append(0 if highest is None else max(0, highest - tick))
+        highest = tick if highest is None else max(highest, tick)
+    return late
+
+
+def test_every_loss_record_keeps_the_order_its_path_has_under_the_reorder_window(
+    tmp_path,
+):
+    """THE ORDERING CONTRACT, as it is. W records are in tick order. E records are in tick
+    order on each line, and across lines in the kernel buffer's order, which puts an edge
+    up to EDGE_STAMP_LAG_US behind one written before it: two lines' IRQ threads are not
+    ordered (rp1.gpio.SeqnoTracker). An L record keeps what its path has:
+      * one with a GPIO is written just before the event that showed it, at that
+        event's tick, so it keeps its line's order and takes that event's place;
+      * one with no GPIO sits at the highest E tick written before it, so it is behind
+        nothing, and puts no E record further behind than it already was;
+      * a desync sits at the last code word's tick.
+
+    Here the cameras are 3 us apart. GPIO27's falling edge is buffered after GPIO26's
+    next rise, and fills the request-number gap it left, so nothing is lost, but the E
+    stream inverts. Number 7 never comes (unaccounted, final only after later edges are
+    written). GPIO20's own numbers jump (an overflow), its event buffered behind a later
+    GPIO21 edge; GPIO21 rises twice (a pair). The word pump records two words, then
+    slips (a desync)."""
+    reads = [
+        [_ev(1, 26, 1, True, 40_000), _ev(2, 27, 1, True, 40_003),
+         _ev(3, 26, 2, False, 41_000), _ev(5, 26, 3, True, 42_000)],
+        [_ev(4, 27, 2, False, 41_003), _ev(6, 20, 1, True, 43_000),
+         _ev(8, 20, 2, False, 43_500)],
+        [_ev(12, 21, 1, True, 53_000), _ev(13, 21, 2, True, 53_500),
+         _ev(11, 20, 5, True, 52_000), _ev(14, 26, 4, False, 53_400)],
+        None,
+    ]
+    backend, writer, path = _recording(tmp_path, reads)
+    backend.request.now = 40_000
+    assert backend.words.handle(_words((30_000, 0x8001)))
+    backend.pump(50_000, 50_100)
+    assert backend.words.handle(_words((45_000, 0x0001)))
+    backend.pump(60_000)
+    assert backend.words.handle(_words((61_000, 0x0002))[1:] + [0x0003]) is False
+    backend.pump(70_001)
+    records = _segment(writer, path)
+
+    causes = {loss.cause: loss for loss in _losses(records)}
+    assert set(causes) == {"buffer_overflow", "coalesced", "unaccounted", "desync"}
+    edges = [r for r in records if isinstance(r, Edge)]
+    assert _lateness([e.tick_us for e in edges]) != [0] * len(edges), "E never inverted"
+
+    # Each line, its L records among its edges, is in tick order.
+    for gpio in {e.gpio for e in edges}:
+        line = [
+            r.tick_us for r in records
+            if isinstance(r, (Edge, Loss)) and r.gpio == gpio and getattr(r, "path", "E") == "E"
+        ]
+        assert line == sorted(line), f"GPIO{gpio} out of order: {line}"
+    # One with a GPIO stands just before the event that showed it, at its tick.
+    for loss in _losses(records):
+        if loss.gpio is not None:
+            after = records[records.index(loss) + 1]
+            assert isinstance(after, Edge)
+            assert (after.gpio, after.tick_us) == (loss.gpio, loss.tick_us) == (
+                loss.gpio, loss.after_us,
+            )
+    # One with no GPIO sits at the highest E tick written before it.
+    late = causes["unaccounted"]
+    before_it = [r.tick_us for r in records[: records.index(late)] if isinstance(r, Edge)]
+    assert late.tick_us == max(before_it) > late.after_us
+    assert (late.before_us, late.after_us) == (43_000, 43_500)
+    # And no E record is any further behind for the L records written among them.
+    e_stream = [r for r in records if isinstance(r, Edge) or (isinstance(r, Loss) and r.path == "E")]
+    with_losses = _lateness([r.tick_us for r in e_stream])
+    of_edges = [lag for r, lag in zip(e_stream, with_losses) if isinstance(r, Edge)]
+    assert of_edges == _lateness([e.tick_us for e in edges])
+    assert [lag for r, lag in zip(e_stream, with_losses) if r.gpio is None] == [0]
+    # W is in tick order, its desync among its words.
+    w_stream = [
+        r.tick_us for r in records
+        if isinstance(r, CodeWord) or (isinstance(r, Loss) and r.path == "W")
+    ]
+    assert w_stream == sorted(w_stream) == [30_000, 45_000, 45_000]
+
+
+def test_one_overflow_on_three_lines_is_one_record_per_line_and_one_for_the_rest(
+    tmp_path,
+):
+    """The kernel's buffer overflows once and throws away numbers 4 (GPIO20), 5 (GPIO21)
+    and 6 (GPIO26). GPIO20 and GPIO21 fire again at once, and each line's own numbers show
+    its loss: one buffer_overflow record per line, each just before that line's event.
+    Number 6 is explained by nothing yet, because GPIO26 stays quiet past the window: one
+    record with no GPIO, for the remainder. When GPIO26 fires, much later, its own numbers
+    show the loss again, on its line: one edge named twice, as the Loss docstring warns."""
+    reads = [
+        [_ev(1, 20, 1, True, 40_000), _ev(2, 21, 1, True, 40_100),
+         _ev(3, 26, 1, True, 40_200), _ev(7, 20, 3, True, 40_700),
+         _ev(8, 21, 3, True, 40_800)],
+        None, None,
+        [_ev(9, 26, 3, True, 120_000)], None,
+    ]
+    backend, writer, path = _recording(tmp_path, reads)
+    backend.pump(50_000, 80_000, 110_000, 130_000, 160_000)
+
+    def overflow(gpio, before, after):
+        return Loss(
+            tick_us=after, path="E", gpio=gpio, count=1, bound="exact",
+            cause="buffer_overflow", before_us=before, after_us=after,
+        )
+
+    assert _segment(writer, path) == [
+        Edge(tick_us=40_000, gpio=20, level=1),
+        Edge(tick_us=40_100, gpio=21, level=1),
+        Edge(tick_us=40_200, gpio=26, level=1),
+        overflow(20, 40_000, 40_700),
+        Edge(tick_us=40_700, gpio=20, level=1),
+        overflow(21, 40_100, 40_800),
+        Edge(tick_us=40_800, gpio=21, level=1),
+        Loss(
+            tick_us=40_800, path="E", gpio=None, count=1, bound="at_least",
+            cause="unaccounted", before_us=40_200, after_us=40_700,
+        ),
+        overflow(26, 40_200, 120_000),
+        Edge(tick_us=120_000, gpio=26, level=1),
+    ]
+
+
+# THE TWO RULES THE HELD MARK RESTS ON (EdgePump.pump_once). The tracker's window closes on
+# the mark THE RULE gives, never on the held one, or the hold would keep its own gap open;
+# and a gap's L record is written before the mark is published past it, or a roll polled
+# in between would queue ahead of the record.
+
+
+def test_a_gap_held_on_a_busy_line_closes_on_the_rules_mark_not_the_held_one():
+    """Number 2 never comes, and GPIO26 fires every millisecond, so no wait ever times
+    out: only short reads move the mark. The window closes on the mark the rule gives,
+    within twice the IRQ thread's allowance of the read that showed the gap, and the mark
+    published is released past the event that showed it. Closed on the held mark instead,
+    it would never pass that event, and the gap would stay open until 1024 events had
+    been read: about a second at camera rates, past a roll's 0.2 s bound."""
+    from wl_sync.rp1.gpio import EDGE_STAMP_LAG_US
+
+    reads = [[_ev(1, 26, 1, True, 40_000), _ev(3, 26, 2, False, 41_000)]]
+    for k in range(3, 80):
+        reads.append([_ev(k + 1, 26, k, k % 2 == 1, 40_000 + 1_000 * k)])
+    request = _Request(reads)
+    written = []
+    pump = EdgePump(on_edge=lambda *_: None, origin_ns=0, on_loss=written.append)
+    shown = 41_000  # the event that showed the gap
+    released_at = None
+    for now in range(42_000, 42_000 + 1_000 * 78, 1_000):
+        request.now = now
+        assert pump.pump_once(request, request.now_us)
+        mark = pump.delivered_through
+        if released_at is None and mark is not None and mark >= shown:
+            released_at = now
+    assert released_at is not None, "the mark never passed the event that showed the gap"
+    assert released_at <= 42_000 + 2 * EDGE_STAMP_LAG_US + 1_000, released_at
+    assert [loss.cause for loss in written] == ["unaccounted"]
+
+
+@pytest.mark.parametrize(
+    "closing",
+    [None, [_ev(4, 26, 3, True, 70_000)]],
+    ids=["a wait that times out", "a short read"],
+)
+def test_a_gaps_record_is_written_before_the_mark_passes_the_event_that_showed_it(closing):
+    """The gap's window closes in the step that moves the mark past it, and a roll that
+    sees the new mark closes the segment. So the record is written first: when it is,
+    the mark published is still below the event that showed the gap. Published first,
+    as it was before the hold, the mark passed that event while the record was still to
+    be written, and a roll polled in between was queued ahead of it."""
+    request = _Request([[_ev(1, 26, 1, True, 40_000), _ev(3, 26, 2, False, 41_000)], closing])
+    marks_when_written = []
+    pump = EdgePump(
+        on_edge=lambda *_: None,
+        origin_ns=0,
+        on_loss=lambda loss: marks_when_written.append((loss, pump.delivered_through)),
+    )
+    _pump_through(pump, request, [50_000, 75_000])
+
+    [(loss, mark)] = marks_when_written
+    assert (loss.cause, loss.after) == ("unaccounted", 41_000)
+    assert mark is not None and mark < loss.after, mark
+    assert pump.delivered_through >= 50_000  # and the mark moves on once it is written
+
+
+def test_a_loss_whose_window_ends_before_a_rolls_boundary_lands_in_the_closing_segment(
+    tmp_path,
+):
+    """THE ROLL BARRIER. A roll waits until each path has delivered everything captured up
+    to its boundary, and an L record must land with the records around it. Number 2 is
+    missing, between an edge at 20 000 us and one at 44 000 us, both before the boundary
+    at 45 000 us. The read that showed the gap came late and emptied the buffer, so every
+    edge is delivered through 49 999 us, past the boundary; but the gap's record is
+    written only once its window closes. Until then the mark is held below the edge that
+    showed the gap, the roll keeps waiting, and the record lands in the closing segment
+    with both its edges."""
+    first, second = tmp_path / "seg-000.log", tmp_path / "seg-001.log"
+    reads = [None, [_ev(1, 20, 1, True, 20_000), _ev(3, 26, 1, True, 44_000)], None]
+    backend = _Pumped(_Request(reads))
+    sink = QueuedSink(SegmentWriter(first, HEADER))
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_edges([20, 26])
+    try:
+        backend.pump(40_000)
+        backend.request.now = 45_000
+        boundary = recorder.now()
+        rolled = False
+        for now in (70_000, 90_000):  # the late read; a wait that times out
+            backend.pump(now)
+            mark = recorder.delivered_through()["edge capture"]
+            if not rolled and mark is not None and mark >= boundary:
+                sink.roll(
+                    lambda: SegmentWriter(second, HEADER.model_copy(update={"segment_index": 1})),
+                    _CLOSED,
+                )
+                rolled = True
+        assert rolled
+    finally:
+        sink.close(_CLOSED)
+
+    closing, opening = read_log(first)[1], read_log(second)[1]
+    assert [type(record).__name__ for record in closing] == ["Edge", "Edge", "Loss"]
+    assert _losses(closing)[0].after_us == 44_000 < boundary
+    assert opening == []
+
+
+# AN L RECORD IS AUXILIARY. The journal line already carries every loss, so a record the
+# Recorder cannot make -- a bug in building it -- is dropped with an ERROR and reported by
+# the health check, and must never cost the rest of the run's edges or code words. A sink
+# that fails is another matter: records are not being kept at all, and the pump stops, as
+# it does when an edge's write fails.
+
+
+def _refusals(caplog):
+    import logging
+
+    return [
+        record.getMessage() for record in caplog.records
+        if record.levelno >= logging.ERROR and record.name == "wl_sync.service"
+    ]
+
+
+def test_an_edge_loss_record_that_cannot_be_made_is_dropped_and_the_edges_go_on(
+    tmp_path, monkeypatch, caplog
+):
+    """A bug loses the line from an overflow's report: buffer_overflow with no gpio, which
+    the format refuses. The Recorder drops that record with one ERROR naming the loss and
+    why, the edge pump keeps going, every edge reaches the segment, the journal's own
+    overflow report stands, and the Recorder's health check reports the refusal once."""
+    import logging
+
+    from wl_sync.backend import CaptureDegraded, CaptureLoss
+    from wl_sync.rp1 import gpio
+
+    monkeypatch.setattr(
+        gpio, "CaptureLoss", lambda **fields: CaptureLoss(**{**fields, "gpio": None})
+    )
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(5, 20, 5, True, 40_400),
+    ]
+    backend, writer, path = _recording(tmp_path, [events, [_ev(6, 20, 6, False, 41_000)], None])
+    with caplog.at_level(logging.ERROR):
+        backend.pump(50_000, 50_100, 80_000)
+
+    records = _segment(writer, path)
+    assert [(r.tick_us, r.level) for r in records] == [
+        (40_000, 1), (40_100, 0), (40_400, 1), (41_000, 0),
+    ]
+    [refusal] = _refusals(caplog)
+    assert "E" in refusal and "names its line" in refusal
+    for field in ("cause='buffer_overflow'", "count=2", "bound='exact'", "gpio=None",
+                  "after=40400", "span_us=300", "ahead=True"):
+        assert field in refusal, (field, refusal)
+    assert isinstance(backend.edges.take_error(), gpio.EdgeBufferOverflowError)
+    with pytest.raises(CaptureDegraded) as raised:
+        backend.recorder.check_health()
+    assert raised.value.kinds == {"edge capture: L record refused"}
+    assert "1 L record(s) refused" in str(raised.value)
+    backend.recorder.check_health()  # reported once, and nothing new since
+
+
+def test_a_word_loss_record_that_cannot_be_made_is_dropped_and_the_words_go_on(
+    tmp_path, monkeypatch, caplog
+):
+    """The same on the code-word path. A loss reported mid-stream that the format refuses
+    (a desync with an end to its window) is dropped and the words after it are recorded.
+    Then a bug gives the desync's own report a GPIO: dropped too, and the word pump's held
+    error, which the journal reports, is still the desync, not the refusal."""
+    import logging
+
+    from wl_sync.backend import CaptureDegraded, CaptureLoss
+    from wl_sync.rp1 import pio_capture
+
+    backend, writer, path = _recording(tmp_path, [])
+    backend.request.now = 10_000
+    with caplog.at_level(logging.ERROR):
+        assert backend.words.handle(_words((1_000, 0x8001)))
+        backend.inject_word_loss(CaptureLoss("desync", 1, "at_least", after=1_000))
+        assert backend.words.handle(_words((2_000, 0x0001)))
+        monkeypatch.setattr(
+            pio_capture, "CaptureLoss", lambda *a, **k: CaptureLoss(*a, **k, gpio=3)
+        )
+        slipped = _words((3_000, 0x0002), (4_000, 0x0003))[1:] + [0x0004]
+        assert backend.words.handle(slipped) is False
+
+    assert _segment(writer, path) == [
+        CodeWord(tick_us=1_000, word=0x8001), CodeWord(tick_us=2_000, word=0x0001),
+    ]
+    assert len(_refusals(caplog)) == 2
+    assert isinstance(backend.words.error, pio_capture.DesyncError)
+    with pytest.raises(CaptureDegraded) as raised:
+        backend.recorder.check_health()
+    assert raised.value.kinds == {"event-code capture: L record refused"}
+    assert "2 L record(s) refused" in str(raised.value)
+    backend.recorder.check_health()
+
+
+def test_a_sink_that_fails_on_a_loss_record_still_stops_the_pump(tmp_path):
+    """Records are not being kept, so continuing would only spin: the pump stops and
+    holds the sink's failure, as it does when an edge's write fails. The edge after the
+    loss never reaches the sink, and neither path writes past the failure."""
+
+    class _FullDisk:
+        def __init__(self):
+            self.written = []
+
+        def write(self, record):
+            if isinstance(record, Loss):
+                raise OSError("no space left on device")
+            self.written.append(record)
+
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(5, 20, 5, True, 40_400),
+    ]
+    backend = _Pumped(_Request([events, None]))
+    sink = _FullDisk()
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_codes(0, 16, 16)
+    recorder.capture_edges([20])
+    backend.request.now = 50_000
+    assert backend.edges.pump_once(backend.request, backend.request.now_us) is False
+    assert isinstance(backend.edges.error, OSError)
+    assert [r.tick_us for r in sink.written] == [40_000, 40_100]
+
+    assert backend.words.handle(_words((1_000, 0x8001)))
+    assert backend.words.handle(_words((2_000, 0x0002))[1:] + [0x0003]) is False
+    assert isinstance(backend.words.error, OSError)
+    recorder.check_health()  # a failing sink is the pumps' to report, not a refusal
+
+
+def test_an_unaccounted_window_whose_stamps_invert_collapses_to_its_end(tmp_path, caplog):
+    """THE WINDOW's documented exception (wl_sync.log.Loss). Number 1, on GPIO20, is
+    stamped at 40 010 us; number 3, on GPIO26, at 40 005 us, and number 2 never comes.
+    Numbers follow stamps except where the IRQ thread stamps an edge in its race, and
+    here they do not: the event below the gap is stamped after the one above it. The
+    window would end before it begins, so it collapses to [after_us, after_us], and the
+    record is written, not refused."""
+    import logging
+
+    reads = [[_ev(1, 20, 1, True, 40_010), _ev(3, 26, 1, True, 40_005)], None, None]
+    backend, writer, path = _recording(tmp_path, reads)
+    with caplog.at_level(logging.ERROR):
+        backend.pump(50_000, 80_000, 110_000)
+
+    assert _losses(_segment(writer, path)) == [
+        Loss(
+            tick_us=40_010, path="E", gpio=None, count=1, bound="at_least",
+            cause="unaccounted", before_us=40_005, after_us=40_005,
+        ),
+    ]
+    assert _refusals(caplog) == []
+    backend.recorder.check_health()
+

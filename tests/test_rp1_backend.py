@@ -986,3 +986,104 @@ def test_close_returns_on_a_still_clock_with_traffic_through_the_stop(lib, gpiod
     )
     with pytest.raises(CaptureDegraded, match="1 edge event"):
         backend.check_health()
+
+
+# --- L records through the backend's own threads (2026-10-30) ----------------------------
+#
+# The pumps report each loss where they find it, from their own threads; the Recorder
+# places it on the box clock and the QueuedSink's owner thread writes it into the
+# segment. These run the path the box runs, threads and all.
+
+
+def _recording_on(tmp_path):
+    import datetime
+
+    from tests.test_log import HEADER
+    from wl_sync.segment import SegmentWriter
+    from wl_sync.service import QueuedSink, Recorder
+
+    path = tmp_path / "seg-000.log"
+    sink = QueuedSink(SegmentWriter(path, HEADER))
+    backend = Rp1Backend()
+    recorder = Recorder(backend, sink=sink)
+    closed = datetime.datetime(2026, 10, 30, 12, 0, tzinfo=datetime.timezone.utc)
+    return backend, recorder, lambda: sink.close(closed), path
+
+
+def test_a_desync_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
+    from wl_sync.log import CodeWord, Loss, read_log
+
+    backend, recorder, close_sink, path = _recording_on(tmp_path)
+    recorder.capture_codes(0, DATA, DATA)
+    try:
+        lib.push(stream((10, 1), (20, 2)))
+        assert _until(lambda: lib.fifo == [] and lib.drains > 2)
+        lib.push(stream((30, 3), (40, 4))[1:] + [5])  # one word lost: the pairing slips
+        assert _until(lambda: not backend._word_thread.is_alive())
+    finally:
+        backend.close()
+        close_sink()
+
+    _, records = read_log(path)
+    assert records == [
+        CodeWord(tick_us=10, word=1),
+        CodeWord(tick_us=20, word=2),
+        Loss(
+            tick_us=20, path="W", gpio=None, count=2, bound="at_least",
+            cause="desync", before_us=20, after_us=None,
+        ),
+    ]
+
+
+def test_a_full_fifo_reaches_the_journal_but_not_the_segment(lib, gpiod, tmp_path):
+    from wl_sync.log import CodeWord, read_log
+
+    backend, recorder, close_sink, path = _recording_on(tmp_path)
+    recorder.capture_codes(0, DATA, DATA)
+    try:
+        lib.full = True
+        lib.push(stream((10, 1)))
+        assert _until(lambda: lib.fifo == [] and lib.drains > 2)
+        lib.full = False
+        complaint = _next_complaint(backend)
+        assert complaint is not None and "FIFO was full" in complaint, complaint
+    finally:
+        backend.close()
+        close_sink()
+
+    assert read_log(path)[1] == [CodeWord(tick_us=10, word=1)]
+
+
+def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
+    import types
+
+    from wl_sync.log import Edge, Loss, read_log
+
+    kinds = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
+
+    def edge(seqno, rising, ago_us):
+        return types.SimpleNamespace(
+            global_seqno=seqno, line_seqno=seqno, line_offset=20,
+            event_type=kinds.RISING_EDGE if rising else kinds.FALLING_EDGE, Type=kinds,
+            timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - ago_us * 1_000,
+        )
+
+    backend, recorder, close_sink, path = _recording_on(tmp_path)
+    time.sleep(0.01)  # so an edge stamped 2 ms ago is after the origin
+    recorder.capture_edges([20])
+    try:
+        gpiod.edges.extend([edge(1, True, 2_000), edge(4, False, 1_000)])  # 2, 3 lost
+        assert _until(lambda: gpiod.edges == [])
+        complaint = _next_complaint(backend)
+        assert complaint is not None and "kernel buffer overflow on GPIO20" in complaint
+    finally:
+        backend.close()
+        close_sink()
+
+    _, records = read_log(path)
+    first, loss, second = records
+    assert isinstance(first, Edge) and isinstance(second, Edge)
+    assert loss == Loss(
+        tick_us=second.tick_us, path="E", gpio=20, count=2, bound="exact",
+        cause="buffer_overflow", before_us=first.tick_us, after_us=second.tick_us,
+    )

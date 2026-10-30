@@ -174,6 +174,14 @@ Three repositories already depend on a rule this repository does not yet impleme
   >   With a path stalled, the frame is a budget, not a guarantee: a slow disk, or two
   >   requests carried out in one iteration, can cost one.
   > - **The roll when NTP first syncs waits the same way.**
+  > - **`L` records ride the same barrier** *(added 2026-10-30)*. One the edge pump finds at an
+  >   event is delivered just before that event. One in the edge numbers is final only when its
+  >   window closes, 20 to 40 ms after the read that showed it on a healthy pump, and the pump
+  >   holds its mark below the event that showed the gap until then, so one whose window ends at
+  >   or before the boundary lands in the closing segment. While a real loss is pending, that
+  >   lengthens a roll's wait, typically by about 40 ms (34 to 48 ms in a simulation of the pump);
+  >   that is not a bound. A desync's is delivered before the word thread stops. See
+  >   `wl_sync/log.py`, `Loss`.
 - **The box's per-folder `manifest.json`** keeps its present meaning and format, now one per
   folder rather than one per day.
 

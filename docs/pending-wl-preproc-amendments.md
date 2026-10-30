@@ -11,7 +11,8 @@ Answers are read there. The format follows the convention wl-xcon uses for both 
 These are written here rather than applied there. The claims about wl-preproc were read at
 wl-preproc `6fcad33` and re-read at `02fd6c0` before delivery. The claims about wl-sync were read
 at wl-sync `2a95b8f`. *(2026-10-30: everything added since, including the answers below and notes
-4 and 5, was checked against wl-sync `ab06425` and wl-preproc `main` at `4bd10f1`.)*
+4 and 5, was checked against wl-sync `ab06425` and wl-preproc `main` at `4bd10f1`; note 6 against
+the wl-sync commit that adds it.)*
 
 The 2026-10-19 delivery held two asks and one note. wl-preproc answered both asks on 2026-10-22, in
 its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
@@ -25,6 +26,7 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 - **wl-sync's answers to wl-preproc's 2026-10-22 items 3, 4, 5 and 6** (below).
 - **Note 4:** two header fields, and a third moment a segment starts.
 - **Note 5:** what a session's last records do now.
+- **Note 6:** an `L` record marks lost capture events in the segment.
 
 ---
 
@@ -256,8 +258,8 @@ captured before its boundary", which comes after the two commits in note 4.
   the box takes a boundary tick, then waits until every capture path has delivered everything
   it captured up to that tick, and only then rolls. Session-identity spec §3.4, amended
   2026-10-30, has the rule.
-- **The wait is short and bounded.** It is normally under about 65 ms, and it gives up at
-  0.2 s. A path whose capture thread has died is not waited for. On a timeout, the box logs a
+- **The wait is short and bounded.** It is normally under about 65 ms, about 40 ms more while
+  an edge loss is pending (note 6), and it gives up at 0.2 s. A path whose capture thread has died is not waited for. On a timeout, the box logs a
   WARNING naming the path, and its late records land in the next segment, as before.
 - **Two things still cross the boundary, both small:**
   - records captured AFTER the boundary but delivered during the wait land in the closing
@@ -268,3 +270,125 @@ captured before its boundary", which comes after the two commits in note 4.
 - **One assumption is unmeasured until bench day:** the kernel buffers an edge within 20 ms of
   stamping it. A runtime check warns if it ever looks otherwise.
 
+# NOTE — 6. An `L` record marks lost capture events in the segment (2026-10-30), and one open question
+
+**Not yet delivered.** It is in the wl-sync commit "log, rp1, service: an L record marks lost
+capture events in the segment", which comes after the commits in notes 4 and 5. wl-sync asks
+that it ship in the same pin move as the header fields, so that wl-preproc's pin moves once,
+past both. wl-preproc's session agreed to that in a message on 2026-10-30, before its user had
+been asked; this is the request in writing.
+A reader pinned before it raises `unknown log record type` on the first `L` line, so nothing is
+deployed until the pin has moved, the same hold as the header fields. The format is provisional
+until the user approves it; the choices marked provisional below are the ones put to the user.
+
+## The open question: how `E` is ordered
+
+The header's `ordering: "per-path"` promises each path's records in that path's tick order. That
+holds for `W` and `B`. For `E` it holds only on each line:
+- Across lines, `E` records are in the kernel buffer's order. Two lines' IRQ threads are not
+  ordered, so an edge can be written up to `EDGE_STAMP_LAG_US` behind one written before it.
+- That is 20 ms, the allowance the box's roll barrier assumes. Bench day has not measured it.
+- GPIO26 and GPIO27, the cameras' frame-time lines, fire together on every frame, so inversions of
+  microseconds are routine.
+
+This predates the `L` record. Your readers filter records by type, so nothing of yours is wrong
+today. The question, open for the user, is one of:
+- **keep the promise for `E`**, by adding a reorder buffer of `EDGE_STAMP_LAG_US` before delivery;
+  or
+- **declare `E` ordered per line**, in the `ordering` field's definition and the spec. The value
+  stays `"per-path"`, so this changes only text. Either answer leaves the header as you will pin
+  it, with no second pin move.
+
+## The record
+
+The box has always found its own losses and named them in the journal. Now each one is also a
+record, in the segment open when the box finds it:
+
+```
+L,tick_us,path,gpio,count,bound,cause,before_us,after_us
+L,40400,E,20,2,exact,buffer_overflow,40100,40400
+L,8500,W,,3,at_least,desync,8500,
+```
+
+- **`path`** is `W` or `E`, the capture path that lost the events. **`gpio`** is the line, for an
+  `E` loss whose line is known.
+- **`count`** is at least 1: code words on `W`, edges on `E`. **`bound`** is `exact` or
+  `at_least`.
+- **`before_us` / `after_us`** are the window: the ticks of the last record of the path known to
+  precede the loss and the first known to follow it. Either may be empty, meaning that side is
+  open. An empty field is never 0.
+- **`tick_us` is an ordering key, not the time of the loss.** The window gives that.
+- **Every number is ASCII digits only:** no sign, no separator.
+
+**Each cause has one shape** (provisional; strict now, as a reader is easier to loosen than to
+tighten). The reader refuses anything else, and the box cannot write it:
+
+| cause | path | `gpio` | `bound` | `before_us` | `after_us` | `tick_us` |
+|---|---|---|---|---|---|---|
+| `buffer_overflow` | E | the line | `exact` | given | given | `= after_us` |
+| `coalesced` | E | the line | `at_least` | given | given | `= after_us` |
+| `unaccounted` | E | empty | `at_least` | optional | given | `>= after_us` |
+| `desync` | W | empty | `at_least` | optional | empty | `= before_us`, if given |
+| `fifo_full` | W | empty | `at_least` | optional | optional | reserved |
+
+For every cause, `count >= 1`, every tick and `gpio` are `>= 0`, and `before_us <= after_us` when
+both are given.
+
+**What each cause means:**
+
+| cause | count | window | where it sits |
+|---|---|---|---|
+| `buffer_overflow` | the numbers missing from the line's own count: exact | the line's event before the gap, to the event that showed it | just before that event, at its tick |
+| `coalesced` | 1: the least a pair at one level can mean | the pair | just before the pair's second event, at its tick |
+| `unaccounted` | the request numbers missing that nothing explains | the events numbered just below and just above the gap | the highest `E` tick written when its window closed, 20 to 40 ms after the read that showed it |
+| `desync` | the strobes in the refused batch | the last code word recorded, to empty: the word pump stops, so every later strobe in that process is lost too, uncounted | the last code word's tick. Before any code word, the box clock's tick when the record is made, with the window empty at both ends |
+| `fifo_full` | — | — | **reserved** (provisional): not written by this version, because a full FIFO may have dropped nothing. It is in the format so that your reader already accepts it once a box can write it, from the PIO's overflow flag; its tick and window will be defined then |
+
+**The window has two exceptions,** each by microseconds, both from the kernel's IRQ-thread race
+(provisional: kept rather than widened):
+- `coalesced`, at a line's first event or its first after an overflow: the lost edge can lie
+  before `before_us`, by the time the race took.
+- `unaccounted`: the window rests on the request's numbers following the edges' stamps. An edge
+  stamped from the IRQ thread can break that. The window is then `[after_us, after_us]`, and the
+  loss can lie just outside it.
+
+**Order.** An `L` record is in the stream of the path it reports on, and keeps the order that path
+has. `W` is in tick order, and so is `W`'s `L`. For `E`, see the open question above:
+- an `L` record with a GPIO is written just before the event that showed it, at that event's tick.
+  It keeps its line's order, and across lines it sits exactly where that event does.
+- an `unaccounted` record, with no GPIO, sits at the highest `E` tick written before it. Nothing
+  written before it is ahead of it, and it makes no `E` record written after it later than that
+  record already is.
+
+`read_log` returns them as `Loss` records, so a reader that filters records by type is unaffected.
+
+**Which segment:**
+- One written just before an event lands with that event. They are two writes, though: a roll
+  queued between them puts the record last in the closing segment and the event first in the
+  next, with `after_us` in that next file.
+- An `unaccounted` record whose window ends at or before a roll's boundary lands in the closing
+  segment: the roll waits for it, as for any record, up to 0.2 s. A pending loss adds about 40 ms
+  to that wait (34–48 ms in simulation; not a bound). If the wait gives up, the record lands in the
+  next segment.
+- A loss is found only when something shows it, so its record can be in a later segment than the
+  loss. An overflow on a line that stays quiet across a roll is one such case: its `before_us` is
+  then in an earlier segment, on the same clock (same `process_uuid`).
+
+**Counts do not add across records.** One lost edge can be named twice. An overflow on a line that
+does not fire again within the window is first an `unaccounted` record, then a `buffer_overflow`
+one when the line fires. Each record is true alone.
+
+**No record where the count cannot be bounded below by 1:**
+- a FIFO found full, which may have dropped nothing;
+- a gap still open when capture stops, or when the edge capture thread dies, whose event may
+  have been a moment from arriving;
+- the second of two pairs in a row on one line, which in the IRQ-thread race is the same damaged
+  edge as the first. A genuine second loss in a run of pairs then has no record.
+
+The journal still reports each of them. A capture thread that stops loses everything after it,
+uncounted: its journal line says so, and it has no record. `unaccounted` rests on the 20 ms
+allowance above. An edge buffered later than that is written as lost, as the journal reports it.
+
+**The trailer's count includes `L` records.** `schema_version` stays 1.
+
+The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.

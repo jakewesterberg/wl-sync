@@ -13,17 +13,23 @@ the one non-obvious thing about them: only the FALLING edge is trustworthy.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
-from wl_sync.backend import SyncBackend
+from wl_sync.backend import CaptureDegraded, CaptureLoss, SyncBackend
 from wl_sync.barcode import encode
-from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord, Edge, Record
+from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord, Edge, Loss, Record
 from wl_sync.pins import FRAME_TIME_GPIO
 
 _FALLING = 0
+
+# How check_health() names each capture path, so a refused L record reads as the path's.
+_PATH_NAMES = {"W": "event-code capture", "E": "edge capture"}
+
+log = logging.getLogger(__name__)
 
 
 class RecordSink(Protocol):
@@ -181,6 +187,21 @@ class Recorder:
     cannot be globally sorted -- the segment header declares `ordering="per-path"` and
     the reader merges.
 
+    A CAPTURE PATH'S LOSSES RIDE ITS OWN STREAM. A backend reports the events a path saw
+    and could not record (CaptureLoss) from the thread that delivers that path's records,
+    and `_on_loss` writes each as an L record (wl_sync.log.Loss) in that path's stream:
+    its ticks are placed on this same clock, and its `tick_us` is chosen from what this
+    path has already written, so it keeps the order the path has (Loss, ORDER: W in tick
+    order, E only on each line). This class remembers, per path, the highest tick it has
+    written. Each path's is written and read only on the thread that delivers that path.
+
+    AN L RECORD IS AUXILIARY, AND NEVER STOPS A PATH. The journal line already carries
+    every loss. A report this class cannot make into a valid record -- a bug somewhere in
+    building it -- is dropped with one ERROR, and held for `check_health()`, which the
+    run loop's health report calls beside the backend's. `_on_loss` returns normally, so
+    the pump that reported it keeps capturing. A sink that fails is not caught: records
+    are not being kept, and the pump stops as it does when an edge's write fails.
+
     `sink.write()` MUST BE CALLED FROM ONE THREAD. All three paths plus the emit loop
     call it, and nothing here serialises them. `FakeBackend` dispatches synchronously so
     no test can see this, but the RP1 backend delivers from capture threads, where
@@ -205,22 +226,123 @@ class Recorder:
         self._sink = sink if self._memory is None else self._memory
         # Not read here: see _BoxClock precondition (2). The first unwrap seeds it.
         self._clock = _BoxClock(backend.now_us)
+        # The highest tick each capture path has written: where an L record that is not
+        # written just before a record of its path sits (wl_sync.log.Loss, ORDER).
+        self._highest: dict[str, int | None] = {"W": None, "E": None}
+        # L records refused since check_health() last looked: path -> (how many, the
+        # last). Written by the capture threads, taken by the run loop's, so both sides
+        # take the lock, which guards bookkeeping only.
+        self._refused: dict[str, tuple[int, str]] = {}
+        self._refused_lock = threading.Lock()
 
     def capture_codes(self, data_base: int, data_count: int, strobe_pin: int) -> None:
         self._backend.start_strobed_capture(
-            data_base, data_count, strobe_pin, self._on_word
+            data_base, data_count, strobe_pin, self._on_word, on_loss=self._on_word_loss
         )
 
     def capture_edges(self, pins: Sequence[int]) -> None:
-        self._backend.start_edge_capture(pins, self._on_edge)
+        self._backend.start_edge_capture(
+            pins, self._on_edge, on_loss=self._on_edge_loss
+        )
+
+    def _wrote(self, path: str, tick_us: int) -> None:
+        highest = self._highest[path]
+        if highest is None or tick_us > highest:
+            self._highest[path] = tick_us
 
     def _on_word(self, tick: int, word: int) -> None:
-        self._sink.write(CodeWord(tick_us=self._clock.unwrap(tick), word=word))
+        tick_us = self._clock.unwrap(tick)
+        self._sink.write(CodeWord(tick_us=tick_us, word=word))
+        self._wrote("W", tick_us)
 
     def _on_edge(self, gpio: int, level: int, tick: int) -> None:
-        self._sink.write(
-            Edge(tick_us=self._clock.unwrap(tick), gpio=gpio, level=level)
+        tick_us = self._clock.unwrap(tick)
+        self._sink.write(Edge(tick_us=tick_us, gpio=gpio, level=level))
+        self._wrote("E", tick_us)
+
+    def _on_word_loss(self, loss: CaptureLoss) -> None:
+        self._on_loss("W", loss)
+
+    def _on_edge_loss(self, loss: CaptureLoss) -> None:
+        self._on_loss("E", loss)
+
+    def _on_loss(self, path: str, loss: CaptureLoss) -> None:
+        """Write a loss the backend reported on `path` as an L record (wl_sync.log.Loss).
+
+        WHERE IT SITS IN THE PATH'S STREAM, by what the backend says (CaptureLoss):
+          * nothing follows it (`after` None): after everything the path has written.
+            The highest tick the path has written opens the window, and the record sits
+            there; with nothing written yet, at the clock now, its window empty.
+          * reported just before the record at `after`: at that record's tick.
+          * reported later: at the highest tick the path has written, which `after` does
+            not pass. At the window's own ticks it would sit before records already
+            written after them.
+        `after` is a recent raw tick and is placed nearest now, as every tick is. The
+        window's start is `span_us` before it, exactly, whatever its age.
+
+        A REPORT THAT MAKES NO VALID RECORD IS DROPPED, NOT RAISED. Only building the
+        record is guarded, and only against the ValueError its validation raises: the
+        write is outside the guard, so a sink that fails stops the pump, as it would on
+        an edge."""
+        highest = self._highest[path]
+        if loss.after is None:
+            before, after = highest, None
+            tick_us = highest if highest is not None else self._clock.now()
+        else:
+            after = self._clock.unwrap(loss.after)
+            # Never below the origin, where nothing of the path can precede the loss.
+            before = None if loss.span_us is None else max(0, after - loss.span_us)
+            if loss.ahead or highest is None:
+                tick_us = after
+            else:
+                tick_us = max(highest, after)
+        try:
+            record = Loss(
+                tick_us=tick_us,
+                path=path,
+                gpio=loss.gpio,
+                count=loss.count,
+                bound=loss.bound,
+                cause=loss.cause,
+                before_us=before,
+                after_us=after,
+            )
+        except ValueError as refused:
+            self._refuse(path, loss, refused)
+            return
+        self._sink.write(record)
+
+    def _refuse(self, path: str, loss: CaptureLoss, refused: ValueError) -> None:
+        log.error(
+            "an L record on %s was refused, and is not in the segment: %s. The backend "
+            "reported %r; the capture path's own report of the loss stands",
+            path,
+            refused,
+            loss,
         )
+        with self._refused_lock:
+            count, _ = self._refused.get(path, (0, ""))
+            self._refused[path] = (count + 1, f"{refused} ({loss!r})")
+
+    def check_health(self) -> None:
+        """Raise CaptureDegraded for the L records refused since the last call, one
+        problem per path, and forget them: each refusal is reported once.
+
+        The run loop's health report calls it beside `backend.check_health()` and keys
+        its episodes on the kinds of both, so a refusal reads as its path's problem."""
+        with self._refused_lock:
+            refused, self._refused = self._refused, {}
+        if refused:
+            raise CaptureDegraded(
+                [
+                    (
+                        f"{_PATH_NAMES[path]}: L record refused",
+                        f"{_PATH_NAMES[path]}: {count} L record(s) refused and left out "
+                        f"of the segment, the last: {last}",
+                    )
+                    for path, (count, last) in sorted(refused.items())
+                ]
+            )
 
     def record_barcode(self, tick: int, value: int) -> None:
         """Record a barcode this box emitted, unwrapping its tick on the shared clock.

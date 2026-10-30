@@ -13,6 +13,8 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from wl_sync.backend import CaptureLoss
+
 TICK_WRAP_US = 1 << 32
 
 # How long the edge pump waits for an edge before it looks again. It bounds how stale
@@ -236,11 +238,22 @@ class _Sighting:
     read_after: int = 0
 
 
+@dataclass(eq=False)
+class _Around:
+    """The kernel stamps of the events numbered just below and just above a run of
+    missing numbers, when the read showed it: its L record's window. `below_ns` is None
+    when no event is numbered below it."""
+
+    below_ns: int | None
+    above_ns: int
+
+
 @dataclass
 class _Gap:
     first: int  # request numbers, unwrapped, inclusive
     last: int
     seen: _Sighting
+    around: _Around  # shared by every piece the gap is later split into
 
 
 @dataclass
@@ -249,8 +262,23 @@ class _Line:
     number: int  # the request's number for that event, unwrapped
     before: int  # the request's number for the event before it
     rising: bool
+    stamp: int  # the kernel's stamp for that event, in ns
     compared: bool = False  # its level was compared with an event before it
     paired: bool = False  # and was the same: a pair at one level, with its excuse
+
+
+@dataclass(frozen=True)
+class _Site:
+    """One loss, as an L record will name it: the cause, the line if known, how many and
+    how sure, and the stamps of the events known to come just before and just after it
+    (wl_sync.log.Loss)."""
+
+    cause: str
+    gpio: int | None
+    count: int
+    bound: str
+    before_ns: int | None
+    after_ns: int
 
 
 class SeqnoTracker:
@@ -393,6 +421,16 @@ class SeqnoTracker:
     Every raise comes AFTER the whole batch is taken in. A baseline left behind measured
     every later, perfectly consecutive edge against the stale number, so one overflow
     became a new and larger "lost" report on each edge for the rest of the day.
+
+    AND EACH LOSS IS KEPT WHERE IT WAS FOUND, for its L record in the segment
+    (wl_sync.log.Loss), beside the raise, which the journal reports unchanged. An
+    overflow or a pair is kept by the index, in its batch, of the event that showed it
+    (`take_found`); numbers nothing explains, once their window closes (`take_settled`).
+    Kept only where the count is at least one for certain, so two of the raised losses
+    have none: the second of two pairs in a row on a line, which in the race above is
+    the same damaged edge as the first, its window need not hold; and a gap that
+    `settle` closes only because capture stopped, whose event may have been a moment
+    from arriving.
     """
 
     def __init__(self) -> None:
@@ -402,12 +440,17 @@ class SeqnoTracker:
         self._lines: dict[int, _Line] = {}
         self._excuses: list[list[int]] = []  # [after, before, count], EXCUSES
         self._last_read_at: int | None = None
+        self._top_ns: int | None = None  # the stamp of the event numbered _top
+        self._found: dict[int, list[_Site]] = {}  # the last batch's, by event index
+        self._settled: list[_Site] = []
 
     def check(self, events: Sequence, read_at: int) -> None:
         """Take in one read's batch, in the order the buffer gave it. `read_at` is the
         clock when the read returned, a raw now_us() reading. Raises
         EdgeBufferOverflowError or CoalescedEdgeError, or both as DroppedEdgeError, for
-        what a line's own numbers or levels show."""
+        what a line's own numbers or levels show, and keeps each loss for `take_found`
+        by the index of the event that showed it."""
+        self._found = {}
         if not events:
             return
         if self._top is None:
@@ -419,18 +462,24 @@ class SeqnoTracker:
         overflowed: dict[int, int] = {}
         coalesced: dict[int, int] = {}
         fresh = []
-        for event, number in zip(events, numbers):
+        stamps: dict[int, int] = {}  # number -> stamp, for the fresh ones
+        for index, (event, number) in enumerate(zip(events, numbers)):
             gpio = event.line_offset
             rising = event.event_type is event.Type.RISING_EDGE
+            stamp = event.timestamp_ns
             line = self._lines.get(gpio)
             if line is None:
-                self._lines[gpio] = _Line(event.line_seqno, number, self._floor, rising)
+                self._lines[gpio] = _Line(
+                    event.line_seqno, number, self._floor, rising, stamp
+                )
                 fresh.append(number)
+                stamps[number] = stamp
                 continue
             seqno = _nearest(event.line_seqno, line.seqno)
             step = seqno - line.seqno
             if step <= 0:  # a line's events come in its order; nothing to learn
                 fresh.append(number)
+                stamps[number] = stamp
                 continue
             compared = paired = False
             if step == 1 and number == line.number:  # THE IRQ THREAD RACES: the re-run
@@ -441,26 +490,36 @@ class SeqnoTracker:
                     self._excuses.append([line.before, number, 1])
                 if not line.compared and rising == line.rising:
                     coalesced[gpio] = coalesced.get(gpio, 0) + 1
+                    self._find(index, "coalesced", gpio, 1, "at_least", line.stamp, stamp)
                 compared = True
             else:
                 fresh.append(number)
+                stamps[number] = stamp
                 if step > 1:  # levels across lost events say nothing
-                    overflowed[gpio] = overflowed.get(gpio, 0) + step - 1
-                    self._excuses.append([line.number, number, step - 1])
+                    lost = step - 1
+                    overflowed[gpio] = overflowed.get(gpio, 0) + lost
+                    self._excuses.append([line.number, number, lost])
+                    self._find(index, "buffer_overflow", gpio, lost, "exact", line.stamp, stamp)
                 else:
                     compared, paired = True, rising == line.rising
                     if paired:
                         coalesced[gpio] = coalesced.get(gpio, 0) + 1
                         self._excuses.append([line.number, number, 1])
+                        if not line.paired:  # the second of two in a row: no record
+                            self._find(
+                                index, "coalesced", gpio, 1, "at_least", line.stamp, stamp
+                            )
             line.seqno, line.before, line.number = seqno, line.number, number
             line.rising, line.compared, line.paired = rising, compared, paired
+            line.stamp = stamp
 
         seen = _Sighting(read_at)
         for number in sorted(fresh):
             if number > self._top:
                 if number > self._top + 1:
-                    self._gaps.append(_Gap(self._top + 1, number - 1, seen))
-                self._top = number
+                    around = _Around(self._top_ns, stamps[number])
+                    self._gaps.append(_Gap(self._top + 1, number - 1, seen, around))
+                self._top, self._top_ns = number, stamps[number]
             else:
                 self._take(number)  # it arrived after a later one
 
@@ -477,15 +536,32 @@ class SeqnoTracker:
         """Whether any gap is held open, waiting on its window."""
         return bool(self._gaps)
 
+    def first_open_shown_ns(self) -> int | None:
+        """The stamp of the earliest event that showed a gap still held open, or None.
+        The pump holds its mark below it until the gap settles (EdgePump.pump_once)."""
+        return min((gap.around.above_ns for gap in self._gaps), default=None)
+
+    def take_found(self) -> dict[int, list[_Site]]:
+        """The losses the last `check` found, by the index in its batch of the event
+        that showed each, and forgets them."""
+        found, self._found = self._found, {}
+        return found
+
+    def take_settled(self) -> list[_Site]:
+        """The unaccounted losses `settle` closed on their window, and forgets them."""
+        settled, self._settled = self._settled, []
+        return settled
+
     def settle(self, through: int | None, final: bool = False) -> None:
         """Close the gaps now final (THE WINDOW). `through` is the pump's mark if this
         step moved it, else None; `final`, when capture stops, closes every gap. Raises
-        UnaccountedEdgeError for the numbers no excuse explains."""
+        UnaccountedEdgeError for the numbers no excuse explains, and keeps those whose
+        window closed for `take_settled`, one site per gap as it was first seen. A gap
+        `final` alone closes is raised and not kept: its event may have been a moment
+        from arriving."""
         done, still_open = [], []
         for gap in self._gaps:
-            due = final or gap.seen.read_after >= KERNEL_EVENT_BUFFER_MAX or (
-                through is not None and _since(through, gap.seen.read_at) >= 0
-            )
+            due = final or self._window_closed(gap, through)
             (done if due else still_open).append(gap)
         self._gaps = still_open
         done = self._excuse(done)
@@ -495,9 +571,26 @@ class SeqnoTracker:
                 gap.first < excuse[1] and gap.last > excuse[0] for gap in self._gaps
             )
         ]
+        sure: dict[_Around, int] = {}  # numbers lost, by the gap as first seen
+        for gap in done:
+            if self._window_closed(gap, through):
+                sure[gap.around] = sure.get(gap.around, 0) + gap.last - gap.first + 1
+        for around, lost in sure.items():
+            below, above = around.below_ns, around.above_ns
+            self._settled.append(_Site("unaccounted", None, lost, "at_least", below, above))
         unaccounted = sum(gap.last - gap.first + 1 for gap in done)
         if unaccounted:
             raise UnaccountedEdgeError(unaccounted=unaccounted)
+
+    @staticmethod
+    def _window_closed(gap: _Gap, through: int | None) -> bool:
+        return gap.seen.read_after >= KERNEL_EVENT_BUFFER_MAX or (
+            through is not None and _since(through, gap.seen.read_at) >= 0
+        )
+
+    def _find(self, index: int, *site) -> None:
+        """Keep a loss found at the batch's event `index`: _Site's fields, in order."""
+        self._found.setdefault(index, []).append(_Site(*site))
 
     def _excuse(self, gaps: list[_Gap]) -> list[_Gap]:
         """These final gaps less what the excuses explain (EXCUSES)."""
@@ -512,9 +605,9 @@ class SeqnoTracker:
                     continue
                 count -= last - first + 1
                 if gap.first < first:
-                    kept.append(_Gap(gap.first, first - 1, gap.seen))
+                    kept.append(_Gap(gap.first, first - 1, gap.seen, gap.around))
                 if last < gap.last:
-                    kept.append(_Gap(last + 1, gap.last, gap.seen))
+                    kept.append(_Gap(last + 1, gap.last, gap.seen, gap.around))
             excuse[2], gaps = count, kept
         return gaps
 
@@ -526,9 +619,9 @@ class SeqnoTracker:
                 kept.append(gap)
                 continue
             if gap.first < number:
-                kept.append(_Gap(gap.first, number - 1, gap.seen))
+                kept.append(_Gap(gap.first, number - 1, gap.seen, gap.around))
             if number < gap.last:
-                kept.append(_Gap(number + 1, gap.last, gap.seen))
+                kept.append(_Gap(number + 1, gap.last, gap.seen, gap.around))
         self._gaps = kept
 
 
@@ -559,6 +652,14 @@ class EdgePump:
     that can say. `stamp_lag_max_us` and `stamp_lag_over` are the witness for the one
     assumption that rule rests on (also `pump_once`).
 
+    EACH LOSS GOES TO `on_loss` TOO, as a CaptureLoss, for its L record in the segment
+    (wl_sync.log.Loss), from this thread, so it keeps its place among the edges: an
+    overflow or a pair just before the event that showed it, an unaccounted number once
+    its window closes. The held error, and so the journal, is unchanged. A consumer
+    that raises on a loss is a failing consumer, as on an edge, and stops the pump. The
+    Recorder raises there only when its sink fails: a report it cannot make into a
+    record it drops, and capture goes on (wl_sync.service.Recorder._on_loss).
+
     THE HELD ERROR CROSSES THREADS. The pump holds it and check_health() takes it, from
     the run loop's thread, through `take_error`. Adding a loss to one already held is a
     read and a store, and a take landing between them reported the first loss twice, so
@@ -566,13 +667,15 @@ class EdgePump:
     waits.
     """
 
-    def __init__(self, on_edge, origin_ns: int) -> None:
+    def __init__(self, on_edge, origin_ns: int, on_loss=None) -> None:
         self._on_edge = on_edge
+        self._on_loss = on_loss
         self._origin_ns = origin_ns
         self._seqnos = SeqnoTracker()
         self._held = threading.Lock()
         self._waited_out = False
         self._drained = False  # the last pass left the kernel's buffer empty
+        self._through: int | None = None  # the mark THE RULE gives, before any hold
         self.error: BaseException | None = None
         self.delivered_through: int | None = None
         self.stamp_lag_max_us: int | None = None
@@ -616,14 +719,24 @@ class EdgePump:
         THE SAME MARK CLOSES A GAP in the edge numbers (SeqnoTracker, THE WINDOW): a
         missing number is lost once the mark reaches the moment its gap was seen. So the
         tracker cannot call an edge lost that the mark still allows to be on its way.
+
+        AND AN OPEN GAP HOLDS THE MARK, because its L record is a record the roll waits
+        for too. The record is written only once the gap's window closes, while edges
+        stamped after the gap's own can already have been delivered, and the mark with
+        them. So while a gap is open the mark published stays below the event that
+        showed it, and moves on only after the gap is settled and its record written.
+        An unaccounted record whose window ends at or before a roll's boundary therefore
+        lands in the closing segment with the edges around it. A gap that fills, as a
+        swap across two reads does at the next read, holds nothing for longer.
         """
         began = now_us()
         self._waited_out = not request.wait_edge_events(timeout=EDGE_WAIT_S)
         self._drained = self._waited_out
         if self._waited_out:
-            self.delivered_through = (began - 1) % TICK_WRAP_US
-            self._settle(self.delivered_through)
-            return True
+            self._through = (began - 1) % TICK_WRAP_US
+            going = self._settle(self._through)
+            self._publish()
+            return going
         events = request.read_edge_events(max_events=EDGE_READ_MAX)
         read_at = now_us()
         self._witness(events, read_at)
@@ -631,11 +744,23 @@ class EdgePump:
             return False
         self._drained = len(events) < EDGE_READ_MAX
         if len(events) < EDGE_READ_MAX:
-            self.delivered_through = (began - EDGE_STAMP_LAG_US - 1) % TICK_WRAP_US
-            self._settle(self.delivered_through)
+            self._through = (began - EDGE_STAMP_LAG_US - 1) % TICK_WRAP_US
+            going = self._settle(self._through)
         else:
-            self._settle(None)
-        return True
+            going = self._settle(None)
+        self._publish()
+        return going
+
+    def _publish(self) -> None:
+        """Publish the mark THE RULE gives, held below the event that showed the
+        earliest gap still open, if that is earlier."""
+        mark = self._through
+        shown = self._seqnos.first_open_shown_ns()
+        if mark is not None and shown is not None:
+            held = (edge_tick_us(shown, self._origin_ns) - 1) % TICK_WRAP_US
+            if _since(mark, held) > 0:
+                mark = held
+        self.delivered_through = mark
 
     def _witness(self, events, read_at: int) -> None:
         """Bound each edge's stamp-to-buffer lag by `read_at`, the clock when the read
@@ -657,13 +782,17 @@ class EdgePump:
         The whole batch's numbers are checked first (SeqnoTracker.check). Delivery keeps
         the buffer's order, which already holds each line's edges in order. The mark
         moves only after the whole batch, so which ticks have been delivered does not
-        depend on their order within it."""
+        depend on their order within it. A loss the check found at an event goes to
+        `on_loss` just before that event goes to `on_edge`."""
         try:
             self._seqnos.check(events, read_at)
         except DroppedEdgeError as dropped:
             self._hold(dropped)  # recorded, and we keep going
-        for event in events:
+        found = self._seqnos.take_found()
+        for index, event in enumerate(events):
             try:
+                for site in found.get(index, ()):
+                    self._report(site, ahead=True)
                 rising = event.event_type is event.Type.RISING_EDGE
                 self._on_edge(
                     event.line_offset,
@@ -699,7 +828,8 @@ class EdgePump:
           * on a clock that stands still, where no window closes and the budget never
             runs out, STOP_PASSES waits with traffic arriving through them, 0.8 s.
         Both fit inside the second close() gives the edge thread. Whatever is held then
-        is final, because no later look will come."""
+        is final, because no later look will come: the journal reports it, and no L
+        record is written for it, since its event may have been a moment from arriving."""
         began = now_us()
         for _ in range(STOP_PASSES):
             if not self.pump_once(request, now_us):
@@ -727,20 +857,61 @@ class EdgePump:
     def abandon(self, error: BaseException) -> DroppedEdgeError | None:
         """The pump stopped on `error`, with no last look. Hold the error, as fail()
         does, and make every gap still held final. A gap held for the window would
-        otherwise go nowhere, because fail() keeps the stop over any loss. Returns that
-        loss, for the caller to report."""
+        otherwise go nowhere, because fail() keeps the stop over any loss. Each loss
+        goes to `on_loss` too, for its L record, as far as `on_loss` lets it. Returns
+        the loss, for the caller to report."""
         self.fail(error)
+        lost = None
         try:
             self._seqnos.settle(None, True)
         except DroppedEdgeError as dropped:
-            return dropped
-        return None
+            lost = dropped
+        for site in self._seqnos.take_settled():
+            try:
+                self._report(site, ahead=False)
+            except BaseException:  # noqa: BLE001 - the stop is held already
+                break
+        return lost
 
-    def _settle(self, through: int | None, final: bool = False) -> None:
+    def _settle(self, through: int | None, final: bool = False) -> bool:
+        """Settle the tracker's gaps, and report each loss now final. Returns False when
+        the pump should stop: `on_loss` failed."""
         try:
             self._seqnos.settle(through, final)
         except DroppedEdgeError as dropped:
             self._hold(dropped)
+        for site in self._seqnos.take_settled():
+            try:
+                self._report(site, ahead=False)
+            except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+                self.fail(error)
+                return False
+        return True
+
+    def _report(self, site: _Site, ahead: bool) -> None:
+        """One loss to `on_loss`, its stamps made ticks on the shared 32-bit timebase.
+        The event after it is recent and goes raw; the one before it can be any age, so
+        it goes as an exact distance back (CaptureLoss)."""
+        if self._on_loss is None:
+            return
+        span = None
+        if site.before_ns is not None:
+            span = max(
+                0,
+                (site.after_ns - self._origin_ns) // 1_000
+                - (site.before_ns - self._origin_ns) // 1_000,
+            )
+        self._on_loss(
+            CaptureLoss(
+                cause=site.cause,
+                count=site.count,
+                bound=site.bound,
+                gpio=site.gpio,
+                after=edge_tick_us(site.after_ns, self._origin_ns),
+                span_us=span,
+                ahead=ahead,
+            )
+        )
 
     def _hold(self, dropped: DroppedEdgeError) -> None:
         """Hold a loss for check_health(), added to any loss already held, so a check

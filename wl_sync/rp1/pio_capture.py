@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
+from wl_sync.backend import CaptureLoss
+
 FIFO_WORD_BITS = 32
 
 
@@ -109,10 +111,23 @@ class WordPump:
 
     `delivered_through` is how far it has delivered, as a raw `now_us()` reading (see
     `handle`), for the run loop's roll barrier. None until the first drain that can say.
+
+    A DESYNC ALSO GOES TO `on_loss`, as a CaptureLoss, for its L record in the segment
+    (wl_sync.log.Loss): the strobes in the refused batch, at least half its entries
+    rounded up, since a strobe pushes two. Nothing of this path follows it, because the
+    pump stops, so its window has no end. A FULL FIFO DOES NOT: it MAY have dropped
+    words, and if no strobe came while it was full nothing was lost, so its count cannot
+    be bounded below by one. The held error, and so the journal, is unchanged for both.
+    `on_loss` raises only when the sink behind it fails: then the failure is held, the
+    desync its context. A report the Recorder cannot make into a record it drops itself
+    (wl_sync.service.Recorder._on_loss), and the desync stays the held error.
     """
 
-    def __init__(self, on_word: Callable[[int, int], None], data_count: int) -> None:
+    def __init__(
+        self, on_word: Callable[[int, int], None], data_count: int, on_loss=None
+    ) -> None:
         self._on_word = on_word
+        self._on_loss = on_loss
         self._data_count = data_count
         self.error: BaseException | None = None
         self.delivered_through: int | None = None
@@ -145,6 +160,12 @@ class WordPump:
             events = pair_fifo(entries, self._data_count)
         except DesyncError as error:
             self.error = error
+            if self._on_loss is not None:
+                strobes = (len(entries) + 1) // 2
+                try:
+                    self._on_loss(CaptureLoss("desync", strobes, "at_least"))
+                except BaseException as failure:  # noqa: BLE001 - check_health's
+                    self.error = failure  # a failing consumer, the desync its context
             return False
         for tick, word in events:
             try:

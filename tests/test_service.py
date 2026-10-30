@@ -1,8 +1,8 @@
 import pytest
 
-from wl_sync.backend import FakeBackend
+from wl_sync.backend import CaptureLoss, FakeBackend
 from wl_sync.barcode import IDLE_MIN_US, decode_edges
-from wl_sync.log import BarcodeEmitted, CodeWord, Edge, TICK_WRAP_US
+from wl_sync.log import BarcodeEmitted, CodeWord, Edge, Loss, TICK_WRAP_US
 from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
 
 BARCODE_PIN = 17
@@ -476,3 +476,119 @@ def test_a_mark_forty_minutes_stale_stays_behind_the_boundary():
     boundary = recorder.now()
     [mark] = recorder.delivered_through().values()
     assert mark == 999_999_999 < boundary
+
+
+# --- L records: where the Recorder places a loss a capture path reports (2026-10-30) ----
+#
+# A backend reports a loss with raw ticks, as it hands over every tick (CaptureLoss). The
+# Recorder places it on the box clock, in the stream of the path that reported it.
+
+
+def _losses(sink):
+    return [r for r in sink.written if isinstance(r, Loss)]
+
+
+def test_a_loss_found_at_an_edge_sits_at_that_edges_tick_just_before_it():
+    """An overflow is seen at the event that shows it, X, and is written just before X at
+    X's tick, so it keeps X's place in the edge stream: nothing of the path is out of
+    order around it. The window opens at the line's event before the loss, given as a
+    distance back from X."""
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(5_000)
+    backend.inject_edge(REWARD_PIN, 1, 1_000)
+    backend.inject_edge_loss(
+        CaptureLoss(
+            cause="buffer_overflow", count=2, bound="exact", gpio=REWARD_PIN,
+            after=4_000, span_us=3_000, ahead=True,
+        )
+    )
+    backend.inject_edge(REWARD_PIN, 0, 4_000)
+
+    assert sink.written == [
+        Edge(tick_us=1_000, gpio=REWARD_PIN, level=1),
+        Loss(
+            tick_us=4_000, path="E", gpio=REWARD_PIN, count=2, bound="exact",
+            cause="buffer_overflow", before_us=1_000, after_us=4_000,
+        ),
+        Edge(tick_us=4_000, gpio=REWARD_PIN, level=0),
+    ]
+
+
+def test_a_window_that_opened_hours_before_its_loss_is_on_the_right_wrap():
+    """WHY THE START OF A WINDOW IS A DISTANCE, NOT A TICK. A lick line quiet for two hours
+    overflows when it fires again: the last event before the loss is two hours old. As a
+    raw 32-bit tick it is more than half a wrap from now, and placed nearest to now it
+    lands a wrap off -- 71.6 minutes from the truth. The event that shows the loss is
+    recent, so it is the one handed over raw, and the window's start is counted back from
+    it exactly."""
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(1_000_000)
+    backend.inject_edge(REWARD_PIN, 1, 1_000_000)
+    later = 1_000_000 + 2 * 3_600_000_000
+    _tick_barcodes(backend, recorder, 1_000_000, later)
+    backend.set_now_us(later)
+    backend.inject_edge_loss(
+        CaptureLoss(
+            cause="buffer_overflow", count=1, bound="exact", gpio=REWARD_PIN,
+            after=later & _MASK, span_us=later - 1_000_000, ahead=True,
+        )
+    )
+    [loss] = _losses(sink)
+    assert (loss.before_us, loss.after_us, loss.tick_us) == (1_000_000, later, later)
+
+
+def test_a_loss_found_after_later_edges_sits_at_the_highest_edge_tick():
+    """A gap in the request's numbers is final only once its window closes, by which time
+    later edges have been written. Its record sits after them, so its tick is the highest
+    the edge path has written: at its window it would sit out of order. The window says
+    when the loss was."""
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(10_000)
+    for tick in (1_000, 3_000, 6_000, 5_500):
+        backend.inject_edge(REWARD_PIN, 1, tick)
+    backend.inject_edge_loss(
+        CaptureLoss(
+            cause="unaccounted", count=1, bound="at_least", after=3_000, span_us=2_000,
+        )
+    )
+    [loss] = _losses(sink)
+    assert loss == Loss(
+        tick_us=6_000, path="E", gpio=None, count=1, bound="at_least",
+        cause="unaccounted", before_us=1_000, after_us=3_000,
+    )
+
+
+def test_a_word_loss_with_nothing_after_it_follows_the_last_word():
+    """A desync stops the word pump, so no word follows the loss and its window has no
+    end. It lies after everything the path delivered: the last word opens the window, and
+    the record sits at that word's tick."""
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(10_000)
+    backend.inject_word(1_000, 0x8001)
+    backend.inject_word(2_000, 0x0001)
+    backend.set_now_us(20_000)
+    backend.inject_word_loss(CaptureLoss(cause="desync", count=2, bound="at_least"))
+    [loss] = _losses(sink)
+    assert loss == Loss(
+        tick_us=2_000, path="W", gpio=None, count=2, bound="at_least",
+        cause="desync", before_us=2_000, after_us=None,
+    )
+
+
+def test_a_word_loss_before_any_word_sits_at_the_box_clock():
+    """Nothing of the path to follow: the record goes where the box clock is, and its
+    window is empty at both ends."""
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(7_000)
+    backend.inject_word_loss(CaptureLoss(cause="desync", count=1, bound="at_least"))
+    [loss] = _losses(sink)
+    assert (loss.tick_us, loss.before_us, loss.after_us) == (7_000, None, None)
+
+
+def test_no_loss_reported_means_no_loss_record():
+    backend, sink, recorder = _word_recorder()
+    backend.set_now_us(10_000)
+    backend.inject_word(1_000, 0x8001)
+    backend.inject_edge(REWARD_PIN, 1, 2_000)
+    recorder.record_barcode(3_000, 500)
+    assert _losses(sink) == []

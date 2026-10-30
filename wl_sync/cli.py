@@ -295,6 +295,18 @@ def _await_delivery(recorder: Recorder, boundary: int) -> None:
     records are the run loop's own, written before it got here. A record captured after
     the boundary lands in the new segment, unless it is delivered while this waits.
 
+    L RECORDS RIDE THE SAME BARRIER (wl_sync.log.Loss). A loss the edge pump finds at an
+    event is delivered just before that event, so it lands with it. A loss in the edge
+    numbers is final only once its window closes, 20 to 40 ms after the read that showed
+    it, and until then the pump holds its mark below the event that showed it
+    (rp1.gpio.EdgePump.pump_once): an L record whose window ends at or before the boundary
+    lands in the outgoing segment. While a real loss is pending at a roll, that lengthens
+    the wait, typically by about 40 ms: 34 to 48 ms in a simulation of the pump with the
+    IRQ thread's lag up to its allowance and scheduling jitter. That is not a bound. A
+    swap across two reads fills at the next read and adds nothing to speak of. A desync's
+    record is delivered before the word thread stops, and so before the stopped path
+    leaves the barrier.
+
     "UP TO THE BOUNDARY" MEANS CAPTURED BY THEN on the box clock, which the boundary is
     read from. An edge's tick is that clock, stamped by the kernel. A code word's tick
     counts the RP1 crystal, which drifts from the box clock by its ppm over a run, so a
@@ -507,7 +519,7 @@ def run(
 
     values = _ValueSource(now_fn, first_value, mono_fn)
     generator = BarcodeGenerator(backend, BARCODE_PIN)
-    health = _HealthReport(backend)
+    health = _HealthReport(backend, recorder)
 
     # The last barcode of the segments this run has rolled away from. A roll leaves the
     # new writer with no barcode yet, so a run that rolls in its final iteration would
@@ -1046,7 +1058,8 @@ class _ValueSource:
 
 
 class _HealthReport:
-    """`backend.check_health()`, called every iteration and reported once per episode.
+    """`backend.check_health()`, called every iteration and reported once per episode,
+    with `recorder.check_health()` beside it for the L records the Recorder refused.
 
     A FAILURE IS LOGGED AND RECORDING CONTINUES. A degraded capture path still leaves
     the other paths and the barcodes every other device aligns on, and stopping the box
@@ -1057,6 +1070,10 @@ class _HealthReport:
     and 86,400 identical lines a day would bury the journal. A healthy call ends the
     episode, so the same failure after a recovery is reported again.
 
+    BOTH CHECKS ARE ONE EPISODE. Each is called every time, and their kinds together
+    key the episode, so a backend failure alone is reported exactly as before, and a
+    refused L record, which the Recorder holds once, is one line beside it.
+
     IT ALSO WATCHES THE EDGE WITNESS (`backend.stamp_lag()`). A roll's boundary assumes
     the kernel buffers an edge within an allowance of stamping it (rp1.gpio,
     EDGE_STAMP_LAG_US), and the edge pump bounds that delay from above on every read.
@@ -1065,23 +1082,33 @@ class _HealthReport:
     says the assumption held.
     """
 
-    def __init__(self, backend) -> None:
+    def __init__(self, backend, recorder: Recorder) -> None:
         self._backend = backend
-        # The kinds of a CaptureDegraded, or the message of any other failure.
-        self._reported: frozenset[str] | str | None = None
+        self._checks = (backend.check_health, recorder.check_health)
+        # The kinds of each CaptureDegraded, or the message of any other failure.
+        self._reported: frozenset[str] | None = None
         self._lag_over = 0
         self._lag_episode = False
 
     def __call__(self) -> None:
-        try:
-            self._backend.check_health()
-        except Exception as error:  # noqa: BLE001 - reported, never fatal; see above
+        failures = []
+        for check in self._checks:
+            try:
+                check()
+            except Exception as error:  # noqa: BLE001 - reported, never fatal; see above
+                failures.append(error)
+        if failures:
             # Keyed on WHICH paths are failing and how, never on the message: a buffer
             # that keeps overflowing reports a different count every second, and keyed
             # on text that is a new "episode" every second.
-            episode = getattr(error, "kinds", None) or str(error)
+            episode = frozenset().union(
+                *(getattr(error, "kinds", None) or {str(error)} for error in failures)
+            )
             if episode != self._reported:
-                log.error("capture degraded, still recording: %s", error)
+                log.error(
+                    "capture degraded, still recording: %s",
+                    "; ".join(str(error) for error in failures),
+                )
             self._reported = episode
         else:
             self._reported = None

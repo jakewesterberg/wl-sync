@@ -10,6 +10,7 @@ from wl_sync.log import (
     BarcodeEmitted,
     CodeWord,
     Edge,
+    Loss,
     SyncBoxLogHeader,
     read_log,
     unwrap_ticks,
@@ -360,3 +361,192 @@ def test_a_barcode_at_the_32_bit_ceiling_round_trips(tmp_path):
 
     assert read_back == records
     assert read_back[1].value == (1 << 32) - 1
+
+
+# --- L: capture events a path lost (2026-10-30) -----------------------------------------
+
+# An edge loss as the edge pump finds it at the event that shows it, and a word loss with
+# nothing after it, which leaves gpio and after_us empty.
+OVERFLOW = Loss(
+    tick_us=1_500, path="E", gpio=20, count=2, bound="exact",
+    cause="buffer_overflow", before_us=1_000, after_us=1_500,
+)
+DESYNC = Loss(
+    tick_us=8_500, path="W", gpio=None, count=3, bound="at_least",
+    cause="desync", before_us=8_500, after_us=None,
+)
+
+
+def test_a_loss_record_round_trips_with_every_field(tmp_path):
+    """Every field, the empty ones included: a W loss has no gpio, a loss with nothing of
+    its path after it has no after_us, and one before anything of its path has no
+    before_us. Empty must come back as None, never as 0, which is a real tick and a real
+    GPIO."""
+    records = [
+        Edge(tick_us=1_000, gpio=20, level=1),
+        OVERFLOW,
+        Edge(tick_us=1_500, gpio=20, level=0),
+        CodeWord(tick_us=8_500, word=0x8001),
+        DESYNC,
+        Loss(
+            tick_us=12_000, path="E", gpio=None, count=1, bound="at_least",
+            cause="unaccounted", before_us=None, after_us=11_000,
+        ),
+        Loss(
+            tick_us=0, path="E", gpio=0, count=1, bound="at_least",
+            cause="coalesced", before_us=0, after_us=0,
+        ),
+    ]
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, records)
+
+    _, read_back = read_log(path)
+
+    assert read_back == records
+    assert (read_back[4].gpio, read_back[4].after_us) == (None, None)
+    assert read_back[5].before_us is None
+    assert (read_back[6].gpio, read_back[6].before_us) == (0, 0)
+
+
+def test_loss_record_line_format(tmp_path):
+    """The on-disk shape is the contract wl-preproc reads, so the literal lines are
+    pinned, empty fields included: tick second, as on every record, then the path it
+    belongs to, then what was lost, then the window, whose empty ends trail."""
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [OVERFLOW, DESYNC])
+    assert path.read_text().splitlines()[1:] == [
+        "L,1500,E,20,2,exact,buffer_overflow,1000,1500",
+        "L,8500,W,,3,at_least,desync,8500,",
+    ]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "L,1500,E,20,0,exact,buffer_overflow,1000,1500",  # a count that names no loss
+        "L,1500,E,20,-2,exact,buffer_overflow,1000,1500",
+        "L,1500,E,20,2,approximately,buffer_overflow,1000,1500",  # bound outside the set
+        "L,1500,E,20,2,exact,overflow,1000,1500",  # a cause misspelt
+        "L,1500,W,,1,at_least,coalesced,1000,1500",  # an edge cause on the word path
+        "L,1500,E,20,1,at_least,desync,1000,1500",  # a word cause on the edge path
+        "L,1500,B,,1,at_least,desync,1000,",  # B loses nothing: it is not captured
+        "L,9000,W,20,3,at_least,desync,8500,",  # a code word has no line of its own
+        "L,1500,E,-1,1,at_least,coalesced,1000,1500",
+        "L,1500,E,20,2,exact,buffer_overflow,2000,1500",  # a window that ends first
+        "L,1500,E,20,2,exact,buffer_overflow,1000",  # a field short
+        "L,1500,E,20,2,exact,buffer_overflow,1000,1500,7",  # a field over
+        "L,,E,20,2,exact,buffer_overflow,1000,1500",  # the ordering key is never empty
+        "L,1500,E,20,,exact,buffer_overflow,1000,1500",  # nor is the count
+        # Each cause's shape (`LOSS_SHAPES`): which fields it has, its bound, its tick.
+        "L,1500,E,,2,exact,buffer_overflow,1000,1500",  # an overflow names its line
+        "L,1500,E,,1,at_least,coalesced,1000,1500",  # so does a pair
+        "L,1500,E,20,1,at_least,unaccounted,1000,1500",  # nothing says whose this was
+        "L,1500,E,20,2,at_least,buffer_overflow,1000,1500",  # an overflow's count is exact
+        "L,1500,E,20,1,exact,coalesced,1000,1500",  # a pair's is the least it can mean
+        "L,1500,E,,1,exact,unaccounted,1000,1500",
+        "L,8500,W,,3,exact,desync,8500,",
+        "L,1500,W,,1,exact,fifo_full,,",
+        "L,1500,E,20,2,exact,buffer_overflow,,1500",  # the line's event before the gap
+        "L,1500,E,20,1,at_least,coalesced,1000,",  # the event that showed the pair
+        "L,1500,E,,1,at_least,unaccounted,1000,",  # the event that showed the gap
+        "L,8500,W,,3,at_least,desync,8500,9000",  # nothing of W follows a desync
+        "L,1400,E,20,2,exact,buffer_overflow,1000,1500",  # written just before X, at X's tick
+        "L,1600,E,20,1,at_least,coalesced,1000,1500",
+        "L,1400,E,,1,at_least,unaccounted,1000,1500",  # never behind its window's end
+        "L,9000,W,,3,at_least,desync,8500,",  # at the last code word's tick
+        # Digits only, in every numeric field: no sign, no separator, no other script.
+        "L,1_500,E,20,2,exact,buffer_overflow,1000,1500",
+        "L,+1500,E,20,2,exact,buffer_overflow,1000,1500",
+        "L,1500,E,20,2,exact,buffer_overflow, 1000,1500",
+        "L,1500,E,20,\u0662,exact,buffer_overflow,1000,1500",
+        "L,1500,E,20,2,exact,buffer_overflow,-1000,1500",
+        "L,1500,E,0x14,2,exact,buffer_overflow,1000,1500",
+    ],
+)
+def test_a_loss_record_the_format_does_not_define_is_refused(tmp_path, line):
+    """No code in this package reads an L record -- wl-preproc does -- so a malformed one
+    would be invisible on this side of the boundary and silently change what a session's
+    timing check says on the other. The reader refuses it, as it refuses an unknown
+    record type; the same checks stop the box from writing one."""
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+    with pytest.raises(ValueError):
+        read_log(path)
+
+
+def test_the_box_cannot_make_a_loss_record_the_format_refuses():
+    with pytest.raises(ValueError, match="count"):
+        Loss(
+            tick_us=1, path="E", gpio=20, count=0, bound="exact",
+            cause="buffer_overflow", before_us=0, after_us=1,
+        )
+    with pytest.raises(ValueError, match="cause"):
+        Loss(
+            tick_us=1, path="W", gpio=None, count=1, bound="at_least",
+            cause="coalesced", before_us=None, after_us=None,
+        )
+    with pytest.raises(ValueError, match="before_us"):
+        Loss(
+            tick_us=1, path="E", gpio=20, count=1, bound="at_least",
+            cause="coalesced", before_us=-1, after_us=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "L,1500,E,20,2,exact,buffer_overflow,2000,1500",
+        "L,1500,E,,1,at_least,unaccounted,1600,1500",
+    ],
+)
+def test_a_window_that_ends_before_it_begins_is_refused_by_that_rule(tmp_path, line):
+    """Each line keeps every other rule, the tick rule included, so only the window's
+    own check can refuse it."""
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+    with pytest.raises(ValueError, match="window ends before it begins"):
+        read_log(path)
+
+
+@pytest.mark.parametrize(
+    ("line", "field"),
+    [
+        ("L,,E,20,2,exact,buffer_overflow,1000,1500", "tick_us"),
+        ("L,1500,E,20,,exact,buffer_overflow,1000,1500", "count"),
+        ("L,1500,E,+20,2,exact,buffer_overflow,1000,1500", "gpio"),
+        ("L,1500,E,20,2,exact,buffer_overflow,1_000,1500", "before_us"),
+        ("L,1500,E,20,2,exact,buffer_overflow,1000,15OO", "after_us"),
+    ],
+)
+def test_a_malformed_loss_field_is_named_in_the_error(tmp_path, line, field):
+    """`invalid literal for int() with base 10: ''` names no record and no field. A rig
+    PC at 8am needs to know which."""
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+    with pytest.raises(ValueError, match=f"an L record's {field} "):
+        read_log(path)
+
+
+def test_a_log_written_before_loss_records_existed_still_reads_and_holds_none(tmp_path):
+    """Every segment the box wrote before 2026-10-30 has no L record, and the reader that
+    knows L must still read them all."""
+    path = tmp_path / "seg-002.log"
+    path.write_text(
+        json.dumps(BEFORE_THE_FIELDS)
+        + "\nE,900,20,1\nW,1000,32769\nB,1000,214573322\n"
+        + "T,2026-10-19T12:00:00+00:00,214573322,214573322,3\n",
+        encoding="utf-8",
+    )
+    _, records = read_log(path)
+    assert records == [
+        Edge(tick_us=900, gpio=20, level=1),
+        CodeWord(tick_us=1000, word=0x8001),
+        BarcodeEmitted(tick_us=1000, value=214573322),
+    ]
+    assert not any(isinstance(record, Loss) for record in records)

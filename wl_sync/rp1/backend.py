@@ -40,7 +40,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 
-from wl_sync.backend import CaptureDegraded, StampLag
+from wl_sync.backend import CaptureDegraded, CaptureLoss, StampLag
 from wl_sync.pins import GPIO_MAP
 from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
@@ -246,6 +246,7 @@ class Rp1Backend:
         data_count: int,
         strobe_pin: int,
         on_word: Callable[[int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
         lib = self._lib
         if strobe_pin != data_base + data_count:
@@ -284,7 +285,7 @@ class Rp1Backend:
         # it, so the first burst of more than four codes filled the FIFO and `push
         # noblock` discarded every later word without a sound. The pump thread is what
         # makes the strobed path a capture path at all.
-        self._words = WordPump(on_word, data_count)
+        self._words = WordPump(on_word, data_count, on_loss)
         self._word_stop = threading.Event()
         self._word_thread = threading.Thread(
             target=self._pump_words, name="wl-sync-words", daemon=True
@@ -339,7 +340,10 @@ class Rp1Backend:
             self._words.error = error
 
     def start_edge_capture(
-        self, pins: Sequence[int], on_edge: Callable[[int, int, int], None]
+        self,
+        pins: Sequence[int],
+        on_edge: Callable[[int, int, int], None],
+        on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
         """Capture individual-pin transitions via libgpiod line events.
 
@@ -352,7 +356,8 @@ class Rp1Backend:
 
         `on_edge` is called from this thread, so the sink behind it must be a
         `QueuedSink` -- see wl_sync.service. That is what makes a capture thread's
-        write independent of how slow the disk is.
+        write independent of how slow the disk is. So is `on_loss`, for the edges the
+        pump finds lost (EdgePump), and the word pump's for the code words it does.
         """
         import gpiod
         from gpiod.line import Clock, Direction, Edge
@@ -374,7 +379,7 @@ class Rp1Backend:
             consumer="wl-sync",
             event_buffer_size=_EDGE_EVENT_BUFFER,
         )
-        self._pump = EdgePump(on_edge, self._origin_ns)
+        self._pump = EdgePump(on_edge, self._origin_ns, on_loss)
         self._edge_stop = threading.Event()
         self._edge_thread = threading.Thread(
             target=self._pump_edges, name="wl-sync-edges", daemon=True

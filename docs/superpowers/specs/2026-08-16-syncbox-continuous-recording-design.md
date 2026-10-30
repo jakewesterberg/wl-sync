@@ -89,6 +89,18 @@ negligible. It closes 2.3 and makes each segment independently alignable. It als
 segment's barcode span recoverable **by reading it**, which is required because a crashed
 segment cannot write a trailer.
 
+> **Amended 2026-10-30.** A fourth record type, `L,tick_us,path,gpio,count,bound,cause,before_us,after_us`,
+> marks capture events a path saw and could not record, beside the journal line, which is unchanged.
+> It goes into the segment open when the box finds the loss. That is normally the segment the loss
+> happened in; a loss shown only later, such as an overflow on a line that stays quiet across a roll,
+> is written in a later one. It is in the stream of the path it reports on, `W` or `E`, and keeps the
+> order that path has: `W` is in tick order, and `E` only on each line (§5, amended 2026-10-30). An
+> `L` record with a GPIO keeps its line's order; one without sits at the highest `E` tick written
+> before it, and makes no `E` record later than it already was. Its causes are `buffer_overflow`,
+> `coalesced` and `unaccounted` on `E`, and `desync` on `W`; `fifo_full` is reserved and not written,
+> because a full FIFO may have dropped nothing. The trailer's count includes it. A reader built
+> before it raises "unknown log record type". See `wl_sync/log.py`, `Loss`.
+
 **Segment header** extends `SyncBoxLogHeader` with: `segment_index`, `ordering` (see §5),
 `clock_trusted`, `clock_reason`. `boot_id` and `written_at` already exist.
 
@@ -291,6 +303,16 @@ merge. A time-based reorder buffer was considered and rejected: it invents a tun
 and still needs a late-arrival escape hatch, in exchange for a property downstream recovers
 for free.
 
+> **Amended 2026-10-30, and open.** "Each path is individually ordered" holds for `W` and `B`, and
+> for `E` only on each line. Across lines, `E` records are in the kernel buffer's order: two lines'
+> IRQ threads are not ordered (`wl_sync/rp1/gpio.py`, `SeqnoTracker`), so an edge can be written up
+> to `EDGE_STAMP_LAG_US` behind one written before it. That is 20 ms, the allowance the roll barrier
+> assumes, and bench day has not measured it. GPIO26 and GPIO27 fire together on every frame, so
+> inversions of microseconds are routine. Keeping the promise for `E` needs a reorder buffer of
+> that size before delivery, which this section rejected; the alternative is to declare `E` ordered
+> per line. The question is open, and is put to wl-preproc in
+> `docs/pending-wl-preproc-amendments.md`, note 6.
+
 **There are THREE paths, not two** — corrected 2026-08-17. `B` records were originally
 written straight to the sink with a raw `now_us()` tick, bypassing `Recorder` and therefore
 bypassing unwrapping: after the first 71.6-minute wrap every barcode's tick was `k·2³²` µs
@@ -420,7 +442,8 @@ discipline (`FakeBackend`, and Task 5a's split of pure logic from hardware).
   (writer killed without a trailer, including mid-line) producing `closed: "crash"` and a
   correctly bounded gap; manifest rebuilt correctly from segments alone.
 - Streaming: records reach disk within one `fsync` window; memory does not grow with run
-  length; a per-path merge of a written segment reproduces tick order.
+  length; a per-path merge of a written segment reproduces tick order. *(Amended 2026-10-30:
+  for `W` and `B`; for `E` only on each line. See §5's amendment: the question is open.)*
 - End to end: `--fake --duration` produces a valid day directory.
 
 ## 9. Out of scope

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from wl_sync import cli, manifest, sessions
-from wl_sync.backend import FakeBackend
+from wl_sync.backend import CaptureLoss, FakeBackend
 from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
     CHECKPOINT_NAME,
@@ -41,6 +41,7 @@ from wl_sync.log import (
     BarcodeEmitted,
     CodeWord,
     Edge,
+    Loss,
     SyncBoxLogHeader,
     read_log,
 )
@@ -952,8 +953,8 @@ def test_a_persisting_capture_failure_is_logged_once_per_episode(tmp_path, caplo
 class _DeliversFromACaptureThread(FakeBackend):
     """Delivers its edges from its own thread, the way Rp1Backend's edge pump does."""
 
-    def start_edge_capture(self, pins, on_edge):
-        super().start_edge_capture(pins, on_edge)
+    def start_edge_capture(self, pins, on_edge, on_loss=None):
+        super().start_edge_capture(pins, on_edge, on_loss)
         thread = threading.Thread(
             target=lambda: [on_edge(pins[0], level, 10 + level) for level in (1, 0, 1)],
             name="capture",
@@ -989,6 +990,158 @@ def test_no_capture_thread_ever_writes_the_segment(tmp_path, monkeypatch):
     assert "capture" not in {name for name, _ in writers}
     _, records = read_log(day / segment_name(0))
     assert [r.level for r in records if isinstance(r, Edge)] == [1, 0, 1]
+
+
+class _ReportsALossFromACaptureThread(FakeBackend):
+    """Reports a lost edge from its own thread, between the two edges around it, the way
+    Rp1Backend's edge pump does: GPIO20 rose twice, so an edge between never became an
+    event of its own."""
+
+    def start_edge_capture(self, pins, on_edge, on_loss=None):
+        super().start_edge_capture(pins, on_edge, on_loss)
+
+        def capture():
+            on_edge(pins[0], 1, 10)
+            on_loss(
+                CaptureLoss(
+                    cause="coalesced", count=1, bound="at_least", gpio=pins[0],
+                    after=12, span_us=2, ahead=True,
+                )
+            )
+            on_edge(pins[0], 1, 12)
+
+        thread = threading.Thread(target=capture, name="capture")
+        thread.start()
+        thread.join(10.0)
+        assert not thread.is_alive(), "the capture thread did not finish"
+
+
+def test_a_loss_record_from_a_capture_thread_is_written_by_the_segments_owner(
+    tmp_path, monkeypatch
+):
+    """An L record takes the path every record takes: a capture thread hands it to the
+    QueuedSink, and only the sink's owner thread writes the segment."""
+    writers = []
+    original = SegmentWriter.write
+
+    def spy(self, record):
+        writers.append((threading.current_thread().name, record))
+        original(self, record)
+
+    monkeypatch.setattr(SegmentWriter, "write", spy)
+    day = run(
+        tmp_path,
+        _ReportsALossFromACaptureThread(),
+        _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        2,
+        lambda _s: None,
+    )
+
+    assert {name for name, r in writers if isinstance(r, Loss)} == {"wl-sync-sink"}
+    _, records = read_log(day / segment_name(0))
+    edges_and_losses = [r for r in records if isinstance(r, (Edge, Loss))]
+    assert edges_and_losses == [
+        Edge(tick_us=10, gpio=EDGE_PINS[0], level=1),
+        Loss(
+            tick_us=12, path="E", gpio=EDGE_PINS[0], count=1, bound="at_least",
+            cause="coalesced", before_us=10, after_us=12,
+        ),
+        Edge(tick_us=12, gpio=EDGE_PINS[0], level=1),
+    ]
+
+
+class _ReportsALossNoRecordCanHold(FakeBackend):
+    """Reports, from its own thread between two edges, a loss the format refuses: an
+    overflow with no line, as a bug in building the report would give."""
+
+    def start_edge_capture(self, pins, on_edge, on_loss=None):
+        super().start_edge_capture(pins, on_edge, on_loss)
+
+        def capture():
+            on_edge(pins[0], 1, 10)
+            on_loss(
+                CaptureLoss(
+                    cause="buffer_overflow", count=1, bound="exact", gpio=None,
+                    after=12, span_us=2, ahead=True,
+                )
+            )
+            on_edge(pins[0], 0, 12)
+
+        thread = threading.Thread(target=capture, name="capture")
+        thread.start()
+        thread.join(10.0)
+        assert not thread.is_alive(), "the capture thread did not finish"
+
+
+def test_a_loss_record_that_cannot_be_made_is_journalled_and_the_run_goes_on(
+    tmp_path, caplog
+):
+    """The record is dropped, the capture thread lives, both edges are in the segment,
+    and the journal has the Recorder's ERROR and, once, the health check's."""
+    with caplog.at_level(logging.ERROR):
+        day = run(
+            tmp_path,
+            _ReportsALossNoRecordCanHold(),
+            _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+            3,
+            lambda _s: None,
+        )
+    _, records = read_log(day / segment_name(0))
+    assert [(r.tick_us, r.level) for r in records if isinstance(r, Edge)] == [(10, 1), (12, 0)]
+    assert [r for r in records if isinstance(r, Loss)] == []
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len([m for m in errors if "was refused" in m and "buffer_overflow" in m]) == 1
+    degraded = [m for m in errors if m.startswith("capture degraded")]
+    assert len(degraded) == 1 and "edge capture: 1 L record(s) refused" in degraded[0]
+
+
+def test_a_refusal_during_a_persisting_backend_failure_gets_its_own_health_line(caplog):
+    """The health report keys an episode on the kinds of BOTH checks. The edge thread
+    stays dead, so the backend raises the same thing every call; one call in, the
+    Recorder refuses an L record. That refusal is a new episode, and gets its own line,
+    naming it. Keyed on the first failure only, it would be swallowed by the backend's
+    episode, and only the Recorder's own ERROR would say so."""
+    from wl_sync.backend import CaptureDegraded
+
+    class _DeadEdgeThread(FakeBackend):
+        def check_health(self) -> None:
+            raise CaptureDegraded(
+                [("edge capture: stopped", "the edge capture thread stopped unexpectedly")]
+            )
+
+    class _RefusesOnce:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def check_health(self) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                raise CaptureDegraded(
+                    [("edge capture: L record refused",
+                      "edge capture: 1 L record(s) refused and left out of the segment")]
+                )
+
+    health = cli._HealthReport(_DeadEdgeThread(), _RefusesOnce())
+    with caplog.at_level(logging.ERROR, logger=cli.log.name):
+        for _ in range(3):
+            health()
+    lines = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert "thread stopped" in lines[0] and "refused" not in lines[0]
+    assert "thread stopped" in lines[1] and "1 L record(s) refused" in lines[1]
+    assert sum("refused" in line for line in lines) == 1
+
+
+def test_a_run_that_loses_nothing_writes_no_loss_record(tmp_path):
+    day = run(
+        tmp_path,
+        _DeliversFromACaptureThread(),
+        _clock_from(datetime.datetime(2026, 8, 16, 9, 0, tzinfo=UTC)),
+        2,
+        lambda _s: None,
+    )
+    _, records = read_log(day / segment_name(0))
+    assert [r for r in records if isinstance(r, Edge)] != []
+    assert [r for r in records if isinstance(r, Loss)] == []
 
 
 class _DeliversWhileClosing(FakeBackend):
@@ -2862,8 +3015,8 @@ class _SlowWordPump(FakeBackend):
             self._held_until_asked = True
             self._then = then
 
-    def start_strobed_capture(self, data_base, data_count, strobe_pin, on_word):
-        super().start_strobed_capture(data_base, data_count, strobe_pin, on_word)
+    def start_strobed_capture(self, data_base, data_count, strobe_pin, on_word, on_loss=None):
+        super().start_strobed_capture(data_base, data_count, strobe_pin, on_word, on_loss)
         self._thread = threading.Thread(target=self._pump, name="slow-words", daemon=True)
         self._thread.start()
 
