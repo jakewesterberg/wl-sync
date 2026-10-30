@@ -239,7 +239,8 @@ left, so no further panel connector fits. One fix-up came with it:
   the fields added since August, and its reader raises on `B` and `T` records (design §7). The
   layout is unchanged from what wl-preproc reads, `<session>/syncbox/*.log`; the format is not.
   A message for wl-preproc.
-- **`SessionId.parse` accepts a trailing newline**, because its regex is anchored with `$`. The
+- **~~`SessionId.parse` accepts a trailing newline~~** *(fixed in `5dc0f1e`, 2026-10-30; wl-preproc
+  agreed)*, because its regex is anchored with `$`. The
   endpoint canonicalises what it is given, and the form is pinned by wl-preproc, so this is a
   question for wl-preproc, not a silent fix here.
 - ~~**`write_manifest` scans a crashed segment that has no trailer in full, on the run-loop
@@ -286,17 +287,27 @@ left, so no further panel connector fits. One fix-up came with it:
     - A probe that fails at a roll falls back to the run's last definite answer, so it never
       upgrades trust.
     - The probe costs 62 ms cold and 9 ms warm on wl-sync-rig0.
-    - Not yet deployed.
-  - **Option 2 is held.** It would roll inside the same folder, and wl-preproc's merged reader
-    would take that for a box restart. Agreed with wl-preproc on 2026-10-30:
+    - **Deployed to wl-sync-rig0 on 2026-10-30** (box on `4f1739c`, service restarted 10:14 CET).
+  - **Option 2 is built, on local `main` as `56a89f8`, after the header commit `73f4395`.** Neither
+    is pushed or deployed. It rolls inside the same folder, which wl-preproc's merged reader
+    would take for a box restart, hence the order agreed with wl-preproc on 2026-10-30:
     - Each header first gains a per-process id: a UUID4 made at process start, the same in every
       segment that process writes.
     - It lands in one commit with ask 4a's barcode-delay field (null = unmeasured), so
       wl-preproc moves its pin once.
     - The header has `extra="forbid"`, so a new field breaks every older pinned reader.
-    - Nothing new is deployed to the box until wl-preproc says its pin has moved.
-- **Code words were timed 71.6 min early after a gap: fixed on `main` as `d309bf1`, not yet
-  deployed.**
+    - Nothing new is deployed to the box until wl-preproc says its pin has moved. wl-phantom
+      also reads the box's segments through a pinned wl-sync (`27c0e97`), so its pin must move
+      too, before the box writes the new headers.
+    - **Built as:** `process_uuid` (UUID4 text; the contract is a shared clock, not adjacency)
+      and `barcode_delay_us` (`--barcode-delay-us N`, ASCII digits, at most 100 000; null =
+      unmeasured). The NTP roll fires one loop iteration after NTP's first yes, so a step has
+      been absorbed. Its poll has its own 0.3 s timeout and backs off to 300 s after failures.
+    - **Bench day:** the first `B` of each process carries an extra delay, from the lazy GPIO
+      line request in `Rp1Backend.emit_pulses`. Requesting the line before the run loop would
+      remove it; that is a hardware-path change left for the bench.
+- **Code words were timed 71.6 min early after a gap: fixed on `main` as `d309bf1`, deployed to
+  wl-sync-rig0 on 2026-10-30.**
   - Found by wl-preproc (its ask 6).
   - **The fault:** each path (W, E, B) had its own unwrapper, which noticed a 32-bit wrap only
     when its next raw tick was lower.
@@ -306,9 +317,19 @@ left, so no further panel connector fits. One fix-up came with it:
   - **The fix:** one clock of the box's `now_us()`, kept current by the 1 Hz barcode loop.
     - Every path takes the value matching its raw tick that is nearest that clock.
     - Runs that never missed a wrap give identical values.
-- **Still to build for wl-preproc's ask 4b:** records captured before a folder change must land in
-  the closing segment. Spec §3.4 allows up to a second on the far side, so a session's last
-  codes can land in `unassigned/`, which wl-preproc never reads.
+- **wl-preproc's ask 4b is built, on local `main` as `4043737`, not pushed.** Records captured
+  before a folder change land in the closing segment: a roll waits until every capture path has
+  delivered through its boundary (spec §3.4, amended 2026-10-30).
+  - The edge wait dropped from 0.2 s to 20 ms. The barrier normally waits at most about 65 ms;
+    its timeout is 0.2 s, and a dead capture path is skipped rather than waited for.
+  - **Bench day must measure** the kernel's stamp-to-buffer lag for edges, which the barrier
+    assumes is under 20 ms (`EDGE_STAMP_LAG_US`). A runtime witness warns if the lag ever
+    looks larger, but its bound includes the pump's own delays. Measure the CPU cost of the
+    20 ms wait on the CM5 too.
+- **`SeqnoTracker` reports false edge drops when two lines' events arrive out of order**, which
+  the camera lines GPIO26/27 make routine (the kernel numbers events in the hard IRQ and buffers
+  them from per-line threads). Found 2026-10-30 in the kernel source; unverified on hardware.
+  Being fixed on branch `seqno`.
 - **A 4-hour soak of the RP1 backend with nothing wired passed** (2026-10-19, 11:42–15:42 UTC,
   `wl-sync record --out ~/wl-soak/rig0 --duration 14400`, run as the user beside the fake-mode
   service). Results:
@@ -329,9 +350,9 @@ left, so no further panel connector fits. One fix-up came with it:
     - **It bears directly on bench check 4.** The word pump polls every 1 ms against a
       four-event FIFO. A 4 ms late wake during a burst of words 1 ms apart would overflow it.
       Bench day must test word bursts, and the poll may need a different waiting strategy.
-  - The start-up journal line says `first barcode 214573321`, but the first `B` record is
-    `…322`. The line probably prints the resumed value rather than the first one emitted.
-    This is cosmetic.
+  - The start-up journal line said `first barcode 214573321`, but the first `B` record was
+    `…322`: it printed the floor `_resume()` computed. **Fixed in `bdd84e7`:** the start line
+    says `barcodes from N`, and a line after the first frame says `first barcode N emitted`.
 - **`wl_sync.barcode.decode_edges` is quadratic on long records.** `_level_at`
   (`wl_sync/barcode.py:74-80`) scans the edge list from its start on each call, and
   `decode_edges` calls it about 38 times per frame (`:113-131`). Decoding four hours of barcode
@@ -368,13 +389,13 @@ enough to leave, which the final whole-branch review agreed with:
 - **The endpoint has no cap on handler threads.** Step B2 item 3 measures whether that matters.
 - **An open that fails after saving its state** (a failed directory fsync) logs the OSError at ERROR
   and the move into the session, but no "opened" or forced-close line.
-- **Untested paths:**
+- **~~Untested paths~~** *(each now has a test, `18cac6e`, 2026-10-30; none found a bug)*:
   - a corrupt state file, and a hand-deleted session folder, at the run level (the unit tests cover
     `read_open`);
   - `--session-token-file` without `--listen`, which logs a WARNING;
   - the endpoint shutting down when `run` raises;
   - a token file that is present but unreadable.
-- **Test hygiene.** The end-to-end tests' teardown does not set `done` when an assertion fails, so a
+- **~~Test hygiene~~** *(fixed in `18cac6e`)*. The end-to-end tests' teardown does not set `done` when an assertion fails, so a
   failing test runs its thread to the end, about 10 s. `tests/test_cli.py` also has one older
   `thread.join()` without a timeout.
 - **`next_id` counts a stray regular file named like an id**, so that id is skipped. This is

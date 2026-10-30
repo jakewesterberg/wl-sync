@@ -150,7 +150,7 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 wl-sync commits:
 
 - `73f4395`, "log, cli: every header names its process and the measured barcode delay";
-- the next one, "cli: roll once in place when NTP first syncs".
+- `56a89f8`, "cli: roll once in place when NTP first syncs".
 
 The order was agreed with wl-preproc on 2026-10-30.
 
@@ -186,3 +186,24 @@ The order was agreed with wl-preproc on 2026-10-30.
     a roll in place, the second segment's first value normally follows the first's last by one.
 
 The definitions are the field docstrings in wl-sync's `wl_sync/log.py`.
+
+# NOTE — 5. Ask 4b is built: what a session's last records do now (2026-10-30, not an ask)
+
+**Not yet delivered.** It is in wl-sync `4043737`, "cli, service, rp1: a roll waits for what was
+captured before its boundary", which comes after the two commits in note 4.
+
+- **Records captured before an open or close now land in the closing segment.** At each roll,
+  the box takes a boundary tick, then waits until every capture path has delivered everything
+  it captured up to that tick, and only then rolls. Session-identity spec §3.4, amended
+  2026-10-30, has the rule.
+- **The wait is short and bounded.** It is normally under about 65 ms, and it gives up at
+  0.2 s. A path whose capture thread has died is not waited for. On a timeout, the box logs a
+  WARNING naming the path, and its late records land in the next segment, as before.
+- **Two things still cross the boundary, both small:**
+  - records captured AFTER the boundary but delivered during the wait land in the closing
+    segment, at most about 65 ms of them normally;
+  - a code word's tick comes from the RP1 crystal, so a word in the closing segment can carry
+    a tick slightly after the boundary.
+- **One assumption is unmeasured until bench day:** the kernel buffers an edge within 20 ms of
+  stamping it. A runtime check warns if it ever looks otherwise.
+
