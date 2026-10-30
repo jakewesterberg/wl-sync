@@ -406,7 +406,11 @@ class Rp1Backend:
                     return
             self._pump.finish(self._edges, self.now_us)
         except BaseException as error:  # noqa: BLE001 - surfaced by check_health
-            self._pump.fail(error)
+            # check_health() reports the stop. A loss still held for its window is
+            # named here, or nowhere.
+            lost = self._pump.abandon(error)
+            if lost is not None:
+                log.error("edge capture stopped with a loss still held: %s", lost)
 
     def delivered_through(self) -> dict[str, int | None]:
         """How far each capture path started has delivered (`SyncBackend`), as each pump

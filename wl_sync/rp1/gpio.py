@@ -724,6 +724,18 @@ class EdgePump:
         with self._held:
             self.error = error
 
+    def abandon(self, error: BaseException) -> DroppedEdgeError | None:
+        """The pump stopped on `error`, with no last look. Hold the error, as fail()
+        does, and make every gap still held final. A gap held for the window would
+        otherwise go nowhere, because fail() keeps the stop over any loss. Returns that
+        loss, for the caller to report."""
+        self.fail(error)
+        try:
+            self._seqnos.settle(None, True)
+        except DroppedEdgeError as dropped:
+            return dropped
+        return None
+
     def _settle(self, through: int | None, final: bool = False) -> None:
         try:
             self._seqnos.settle(through, final)

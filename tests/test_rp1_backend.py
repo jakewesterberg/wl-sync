@@ -868,6 +868,28 @@ def _held_gap_on_a_still_clock(backend, gpiod):
     return edge, seen
 
 
+def test_a_gap_held_when_the_edge_thread_dies_is_reported(lib, gpiod, caplog):
+    """A gap is held for the window before it is called a loss. If the edge thread dies
+    on a read error inside that window, the stop's own error is what check_health()
+    holds, and the gap went nowhere: no journal line, no count. The same input before
+    the window existed reported "1 edge event(s) lost" at once. The dying thread now
+    settles what it held, and the journal names it."""
+    import logging
+
+    backend = Rp1Backend()
+    _held_gap_on_a_still_clock(backend, gpiod)
+    with caplog.at_level(logging.ERROR, logger="wl_sync.rp1.backend"):
+        gpiod.edge_failure = OSError("EIO")
+        assert _until(lambda: not backend._edge_thread.is_alive())
+    try:
+        errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any("1 edge event" in message for message in errors), errors
+        with pytest.raises(RuntimeError, match="EIO"):  # the stop still matters more
+            backend.check_health()
+    finally:
+        backend.close()
+
+
 def test_close_returns_with_the_edge_thread_finished_on_a_still_clock(lib, gpiod):
     """A wait that times out ends the last look: the buffer stayed empty for EDGE_WAIT_S,
     and nothing held can still be coming. Without that, on a clock that stands still the
