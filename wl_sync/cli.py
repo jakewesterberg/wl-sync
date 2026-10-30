@@ -69,6 +69,25 @@ CHECKPOINT_NAME = ".wl-sync-barcode-checkpoint"
 # sleep ending and the pin rising: a checkpoint's two fsyncs, the tick read.
 _IDLE_BEFORE_FRAME_S = IDLE_MIN_US / 1e6 + 0.1
 
+# How far from mid-second the frame grid may fall before the run loop places it again
+# (see run()). What it is compared with is the wall clock's phase at the grid's points,
+# worked out from the wall and monotonic readings each value is chosen from. Those two
+# belong to one instant, so when the loop woke cancels out of it: the 4 ms late wakes the
+# 2026-10-19 soak found never enter it, and only a step moves it.
+#
+# NOT SLEW, ON THE BOX: Linux slews CLOCK_MONOTONIC with the wall clock (clock_gettime(2)),
+# so the phase does not move however long NTP slews. On a monotonic clock that did not
+# share the slew, NTP's 500 ppm maximum would need 400 s of slewing in one direction to
+# get here. Placing the grid again is harmless anyway: it puts the frames mid-second,
+# which is where they were meant to be.
+#
+# 0.2 rather than less: short of a step, all that moves the phase is the gap between the
+# two readings (microseconds, a scheduler tick if the thread is preempted between them)
+# and slew the monotonic clock does not share. 0.2 rather than more, so that a step too
+# small to be seen still leaves every frame at least 0.3 s from a second edge: a wake
+# would have to be 75 times the soak's 4 ms late to read the wrong second.
+GRID_PHASE_TOLERANCE_S = 0.2
+
 # How long the run loop waits between asking NTP whether it has synced, while a run that
 # began unsynchronised waits for the first sync (see run()). A probe runs timedatectl on
 # the loop's own thread, between two frames, and costs 9 ms warm and 62 ms cold on
@@ -282,7 +301,10 @@ def _await_delivery(recorder: Recorder, boundary: int) -> None:
     word captured just before the boundary can carry a tick just after it.
 
     THE WAIT IN NORMAL OPERATION. A roll runs after a frame, and the next frame is due
-    about 0.8 s after that one ends.
+    about 0.8 s after that one ends. In the one iteration that places the frame grid again
+    after a wall-clock step (see run()), it can be due 0.5-0.8 s after. The roll at NTP's
+    first sync can fall in that iteration, when the sync steps the clock by a fraction of
+    a second, and the budget below is that much tighter there.
       * The word pump polls every millisecond (rp1.backend._WORD_POLL_S), so it passes
         the boundary within a few milliseconds.
       * The edge pump moves its mark after each wait of EDGE_WAIT_S, 20 ms: to T - 1 when
@@ -360,6 +382,13 @@ def _handling(handler, *signums):
             signal.signal(received, previous)
 
 
+def _grid_from(wall_s: float, mono: float) -> float:
+    """The first instant at or after `mono`, on the monotonic clock, at which the wall
+    clock is half a second into its second. `wall_s` is the wall clock in POSIX seconds,
+    read at the instant `mono` was, or the grid is off by whatever passed between them."""
+    return mono + (0.5 - wall_s % 1.0) % 1.0
+
+
 def run(
     out: Path, backend, now_fn, duration_s: float | None, tick_fn,
     mono_fn=time.monotonic,
@@ -381,7 +410,10 @@ def run(
     `now_fn`, `tick_fn` and `mono_fn` are injected so the whole loop is testable without
     sleeping: tests pass a scripted wall clock, a no-op sleep and, where pacing is under
     test, a fake monotonic clock. Pacing reads `mono_fn`, never the wall clock, which can
-    jump in both directions.
+    jump in both directions. The wall clock says only two things to it, both from the
+    reading a value was chosen from: where on `mono_fn` its half seconds fall (at the start,
+    and again after a step), and when the second a frame read ends, which the next frame
+    must not be paced into.
     """
     started = now_fn()
     started_mono = mono_fn()  # the same instant, so the pacing grid can be placed on it
@@ -678,14 +710,23 @@ def run(
     stopping = _StopFlag()
     with _handling(stopping, signal.SIGINT, signal.SIGTERM):
         elapsed = 0.0
-        # THE GRID: the wall clock's half seconds, located once on the monotonic clock.
-        # A barcode value is the wall second the frame reads. A one-second period sitting
+        # THE GRID: the wall clock's half seconds, located on the monotonic clock. A
+        # barcode value is the wall second the frame reads. A one-second period sitting
         # on a second boundary straddles it with ordinary wake-up jitter, reads one second
         # twice, and has the clamp report a healthy clock as "not moving forwards" for
         # the whole run. Mid-second keeps every reading half a second from either edge.
         # CLOCK_MONOTONIC follows the wall clock's NTP rate adjustments, so the grid
         # stays put unless the wall clock is stepped.
-        paced_from = started_mono + (0.5 - started.timestamp() % 1.0) % 1.0
+        #
+        # PLACED HERE, AND AGAIN AFTER A STEP (2026-10-30). Until then it was placed only
+        # here, so a step moved it until the next restart, and since 56a89f8 a step is
+        # expected: a box that powers up before NTP syncs rolls in place at the first
+        # sync, which steps a dead or drifted RTC. Frames then read the wall clock at
+        # whatever phase the step left, a wake a few ms late near an edge read one second
+        # high, and the floor (_ValueSource, `last + 1`) carried that second: every value
+        # one second ahead of the clock it is meant to BE, for the rest of the process.
+        # The loop now checks the grid against every value's reading (below).
+        paced_from = _grid_from(started.timestamp(), started_mono)
         announced_first = False
         while not stopping.set and (duration_s is None or elapsed < duration_s):
             value = values()
@@ -796,15 +837,65 @@ def run(
                 ask_ntp(polling=True)
                 ntp_roll_due = ntp_synced
 
+            # A STEPPED WALL CLOCK MOVES THE GRID, so it is checked against the readings
+            # this frame's value was chosen from: the wall clock and the monotonic one,
+            # taken together (_ValueSource.read). From them, the phase the wall clock has
+            # at the grid's points, which is 0.5 until the wall clock steps. Past
+            # GRID_PHASE_TOLERANCE_S from that, the grid is placed again exactly as at
+            # the start, from those same two readings, and the next frame reads
+            # mid-second. A wall clock that cannot be read leaves the grid where it is.
+            #
+            # THE FRAME AFTER A RE-PLACE MAY SKIP ONE VALUE. The frame that saw the step
+            # read the clock wherever the step left it. Read 0.8 s or more into its
+            # second, its 200 ms and the decoder's idle run past the next half second, so
+            # the next frame goes out a second later and one value is never emitted, as
+            # after an overrun. That gap is honest: both values are the wall seconds their
+            # frames read, and that much wall time passed between them. It can fall
+            # across a roll in place: NTP's first sync steps the clock, its roll follows
+            # the first frame read after the step, which is the frame that sees it, and
+            # the grid is placed again only after the roll, so the new segment can begin
+            # two values after the old one ends.
+            read = values.read
+            next_second = None
+            if read is not None:
+                wall, read_mono = read
+                wall_s = wall.timestamp()
+                phase = (wall_s + (paced_from - read_mono)) % 1.0
+                if abs(phase - 0.5) > GRID_PHASE_TOLERANCE_S:
+                    paced_from = _grid_from(wall_s, read_mono)
+                    log.info(
+                        "wall clock stepped: frames were falling %.3f s into its "
+                        "second; frame grid re-placed mid-second",
+                        # Rounded before it wraps, so that a phase just short of the
+                        # next edge reads 0.000, never 1.000.
+                        round(phase, 3) % 1.0,
+                    )
+                # When the wall clock enters the second after the one this frame read.
+                next_second = read_mono + (1.0 - wall_s % 1.0)
+
             # THE NEXT GRID POINT THAT LEAVES THE DECODER ITS IDLE, not a fixed second
             # after the frame. On hardware a frame holds the pin for 200 ms, so
             # `tick_fn(1.0)` made the period 1.2 s while every bound this loop promises
             # is per second. A frame is found by a rising edge after IDLE_MIN_US of LOW,
             # so a grid point too close behind a late frame is skipped, as is any point
             # already past: a debt is never repaid with frames back to back. The target
-            # is always past this frame's end, so two frames can never share a second.
+            # is always past this frame's end.
+            #
+            # AND NEVER IN THE WALL SECOND THIS FRAME READ, which is said outright rather
+            # than left to the grid. On a grid that has not moved, the next point is a
+            # whole second on and this never binds. But the first frame of a run, and
+            # the frame that sees a step, read the clock wherever it was. The idle puts
+            # their next point at least half a second on, and only the time the frame
+            # itself took keeps that point out of their second: a frame read on an edge
+            # that took no time would have it half a second later, in the same second,
+            # and the floor would hold every later value one second ahead. It is the wall
+            # second READ that counts, not the value: after a backward step the floor
+            # keeps the values ahead of the clock, and waiting for the clock to catch
+            # them would stop the frames.
             now = mono_fn()
             earliest = max(now, frame_end + _IDLE_BEFORE_FRAME_S)
+            if next_second is not None:
+                earliest = max(earliest, next_second)
             target = paced_from + math.ceil(earliest - paced_from)
             tick_fn(max(0.0, target - now))
             elapsed += 1.0
@@ -863,6 +954,9 @@ class _ValueSource:
         self._last: int | None = None
         self._last_chosen_at = 0.0  # mono_fn() when `_last` was chosen
         self._clamped = False
+        # The last call's wall reading and the monotonic reading taken beside it, which
+        # place the run loop's frame grid; None when the wall clock could not be read.
+        self.read: tuple[datetime.datetime, float] | None = None
 
     def __call__(self) -> int:
         # `_last + 1` rather than `_first + calls`: both are monotonic, but this one is
@@ -872,11 +966,16 @@ class _ValueSource:
         # clamp downstream of the checkpoint can emit something other than what was
         # marked. One decision, made here, recorded before it becomes irreversible.
         floor = self._first if self._last is None else self._last + 1
+        wall = None
         try:
-            from_clock = next_value(self._now_fn(), None)
+            wall = self._now_fn()
+            from_clock = next_value(wall, None)
         except ValueError:
             from_clock = None  # pre-epoch or out of range: the floor is all we have
         chosen_at = self._mono_fn()  # beside the wall reading: see emitting()
+        # Kept for a reading before the epoch too, as the start's is: the floor gives the
+        # value, but the grid is on that clock until it steps.
+        self.read = None if wall is None else (wall, chosen_at)
         if from_clock is not None and from_clock >= floor:
             self._clamped = False
             return self._issue(from_clock, chosen_at)

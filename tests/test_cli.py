@@ -2283,6 +2283,225 @@ def test_a_reused_open_still_rolls_nowhere_while_the_run_waits_for_ntp(
     assert len(_values(session / segment_name(0))) == 7  # frames 4 to 10
 
 
+# --- the frame grid after a wall-clock step (2026-10-30) -------------------------------
+
+REPLACED = "frame grid re-placed"
+
+
+class _SlewingMonotonic(_SteppableMonotonic):
+    """_SteppableMonotonic whose wall clock runs `ppm` parts per million fast (slow, if
+    negative) against the monotonic one: NTP's slew at its 500 ppm maximum, in a world
+    where the monotonic clock does not share it. On Linux CLOCK_MONOTONIC is slewed with
+    the wall clock, so the box never sees even this much."""
+
+    def __init__(self, ppm, **kwargs):
+        super().__init__(**kwargs)
+        self._rate = 1 + ppm * 1e-6
+
+    def wall(self):
+        elapsed = (self.now - self._start) * self._rate
+        return self._wall + datetime.timedelta(seconds=elapsed)
+
+
+class _ReadsTheWall(_FramesTakeRealTime):
+    """Records the wall clock each frame reads, and steps it by `steps[n]` seconds while
+    frame n (1-based) is on the wire, after that frame's value was read.
+
+    No fake time passes between a value's reading and its frame's lead edge, so the wall
+    clock at the edge is the one the value was read from."""
+
+    def __init__(self, clock, frame_s=FRAME_US / 1e6, steps=None):
+        super().__init__(clock, frame_s)
+        self.walls: list[datetime.datetime] = []
+        self._steps = steps or {}
+
+    def emit_pulses(self, pin, pulses):
+        self.walls.append(self._clock.wall())
+        super().emit_pulses(pin, pulses)
+        step = self._steps.get(len(self.walls))
+        if step is not None:
+            self._clock.step_wall(step)
+
+
+def _record_reading_the_wall(tmp_path, clock, frames, steps=None, frame_s=FRAME_US / 1e6):
+    """Record `frames` frames paced on `clock`; return the backend and the values."""
+    backend = _ReadsTheWall(clock, frame_s, steps)
+    folder = run(tmp_path, backend, clock.wall, frames, clock.sleep, mono_fn=clock)
+    return backend, _values(folder / segment_name(0))
+
+
+def _phase(wall):
+    """How far into its second the wall clock read."""
+    return wall.microsecond / 1e6
+
+
+def test_a_step_onto_a_second_edge_re_places_the_grid_and_no_value_runs_ahead(
+    tmp_path, caplog
+):
+    """THE GRID WAS PLACED ONCE, AT START, so a wall-clock step moved it for the rest of
+    the process, and since 56a89f8 a step is expected: a box that powers up before NTP
+    syncs rolls in place at the first sync, which steps a dead or drifted RTC. Here a
+    forward step of just under half a second puts every frame 2 ms before a second
+    edge. Frame 11, the first to read the stepped clock, wakes 4 ms late -- one tick of
+    the box's 250 Hz kernel timer, which the 2026-10-19 soak saw 420 times in 4 h -- and
+    reads the next second. The floor (`last + 1`) then carried that second: every value
+    after it ran one second ahead of the wall clock it is meant to BE, for the rest of
+    the process, and the clamp warned that a healthy clock was not moving forwards.
+
+    The step is now seen at frame 11's own reading, and the grid is placed mid-second
+    again, as at start."""
+    clock = _SteppableMonotonic(jitter=[0.0] * 9 + [0.004])  # frames 11, 21: 4 ms late
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        backend, values = _record_reading_the_wall(tmp_path, clock, 30, steps={10: 0.498})
+
+    # Every value is the wall second its frame read: none runs a second ahead.
+    assert values == [value_from_clock(wall) for wall in backend.walls]
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+    [line] = [m for m in caplog.messages if REPLACED in m]
+    assert "0.998" in line  # where the stepped grid had put the frames
+    # Frame 11 read the stepped clock where the old grid put it, 4 ms late; from frame
+    # 12 on, every frame reads mid-second again.
+    assert _phase(backend.walls[10]) == pytest.approx(0.002, abs=1e-6)
+    assert all(0.5 <= _phase(wall) <= 0.505 for wall in backend.walls[11:])
+
+
+def test_a_step_of_seconds_and_a_fraction_is_followed_and_the_grid_re_placed(
+    tmp_path, caplog
+):
+    """What NTP's first sync gives an RTC that read slow: a step of a whole number of
+    seconds and a fraction, landing whenever it lands -- here while frame 10 is on the
+    wire. The values jump with the clock and then follow it, and the grid moves to the
+    stepped clock's half seconds rather than staying where the old clock had them."""
+    clock = _SteppableMonotonic(jitter=(0.0, 0.004))
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        backend, values = _record_reading_the_wall(
+            tmp_path, clock, 30, steps={10: SYNC_STEP_S + 0.65}
+        )
+
+    assert values == [value_from_clock(wall) for wall in backend.walls]
+    # The step, a second of running, and the step's 0.65 s carrying frame 11 over an
+    # edge; then one value a second.
+    assert values[10] - values[9] == SYNC_STEP_S + 2
+    assert values[10:] == list(range(values[10], values[10] + 20))
+    [line] = [m for m in caplog.messages if REPLACED in m]
+    assert "0.150" in line
+    assert all(0.5 <= _phase(wall) <= 0.505 for wall in backend.walls[11:])
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+@pytest.mark.parametrize("fraction", [0.0, 0.35, 0.65])
+@pytest.mark.parametrize("step_lands", ["at the poll that hears yes", "before that frame"])
+def test_an_ntp_step_with_a_fraction_re_places_the_grid_and_its_roll_is_trusted(
+    tmp_path, monkeypatch, caplog, step_lands, fraction
+):
+    """What NTP's first sync really gives: whole seconds and a fraction, on frames that
+    hold the pin for 200 ms as on the box. The whole-hour step of the 56a89f8 test above
+    leaves the grid where it was; a fraction moves it, so the grid is placed again after
+    the first frame that reads the stepped clock, and the roll is still judged after a
+    frame read after the step.
+
+    THE ONE VALUE A RE-PLACE MAY SKIP CAN FALL ACROSS THE ROLL. A step landing at the poll
+    that hears yes is first read by the next frame, the roll follows that frame, and only
+    then is the grid placed again. At 0.35 s that frame reads 0.85 into its second, its
+    200 ms and the decoder's idle pass the next half second, and the new segment begins
+    two values on. Both values are the seconds their frames read, 1.65 s apart."""
+    clock = _SteppableMonotonic(wall_at_start=START + datetime.timedelta(seconds=0.5))
+    stepped = []
+
+    def step_once():
+        if not stepped:
+            clock.step_wall(SYNC_STEP_S + fraction)
+            stepped.append(clock.now)
+
+    def answer(now):
+        if now < 105:
+            return False
+        if step_lands == "at the poll that hears yes":
+            step_once()
+        return True
+
+    def after_sleep():
+        if step_lands == "before that frame" and clock.now >= 105:
+            step_once()
+
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        asked = _awaiting_ntp(
+            tmp_path, monkeypatch, answer, frames=40, clock=clock,
+            frame_s=FRAME_US / 1e6, after_sleep=after_sleep,
+        )
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    assert _trust(folder / segment_name(0)) == (False, "ntp_unsynchronized")
+    assert _trust(folder / segment_name(1)) == (True, "")
+    # Asked at the start and once more, when it said yes. When that poll falls depends
+    # on where the step put the grid.
+    assert asked[0] == 100.0 and len(asked) == 2
+    re_placed = [m for m in caplog.messages if REPLACED in m]
+    assert len(re_placed) == (1 if fraction > cli.GRID_PHASE_TOLERANCE_S else 0)
+    before, after = _values(folder / segment_name(0)), _values(folder / segment_name(1))
+    assert before[-1] - before[0] > SYNC_STEP_S  # the jump is in the flagged segment
+    assert after[0] - before[-1] in (1, 2)
+    assert after == list(range(after[0], after[0] + len(after)))
+
+
+def test_the_re_place_line_never_says_a_whole_second(tmp_path, caplog):
+    """A phase within half a millisecond of the next edge printed as "1.000 s into its
+    second", which no clock reads. It is rounded before it wraps, so it says 0.000."""
+    clock = _SteppableMonotonic()
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        _record_reading_the_wall(tmp_path, clock, 14, steps={10: 0.4997})
+
+    [line] = [m for m in caplog.messages if REPLACED in m]
+    assert "falling 0.000 s into" in line, line
+
+
+@pytest.mark.parametrize("ppm", [500, -500], ids=["slewing fast", "slewing slow"])
+def test_jitter_and_slew_alone_never_re_place_the_grid(tmp_path, caplog, ppm):
+    """NOT CRYING WOLF. Wakes 4 ms late move when a frame reads the wall clock, not
+    where the wall clock is against the monotonic one, so they cannot move the grid. Slew
+    can only if the monotonic clock does not share it, which on the box it does: here it
+    does not, at NTP's 500 ppm maximum, for five minutes. The frames drift 0.15 s from
+    mid-second, every one still reads its own second, and the grid stays put."""
+    clock = _SlewingMonotonic(ppm, jitter=(0.0, 0.004, 0.004, 0.0, 0.000_3))
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        backend, values = _record_reading_the_wall(tmp_path, clock, 300)
+
+    assert [m for m in caplog.messages if REPLACED in m] == []
+    assert values == [value_from_clock(wall) for wall in backend.walls]
+    assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
+    # The slew really did move the frames: 299 s at 500 ppm is 0.15 s.
+    assert abs(_phase(backend.walls[-1]) - 0.5) == pytest.approx(0.15, abs=0.005)
+
+
+@pytest.mark.parametrize("frame_s", [FRAME_US / 1e6, 0.0], ids=["200 ms frame", "instant"])
+@pytest.mark.parametrize("step_s", [0.498, 0.5, 0.7, 0.3, -0.3, -0.45])
+def test_the_frame_after_a_re_place_leaves_the_decoder_idle_and_reads_a_new_second(
+    tmp_path, caplog, step_s, frame_s
+):
+    """Re-placing moves the grid under a frame that has already gone out, so the next
+    grid point can sit less than a second after it. The next frame must still leave the
+    decoder its IDLE_MIN_US of LOW, and must read a later second than the frame before:
+    two frames in one second would clamp a healthy clock. That holds wherever the step
+    puts the frame that sees it, including exactly on a second edge (0.5 s, with frame
+    11 waking on time), and however long a frame takes."""
+    clock = _SteppableMonotonic(jitter=(0.004, 0.0))  # frame 11 wakes on time
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        backend, values = _record_reading_the_wall(
+            tmp_path, clock, 14, steps={10: step_s}, frame_s=frame_s
+        )
+
+    idles = [
+        later - earlier
+        for earlier, later in zip(backend.frame_ends, backend.frame_starts[1:])
+    ]
+    assert min(idles) >= IDLE_MIN_US / 1e6, idles
+    seconds = [value_from_clock(wall) for wall in backend.walls]
+    assert all(later > earlier for earlier, later in zip(seconds, seconds[1:])), seconds
+    assert values == seconds
+    assert len([m for m in caplog.messages if REPLACED in m]) == 1
+
+
 # ---- the endpoint, wired into `wl-sync record` (Task 7) ---------------------------------
 
 WAIT_S = 10.0
