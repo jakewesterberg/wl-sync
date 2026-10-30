@@ -84,7 +84,7 @@ rebooted" — under `Restart=always` those look identical from a timestamp, and
 telling them apart is the first question a crash loop raises. Empty (`""`) means
 the platform does not expose one.
 
-*Added 2026-10-30:* two more header fields. Segments written before then have `null` in both.
+*Added 2026-10-30:* three more header fields. Segments written before then have `null` in all three.
 
 - **`process_uuid`** names the process that wrote the segment. It is one UUID, made when
   `wl-sync record` starts and written into every segment that process writes. Every restart
@@ -97,6 +97,10 @@ the platform does not expose one.
   the wire, in µs. Add it to a `B` tick to get the wire time. The exception is the first
   `B` of each process, which is later by an amount nothing measures. The delay is `null`
   until bench day measures it and the unit passes `--barcode-delay-us` (above).
+- **`timebase`** names the clocks the segment's ticks count. `"fake"` under the `--fake`
+  unit. `"split"` on the RP1 backend: code words on RP1's crystal, barcodes and edges on
+  CLOCK_MONOTONIC, which drift apart from capture start. The one-clock build will write a
+  new value.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.

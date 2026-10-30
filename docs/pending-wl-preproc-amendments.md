@@ -189,13 +189,14 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 
 ---
 
-# NOTE — 4. Two header fields, and a third moment a segment starts (2026-10-30, not an ask)
+# NOTE — 4. Three header fields, and a third moment a segment starts (2026-10-30, not an ask)
 
-**Not yet delivered.** It is for wl-preproc before its pin moves past the second of these two
-wl-sync commits:
+**Not yet delivered.** It is for wl-preproc before its pin moves past these wl-sync commits:
 
 - `73f4395`, "log, cli: every header names its process and the measured barcode delay";
-- `56a89f8`, "cli: roll once in place when NTP first syncs".
+- `56a89f8`, "cli: roll once in place when NTP first syncs";
+- `c67599f`, "log, cli: every header names the clocks its ticks count" (added later the same day,
+  the user's decision, so that one pin move covers it too).
 
 The order was agreed with wl-preproc on 2026-10-30.
 
@@ -222,9 +223,17 @@ The order was agreed with wl-preproc on 2026-10-30.
       `--fake`.
   - A different id, or `null`, is a restart and a new clock. `null` means the segment was
     written before the field existed.
-- **The field names are `process_uuid` and `barcode_delay_us`.** Both default to `null`, so old
-  logs still read. `schema_version` stays 1. A reader pinned before `73f4395` rejects both
-  fields, because the header forbids unknown ones.
+- **The field names are `process_uuid`, `barcode_delay_us` and `timebase`.** All three default to
+  `null`, so old logs still read. `schema_version` stays 1. A reader pinned before them rejects
+  them, because the header forbids unknown ones.
+- **`timebase` names the clocks the segment's ticks count.** It is free text, never empty.
+  - `"split"`: the RP1 backend. Code words count RP1's crystal, barcodes and edges
+    CLOCK_MONOTONIC, and they drift apart, as above.
+  - `"fake"`: the test backend, which the box's unit runs until bench acceptance.
+  - The one-clock build will write a new value. It is free text precisely so that your reader,
+    pinned today, still reads those segments. Treat a value you do not know as "relative rates
+    unknown".
+  - `null`: written before the field existed.
 - **Ids are canonical, so compare them as text.** The header refuses any other spelling of a
   UUID: upper case, no hyphens, braces, or a `urn:` prefix.
 - **Readers add `barcode_delay_us` to `B` ticks** to get the time the frame's lead edge reached
@@ -270,7 +279,7 @@ captured before its boundary", which comes after the two commits in note 4.
 - **One assumption is unmeasured until bench day:** the kernel buffers an edge within 20 ms of
   stamping it. A runtime check warns if it ever looks otherwise.
 
-# NOTE — 6. An `L` record marks lost capture events in the segment (2026-10-30), and one open question
+# NOTE — 6. An `L` record marks lost capture events in the segment, and how `E` is ordered (2026-10-30)
 
 **Not yet delivered.** It is in the wl-sync commit "log, rp1, service: an L record marks lost
 capture events in the segment", which comes after the commits in notes 4 and 5. wl-sync asks
@@ -278,10 +287,10 @@ that it ship in the same pin move as the header fields, so that wl-preproc's pin
 past both. wl-preproc's session agreed to that in a message on 2026-10-30, before its user had
 been asked; this is the request in writing.
 A reader pinned before it raises `unknown log record type` on the first `L` line, so nothing is
-deployed until the pin has moved, the same hold as the header fields. The format is provisional
-until the user approves it; the choices marked provisional below are the ones put to the user.
+deployed until the pin has moved, the same hold as the header fields. **The user approved the
+format on 2026-10-30**, with every choice below that was marked provisional.
 
-## The open question: how `E` is ordered
+## How `E` is ordered: decided
 
 The header's `ordering: "per-path"` promises each path's records in that path's tick order. That
 holds for `W` and `B`. For `E` it holds only on each line:
@@ -292,12 +301,11 @@ holds for `W` and `B`. For `E` it holds only on each line:
   microseconds are routine.
 
 This predates the `L` record. Your readers filter records by type, so nothing of yours is wrong
-today. The question, open for the user, is one of:
-- **keep the promise for `E`**, by adding a reorder buffer of `EDGE_STAMP_LAG_US` before delivery;
-  or
-- **declare `E` ordered per line**, in the `ordering` field's definition and the spec. The value
-  stays `"per-path"`, so this changes only text. Either answer leaves the header as you will pin
-  it, with no second pin move.
+today. **The user decided on 2026-10-30: `E` is ordered per line.** The `ordering` field's
+definition and the spec now say so. Its value stays `"per-path"`, so this changes only text, and
+the header is as you will pin it. A reader that needs `E` in tick order across lines sorts it by
+tick. A reorder buffer before delivery was weighed and not chosen: it would delay every edge by
+20–40 ms, and an edge later than the allowance would still land out of order.
 
 ## The record
 
@@ -320,7 +328,7 @@ L,8500,W,,3,at_least,desync,8500,
 - **`tick_us` is an ordering key, not the time of the loss.** The window gives that.
 - **Every number is ASCII digits only:** no sign, no separator.
 
-**Each cause has one shape** (provisional; strict now, as a reader is easier to loosen than to
+**Each cause has one shape** (strict, as a reader is easier to loosen than to
 tighten). The reader refuses anything else, and the box cannot write it:
 
 | cause | path | `gpio` | `bound` | `before_us` | `after_us` | `tick_us` |
@@ -342,10 +350,10 @@ both are given.
 | `coalesced` | 1: the least a pair at one level can mean | the pair | just before the pair's second event, at its tick |
 | `unaccounted` | the request numbers missing that nothing explains | the events numbered just below and just above the gap | the highest `E` tick written when its window closed, 20 to 40 ms after the read that showed it |
 | `desync` | the strobes in the refused batch | the last code word recorded, to empty: the word pump stops, so every later strobe in that process is lost too, uncounted | the last code word's tick. Before any code word, the box clock's tick when the record is made, with the window empty at both ends |
-| `fifo_full` | — | — | **reserved** (provisional): not written by this version, because a full FIFO may have dropped nothing. It is in the format so that your reader already accepts it once a box can write it, from the PIO's overflow flag; its tick and window will be defined then |
+| `fifo_full` | — | — | **reserved**: not written by this version, because a full FIFO may have dropped nothing. It is in the format so that your reader already accepts it once a box can write it, from the PIO's overflow flag; its tick and window will be defined then |
 
 **The window has two exceptions,** each by microseconds, both from the kernel's IRQ-thread race
-(provisional: kept rather than widened):
+(kept rather than widened):
 - `coalesced`, at a line's first event or its first after an overflow: the lost edge can lie
   before `before_us`, by the time the race took.
 - `unaccounted`: the window rests on the request's numbers following the edges' stamps. An edge
@@ -353,7 +361,7 @@ both are given.
   loss can lie just outside it.
 
 **Order.** An `L` record is in the stream of the path it reports on, and keeps the order that path
-has. `W` is in tick order, and so is `W`'s `L`. For `E`, see the open question above:
+has. `W` is in tick order, and so is `W`'s `L`. `E` is in tick order on each line (above):
 - an `L` record with a GPIO is written just before the event that showed it, at that event's tick.
   It keeps its line's order, and across lines it sits exactly where that event does.
 - an `unaccounted` record, with no GPIO, sits at the highest `E` tick written before it. Nothing

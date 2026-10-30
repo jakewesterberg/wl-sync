@@ -74,15 +74,17 @@ class SyncBoxLogHeader(BaseModel):
     # tuning parameter and still need a late-arrival escape hatch, for a property the
     # reader recovers for free.
     #
-    # CORRECTED 2026-10-30, AND OPEN. "Ordered within each path" holds for W and B, and
-    # for E only on each line. Across lines E is in the kernel buffer's order: two
+    # DECIDED 2026-10-30 (the user): "per-path" means W and B each in tick order, and E
+    # in tick order ON EACH LINE. Across lines E is in the kernel buffer's order: two
     # lines' IRQ threads are not ordered (wl_sync.rp1.gpio.SeqnoTracker), so an edge can
     # be written up to EDGE_STAMP_LAG_US behind one written before it -- 20 ms, the
     # allowance the roll barrier assumes, which bench day has not measured. GPIO26 and
-    # GPIO27 fire together on every frame, so inversions of microseconds are routine.
-    # Whether to keep the promise for E, with a reorder buffer before delivery, or to
-    # declare E ordered per line, is the user's question, open in
-    # docs/pending-wl-preproc-amendments.md, note 6.
+    # GPIO27 fire together on every frame, so inversions of microseconds are routine. A
+    # reader that needs E in tick order across lines sorts it by tick. The value is
+    # unchanged, so readers pinned before the decision read the same header; only the
+    # definition was corrected. A reorder buffer before delivery was weighed again and
+    # not chosen: it would delay every edge by 20-40 ms, and an edge later than the
+    # allowance would still land out of order.
     #
     # A CLOSED SET, because this field tells a reader HOW to read the rest of the file
     # and no code in this package reads it -- wl-preproc does. A typo is therefore
@@ -184,8 +186,8 @@ class SyncBoxLogHeader(BaseModel):
         is joined to CLOCK_MONOTONIC once, when capture starts. `B` and `E` ticks count
         CLOCK_MONOTONIC, which NTP slews. So `W` drifts from `B` and `E` by that
         crystal's rate error, relative to NTP, times the time since the process started.
-        The rate is unmeasured; at 50 ppm it is 0.18 s an hour. Every segment
-        `wl-sync record` wrote before this field existed is "split".
+        The rate is unmeasured; at 50 ppm it is 0.18 s an hour. Every segment the RP1
+        backend wrote before this field existed was "split".
       * "fake": the test backend (`wl_sync.backend.FakeBackend`), which the box's unit
         runs until bench acceptance (`--fake`). No hardware clock is involved, and no
         capture path delivers anything real.
@@ -273,7 +275,7 @@ _AT_BEFORE = "equal to before_us when before_us is given"
 # Each cause's shape (`Loss`, THE SHAPE OF EACH CAUSE), and with it the closed set of
 # causes per path. Closed, for the reason `ordering` is: no code in this package reads an
 # L record -- wl-preproc does -- so a typo would be invisible here and change a session's
-# timing check there. Provisional, as the whole format is until the user approves it,
+# timing check there. Approved by the user with the rest of the format (2026-10-30),
 # and strict: a reader is easier to loosen later than to tighten, and the box writes
 # exactly this.
 LOSS_SHAPES: dict[str, _Shape] = {
@@ -323,7 +325,7 @@ class Loss:
       * `after_us`: the tick of the first record of the path known to follow it; empty
         when none does.
 
-    THE SHAPE OF EACH CAUSE (`LOSS_SHAPES`). Provisional, with the rest of the format.
+    THE SHAPE OF EACH CAUSE (`LOSS_SHAPES`). Approved with the rest of the format.
 
         cause            path  gpio      bound     before_us  after_us  tick_us
         buffer_overflow  E     the line  exact     given      given     = after_us
@@ -378,7 +380,7 @@ class Loss:
     ORDER. W records are in tick order. E records are in tick order on each line; across
     lines they are in the kernel buffer's order, so an edge can be written up to
     EDGE_STAMP_LAG_US behind one written before it -- 20 ms, an allowance bench day has
-    not measured (SyncBoxLogHeader.ordering: corrected 2026-10-30, and open). An L
+    not measured (SyncBoxLogHeader.ordering, decided 2026-10-30). An L
     record keeps the order its path has:
       * with a GPIO (buffer_overflow, coalesced): written just before X at X's tick. It
         keeps its line's order, and across lines it sits exactly where X does.

@@ -229,8 +229,10 @@ left, so no further panel connector fits. One fix-up came with it:
   **2026-10-30:** wl-sync proposed a loss record in the same pin move as the header fields.
   wl-preproc's session agreed, in a message between the two sessions on 2026-10-30, and named
   what it would do with one. Its user had not yet been asked, and no wl-preproc document
-  records the request. An `L` record is built and reviewed on branch `loss-record`; it does not
-  merge until the user approves the format.
+  records the request. **The user approved the format on 2026-10-30, and the `L` record is on
+  `main` as `93f02e5`.** wl-preproc's requester confirmed the batching the same day: a lost code
+  word inside a run will fail that session's timing check there; a lost edge is reported only.
+  Edges are declared ordered per line (`SyncBoxLogHeader.ordering`, decided the same day).
 - **A desync stops event-code capture for the rest of the run.** It is logged, and the
   other paths keep recording. Exiting instead would let `Restart=always` bring capture back
   with a fresh state machine within about two seconds. That was not chosen; reconsider it
@@ -286,7 +288,7 @@ left, so no further panel connector fits. One fix-up came with it:
   - That uses up the ±100 µs budget about 15 s after capture starts, and reaches about 4 ms
     after 10 minutes.
   - **Two corrections (2026-10-30), from the draft design below:**
-    - The error grows from when capture starts, which is once per process (`cli.py:488`). A
+    - The error grows from when capture starts, which is once per process (`cli.py:504`). A
       roll does not restart it. So a session opened 2 h into a process starts about 47 ms off
       at 6.5 ppm, not at zero.
     - The rate is probably not 6.5 ppm. That figure holds only if RP1 and the CPU share an
@@ -297,11 +299,19 @@ left, so no further panel connector fits. One fix-up came with it:
   - Nothing has measured it yet, because no code words have been captured on silicon. Bench day
     measures it (wl-phantom's design, §5.5). Run that check on a process hours old, not a fresh
     one.
-  - **A draft design for the user to decide on:** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
-    (not approved; nothing built). It recommends making RP1's PIO count the box's one clock: a
-    second state machine stamps each barcode's lead edge from a GPIO17→GPIO19 loopback, and
-    edges are mapped onto that count in software. It lists what bench day must measure to
-    decide (B1–B7), and six questions for the user.
+  - **The design:** `docs/superpowers/specs/2026-10-30-one-clock-design.md`. **The user approved
+    its direction on 2026-10-30**: RP1's PIO count becomes the box's one clock, with a second state
+    machine stamping each barcode's lead edge from a GPIO17→GPIO19 loopback, and edges mapped onto
+    that count in software. Their answers to its questions:
+    - **Session time is corrected to SI seconds** rather than left at RP1's crystal rate. This
+      changes the design, which assumed the crystal rate; the plan must say how.
+    - **A frame whose lead edge is not captured** loses its `B` record, with an ERROR. No format
+      change.
+    - **Edges get no pass line** in this build; the software mapping is enough, and bench day
+      measures its spread.
+    - **The header names its clocks now** (`timebase`, `c67599f`), so the build changes only the
+      value.
+    Nothing of it is built yet.
 - **After a power-up on a box whose RTC is dead, the NTP roll keeps a now-trusted segment in the
   previous day's folder** *(found in the final review, 2026-10-30; not fixed; the user's call)*.
   - Between sessions the box resumes the checkpoint's `unassigned/<day>/` folder. If the clock
@@ -312,6 +322,7 @@ left, so no further panel connector fits. One fix-up came with it:
     `ls unassigned/$(date -u +%F)` finds nothing.
   - **Options:** let the NTP roll move to today's `unassigned/` when the day differs, which is a
     folder-changing roll that `process_uuid` already covers; or document the behaviour.
+  - **The user chose the fix (2026-10-30).** It ships after this push.
 - **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
   NTP has synced.**
   - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).
@@ -340,7 +351,10 @@ left, so no further panel connector fits. One fix-up came with it:
     - The header has `extra="forbid"`, so a new field breaks every older pinned reader.
     - Nothing new is deployed to the box until wl-preproc says its pin has moved. wl-phantom
       also reads the box's segments through a pinned wl-sync (`27c0e97`), so its pin must move
-      too, before the box writes the new headers.
+      too, before the box writes the new headers. **Tightened by wl-preproc on 2026-10-30:** hold
+      the deploy until wl-preproc says its follow-up has MERGED, not only its pin. At its current
+      pin, a second segment in a session folder reads as a restart, so the NTP roll in place would
+      quarantine an open session's later code words. The follow-up reads `process_uuid`.
     - **Built as:** `process_uuid` (UUID4 text; the contract is a shared clock, not adjacency)
       and `barcode_delay_us` (`--barcode-delay-us N`, ASCII digits, at most 100 000; null =
       unmeasured). The NTP roll fires one loop iteration after NTP's first yes, so a step has

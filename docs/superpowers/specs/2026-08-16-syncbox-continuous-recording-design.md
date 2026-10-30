@@ -303,15 +303,16 @@ merge. A time-based reorder buffer was considered and rejected: it invents a tun
 and still needs a late-arrival escape hatch, in exchange for a property downstream recovers
 for free.
 
-> **Amended 2026-10-30, and open.** "Each path is individually ordered" holds for `W` and `B`, and
+> **Amended 2026-10-30, and decided.** "Each path is individually ordered" holds for `W` and `B`, and
 > for `E` only on each line. Across lines, `E` records are in the kernel buffer's order: two lines'
 > IRQ threads are not ordered (`wl_sync/rp1/gpio.py`, `SeqnoTracker`), so an edge can be written up
 > to `EDGE_STAMP_LAG_US` behind one written before it. That is 20 ms, the allowance the roll barrier
 > assumes, and bench day has not measured it. GPIO26 and GPIO27 fire together on every frame, so
 > inversions of microseconds are routine. Keeping the promise for `E` needs a reorder buffer of
-> that size before delivery, which this section rejected; the alternative is to declare `E` ordered
-> per line. The question is open, and is put to wl-preproc in
-> `docs/pending-wl-preproc-amendments.md`, note 6.
+> that size before delivery, which this section rejected. **The user decided (2026-10-30): `E` is
+> ordered per line.** `ordering` stays `"per-path"`, and its definition (`wl_sync/log.py`) now says
+> so; a reader that needs `E` in tick order across lines sorts it. A reorder buffer would delay
+> every edge by 20–40 ms and still leave an edge later than the allowance out of order.
 
 **There are THREE paths, not two** — corrected 2026-08-17. `B` records were originally
 written straight to the sink with a raw `now_us()` tick, bypassing `Recorder` and therefore
@@ -443,7 +444,7 @@ discipline (`FakeBackend`, and Task 5a's split of pure logic from hardware).
   correctly bounded gap; manifest rebuilt correctly from segments alone.
 - Streaming: records reach disk within one `fsync` window; memory does not grow with run
   length; a per-path merge of a written segment reproduces tick order. *(Amended 2026-10-30:
-  for `W` and `B`; for `E` only on each line. See §5's amendment: the question is open.)*
+  for `W` and `B`; for `E` only on each line, as decided in §5's amendment.)*
 - End to end: `--fake --duration` produces a valid day directory.
 
 ## 9. Out of scope
