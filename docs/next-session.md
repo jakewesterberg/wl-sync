@@ -214,7 +214,10 @@ left, so no further panel connector fits. One fix-up came with it:
   gives edges a 1024-event buffer. That is bench check 4.
 - **A dropped edge, or a full FIFO, leaves no mark in the segment.** It reaches the
   journal only. Marking it in the file would change the log format, which wl-preproc pins
-  at `90b931e`, so it needs to be done together with wl-preproc.
+  (at `27c0e97` since 2026-10-22), so it needs to be done together with wl-preproc.
+  **2026-10-30:** wl-preproc asked for it in the same pin move as the header fields. An `L`
+  record is being built on branch `loss-record`; it does not merge until the user approves
+  the format.
 - **A desync stops event-code capture for the rest of the run.** It is logged, and the
   other paths keep recording. Exiting instead would let `Restart=always` bring capture back
   with a fresh state machine within about two seconds. That was not chosen; reconsider it
@@ -239,10 +242,10 @@ left, so no further panel connector fits. One fix-up came with it:
 
 ### Open items from session identity
 
-- **wl-preproc's pinned wl-sync (`90b931e`) cannot read today's logs.** Its header model forbids
-  the fields added since August, and its reader raises on `B` and `T` records (design §7). The
-  layout is unchanged from what wl-preproc reads, `<session>/syncbox/*.log`; the format is not.
-  A message for wl-preproc.
+- ~~**wl-preproc's pinned wl-sync (`90b931e`) cannot read today's logs.**~~ *(resolved
+  2026-10-22: wl-preproc moved its pin to `27c0e97`, wl-sync's main of that day, for exactly
+  this; its `pyproject.toml` says so.)* Its header model forbade the fields added since August,
+  and its reader raised on `B` and `T` records (design §7).
 - **~~`SessionId.parse` accepts a trailing newline~~** *(fixed in `5dc0f1e`, 2026-10-30; wl-preproc
   agreed)*, because its regex is anchored with `$`. The
   endpoint canonicalises what it is given, and the form is pinned by wl-preproc, so this is a
@@ -262,18 +265,30 @@ left, so no further panel connector fits. One fix-up came with it:
 
 - **Code words and barcodes are timed by different clocks, and NTP slews one of them.**
   - Code-word ticks come from RP1's PIO counter, which runs off the crystal and is joined to
-    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:227-230`, `:270`).
+    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:280-281`).
   - Barcode (`B`) and edge ticks come from `CLOCK_MONOTONIC`, which follows NTP's frequency
     correction.
   - On the box NTP was applying **−6.5 ppm** (`timedatectl timesync-status`), so the two paths
     drift about 6.5 µs per second.
-  - That uses up the ±100 µs budget about 15 s into a segment, and reaches about 4 ms after 10
-    minutes.
+  - That uses up the ±100 µs budget about 15 s after capture starts, and reaches about 4 ms
+    after 10 minutes.
+  - **Two corrections (2026-10-30), from the draft design below:**
+    - The error grows from when capture starts, which is once per process (`cli.py:488`). A
+      roll does not restart it. So a session opened 2 h into a process starts about 47 ms off
+      at 6.5 ppm, not at zero.
+    - The rate is probably not 6.5 ppm. That figure holds only if RP1 and the CPU share an
+      oscillator, and RP1 has its own 50 MHz crystal (RP1 datasheet §2.5; the Linux patch
+      "arm64: dts: bcm2712: Add external clock for RP1 chipset on Rpi5"). The real rate is
+      then RP1's crystal against NTP time, which is unknown. wl-phantom's "+6.5 ppm"
+      prediction rests on the same assumption.
   - Nothing has measured it yet, because no code words have been captured on silicon. Bench day
-    measures it (wl-phantom's design, §5.5).
-  - The fix needs its own design. One option is to re-anchor the PIO counter against
-    `CLOCK_MONOTONIC` continuously and convert with the fitted rate. Moving edges and barcodes onto
-    PIO is another.
+    measures it (wl-phantom's design, §5.5). Run that check on a process hours old, not a fresh
+    one.
+  - **A draft design for the user to decide on:** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
+    (not approved; nothing built). It recommends making RP1's PIO count the box's one clock: a
+    second state machine stamps each barcode's lead edge from a GPIO17→GPIO19 loopback, and
+    edges are mapped onto that count in software. It lists what bench day must measure to
+    decide (B1–B7), and six questions for the user.
 - **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
   NTP has synced.**
   - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).
