@@ -494,8 +494,8 @@ def run(
             # took. Immediately before emission is the only placement that stays true.
             #
             # Recorded through the Recorder rather than straight to the writer so the tick
-            # is unwrapped on its own path -- a raw counter would diverge from the E and W
-            # ticks it exists to align by 2^32 us at every 71.6-minute wrap.
+            # is unwrapped on the Recorder's shared clock -- a raw counter would diverge from the
+            # E and W ticks it exists to align by 2^32 us at every 71.6-minute wrap.
             tick = backend.now_us()
             generator.emit_frame(value)
             frame_end = mono_fn()

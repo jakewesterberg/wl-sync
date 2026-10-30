@@ -43,7 +43,7 @@ def test_an_edge_timestamp_lands_on_the_shared_timebase():
 
 
 def test_an_edge_tick_wraps_like_the_hardware_counter():
-    """Ticks are 32-bit everywhere in this package, and Recorder's per-path unwrapper
+    """Ticks are 32-bit everywhere in this package, and Recorder's shared clock
     expects exactly that -- so this must wrap rather than grow without bound."""
     origin = 0
     assert edge_tick_us(timestamp_ns=(1 << 32) * 1_000, origin_ns=origin) == 0

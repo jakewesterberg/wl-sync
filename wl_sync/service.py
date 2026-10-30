@@ -61,26 +61,78 @@ class BarcodeGenerator:
         self._backend.emit_pulses(self._pin, encode(value))
 
 
-class _TickUnwrapper:
-    """Undoes 32-bit tick wraparound for one delivery path.
+class _BoxClock:
+    """The box's one clock: unwraps 32-bit ticks from every delivery path against
+    `now_us()`, rather than against each path's own previous tick.
 
-    One per path, never shared. The three paths — the PIO FIFO, edge capture, and
-    this box's own barcode emission — deliver independently, so a word can arrive
-    after an edge that precedes it in time. A shared counter would read that
-    ordinary interleaving as a wraparound and jump every subsequent record forward
-    by 4295 seconds. Each path is individually ordered, which is what makes
-    per-path state correct.
+    All three paths -- strobed words, edges and this box's barcodes -- and `now_us()`
+    share one origin and one 32-bit wrap (rp1/backend.py takes the PIO counter's start
+    and `_origin_ns` together; `edge_tick_us` uses the same origin). So there is ONE
+    wrap count, and `now()` is the only thing that has to observe it.
+
+    `now()` is `now_us()` unwrapped: it adds 2^32 whenever the raw reading is below the
+    previous one. `unwrap(raw)` returns the value congruent to `raw` mod 2^32 NEAREST to
+    `now()`. Nearest, not "at or before": W ticks come from the RP1 crystal while
+    `now_us()` follows NTP-slewed CLOCK_MONOTONIC, so a tick can lie slightly AFTER the
+    reading, and "at or before" would send it a whole wrap back. The two diverge by ppm
+    times run length; nearest tolerates up to +-2^31 us (35.8 min), roughly 500 days of
+    continuous running at 50 ppm.
+
+    WHY SHARING IS SAFE NOW. The per-path unwrappers this replaced each noticed a wrap
+    only when their own tick fell below their own previous one. That misses a wrap if the
+    path is silent for 71.6 minutes or its first record arrives that late -- and every
+    later record is then 4294.967296 s early against the barcodes wl-preproc aligns by.
+    A naive SHARED "falls below the previous tick" counter is wrong for the opposite
+    reason: the paths deliver independently, so an edge stamped just before a wrap can
+    arrive after a word stamped just after it, and that ordinary interleaving would read
+    as a wrap. Here no per-record state is compared at all; each record is placed by its
+    distance from `now()`, so interleaving cannot confuse it.
+
+    PRECONDITIONS. (1) `now()` is read at least once per 71.6 minutes, or a wrap goes
+    uncounted. Every record reads it, and the 1 Hz `record_barcode` guarantees it.
+    (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
+    primed at construction: the RP1 backend fixes its timebase origin in
+    `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
+    on a dead origin and the first real reading would count a spurious wrap, shifting the
+    whole run by 2^32 us. The first `unwrap` seeds the clock instead.
+
+    Ticks cannot go negative: every raw tick is at or after the origin (the PIO counter
+    reads 0 at enable, edges before the origin are refused by `edge_tick_us`, and B ticks
+    are `now_us()`), and lies within +-2^31 us of `now()`.
+
+    A run that never misses a wrap gets exactly the values the per-path unwrappers
+    gave, on both backends: the same origin, with the offset starting at 0.
+
+    THE LOCK. Capture threads call `unwrap` concurrently on the RP1 backend. It covers
+    only `now_us()` and integer arithmetic -- no I/O and nothing that blocks -- so it
+    cannot stall a capture thread the way the sink lock `Recorder` warns against would,
+    whose problem is `flush()` fsyncing while holding it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, now_us: Callable[[], int]) -> None:
+        self._now_us = now_us
+        self._lock = threading.Lock()
         self._offset = 0
         self._previous_raw: int | None = None
 
-    def __call__(self, tick: int) -> int:
-        if self._previous_raw is not None and tick < self._previous_raw:
+    def _now_locked(self) -> int:
+        raw = self._now_us()
+        if self._previous_raw is not None and raw < self._previous_raw:
             self._offset += TICK_WRAP_US
-        self._previous_raw = tick
-        return tick + self._offset
+        self._previous_raw = raw
+        return raw + self._offset
+
+    def now(self) -> int:
+        with self._lock:
+            return self._now_locked()
+
+    def unwrap(self, raw: int) -> int:
+        with self._lock:
+            now = self._now_locked()
+            delta = (raw - now) % TICK_WRAP_US
+            if delta >= TICK_WRAP_US // 2:
+                delta -= TICK_WRAP_US
+            return now + delta
 
 
 class _MemorySink:
@@ -98,13 +150,14 @@ class Recorder:
     """Collects strobed code words, individual edges and this box's own barcodes onto
     one unwrapped clock.
 
-    THREE delivery paths, each with its own `_TickUnwrapper`: code words, edges, and
-    the barcodes this box emits. Barcodes go through here rather than straight to the
+    THREE delivery paths -- code words, edges, and the barcodes this box emits -- share
+    ONE `_BoxClock`, which places each raw tick at the value nearest `backend.now_us()`
+    unwrapped (see its docstring). Barcodes go through here rather than straight to the
     sink for one reason -- an un-unwrapped `B` tick is on a DIFFERENT TIMEBASE from the
     `E` and `W` ticks it exists to align, and diverges from them by k*2^32 us after the
-    first wrap, i.e. after 71.6 minutes of a day-long run. A per-path unwrapper is
-    correct here for the same reason it is correct for the other two, and safe at 1 Hz
-    because one second is four orders of magnitude below the wrap period.
+    first wrap, i.e. after 71.6 minutes of a day-long run. Every path reads that clock, and
+    the 1 Hz barcode path guarantees it is read well inside one wrap period, so a word
+    or edge path that goes silent for hours still lands on the barcodes' timebase.
 
     `sink` takes each record as it arrives. The default accumulates in memory and
     `records()` returns them tick-sorted. A streaming sink (`SegmentWriter`) receives
@@ -134,9 +187,8 @@ class Recorder:
         # records into a sink `records()` will never return.
         self._memory = _MemorySink() if sink is None else None
         self._sink = sink if self._memory is None else self._memory
-        self._unwrap_words = _TickUnwrapper()
-        self._unwrap_edges = _TickUnwrapper()
-        self._unwrap_barcodes = _TickUnwrapper()
+        # Not read here: see _BoxClock precondition (2). The first unwrap seeds it.
+        self._clock = _BoxClock(backend.now_us)
 
     def capture_codes(self, data_base: int, data_count: int, strobe_pin: int) -> None:
         self._backend.start_strobed_capture(
@@ -147,15 +199,15 @@ class Recorder:
         self._backend.start_edge_capture(pins, self._on_edge)
 
     def _on_word(self, tick: int, word: int) -> None:
-        self._sink.write(CodeWord(tick_us=self._unwrap_words(tick), word=word))
+        self._sink.write(CodeWord(tick_us=self._clock.unwrap(tick), word=word))
 
     def _on_edge(self, gpio: int, level: int, tick: int) -> None:
         self._sink.write(
-            Edge(tick_us=self._unwrap_edges(tick), gpio=gpio, level=level)
+            Edge(tick_us=self._clock.unwrap(tick), gpio=gpio, level=level)
         )
 
     def record_barcode(self, tick: int, value: int) -> None:
-        """Record a barcode this box emitted, unwrapping its tick like any other path.
+        """Record a barcode this box emitted, unwrapping its tick on the shared clock.
 
         `tick` is the RAW backend counter sampled immediately BEFORE the frame is
         emitted, so the recorded tick marks the frame's lead rising edge rather than
@@ -163,7 +215,7 @@ class Recorder:
         itself, so `B` ticks land on the same unwrapped timebase as `E` and `W`.
         """
         self._sink.write(
-            BarcodeEmitted(tick_us=self._unwrap_barcodes(tick), value=value)
+            BarcodeEmitted(tick_us=self._clock.unwrap(tick), value=value)
         )
 
     def records(self) -> list[Record]:

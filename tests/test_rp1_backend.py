@@ -453,3 +453,51 @@ def test_a_capture_that_cannot_start_raises_rather_than_recording_nothing(lib):
             backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
     finally:
         backend.close()
+
+
+def test_the_recorders_clock_is_not_read_before_the_origin_moves(lib, gpiod, monkeypatch):
+    """start_strobed_capture re-takes the timebase origin, AFTER Recorder exists. A clock
+    primed at construction holds a reading from the dead origin (here 1 s), so the first
+    real reading (~1 ms) looks like a wrap and every record of the run lands 2^32 us late.
+    The first unwrap must seed the clock instead."""
+    import types
+
+    from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord
+    from wl_sync.service import Recorder
+
+    now = types.SimpleNamespace(ns=10**12)  # a manual clock: only the test moves it
+    monkeypatch.setattr(
+        rp1,
+        "time",
+        types.SimpleNamespace(
+            CLOCK_MONOTONIC=1,
+            clock_gettime_ns=lambda _clock: now.ns,
+            sleep=time.sleep,
+            monotonic=time.monotonic,
+        ),
+    )
+
+    class _Sink:
+        def __init__(self):
+            self.written = []
+
+        def write(self, record):
+            self.written.append(record)
+
+    backend = Rp1Backend()  # origin 1
+    now.ns += 1_000_000_000  # run(): checkpoint, NTP probe, manifest, segment open
+    sink = _Sink()
+    recorder = Recorder(backend, sink=sink)
+    recorder.capture_codes(0, DATA, 16)  # origin 2: now_us() restarts at 0
+    try:
+        now.ns += 1_000_000  # 1 ms into capture
+        lib.push(stream((300, 0x0001)))
+        assert _until(lambda: len(sink.written) == 1)
+        recorder.record_barcode(backend.now_us(), 7)
+    finally:
+        backend.close()
+
+    word, barcode = sink.written
+    assert isinstance(word, CodeWord) and word.tick_us == 300
+    assert isinstance(barcode, BarcodeEmitted) and barcode.tick_us == 1_000
+    assert barcode.tick_us < TICK_WRAP_US

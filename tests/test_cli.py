@@ -224,13 +224,15 @@ def test_barcode_and_edge_ticks_stay_on_one_timebase_across_a_wrap(tmp_path):
     """RP1's counter wraps every TICK_WRAP_US us (71.6 min, ~20x a day). E and W ticks
     are unwrapped by Recorder; B ticks were written raw, so after the first wrap every
     barcode's tick was k*2^32 us adrift of the very edges it exists to align. Invisible
-    before this test because FakeBackend's counter never advances unless an edge is
-    injected."""
+    before this test because FakeBackend's counter never advances unless a test calls
+    set_now_us()."""
     backend = FakeBackend()
     raw = iter([TICK_WRAP_US - 2_000_000, TICK_WRAP_US - 1_000_000, 0, 1_000_000])
 
     def tick_fn(_seconds):
-        backend.inject_edge(EDGE_PINS[0], 1, next(raw))
+        tick = next(raw)
+        backend.set_now_us(tick)  # the clock reads the instant the edge is stamped
+        backend.inject_edge(EDGE_PINS[0], 1, tick)
 
     day = run(
         out=tmp_path,

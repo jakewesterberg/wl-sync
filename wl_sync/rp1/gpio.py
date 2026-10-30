@@ -53,8 +53,8 @@ def edge_tick_us(timestamp_ns: int, origin_ns: int) -> int:
     would fold thread wake-up latency into every edge, which is precisely the error
     this box exists to keep out of the record.
 
-    Wrapped to 32 bits because every tick in this package is, and `Recorder`'s per-path
-    unwrapper expects exactly that shape from all three paths.
+    Wrapped to 32 bits because every tick in this package is, and `Recorder`'s shared clock
+    expects exactly that shape from all three paths.
     """
     if timestamp_ns < origin_ns:
         raise ValueError(

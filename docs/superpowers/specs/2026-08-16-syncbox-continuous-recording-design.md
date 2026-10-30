@@ -262,6 +262,12 @@ two different moments carrying one identity, which is the one thing the barcode 
 independently — `_TickUnwrapper`'s docstring notes "a word can arrive after an edge that
 precedes it in time". A stream cannot be globally sorted.
 
+> **Amended 2026-10-30.** The per-path `_TickUnwrapper`s named here and below are gone: a
+> path silent for 71.6 min or more, or whose first record came that late, missed a wrap and
+> placed every later record 2³² µs early against the barcodes. `Recorder` now holds one
+> `_BoxClock` that places every raw tick at the value nearest `backend.now_us()` unwrapped.
+> The paths are still delivered and ordered independently; only the unwrapping is shared.
+
 **Resolution: declare the ordering rather than fake it.** The header carries
 `ordering: "per-path"`. Each path is individually ordered, so a reader does a trivial n-way
 merge. A time-based reorder buffer was considered and rejected: it invents a tuning parameter
@@ -273,7 +279,8 @@ written straight to the sink with a raw `now_us()` tick, bypassing `Recorder` an
 bypassing unwrapping: after the first 71.6-minute wrap every barcode's tick was `k·2³²` µs
 adrift of the `E` and `W` ticks it exists to align. Barcodes now go through `Recorder` on
 their own path with their own `_TickUnwrapper`, which is safe at 1 Hz because one second is
-four orders of magnitude below the wrap period. The tick is sampled **before** the frame is
+four orders of magnitude below the wrap period. *(Superseded 2026-10-30: all three paths
+share one `_BoxClock`; see the note above.)* The tick is sampled **before** the frame is
 emitted, since a frame takes 200 ms and `Barcode.start_us` — what every receiving device
 reports — is the lead rising edge.
 

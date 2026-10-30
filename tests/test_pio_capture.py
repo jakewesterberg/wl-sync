@@ -31,7 +31,7 @@ def test_spans_a_gap_far_wider_than_a_16_bit_field():
     """THE DEFECT THIS FORMAT EXISTS TO FIX. A 16-bit delta spans 65.535 ms; trials
     are ~3 s, so inter-trial gaps overflowed it and every later timestamp was wrong by
     a cumulative multiple of 65.536 ms, silently. A full 32-bit tick spans 71.6 min --
-    the same wrap period as now_us(), so Recorder's existing per-path unwrapper covers
+    the same wrap period as now_us(), so Recorder's shared clock covers
     it with no new concept."""
     got = pair_fifo(stream((1_000, 0xAAAA), (3_001_000, 0xBBBB)), DATA)
     assert got[1][0] - got[0][0] == 3_000_000  # a 3 s gap, carried exactly

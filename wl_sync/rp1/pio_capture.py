@@ -44,7 +44,8 @@ def pair_fifo(entries: Sequence[int], data_count: int) -> list[tuple[int, int]]:
 
     A full 32-bit tick wraps at 2^32 us = 71.6 minutes, which is exactly `now_us()`'s
     wrap period -- so this path gets the SAME treatment as edges and barcodes from
-    `Recorder`'s per-path unwrapper, rather than a second wrap concept of its own.
+    `Recorder`'s shared clock (nearest to `now_us()` unwrapped), rather than a second
+    wrap concept of its own.
 
     THE COUNTER RUNS DOWN. `jmp x--` is PIO's only decrement, so the state machine
     counts down and the raw word falls as time advances; inverting it here keeps the

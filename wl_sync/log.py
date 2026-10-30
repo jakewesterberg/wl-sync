@@ -107,9 +107,9 @@ class BarcodeEmitted:
     was synchronising. One record per second, ~86 KB/day against a ~1 GB day.
 
     `tick_us` is UNWRAPPED, exactly like `Edge` and `CodeWord` -- these records go
-    through `Recorder` on their own capture path, so all three share one timebase
-    across RP1's 71.6-minute counter wrap. It is sampled BEFORE the frame is emitted,
-    because a frame takes 200 ms (`barcode.FRAME_US`) and every receiving device
+    through `Recorder`, whose one shared clock places every path's ticks against
+    `now_us()`, so all three share one timebase across RP1's 71.6-minute counter wrap.
+    It is sampled BEFORE the frame is emitted, because a frame takes 200 ms (`barcode.FRAME_US`) and every receiving device
     reports `Barcode.start_us`, the lead rising edge. Reading the counter after
     emission would put this box's own alignment record 200 ms behind every device it
     is aligning.

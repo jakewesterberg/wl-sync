@@ -105,6 +105,23 @@ class FakeBackend:
     def now_us(self) -> int:
         return self._tick
 
+    def set_now_us(self, true_us: int) -> None:
+        """Move the counter to `true_us` of elapsed time, wrapped to 32 bits like the
+        real one. The clock never moves on its own and `inject_*` leave it alone, so a
+        test can hold it somewhere a delivered tick is NOT."""
+        self._tick = true_us & 0xFFFFFFFF
+
+    def _require_in_contract(self, tick: int) -> None:
+        """Refuse a delivered tick far from the clock. `Recorder` places a tick at the value
+        nearest `now_us()`, so one 2^30 us or more away would be mapped a wrap off -- or
+        negative -- without a sound. Loud here, so a test fixes its clock."""
+        distance = (tick - self._tick + (1 << 31)) % (1 << 32) - (1 << 31)
+        if abs(distance) >= 1 << 30:
+            raise AssertionError(
+                f"injected tick {tick} is {distance} us from now_us() {self._tick}; "
+                "call set_now_us() so the clock is near the tick"
+            )
+
     def check_health(self) -> None:
         pass  # dispatch is synchronous, so nothing runs in the background to fail
 
@@ -112,11 +129,14 @@ class FakeBackend:
         pass  # nothing is ever in flight
 
     def inject_word(self, tick: int, word: int) -> None:
-        self._tick = tick
+        # Delivers `tick` as given and does NOT move the clock: a delivered tick and
+        # the box's clock are separate facts (a word can arrive late, or be stamped a
+        # little after now_us()), and `set_now_us` is how a test says what time it is.
+        self._require_in_contract(tick)
         if self._on_word is not None:
             self._on_word(tick, word)
 
     def inject_edge(self, gpio: int, level: int, tick: int) -> None:
-        self._tick = tick
+        self._require_in_contract(tick)
         if self._on_edge is not None and gpio in self._edge_pins:
             self._on_edge(gpio, level, tick)
