@@ -48,8 +48,9 @@ third_party:
     where: rig/sync
     why: >-
       v2 is required for the LineSettings/edge_detection API and for
-      EdgeEvent.global_seqno, which is the only way a kernel-side edge drop is
-      detectable.
+      EdgeEvent.global_seqno and line_seqno, which are the only way a
+      kernel-side edge drop is detectable, and together tell a buffer overflow
+      from coalesced interrupts.
   - name: piolib
     where: rig/sync
     why: >-

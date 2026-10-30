@@ -910,7 +910,10 @@ def test_a_failed_capture_path_is_logged_and_recording_continues(tmp_path, caplo
     """Stopping the box over a degraded capture path loses more than it saves: the other
     paths, the barcodes every other device aligns on, the rest of the day. So the failure
     goes to the journal -- this box's only status surface -- and the loop carries on."""
-    failure = "edge capture: 3 edge event(s) lost: the kernel's event buffer overflowed"
+    failure = (
+        "edge capture: 3 edge event(s) lost (kernel buffer overflow on GPIO20): "
+        "the edge pump fell a whole kernel buffer behind"
+    )
     with caplog.at_level(logging.ERROR, logger="wl_sync.cli"):
         day = run(
             tmp_path,

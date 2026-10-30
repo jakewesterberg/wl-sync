@@ -701,15 +701,17 @@ def test_the_edge_buffer_holds_a_whole_read(lib, gpiod, monkeypatch):
 
 
 def _edge_now_less(backend, seqno, us):
-    """An edge the kernel stamped `us` before now, on the backend's own timebase."""
+    """An edge the kernel stamped `us` before now, on the backend's own timebase. All on
+    GPIO20, so its line's number is the request's, rising and falling in turn."""
     import types
 
-    rising = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
+    kinds = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
     return types.SimpleNamespace(
         global_seqno=seqno,
+        line_seqno=seqno,
         line_offset=20,
-        event_type=rising.RISING_EDGE,
-        Type=rising,
+        event_type=kinds.RISING_EDGE if seqno % 2 else kinds.FALLING_EDGE,
+        Type=kinds,
         timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - us * 1_000,
     )
 
@@ -739,3 +741,221 @@ def test_the_edge_pump_witnesses_how_late_edges_reach_it(lib, gpiod):
         assert lag.max_us >= 50_000 and lag.over >= 1
     finally:
         backend.close()
+
+
+def test_lost_edges_reach_check_health_by_cause_and_a_swap_does_not(lib, gpiod):
+    """The camera lines' events out of order are not a problem at all. A gap in one
+    line's own numbers reaches check_health() at once, its cause in the problem's kind,
+    so a change of cause is a new episode for the run loop, and in its message."""
+    import types
+
+    from wl_sync.backend import CaptureDegraded
+
+    kinds = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
+
+    def edge(seqno, gpio, line_seqno, rising):
+        return types.SimpleNamespace(
+            global_seqno=seqno,
+            line_seqno=line_seqno,
+            line_offset=gpio,
+            event_type=kinds.RISING_EDGE if rising else kinds.FALLING_EDGE,
+            Type=kinds,
+            timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - 1_000_000,
+        )
+
+    seen = []
+    backend = Rp1Backend()
+    time.sleep(0.01)  # so an edge stamped 1 ms ago is after the origin
+    backend.start_edge_capture([20, 26, 27], lambda gpio, level, tick: seen.append(gpio))
+    try:
+        gpiod.edges.extend([
+            edge(1, 26, 1, True), edge(3, 26, 2, False),  # GPIO26's thread pushed first
+            edge(2, 27, 1, True), edge(4, 27, 2, False),
+        ])
+        assert _until(lambda: len(seen) == 4)
+        assert _next_complaint(backend, timeout=0.2) is None  # the window has closed
+
+        gpiod.edges.extend([edge(5, 20, 1, True), edge(8, 20, 4, False)])  # 2 and 3 lost
+        assert _until(lambda: len(seen) == 6)
+        with pytest.raises(CaptureDegraded) as raised:
+            backend.check_health()
+        assert raised.value.kinds == {"edge capture: EdgeBufferOverflowError"}
+        assert "2 edge event(s) lost (kernel buffer overflow on GPIO20)" in str(
+            raised.value
+        )
+        assert _next_complaint(backend, timeout=0.2) is None, "the overflow reported twice"
+    finally:
+        backend.close()
+
+
+def test_the_edge_thread_takes_a_last_look_when_capture_stops(lib, gpiod, monkeypatch):
+    """close() stops the edge thread before the caller closes the sink, and run() asks
+    check_health() once more after close(), for whatever capture held at the end. A gap
+    held then would never be reported unless the thread takes its last look on the way
+    out (EdgePump.finish), on the same request, before close() releases it."""
+    from wl_sync.rp1 import gpio
+
+    looks = []
+    monkeypatch.setattr(
+        gpio.EdgePump, "finish", lambda pump, request, now_us: looks.append(request)
+    )
+    backend = Rp1Backend()
+    backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    request = backend._edges
+    backend.close()
+    assert looks == [request]
+
+
+def test_check_health_takes_the_edge_loss_under_the_pumps_lock(lib, gpiod, monkeypatch):
+    """The pump adds a loss to the one it holds while check_health() takes it; unlocked,
+    a take between the pump's read and its store reported the first loss twice."""
+    from wl_sync.backend import CaptureDegraded
+    from wl_sync.rp1 import gpio
+
+    taken = []
+    take = gpio.EdgePump.take_error
+    monkeypatch.setattr(
+        gpio.EdgePump, "take_error", lambda pump: taken.append(pump) or take(pump)
+    )
+    backend = Rp1Backend()
+    backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    try:
+        backend._pump._hold(gpio.UnaccountedEdgeError(unaccounted=1))
+        with pytest.raises(CaptureDegraded, match="1 edge event"):
+            backend.check_health()
+        assert taken == [backend._pump]
+        backend.check_health()  # taken once, and cleared
+    finally:
+        backend.close()
+
+
+def test_the_last_look_fits_inside_closes_join():
+    """On a clock that stands still no window ever closes, so the last look runs to its
+    pass cap, each pass a wait of up to EDGE_WAIT_S. The cap, and the pass in progress
+    when the stop is set, must fit inside the join close() gives the edge thread, or
+    close() releases the request under a look still running."""
+    from wl_sync.rp1.gpio import EDGE_WAIT_S, STOP_PASSES
+
+    assert (STOP_PASSES + 1) * EDGE_WAIT_S < rp1._STOP_JOIN_S
+
+
+def _held_gap_on_a_still_clock(backend, gpiod):
+    """Start edge capture on a clock that stands still, and leave a gap held: number 2,
+    on GPIO20, never comes, and no window can close on it."""
+    import types
+
+    kinds = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
+
+    def edge(seqno, gpio, line_seqno, rising):
+        return types.SimpleNamespace(
+            global_seqno=seqno, line_seqno=line_seqno, line_offset=gpio,
+            event_type=kinds.RISING_EDGE if rising else kinds.FALLING_EDGE, Type=kinds,
+            timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - 1_000_000,
+        )
+
+    seen = []
+    time.sleep(0.01)  # so an edge stamped 1 ms ago is after the origin
+    frozen = backend.now_us()
+    backend.now_us = lambda: frozen
+    backend.start_edge_capture([20, 26], lambda gpio, level, tick: seen.append(gpio))
+    gpiod.edges.extend([edge(1, 20, 1, True), edge(3, 20, 2, False)])
+    assert _until(lambda: len(seen) == 2)
+    return edge, seen
+
+
+def test_close_returns_with_the_edge_thread_finished_on_a_still_clock(lib, gpiod):
+    """A wait that times out ends the last look: the buffer stayed empty for EDGE_WAIT_S,
+    and nothing held can still be coming. Without that, on a clock that stands still the
+    look ran every pass, 64 waits, past close()'s join; close() returned with the thread
+    alive and released the request under it."""
+    from wl_sync.backend import CaptureDegraded
+
+    backend = Rp1Backend()
+    _held_gap_on_a_still_clock(backend, gpiod)
+    began = time.monotonic()
+    backend.close()
+    assert time.monotonic() - began < 0.5
+    assert not backend._edge_thread.is_alive()
+    with pytest.raises(CaptureDegraded, match="1 edge event"):
+        backend.check_health()
+
+
+def test_close_returns_on_a_still_clock_with_traffic_through_the_stop(lib, gpiod, monkeypatch):
+    """A line firing every 2 ms through the stop, on a clock that stands still, with a
+    wait that never times out: no window closes and no wait comes back empty, so the
+    last look can end only on its pass cap. It runs exactly STOP_PASSES passes, the edge
+    thread has finished before close() releases the request, and the gap is reported.
+
+    The look takes about 0.1 s here, far inside the join, so its duration proves
+    nothing about the join. Any pass could have been a whole wait instead, so the waits
+    the look made, and the pass in progress at the stop, must fit inside the join: what
+    test_the_last_look_fits_inside_closes_join asserts of the constants, asserted of the
+    passes the loop really ran. The quiet ending, on a wait that times out, is
+    test_close_returns_with_the_edge_thread_finished_on_a_still_clock's."""
+    from wl_sync.backend import CaptureDegraded
+    from wl_sync.rp1 import gpio
+    from wl_sync.rp1.gpio import EDGE_WAIT_S, STOP_PASSES
+
+    looking = threading.Event()
+    finish = gpio.EdgePump.finish
+
+    def last_look(pump, request, now_us):
+        looking.set()
+        finish(pump, request, now_us)
+
+    monkeypatch.setattr(gpio.EdgePump, "finish", last_look)
+
+    backend = Rp1Backend()
+    edge, _ = _held_gap_on_a_still_clock(backend, gpiod)
+    request = backend._edges
+    release = request.release
+    released = threading.Event()
+    alive_at_release = []
+    look = []  # the timeout each of the last look's waits asked for
+
+    class RequestReleasedError(Exception):
+        """libgpiod's, raised by any call on a request once it is released."""
+
+    def wait_for_an_edge(timeout):
+        # The fixture's wait without its timeout. A call on a released request raises,
+        # as libgpiod's does; so does a call blocked here when the request is released,
+        # where the real select() would return at the timeout this one ignores. Either
+        # way a look still running at the release ends, and the test cannot hang.
+        if looking.is_set():
+            look.append(timeout)
+        while not released.is_set():
+            if gpiod.edges:
+                return True
+            time.sleep(0.0005)
+        raise RequestReleasedError("GPIO lines have been released")
+
+    def release_and_witness():
+        alive_at_release.append(backend._edge_thread.is_alive())
+        released.set()
+        release()
+
+    request.wait_edge_events = wait_for_an_edge
+    request.release = release_and_witness
+    stop = threading.Event()
+
+    def chatter():
+        k = 1
+        while not stop.wait(0.002):
+            gpiod.edges.append(edge(3 + k, 26, k, k % 2 == 1))
+            k += 1
+
+    feeder = threading.Thread(target=chatter, daemon=True)
+    feeder.start()
+    try:
+        backend.close()
+    finally:
+        stop.set()
+        feeder.join(1.0)
+    assert alive_at_release == [False], "close() released the request under the look"
+    assert len(look) == STOP_PASSES, f"the look ended after {len(look)} passes, not on its cap"
+    assert sum(look) + EDGE_WAIT_S < rp1._STOP_JOIN_S, (
+        f"{len(look)} waits of up to {EDGE_WAIT_S} s, and the pass in progress at the "
+        f"stop, do not fit inside close()'s join of {rp1._STOP_JOIN_S} s"
+    )
+    with pytest.raises(CaptureDegraded, match="1 edge event"):
+        backend.check_health()

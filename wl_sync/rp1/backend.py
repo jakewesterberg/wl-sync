@@ -67,6 +67,10 @@ _WORD_POLL_S = 0.001
 # whole read (EDGE_READ_MAX), or the edge pump would take every full read for a short one.
 _EDGE_EVENT_BUFFER = 1024
 
+# How long close() waits for each capture thread to stop. The edge thread's last look
+# (EdgePump.finish) is sized to end inside it: see STOP_PASSES.
+_STOP_JOIN_S = 1.0
+
 
 log = logging.getLogger(__name__)
 
@@ -387,14 +391,22 @@ class Rp1Backend:
 
         Each pass is one wait and at most one read (`EdgePump.pump_once`), which also
         moves the mark a roll waits on. The wait is EDGE_WAIT_S, 20 ms; it was 0.2 s.
+
+        One last look after the stop (`EdgePump.finish`), as the word pump drains once
+        more: it delivers what the kernel still holds and reports every gap still held,
+        which run() asks check_health() for after close(). It runs before close()
+        releases the request. With the pass already running when the stop is set, it
+        takes at most about 0.12 s on the real clock (STOP_BUDGET_US and two passes),
+        and (STOP_PASSES + 1) x EDGE_WAIT_S = 0.82 s on a clock that stands still: both
+        inside close()'s join, _STOP_JOIN_S.
         """
-        while not self._edge_stop.is_set():
-            try:
+        try:
+            while not self._edge_stop.is_set():
                 if not self._pump.pump_once(self._edges, self.now_us):
                     return
-            except BaseException as error:  # noqa: BLE001 - surfaced by check_health
-                self._pump.error = error
-                return
+            self._pump.finish(self._edges, self.now_us)
+        except BaseException as error:  # noqa: BLE001 - surfaced by check_health
+            self._pump.fail(error)
 
     def delivered_through(self) -> dict[str, int | None]:
         """How far each capture path started has delivered (`SyncBackend`), as each pump
@@ -437,9 +449,14 @@ class Rp1Backend:
         # is reported on every call, and the run loop collapses that into one episode.
         problems: list[tuple[str, str]] = []
         held = []
-        for path, pump in (("edge capture", self._pump), ("event-code capture", self._words)):
-            if pump is not None and pump.error is not None:
-                error, pump.error = pump.error, None
+        taken = []
+        if self._pump is not None:  # under the pump's lock: see EdgePump
+            taken.append(("edge capture", self._pump.take_error()))
+        if self._words is not None:
+            error, self._words.error = self._words.error, None
+            taken.append(("event-code capture", error))
+        for path, error in taken:
+            if error is not None:
                 held.append(error)
                 problems.append((f"{path}: {type(error).__name__}", f"{path}: {error}"))
         for path, thread, stop in (
@@ -503,7 +520,7 @@ class Rp1Backend:
                 stop.set()
         for thread in (self._edge_thread, self._word_thread):
             if thread is not None:
-                thread.join(timeout=1.0)
+                thread.join(timeout=_STOP_JOIN_S)
         for request in (self._edges, self._out):
             if request is not None:
                 request.release()
