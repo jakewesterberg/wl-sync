@@ -1,5 +1,7 @@
 import datetime
 import json
+import tracemalloc
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -12,6 +14,8 @@ from wl_sync.log import (
     Edge,
     Loss,
     SyncBoxLogHeader,
+    iter_records,
+    read_header,
     read_log,
     unwrap_ticks,
     write_log,
@@ -585,3 +589,111 @@ def test_a_log_written_before_loss_records_existed_still_reads_and_holds_none(tm
         BarcodeEmitted(tick_us=1000, value=214573322),
     ]
     assert not any(isinstance(record, Loss) for record in records)
+
+
+def test_iter_records_yields_what_read_log_returns(tmp_path):
+    """Every record kind, L included, and the trailer skipped as read_log skips it."""
+    records = [
+        Edge(tick_us=900, gpio=20, level=1),
+        BarcodeEmitted(tick_us=1000, value=214573322),
+        CodeWord(tick_us=1000, word=0x8001),
+        OVERFLOW,
+        DESYNC,
+    ]
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, records)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("T,2027-03-14T12:00:00+00:00,214573322,214573322,5\n")
+
+    assert read_header(path) == HEADER
+    assert list(iter_records(path)) == records
+    assert read_log(path) == (HEADER, records)
+
+
+def test_iter_records_drops_a_torn_final_line(tmp_path):
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [Edge(tick_us=900, gpio=20, level=1)])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("B,999999,10")  # a comma-boundary truncation that parses
+
+    assert list(iter_records(path)) == [Edge(tick_us=900, gpio=20, level=1)]
+
+
+def test_iter_records_refuses_an_unknown_kind(tmp_path):
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("Z,1,2\n")
+
+    with pytest.raises(ValueError, match="unknown log record type: 'Z'"):
+        list(iter_records(path))
+
+
+def test_iter_records_holds_one_record_at_a_time(tmp_path):
+    path = tmp_path / "syncbox.log"
+    count = 200_000
+    write_log(path, HEADER, (Edge(tick_us=n, gpio=20, level=n % 2) for n in range(count)))
+
+    tracemalloc.start()
+    try:
+        total = sum(record.tick_us for record in iter_records(path))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert total == count * (count - 1) // 2
+    assert peak < 5 * 1024 * 1024
+
+
+def _opened_handles(monkeypatch):
+    """Every handle Path.open returns from now on, so a test can ask whether it is closed."""
+    handles = []
+    real_open = Path.open
+
+    def recording_open(self, *args, **kwargs):
+        handle = real_open(self, *args, **kwargs)
+        handles.append(handle)
+        return handle
+
+    monkeypatch.setattr(Path, "open", recording_open)
+    return handles
+
+
+def _segment(tmp_path, count=3):
+    path = tmp_path / "syncbox.log"
+    write_log(path, HEADER, [Edge(tick_us=n, gpio=20, level=1) for n in range(count)])
+    return path
+
+
+def test_iter_records_closes_its_file_when_exhausted(tmp_path, monkeypatch):
+    path = _segment(tmp_path)
+    handles = _opened_handles(monkeypatch)
+
+    records = iter_records(path)
+    next(records)
+    assert len(handles) == 1
+    assert not handles[0].closed
+    assert len(list(records)) == 2
+    assert handles[0].closed
+
+
+def test_iter_records_closes_its_file_when_closed_early(tmp_path, monkeypatch):
+    path = _segment(tmp_path)
+    handles = _opened_handles(monkeypatch)
+
+    records = iter_records(path)
+    next(records)
+    assert not handles[0].closed
+    records.close()
+    assert handles[0].closed
+
+
+def test_iter_records_closes_its_file_when_a_record_is_refused(tmp_path, monkeypatch):
+    path = _segment(tmp_path)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("Z,1,2\n")
+    handles = _opened_handles(monkeypatch)
+
+    with pytest.raises(ValueError, match="unknown log record type"):
+        list(iter_records(path))
+    assert handles[0].closed

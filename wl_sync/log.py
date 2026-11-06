@@ -40,7 +40,7 @@ import datetime
 import json
 import re
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -566,10 +566,20 @@ def write_log(path: Path, header: SyncBoxLogHeader, records: Iterable[Record]) -
             handle.write(record_line(record) + "\n")
 
 
-def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
+def read_header(path: Path) -> SyncBoxLogHeader:
+    """A segment's header, without reading any of its records."""
     with path.open("r", encoding="utf-8") as handle:
-        header = SyncBoxLogHeader.model_validate(json.loads(handle.readline()))
-        records: list[Record] = []
+        return SyncBoxLogHeader.model_validate(json.loads(handle.readline()))
+
+
+def iter_records(path: Path) -> Iterator[Record]:
+    """A segment's records, one at a time, so a segment too long to hold in memory can
+    still be read. The file is opened when iteration starts and closed when the iterator
+    is exhausted or closed. Parsing is read_log's, which is this function collected,
+    except that the header line is skipped, not validated: use read_header for that, since
+    a headerless or garbage-headed file is not caught here."""
+    with path.open("r", encoding="utf-8") as handle:
+        handle.readline()  # the header; read_header validates it
         for line in handle:
             if not line.endswith("\n"):
                 # Torn final line: a crash caught mid-write, which is the ONLY shape a
@@ -586,15 +596,15 @@ def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
             kind, *fields = stripped.split(",")
             if kind == "E":
                 tick, gpio, level = (int(field) for field in fields)
-                records.append(Edge(tick_us=tick, gpio=gpio, level=level))
+                yield Edge(tick_us=tick, gpio=gpio, level=level)
             elif kind == "B":
                 tick, value = (int(field) for field in fields)
-                records.append(BarcodeEmitted(tick_us=tick, value=value))
+                yield BarcodeEmitted(tick_us=tick, value=value)
             elif kind == "W":
                 tick, word = (int(field) for field in fields)
-                records.append(CodeWord(tick_us=tick, word=word))
+                yield CodeWord(tick_us=tick, word=word)
             elif kind == "L":
-                records.append(_read_loss(fields))
+                yield _read_loss(fields)
             elif kind == "T":
                 # Segment trailer (wl_sync.segment): metadata about how the segment
                 # closed, not a record. Skipped so the canonical reader accepts a
@@ -602,4 +612,7 @@ def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
                 continue
             else:
                 raise ValueError(f"unknown log record type: {kind!r}")
-    return header, records
+
+
+def read_log(path: Path) -> tuple[SyncBoxLogHeader, list[Record]]:
+    return read_header(path), list(iter_records(path))
