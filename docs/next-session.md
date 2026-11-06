@@ -313,7 +313,7 @@ left, so no further panel connector fits. One fix-up came with it:
       value.
     Nothing of it is built yet.
 - **After a power-up on a box whose RTC is dead, the NTP roll keeps a now-trusted segment in the
-  previous day's folder** *(found in the final review, 2026-10-30; not fixed; the user's call)*.
+  previous day's folder** *(found in the final review, 2026-10-30; **fixed**, in the commit "cli: the NTP roll moves to today's unassigned/ when the sync changed the day")*.
   - Between sessions the box resumes the checkpoint's `unassigned/<day>/` folder. If the clock
     then reads 2000-01-01 and NTP syncs to the next day, the roll in place stays in that folder.
   - The trusted segment then carries the earlier day's id and the new day's barcode values. It
@@ -322,7 +322,11 @@ left, so no further panel connector fits. One fix-up came with it:
     `ls unassigned/$(date -u +%F)` finds nothing.
   - **Options:** let the NTP roll move to today's `unassigned/` when the day differs, which is a
     folder-changing roll that `process_uuid` already covers; or document the behaviour.
-  - **The user chose the fix (2026-10-30).** It ships after this push.
+  - **The user chose the fix (2026-10-30), and it is built.** With no session open, the roll at
+    NTP's first sync goes to `unassigned/<day>/` for the day the frame's value (read after the
+    step) names, with that day's stand-in id, when that differs from the folder it is in. The
+    reason, the judgement and `process_uuid` are unchanged, and `segment_index` is the one the
+    new folder gives. A session open keeps the roll in its folder.
 - **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
   NTP has synced.**
   - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).

@@ -58,6 +58,7 @@ from wl_sync.sessions import (
     WrongSession,
     read_open,
     unassigned_dir,
+    unassigned_id,
     write_open,
 )
 
@@ -2449,6 +2450,110 @@ def test_a_reused_open_still_rolls_nowhere_while_the_run_waits_for_ntp(
     session = tmp_path / "2026-08-16_01" / "syncbox"
     assert _segments(session) == [segment_name(0)]
     assert len(_values(session / segment_name(0))) == 7  # frames 4 to 10
+
+
+# --- the NTP roll, when the sync changed the day (D8, 2026-10-30) ------------------------
+
+DEAD_RTC_DAY = datetime.date(2020, 1, 1)  # where a dead clock's value 0 names its folder
+DEAD_RTC_AT_START = datetime.datetime(2000, 1, 1, tzinfo=UTC)  # what a dead CR2032 reads
+
+
+def _dead_rtc_clock():
+    """A box whose RTC is dead: the wall clock reads 2000-01-01 until the sync steps it to
+    START (2026-08-16, which the barcode value then names as its day)."""
+    return _SteppableMonotonic(wall_at_start=DEAD_RTC_AT_START)
+
+
+def _ntp_steps_to_start(clock):
+    """An NTP probe's answer: no before 105 s, then yes, the first yes stepping the wall
+    clock to START as NTP's first sync does."""
+    stepped = []
+
+    def answer(now):
+        if now < 105:
+            return False
+        if not stepped:
+            clock.step_wall((START - clock.wall()).total_seconds())
+            stepped.append(now)
+        return True
+
+    return answer
+
+
+def test_a_dead_rtc_whose_sync_steps_across_midnight_rolls_into_todays_unassigned(
+    tmp_path, monkeypatch, caplog
+):
+    """THE D8 DEFECT, found in the 2026-10-30 final review. A box whose RTC is dead starts
+    on 2000-01-01, so with no session open it records into unassigned/2020-01-01. NTP's
+    first sync steps the clock to today and the roll in place kept the trusted segment in
+    that folder, with that day's stand-in id and today's barcode values. The roll now
+    follows the day the value after the step names, as a close does."""
+    clock = _dead_rtc_clock()
+    with caplog.at_level(logging.INFO, logger="wl_sync.cli"):
+        _awaiting_ntp(
+            tmp_path, monkeypatch, _ntp_steps_to_start(clock), frames=40, clock=clock
+        )
+
+    old, new = unassigned_dir(tmp_path, DEAD_RTC_DAY), unassigned_dir(tmp_path, DAY)
+    assert _segments(old) == [segment_name(0)]
+    assert _segments(new) == [segment_name(0)]  # the index its own folder gives
+    before, after = old / segment_name(0), new / segment_name(0)
+    assert _has_trailer(before)
+    assert _trust(before)[0] is False
+    assert _trust(after) == (True, "")
+    first, second = read_log(before)[0], read_log(after)[0]
+    assert first.session_id == str(unassigned_id(DEAD_RTC_DAY))
+    assert second.session_id == str(unassigned_id(DAY))
+    assert second.process_uuid == first.process_uuid
+    assert second.segment_index == 0
+    # The old segment began on 2020's values; the new one's first value is read after
+    # the step and names today. (The frame between the poll and the roll is in the old one.)
+    assert cli._barcode_day(_values(before)[0]) == DEAD_RTC_DAY
+    assert cli._barcode_day(_values(after)[0]) == DAY
+    [line] = [m for m in caplog.messages if m.startswith("recording into")]
+    assert "NTP synchronized" in line and str(after) in line
+    # Each folder's manifest was rebuilt: the one left lists its closed segment.
+    for folder in (old, new):
+        assert (folder / "manifest.json").exists()
+
+
+def test_a_session_open_when_ntp_syncs_across_midnight_is_not_split(tmp_path, monkeypatch):
+    """A session is never split across folders by a clock step: with one open, the roll
+    stays in the session's folder even though the step changed the day."""
+    clock = _dead_rtc_clock()
+    _awaiting_ntp(
+        tmp_path, monkeypatch, _ntp_steps_to_start(clock), frames=40, clock=clock,
+        script={2: [_request("open", "r1")]},
+    )
+
+    session = tmp_path / f"{DEAD_RTC_DAY.isoformat()}_01" / "syncbox"
+    assert _segments(session) == [segment_name(0), segment_name(1)]
+    first, second = (read_log(session / segment_name(n))[0] for n in (0, 1))
+    assert second.session_id == first.session_id
+    assert second.process_uuid == first.process_uuid
+    assert _trust(session / segment_name(1)) == (True, "")
+    assert not unassigned_dir(tmp_path, DAY).exists()
+
+
+def test_a_restart_after_the_day_changing_roll_resumes_in_todays_unassigned(
+    tmp_path, monkeypatch
+):
+    """The state a restart resumes from agrees with where the roll left the recording:
+    the checkpoint holds today's values, so the next run begins in today's folder, one
+    segment after the roll's."""
+    clock = _dead_rtc_clock()
+    _awaiting_ntp(
+        tmp_path, monkeypatch, _ntp_steps_to_start(clock), frames=40, clock=clock
+    )
+
+    restart = _SteppableMonotonic(wall_at_start=clock.wall())
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda timeout_s=None: True)
+    run(tmp_path, FakeBackend(), restart.wall, 3, restart.sleep, mono_fn=restart)
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    assert _segments(unassigned_dir(tmp_path, DEAD_RTC_DAY)) == [segment_name(0)]
+    assert _trust(folder / segment_name(1)) == (True, "")
 
 
 # --- the frame grid after a wall-clock step (2026-10-30) -------------------------------

@@ -653,8 +653,8 @@ def run(
 
         No session open and already between sessions stays put: there is no midnight roll
         between visits. THESE EARLY RETURNS ARE WHAT KEEP A REUSED REQUEST FROM ROLLING.
-        The one roll that stays in its folder, when NTP first syncs, does not come
-        through here; it calls roll() itself (see the loop).
+        The roll when NTP first syncs does not come through here; it calls roll()
+        itself, and stays in its folder unless the sync changed the day (see the loop).
 
         A failure IN the roll propagates; the caller completes the future first.
         """
@@ -824,6 +824,17 @@ def run(
             # carries the same process_uuid and the next segment_index, which is how a
             # reader tells this roll from a restart.
             #
+            # THE ONE EXCEPTION IS A SYNC THAT CHANGED THE DAY WITH NO SESSION OPEN. A box
+            # whose RTC is dead starts on 2000-01-01 and records into that day's
+            # unassigned/ folder; the sync steps the clock to today, and a roll that stayed
+            # put left a trusted segment under the old day's folder and stand-in id with
+            # today's barcode values (D8, 2026-10-30). So that roll goes to today's
+            # unassigned/ folder, as a close's roll does, named from this frame's value,
+            # which is read after the step. A session open keeps the roll in its folder:
+            # a clock step never splits a session. The reason, the judgement and the
+            # process_uuid are the same; the segment_index is the one its folder gives,
+            # as for any roll into another folder.
+            #
             # THE ROLL WAITS ONE ITERATION. NTP's first sync usually steps the clock and
             # reports itself synchronised in the same call. A step that lands after
             # this iteration's frame and before the poll would be judged against a value
@@ -845,7 +856,12 @@ def run(
             if ntp_roll_due:
                 ntp_roll_due = False
                 if rolls == rolls_before_requests:
-                    roll(folder, session_id, "NTP synchronized")
+                    roll_to, roll_id = folder, session_id
+                    if folder.is_relative_to(out / "unassigned"):
+                        today = _barcode_day(value)
+                        if unassigned_dir(out, today) != folder:
+                            roll_to, roll_id = unassigned_dir(out, today), unassigned_id(today)
+                    roll(roll_to, roll_id, "NTP synchronized")
             if (
                 not ntp_synced
                 and ntp_known is False
