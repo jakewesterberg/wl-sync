@@ -23,7 +23,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from wl_sync.backend import (
@@ -34,6 +34,18 @@ from wl_sync.backend import (
     FakeBackend,
 )
 from wl_sync.barcode import IDLE_MIN_US
+from wl_sync.calibration import (
+    RATE_FILE_NAME,
+    Calibration,
+    KernelNtp,
+    RateEstimate,
+    RateEstimator,
+    probe_board_serial,
+    probe_kernel_ntp,
+    read_calibration,
+    si_gate,
+    write_calibration,
+)
 from wl_sync.clock import (
     BARCODE_EPOCH,
     MAX_BARCODE,
@@ -44,6 +56,7 @@ from wl_sync.clock import (
     read_checkpoint,
     write_checkpoint,
 )
+from wl_sync.clockmap import IDENTITY, ClockPair
 from wl_sync.endpoint import serve
 from wl_sync.log import SyncBoxLogHeader
 from wl_sync.manifest import write_manifest
@@ -420,7 +433,9 @@ def run(
 
     `barcode_delay_us` is the bench loopback's measured delay from a `B` tick to the
     frame's lead edge, written into every segment's header; None until it is measured
-    (see SyncBoxLogHeader.barcode_delay_us).
+    (see SyncBoxLogHeader.barcode_delay_us). A backend that stamps the lead edge itself
+    declares its own (`SyncBackend.barcode_delay_us`), and the headers carry that instead
+    (spec §2.6).
 
     `requests` is how the task PC's open and close reach the recording (spec 3.1-3.4).
     The endpoint puts a SessionRequest on it and waits on its future; this loop carries
@@ -488,6 +503,55 @@ def run(
     # before this run adds its own.
     write_manifest(folder)
 
+    # ONE PIO RATE FOR THE WHOLE PROCESS (spec §2.2, "Why one rate per process"), from the
+    # calibration an earlier process left beside the checkpoint. Applied BEFORE the first
+    # header, which names the timebase the backend takes from it, and before capture
+    # starts, so no tick is placed at another rate; neither a roll nor the keeper's own
+    # writes change it. A backend with no PIO count to scale returns None, as FakeBackend
+    # does (wl_sync/backend.py:248-249): its ticks are as they were, and nothing is
+    # measured or journalled for it.
+    rate_path = out / RATE_FILE_NAME
+    serial = probe_board_serial()
+    calibration, why = read_calibration(rate_path, serial)
+    scale = backend.apply_calibration(calibration)
+    keeper: _RateKeeper | None = None
+    if scale is not None:
+        if calibration is None:
+            # THE BOX RECORDS ANYWAY, at RP1's own rate, until a later start finds a
+            # calibration (spec §2.2, "Otherwise r = 1"; the user's Q1, 2026-11-07).
+            log.warning(
+                "no usable PIO rate calibration (%s): ticks count RP1's crystal, timebase "
+                "rp1-pio, until a later start finds one",
+                why,
+            )
+        else:
+            # Spec §2.6: the applied r, its age and its baseline go to the journal at
+            # start, since no header field carries them.
+            log.info(
+                "applying the PIO rate calibration written %s: %+d ppb, measured over "
+                "%.0f s and %d pairs; timebase %s",
+                calibration.written_at.isoformat(),
+                calibration.rate_ppb,
+                calibration.baseline_s,
+                calibration.pairs,
+                backend.timebase,
+            )
+        keeper = _RateKeeper(rate_path, serial, calibration, probe_boot_id())
+
+    # A BACKEND THAT STAMPS THE LEAD EDGE ITSELF DECLARES ITS DELAY, and every header
+    # carries the backend's (spec §2.6). The flag measured the software path from reading
+    # the clock to the pin rising, which such a backend no longer has, so a flag given
+    # beside it is not used and the journal says so.
+    if backend.barcode_delay_us is not None:
+        if barcode_delay_us is not None:
+            log.warning(
+                "--barcode-delay-us %d is not used: this backend stamps the lead edge "
+                "itself (barcode_delay_us %d)",
+                barcode_delay_us,
+                backend.barcode_delay_us,
+            )
+        barcode_delay_us = backend.barcode_delay_us
+
     writer_path, make_writer = _segment_factory(
         folder,
         session_id,
@@ -506,7 +570,7 @@ def run(
     # path the box runs. See wl_sync.service.QueuedSink.
     sink = QueuedSink(writer)
 
-    recorder = Recorder(backend, sink=sink)
+    recorder = Recorder(backend, sink=sink, scale=IDENTITY if scale is None else scale)
     recorder.capture_codes(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN)
     recorder.capture_edges(EDGE_PINS)
 
@@ -832,6 +896,17 @@ def run(
             # disk, which keeps spec Sec.4's one-second crash-loss bound exact.
             sink.flush()
             health()
+
+            # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
+            # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
+            # until it is taken (wl_sync/rp1/backend.py:366-368, :853-854), so pairs left
+            # untaken would pile up, one a second, for the life of the process. The gate
+            # takes NTP's state as this run last knew it, the kernel's as it is now. An
+            # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
+            # NTP_POLL_TIMEOUT_S).
+            pairs = backend.take_pairs()
+            if keeper is not None:
+                keeper.frame(pairs, ntp_known, probe_kernel_ntp())
 
             # AFTER THE FRAME IS ON DISK AND BEFORE PACING: the frame just emitted belongs
             # to the session that was open when it was emitted, and the next one to the
@@ -1317,6 +1392,159 @@ class _DroppedBarcodes:
         self._first = None
 
 
+# Spec §2.2, "Persisting it": the file is "first written once the baseline reaches 1 h,
+# then rewritten every hour" (docs/superpowers/specs/2026-10-30-one-clock-design.md:295).
+CALIBRATION_WRITE_EVERY_S = 3600.0
+# Spec §2.2's two witnesses (the spec, :313-318). The P/RAW ratio "measured live within
+# about 10 s, against the file's", where "a difference above 5 ppm is a WARNING"; and this
+# process's SI estimate "once its baseline reaches 1 h, against the r it applied", where
+# "a difference above 1 ppm is a WARNING naming the difference".
+RAW_RATIO_WITNESS_SPAN_S = 10.0
+RAW_RATIO_WITNESS_PPB = 5_000
+RATE_WITNESS_BASELINE_S = 3600.0
+RATE_WITNESS_PPB = 1_000
+
+
+class _RateKeeper:
+    """The PIO rate the next process applies: measured over this one's clock pairs against
+    NTP-disciplined MONO, and kept in the calibration file (spec §2.2, "Persisting it").
+
+    IT NEVER CHANGES THIS PROCESS'S RATE. The Recorder took its scale at the start and
+    keeps it (wl_sync/service.py:231-233). What is measured here is for the next start,
+    and for two witnesses in the journal.
+
+    THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),
+    restarted by a REALTIME step (:170-176). The file is first written when it reaches an
+    hour, and again each time it has grown an hour past the last attempt. A restarted
+    baseline is therefore not written until it is an hour longer than the one last tried,
+    so within a process the file never trades an estimate for a shorter one.
+
+    NOTHING IS WRITTEN WITHOUT THE BOARD'S SERIAL. A file is applied only on the board it
+    names (wl_sync/calibration.py:241-245), so one written without it could never be used.
+
+    A WRITE THAT FAILS IS AN ERROR ONCE PER EPISODE, AND THE BOX RECORDS ON: the file is
+    for the next start, and a full disk or a read-only root must not stop this one. Once
+    per episode, because a disk that stays full fails every hour; a success ends the
+    episode, so a later failure is reported again. The next attempt is an hour of baseline
+    on, like any rewrite.
+
+    THE WITNESSES WARN ONCE EACH, per process. What either finds belongs to the
+    calibration or the crystal, which nothing in this process changes, and the process
+    keeps its rate whatever they say.
+    """
+
+    def __init__(
+        self, path: Path, serial: str | None, applied: Calibration | None, boot_id: str
+    ) -> None:
+        self._path = path
+        self._serial = serial
+        self._applied = applied
+        # Spec §2.2: with no calibration, r = 1, so the applied rate is 0 ppb.
+        self._applied_ppb = 0 if applied is None else applied.rate_ppb
+        self._boot_id = boot_id
+        self._estimator = RateEstimator()
+        self._attempted_s: float | None = None  # the baseline at the last write tried
+        self._write_failing = False
+        self._raw_ratio_warned = False
+        self._rate_warned = False
+
+    def frame(
+        self,
+        pairs: Sequence[ClockPair],
+        ntp_known: bool | None,
+        kernel: KernelNtp | None,
+    ) -> None:
+        """One frame's pairs, gated on NTP's last definite answer and the kernel's state."""
+        if not pairs:
+            return  # nothing moved: no estimate, witness or schedule can have changed
+        for pair in pairs:
+            self._estimator.add(pair, si_gate(ntp_known, kernel, pair))
+        self._witness_raw_ratio()
+        estimate = self._estimator.si()
+        if estimate is None:
+            return
+        self._witness_rate(estimate)
+        self._keep(estimate)
+
+    def _witness_raw_ratio(self) -> None:
+        if self._applied is None or self._raw_ratio_warned:
+            return
+        ratio = self._estimator.raw_ratio()
+        if ratio is None or ratio[1] < RAW_RATIO_WITNESS_SPAN_S:
+            return
+        ppb, span_s = ratio
+        apart = ppb - self._applied.p_per_raw_ppb
+        if abs(apart) > RAW_RATIO_WITNESS_PPB:
+            self._raw_ratio_warned = True
+            log.warning(
+                "the PIO counter runs %+d ppb against CLOCK_MONOTONIC_RAW over %.0f s, "
+                "and the calibration applied says %+d ppb: %+d ppb apart, more than 5 ppm. "
+                "It most likely came from other hardware, though it names this board's "
+                "serial; this process keeps its rate",
+                ppb,
+                span_s,
+                self._applied.p_per_raw_ppb,
+                apart,
+            )
+
+    def _witness_rate(self, estimate: RateEstimate) -> None:
+        if self._rate_warned or estimate.baseline_s < RATE_WITNESS_BASELINE_S:
+            return
+        apart = estimate.rate_ppb - self._applied_ppb
+        if abs(apart) > RATE_WITNESS_PPB:
+            self._rate_warned = True
+            log.warning(
+                "this process measures the PIO rate at %+d ppb against NTP-disciplined "
+                "CLOCK_MONOTONIC, over %.0f s and %d pairs: %+d ppb from the %+d ppb it "
+                "applies, more than 1 ppm. This process keeps the rate it applied",
+                estimate.rate_ppb,
+                estimate.baseline_s,
+                estimate.pairs,
+                apart,
+                self._applied_ppb,
+            )
+
+    def _keep(self, estimate: RateEstimate) -> None:
+        if self._serial is None or estimate.baseline_s < CALIBRATION_WRITE_EVERY_S:
+            return
+        if (
+            self._attempted_s is not None
+            and estimate.baseline_s - self._attempted_s < CALIBRATION_WRITE_EVERY_S
+        ):
+            return
+        self._attempted_s = estimate.baseline_s
+        calibration = Calibration(
+            serial=self._serial,
+            rate_ppb=estimate.rate_ppb,
+            p_per_raw_ppb=estimate.p_per_raw_ppb,
+            baseline_s=estimate.baseline_s,
+            pairs=estimate.pairs,
+            residual_rms_us=estimate.residual_rms_us,
+            boot_id=self._boot_id,
+            # The wall clock, not run()'s now_fn: when this was written is a fact about the
+            # file, and now_fn is the loop's to pace and choose values by.
+            written_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        try:
+            write_calibration(self._path, calibration)
+        except OSError as error:
+            # write_durably's temporary (wl_sync/clock.py:119), which a failure after its
+            # open leaves: it would sit beside the rate file until the next attempt.
+            with contextlib.suppress(OSError):
+                self._path.with_suffix(self._path.suffix + ".tmp").unlink(missing_ok=True)
+            if not self._write_failing:
+                log.error(
+                    "could not write the PIO rate calibration %s (%s); still recording. "
+                    "The file keeps what it held, and the write is tried again after "
+                    "another hour of baseline",
+                    self._path,
+                    error,
+                )
+            self._write_failing = True
+            return
+        self._write_failing = False
+
+
 class _StopFlag:
     def __init__(self) -> None:
         self.set = False
@@ -1461,7 +1689,8 @@ def main(argv: list[str] | None = None) -> int:
         metavar="N",
         help="the bench loopback's measured delay from a B record's tick to the frame's "
         "lead edge, in whole microseconds, written into every segment header; default "
-        "none, meaning unmeasured",
+        "none, meaning unmeasured. Not used, with a warning, where the backend stamps "
+        "the lead edge itself and declares its own",
     )
     args = parser.parse_args(argv)
 

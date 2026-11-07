@@ -435,7 +435,7 @@ class Rp1Backend:
         )
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
         # capture machine, and raising here would: nothing above catches it
-        # (wl_sync/service.py:252, wl_sync/cli.py:510 and :1478-1488), so run() would
+        # (wl_sync/service.py:252, wl_sync/cli.py:574 and :1707-1717), so run() would
         # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
         # Recording without stamps is today's split behaviour; the log line is the
         # record that this run has none.
@@ -742,7 +742,7 @@ class Rp1Backend:
         piolib has one caller, the pump's.
 
         The run loop records `B` from the stamp returned, or drops it with an ERROR
-        episode when there is none (wl_sync/cli.py:792-823).
+        episode when there is none (wl_sync/cli.py:856-887).
         """
         import gpiod
         from gpiod.line import Direction, Value

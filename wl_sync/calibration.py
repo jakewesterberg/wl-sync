@@ -196,7 +196,7 @@ class RateEstimator:
         return ppb, self._all_raw.x_last / 1e9
 
 
-# Beside the barcode checkpoint in the rig root (cli.py:449; spec Sec.2.2, "Persisting it").
+# Beside the barcode checkpoint in the rig root (cli.py:464; spec Sec.2.2, "Persisting it").
 RATE_FILE_NAME = ".wl-sync-pio-rate"
 # A sanity bound, not a tolerance: a clk_sys that is not really 200 MHz, or a broken
 # reference, lands outside it (spec Sec.2.2).

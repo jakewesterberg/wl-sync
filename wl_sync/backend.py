@@ -98,8 +98,8 @@ class StampLag:
 # Why a frame's `B` is dropped: each completes the journal's "barcode %d dropped: <cause>"
 # (spec §2.5, docs/superpowers/specs/2026-10-30-one-clock-design.md:407-415). ALL HERE,
 # beside the protocol, because the run loop gives each kind its own advice when an
-# episode of drops ends (wl_sync/cli.py:1219-1249), and imports the RP1 backend only to
-# build it (wl_sync/cli.py:1328-1333).
+# episode of drops ends (wl_sync/cli.py:1294-1324), and imports the RP1 backend only to
+# build it (wl_sync/cli.py:1556-1561).
 #
 # The lead edge has no stamp at all.
 STAMP_NOT_SEEN = "its lead edge was not stamped"

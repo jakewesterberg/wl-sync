@@ -27,6 +27,13 @@ from wl_sync.backend import (
     FrameStamp,
 )
 from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
+from wl_sync.calibration import (
+    RATE_FILE_NAME,
+    Calibration,
+    KernelNtp,
+    read_calibration,
+    write_calibration,
+)
 from wl_sync.cli import (
     CHECKPOINT_NAME,
     _ValueSource,
@@ -36,6 +43,7 @@ from wl_sync.cli import (
     run,
 )
 from wl_sync.endpoint import serve
+from wl_sync.clockmap import ClockPair, TickScale
 from wl_sync.clock import (
     BARCODE_EPOCH,
     CLOCK_TRUST_TOLERANCE_S,
@@ -80,8 +88,14 @@ def _host_ntp_is_unknown(monkeypatch):
     failed in CI on 2026-10-18 whenever the runner had not yet synced, and passed on the
     next push. Every test here is about the run loop, not the host, so the probe answers
     "unknown" unless a test says otherwise. evaluate_clock's NTP handling is tested
-    directly in tests/test_clock.py."""
+    directly in tests/test_clock.py.
+
+    The kernel's NTP state and the board's serial are the host's too, so the kernel
+    probe answers None ("cannot be asked", which closes the SI gate) and the serial is
+    "test-serial". A test that wants the gate open or no serial says so."""
     monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda: None)
+    monkeypatch.setattr(cli, "probe_kernel_ntp", lambda: None)
+    monkeypatch.setattr(cli, "probe_board_serial", lambda: "test-serial")
 
 
 def _clock_from(start, step_s=1):
@@ -3727,3 +3741,422 @@ def test_a_backend_with_no_edge_lag_says_nothing_about_it(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger=cli.log.name):
         run(tmp_path, FakeBackend(), _clock_from(START), 2, lambda _s: None)
     assert not [m for m in caplog.messages if m.startswith("edges reached the pump")]
+
+
+# --- one PIO rate per process, and the next one measured and kept (spec §2.2) -----------
+
+
+# What the kernel reports while NTP disciplines MONO through its PLL (calibration.si_gate).
+SYNCED = KernelNtp(unsynchronized=False, pll=True, offset_ns=0)
+# The journal's lines, verbatim from the plan's Task 1.8.
+_NO_CALIBRATION = (
+    "no usable PIO rate calibration ({}): ticks count RP1's crystal, timebase rp1-pio, "
+    "until a later start finds one"
+)
+_DELAY_NOT_USED = (
+    "--barcode-delay-us {} is not used: this backend stamps the lead edge itself "
+    "(barcode_delay_us {})"
+)
+
+
+def _p_at(mono_ns, true_ppb):
+    """P at a MONO reading, for a PIO crystal `true_ppb` fast of SI: MONO in us, at the
+    crystal's rate."""
+    return mono_ns * (10**9 + true_ppb) // 10**12
+
+
+def _pair_train(spacing_s, count, true_ppb=0):
+    """`count` narrow pairs `spacing_s` apart from MONO 0, with RAW = MONO."""
+    spacing_ns = round(spacing_s * 1e9)
+    return [
+        ClockPair(_p_at(n * spacing_ns, true_ppb), n * spacing_ns, n * spacing_ns, 1_000, 0)
+        for n in range(count)
+    ]
+
+
+def _calibration(rate_ppb, p_per_raw_ppb=None, serial="test-serial"):
+    """A calibration as an earlier process on this board would have left it."""
+    return Calibration(
+        serial=serial,
+        rate_ppb=rate_ppb,
+        p_per_raw_ppb=rate_ppb if p_per_raw_ppb is None else p_per_raw_ppb,
+        baseline_s=28_800.0,
+        pairs=28_801,
+        residual_rms_us=2.5,
+        boot_id="an-earlier-boot",
+        written_at=datetime.datetime(2026, 11, 6, 17, 0, tzinfo=UTC),
+    )
+
+
+class _PioClock(FakeBackend):
+    """A backend counting a PIO crystal `true_ppb` off SI, as the one-clock RP1 backend
+    does (spec §2.2): it takes the calibration and names its timebase from it, stamps each
+    lead edge itself (`barcode_delay_us` 0, spec §2.6), and hands over one pair a frame.
+
+    Frame n (0-based) has its lead edge at MONO n * `pair_spacing_s`, with RAW = MONO, and
+    is stamped at that MONO's P, which `now_us()` then reads too. `p` keeps each frame's P
+    unwrapped; the stamp and `now_us()` are wrapped, as every raw tick is."""
+
+    def __init__(self, true_ppb=0, pair_spacing_s=1.0, barcode_delay_us=0):
+        super().__init__()
+        self.true_ppb = true_ppb
+        self._spacing_ns = round(pair_spacing_s * 1e9)
+        self.barcode_delay_us = barcode_delay_us
+        self.applied = []  # every calibration apply_calibration was given
+        self.p = []
+        self._pairs = []
+
+    def apply_calibration(self, calibration):
+        self.applied.append(calibration)
+        self.timebase = "rp1-pio" if calibration is None else "rp1-pio-si"
+        return TickScale(calibration.rate_ppb if calibration else 0)
+
+    def emit_pulses(self, pin, pulses):
+        mono_ns = len(self.emitted) * self._spacing_ns
+        p = _p_at(mono_ns, self.true_ppb)
+        self.set_now_us(p)
+        stamp = super().emit_pulses(pin, pulses)
+        self.p.append(p)
+        if stamp.tick is not None:
+            self._pairs.append(ClockPair(p, mono_ns, mono_ns, 1_000, 0))
+        return stamp
+
+    def take_pairs(self):
+        pairs, self._pairs = self._pairs, []
+        return pairs
+
+
+def _ntp_and_kernel_synced(monkeypatch):
+    """The SI gate open from the start: NTP says yes, and the kernel is disciplined."""
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda timeout_s=None: True)
+    monkeypatch.setattr(cli, "probe_kernel_ntp", lambda: SYNCED)
+
+
+def test_a_usable_calibration_scales_every_tick_and_names_the_timebase(tmp_path, caplog):
+    """One rate for the process, from the calibration this board left (spec §2.2): every
+    tick is P scaled by it, the header says so, and the start's journal names the rate,
+    its baseline, its pairs and when it was written. The crystal here runs as fast as the
+    file says, so the ticks are SI microseconds from the first frame."""
+    calibration = _calibration(rate_ppb=100_000)
+    write_calibration(tmp_path / RATE_FILE_NAME, calibration)
+    backend = _PioClock(true_ppb=100_000)
+
+    def tick_fn(_seconds):
+        # An edge and a word at the clock now, which is the frame's P.
+        backend.inject_edge(EDGE_PINS[0], 1, backend.now_us())
+        backend.inject_word(backend.now_us(), 7)
+
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        folder = run(tmp_path, backend, _clock_from(START), 4, tick_fn)
+
+    header, records = read_log(folder / segment_name(0))
+    assert backend.applied == [calibration]
+    assert header.timebase == "rp1-pio-si"
+    barcodes = [r.tick_us for r in records if isinstance(r, BarcodeEmitted)]
+    assert barcodes == [TickScale(100_000).tick(p) for p in backend.p]
+    assert barcodes == [0, 1_000_000, 2_000_000, 3_000_000]
+    assert [r.tick_us for r in records if isinstance(r, Edge)] == barcodes
+    assert [r.tick_us for r in records if isinstance(r, CodeWord)] == barcodes
+    [line] = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.INFO and "PIO rate calibration" in r.getMessage()
+    ]
+    for part in ("+100000 ppb", "28800 s", "28801 pairs", "2026-11-06T17:00:00+00:00"):
+        assert part in line, line
+
+
+def test_without_a_calibration_the_box_records_at_rp1s_rate_and_says_why(tmp_path, caplog):
+    """A box with no usable calibration (a new install, a lost file, another board's)
+    records anyway, at RP1's own rate, says so in the header and says why in the journal
+    (spec §2.2, "Otherwise r = 1"), until its next start (the user's Q1)."""
+    backend = _PioClock(true_ppb=100_000)
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        folder = run(tmp_path, backend, _clock_from(START), 3, lambda _s: None)
+
+    header, records = read_log(folder / segment_name(0))
+    assert backend.applied == [None]
+    assert header.timebase == "rp1-pio"
+    assert [r.tick_us for r in records if isinstance(r, BarcodeEmitted)] == backend.p
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == [_NO_CALIBRATION.format("no calibration file")]
+
+
+def test_the_rate_never_changes_within_a_process(tmp_path, monkeypatch):
+    """A rate that moved mid-session would bend B against the one straight line each
+    device is fitted with (spec §2.2, "Why one rate per process"). So neither the NTP roll,
+    nor the keeper's write mid-run, nor a session's roll after that write moves it: every
+    segment names one timebase, and every B is P scaled by the rate applied at the start,
+    though the process measures another and has written it for the next."""
+    write_calibration(tmp_path / RATE_FILE_NAME, _calibration(rate_ppb=100_000))
+    monkeypatch.setattr(cli, "probe_kernel_ntp", lambda: SYNCED)
+    backend = _PioClock(true_ppb=150_000, pair_spacing_s=600)
+    written_by = []  # how many frames had gone out when the file held this process's rate
+
+    def after_sleep():
+        if not written_by:
+            kept, _ = read_calibration(tmp_path / RATE_FILE_NAME, "test-serial")
+            if kept.rate_ppb == 150_000:
+                written_by.append(len(backend.emitted))
+
+    _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 105, frames=40, backend=backend,
+        script={24: [_request("open", "r1")]}, after_sleep=after_sleep,
+    )
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    assert _segments(tmp_path / "2026-08-16_01" / "syncbox") == [segment_name(0)]
+    headers = _headers(tmp_path)
+    assert [h.timebase for h in headers.values()] == ["rp1-pio-si"] * 3
+    barcodes = sorted(
+        r.tick_us
+        for path in headers
+        for r in read_log(tmp_path / path)[1]
+        if isinstance(r, BarcodeEmitted)
+    )
+    assert backend.applied == [_calibration(rate_ppb=100_000)]
+    assert barcodes == [TickScale(100_000).tick(p) for p in backend.p]
+    # The gate opened at frame 12, the first after the poll at 110 s heard yes, and an
+    # hour of baseline at 600 s a pair is six pairs on: the write fell mid-run, between
+    # the NTP roll (after frame 12) and the open's (after frame 25).
+    assert written_by == [18]
+
+
+def test_the_pairs_are_taken_every_frame_where_no_keeper_runs(tmp_path):
+    """A backend that scales nothing runs no keeper, but the loop still takes its pairs
+    each frame: the RP1 backend holds every pair until it is taken
+    (wl_sync/rp1/backend.py:366-368), and left there they would pile up, one a second,
+    for the life of the process."""
+
+    class _CountsTakes(FakeBackend):
+        takes = 0
+
+        def take_pairs(self):
+            self.takes += 1
+            return super().take_pairs()
+
+    backend = _CountsTakes()
+    run(tmp_path, backend, _clock_from(START), 5, lambda _s: None)
+    assert backend.takes == 5
+
+
+def test_a_one_hour_baseline_is_written_and_rewritten_hourly(tmp_path):
+    """Spec §2.2, "Persisting it": first written once the baseline reaches 1 h, then
+    rewritten every hour. Pairs 600 s apart: six span 3000 s, seven 3600 s, thirteen
+    7200 s."""
+    path = tmp_path / RATE_FILE_NAME
+    keeper = cli._RateKeeper(path, "test-serial", None, "this-boot")
+    pairs = _pair_train(600, 13, true_ppb=42_000)
+    for pair in pairs[:6]:
+        keeper.frame([pair], True, SYNCED)
+    assert not path.exists()
+
+    keeper.frame([pairs[6]], True, SYNCED)
+    first, why = read_calibration(path, "test-serial")
+    assert why == ""
+    assert (first.serial, first.boot_id) == ("test-serial", "this-boot")
+    assert (first.rate_ppb, first.p_per_raw_ppb, first.pairs, first.baseline_s) == (
+        42_000, 42_000, 7, 3600.0,
+    )
+    # When it was written, on the wall clock: not the run loop's injected one.
+    age = datetime.datetime.now(UTC) - first.written_at
+    assert datetime.timedelta(0) <= age < datetime.timedelta(minutes=1)
+
+    for pair in pairs[7:12]:
+        keeper.frame([pair], True, SYNCED)
+    assert read_calibration(path, "test-serial")[0] == first
+
+    keeper.frame([pairs[12]], True, SYNCED)
+    second, _ = read_calibration(path, "test-serial")
+    assert (second.pairs, second.baseline_s) == (13, 7200.0)
+
+
+def test_no_calibration_is_written_before_ntp_has_synced(tmp_path):
+    """The SI rate is P against NTP-disciplined MONO, so a pair counts only while MONO is
+    known to be disciplined (calibration.si_gate). Hours of pairs before that write
+    nothing, and the baseline written begins at the first pair the gate let through
+    (spec §2.2: "The estimator collects nothing until the gate opens")."""
+    path = tmp_path / RATE_FILE_NAME
+    keeper = cli._RateKeeper(path, "test-serial", None, "")
+    pairs = iter(_pair_train(600, 47))
+    closed = [
+        (False, SYNCED),  # NTP's last definite answer is no
+        (None, SYNCED),  # NTP has never answered
+        (True, None),  # the kernel cannot be asked
+        (True, KernelNtp(unsynchronized=True, pll=True, offset_ns=0)),
+        (True, KernelNtp(unsynchronized=False, pll=False, offset_ns=0)),
+    ]
+    for ntp_known, kernel in closed:
+        for _ in range(8):  # 4800 s each
+            keeper.frame([next(pairs)], ntp_known, kernel)
+    assert not path.exists()
+
+    for _ in range(6):
+        keeper.frame([next(pairs)], True, SYNCED)
+    assert not path.exists()
+    keeper.frame([next(pairs)], True, SYNCED)
+    assert read_calibration(path, "test-serial")[0].pairs == 7
+
+
+def test_nothing_is_written_when_the_board_serial_cannot_be_read(tmp_path, monkeypatch):
+    """A file is applied only on the board whose serial it names (spec §2.2), so one
+    written without a serial could never be applied. The process records and measures as
+    ever, and writes no file, not even a temporary. The same run with this board's serial
+    is the control: it writes one."""
+    _ntp_and_kernel_synced(monkeypatch)
+
+    def record(out, serial):
+        monkeypatch.setattr(cli, "probe_board_serial", lambda: serial)
+        backend = _PioClock(pair_spacing_s=600)
+        folder = run(out, backend, _clock_from(START), 8, lambda _s: None)
+        assert len(_values(folder / segment_name(0))) == 8
+        return sorted(p.name for p in out.iterdir() if p.name.startswith(RATE_FILE_NAME))
+
+    assert record(tmp_path / "unknown", None) == []
+    assert record(tmp_path / "known", "test-serial") == [RATE_FILE_NAME]
+
+
+@pytest.mark.parametrize(
+    "apart_ppb, warned", [(6_000, True), (-6_000, True), (4_000, False)]
+)
+def test_a_live_raw_ratio_far_from_the_files_warns_once(
+    tmp_path, caplog, apart_ppb, warned
+):
+    """Spec §2.2's first witness: the P/RAW ratio, measured live within about 10 s, against
+    the file's. More than 5 ppm apart, the file most likely came from other hardware,
+    though its serial matches. Every narrow pair counts, gated or not: RAW is not NTP's."""
+    applied = _calibration(rate_ppb=100_000, p_per_raw_ppb=100_000)
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", applied, "")
+    seen = []  # warnings logged by the end of each frame
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in _pair_train(1, 60, true_ppb=100_000 + apart_ppb):
+            keeper.frame([pair], None, None)
+            seen.append(len(caplog.records))
+
+    warnings = [r.getMessage() for r in caplog.records]
+    if not warned:
+        assert warnings == []
+        return
+    [warning] = warnings
+    assert f"{100_000 + apart_ppb:+d} ppb" in warning and f"{apart_ppb:+d} ppb" in warning
+    # At the 11th pair, 1 s apart, where the ratio first spans 10 s; never again.
+    assert seen.index(1) == 10
+
+
+@pytest.mark.parametrize(
+    "applied_ppb, true_ppb, apart_ppb",
+    [
+        (100_000, 101_500, 1_500),
+        (100_000, 98_500, -1_500),
+        (100_000, 100_900, None),
+        (None, 1_500, 1_500),  # no calibration applied: the applied rate is 0
+        (None, -900, None),
+    ],
+)
+def test_this_processs_estimate_far_from_the_applied_rate_warns_once(
+    tmp_path, caplog, applied_ppb, true_ppb, apart_ppb
+):
+    """Spec §2.2's second witness: this process's own SI estimate, once its baseline
+    reaches 1 h, against the rate it applied. More than 1 ppm apart is a WARNING naming
+    the difference."""
+    applied = None
+    if applied_ppb is not None:
+        # The file's P/RAW is the crystal's, so the first witness has nothing to say.
+        applied = _calibration(rate_ppb=applied_ppb, p_per_raw_ppb=true_ppb)
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", applied, "")
+    seen = []
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in _pair_train(600, 13, true_ppb=true_ppb):
+            keeper.frame([pair], True, SYNCED)
+            seen.append(len(caplog.records))
+
+    warnings = [r.getMessage() for r in caplog.records]
+    if apart_ppb is None:
+        assert warnings == []
+        return
+    [warning] = warnings
+    assert f"{apart_ppb:+d} ppb" in warning, warning
+    # At the 7th pair, 600 s apart, where the baseline first spans an hour.
+    assert seen.index(1) == 6
+
+
+def test_a_calibration_that_cannot_be_written_is_an_error_and_recording_goes_on(
+    tmp_path, monkeypatch, caplog
+):
+    """A full disk or a read-only root (the plan's review focus 4). Here a directory
+    stands where the file goes, so write_durably's rename refuses it after the temporary
+    is written (wl_sync/clock.py:119-124). One ERROR, recording goes on, nothing is left
+    beside the file, and the next hour's write succeeds."""
+    path = tmp_path / RATE_FILE_NAME
+    path.mkdir()
+    _ntp_and_kernel_synced(monkeypatch)
+    backend = _PioClock(true_ppb=42_000, pair_spacing_s=600)
+    beside = []  # what stood beside the file after each frame
+
+    def tick_fn(_seconds):
+        beside.append(
+            [p.name for p in tmp_path.iterdir() if p.name.startswith(f"{path.name}.")]
+        )
+        if len(backend.emitted) == 7:  # the hour's write has failed
+            path.rmdir()
+
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        folder = run(tmp_path, backend, _clock_from(START), 13, tick_fn)
+
+    [error] = _errors(caplog)
+    assert str(path) in error
+    assert beside == [[]] * 13
+    assert _has_trailer(folder / segment_name(0))
+    assert len(_values(folder / segment_name(0))) == 13
+    kept, why = read_calibration(path, "test-serial")
+    assert why == "" and (kept.pairs, kept.rate_ppb) == (13, 42_000)
+
+
+def test_a_write_that_keeps_failing_is_one_error_until_one_succeeds(tmp_path, caplog):
+    """Once per episode, as the run loop's other journals are: a disk that stays full
+    fails every hour, and one ERROR says so. A write that succeeds ends the episode, so a
+    later failure is reported again."""
+    path = tmp_path / RATE_FILE_NAME
+    keeper = cli._RateKeeper(path, "test-serial", None, "")
+    pairs = iter(_pair_train(600, 25))
+
+    def hours(n):  # six pairs 600 s apart are an hour, and one attempt
+        for _ in range(6 * n):
+            keeper.frame([next(pairs)], True, SYNCED)
+
+    with caplog.at_level(logging.ERROR, logger=cli.log.name):
+        path.mkdir()
+        keeper.frame([next(pairs)], True, SYNCED)
+        hours(2)  # 3600 s and 7200 s: both fail
+        assert len(_errors(caplog)) == 1
+        path.rmdir()
+        hours(1)  # 10800 s: written
+        assert read_calibration(path, "test-serial")[0].pairs == 19
+        path.unlink()
+        path.mkdir()
+        hours(1)  # 14400 s: fails, a new episode
+    assert len(_errors(caplog)) == 2
+
+
+def test_a_measured_barcode_delay_is_not_used_where_the_backend_stamps_the_edge(
+    tmp_path, caplog
+):
+    """`--barcode-delay-us` is the delay from the clock's reading to the edge on the wire.
+    A backend that stamps the lead edge itself declares its own, 0 (spec §2.6). A flag
+    given anyway would describe a software delay that no longer exists, so it is not used,
+    and a WARNING says so; every segment of the process carries the backend's."""
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        headers = _open_then_close(
+            tmp_path / "flag", backend=_PioClock(barcode_delay_us=0), barcode_delay_us=850
+        )
+    assert {header.barcode_delay_us for header in headers.values()} == {0}
+    assert [m for m in caplog.messages if m.startswith("--barcode-delay-us")] == [
+        _DELAY_NOT_USED.format(850, 0)
+    ]
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        headers = _open_then_close(tmp_path / "none", backend=_PioClock(barcode_delay_us=0))
+    assert {header.barcode_delay_us for header in headers.values()} == {0}
+    assert not [m for m in caplog.messages if m.startswith("--barcode-delay-us")]
