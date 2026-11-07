@@ -104,16 +104,20 @@ idle:                           ; ENTRY = offset + 11
 ; (tests/test_rp1_program.py:159, test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
 ;
 ; THE DATA HOLD. `in pins` runs 2 cycles after that `jmp pin`: the data lines are
-; read 1.0-2.0 µs after the strobe rises, and the task PC must hold the code word
-; at least 2 µs after raising the strobe (rp1.backend.DATA_SAMPLE_DELAY_US).
+; read 1.0-2.0 µs after the strobe rises (wl_sync/rp1/backend.py:55,
+; DATA_SAMPLE_DELAY_US), and the task PC must hold the code word at least 2.5 µs
+; after raising the strobe. The read ends before 2.0 µs at the box's pins; the extra
+; 0.5 µs covers skew between the strobe and data paths: the generator's channels, the
+; wiring, and the input synchroniser.
 ;
 ; THE PAIR is in the FIFO within 11 cycles, 5.5 µs, of the edge.
 ;
 ; STROBE LIMITS. High for at least 1 µs (two cycles), so a test lands in it; low
-; for at least 1 µs, so a test lands in it (a shorter low between tests is
-; invisible and does not split a strobe); and rising at least 6 µs after the
+; for at least 1 µs, so a test lands in it (a 1-cycle low between tests is
+; invisible and does not split a strobe; a 2-cycle low always does); and rising at least 6 µs after the
 ; previous strobe, or the two merge. tests/test_rp1_program.py: the burst test :136,
-; the merge test :142, a low between samples :175, a low on a sample :182.
+; the merge test :142, a low between samples :175, a low on a sample :182,
+; a 2-cycle low at either phase :187.
 ;
 ; UNVERIFIED — check these first on bench day, in this order:
 ;   1. Each instruction is one cycle whether or not it jumps; at X = 0 every

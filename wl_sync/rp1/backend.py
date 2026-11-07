@@ -304,10 +304,12 @@ class Rp1Backend:
         THE CONTRACT WITH THE TASK PC. The program reads the data lines
         DATA_SAMPLE_DELAY_US (1 us) after it sees the strobe. The strobe is tested every
         2 cycles, so it is seen up to 1 us after it rises, and the data is read 1.0-2.0 us
-        after the rise: the task PC must hold the code at least 2 us after raising the
-        strobe. A strobe must be high for at least 1 us and low for at least 1 us, and
-        must rise at least 6 us after the previous one; closer strobes merge
-        (tests/test_rp1_program.py:136, :142, :175 and :182).
+        after the rise. The task PC must hold the code at least 2.5 us after raising the
+        strobe: the read ends before 2.0 us at the box's pins, and the extra 0.5 us covers
+        skew between the strobe and data paths (the generator's channels, the wiring, the
+        input synchroniser). A strobe must be high for at least 1 us and low for at least
+        1 us, and must rise at least 6 us after the previous one; closer strobes merge
+        (tests/test_rp1_program.py:136, :142, :175, :182 and :187).
         """
         lib = self._lib
         if strobe_pin != data_base + data_count:

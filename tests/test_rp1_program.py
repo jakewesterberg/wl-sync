@@ -92,7 +92,7 @@ def test_every_decrement_falls_on_an_odd_cycle_whatever_the_strobes_do(widths, s
 
 
 def test_four_hundred_strobes_lose_no_tick():
-    """The old listing lost 600 on this train (tests/test_piosim.py)."""
+    """The old listing lost 600 on this train (tests/test_piosim.py:11)."""
     result, end = _capture(strobe_train(seed=1, count=400))
     assert end // 2 - result.decrements == 0
 
@@ -173,14 +173,21 @@ def test_an_edge_at_any_instant_is_timed_within_the_documented_bounds(whole, fra
 
 
 def test_a_low_between_samples_does_not_split_a_strobe():
-    """The strobe is tested every 2 cycles, so a 1 us low that no test falls in is
-    invisible: one capture, not two."""
+    """The strobe is tested every 2 cycles, so a 1-cycle (0.5 us) low that no test falls
+    in is invisible: one capture, not two."""
     result, _ = _capture([(10, 21), (22, 30)], cycles=100)
     assert len(result.pushes) == 2
 
 
 def test_a_low_on_a_sampling_cycle_splits_a_strobe_in_two():
     result, _ = _capture([(10, 20), (21, 30)], cycles=100)
+    assert len(result.pushes) == 4
+
+
+@pytest.mark.parametrize("phase", [0, 1])
+def test_a_two_cycle_low_splits_a_strobe_in_two_at_either_phase(phase):
+    """Pins the limit "low at least 1 us": a 2-cycle low always holds a sampling cycle."""
+    result, _ = _capture([(10, 20 + phase), (22 + phase, 32)], cycles=100)
     assert len(result.pushes) == 4
 
 
