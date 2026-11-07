@@ -615,6 +615,86 @@ def test_with_a_spare_stamp_pin_the_test_still_reads_gpio17(lib):
         backend.close()
 
 
+@pytest.mark.parametrize("view", ["stuck-high", "inverted"])
+def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
+    lib, gpiod, view
+):
+    """Ruling R29: the test witnesses the rise. The idle `jmp pin` tests the level
+    (wl_sync/rp1/program.py:99), so a PIO that sees GPIO17 high while it is low captures
+    as soon as the test machine is enabled, and one that sees it inverted stamps the fall
+    as well. Neither stamps the rise, and on one count each would lose every B, yet by
+    the time the pulse ends each has put a stamp in the FIFO."""
+    enable = lib.wlsync_sm_set_enabled
+
+    def enable_seeing_high(sm, on):  # GPIO17 is low, and this view sees it high
+        result = enable(sm, on)
+        if on and sm == lib.test_sm:
+            lib.push_to(sm, [0, (~3) & 0xFFFF_FFFF])
+        return result
+
+    lib.wlsync_sm_set_enabled = enable_seeing_high
+    gpiod.pio_sees_barcode = False  # nothing stamped at the rise
+    if view == "inverted":
+        request = gpiod.request_lines
+
+        def request_inverted(*args, **kwargs):
+            line = request(*args, **kwargs)
+            set_value = line.set_value
+
+            def set_value_stamping_the_fall(pin, value):
+                set_value(pin, value)
+                if pin == 17 and value == gpiod.line.Value.INACTIVE and lib.testing:
+                    lib.push_to(lib.test_sm, [0, (~1_003) & 0xFFFF_FFFF])
+
+            line.set_value = set_value_stamping_the_fall
+            return line
+
+        gpiod.request_lines = request_inverted
+    backend = Rp1Backend()
+    try:
+        assert backend.stamp_test_failure == "no stamp when GPIO17 rose"
+        assert _is_split(backend)
+    finally:
+        backend.close()
+    # The settle that lets a stamp at the enable land before it is discarded, and the
+    # read after the rise: more than the 5.5 us a pair takes
+    # (wl_sync/rp1/pio_capture.py:87-92), and well inside the pulse.
+    assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
+
+
+@pytest.mark.parametrize("fault", ["clk_sys", "capture"])
+def test_a_machine_that_cannot_be_configured_closes_the_block_before_raising(lib, fault):
+    """The shim's open overwrites the block it holds without closing it
+    (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try."""
+    if fault == "clk_sys":
+        lib.clk_sys_hz = 0xFFFF_FFFF
+    else:
+        lib.start_result = -16
+    with pytest.raises(rp1.PiolibError):
+        Rp1Backend()
+    assert lib.log.count("open") == 1 and lib.log[-1] == "close"
+
+
+def test_a_frame_before_capture_starts_is_dropped_as_not_started(lib, gpiod, monkeypatch):
+    """Coverage: the STAMPS_NOT_STARTED guard in `_lead_stamp`. A one-count backend has no
+    stamp pump until capture starts, so a frame driven before then is dropped at once, and
+    waits for no drain."""
+    from wl_sync.backend import STAMPS_NOT_STARTED, FrameStamp
+    from wl_sync.barcode import FRAME_US, encode
+
+    monkeypatch.setattr(rp1, "time", gpiod.clock)  # where the frame costs nothing
+    backend = Rp1Backend()
+    try:
+        began = gpiod.clock.ns
+        stamp = backend.emit_pulses(17, encode(1000))
+        took_ns = gpiod.clock.ns - began
+    finally:
+        backend.close()
+    assert backend.timebase == "rp1-pio"
+    assert stamp == FrameStamp(None, STAMPS_NOT_STARTED)
+    assert took_ns < FRAME_US * 1_000 + rp1.STAMP_DRAIN_WAIT_S * 1e9
+
+
 def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch):
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: types.SimpleNamespace())
     with pytest.raises(rp1.PiolibError, match=r"pio/build-shim\.sh"):

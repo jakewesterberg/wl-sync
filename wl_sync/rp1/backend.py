@@ -101,6 +101,11 @@ STAMP_TEST_HIGH_US = 1_000
 # first frame comes later still: run() begins only once the backend exists
 # (wl_sync/cli.py:1751-1753, :455).
 STAMP_TEST_QUIET_S = 0.5
+# How long the test waits for a pair to land: after the enable, before what the FIFO holds
+# is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
+# edge (wl_sync/rp1/pio_capture.py:87-92); this leaves room for the syscalls either side,
+# and stays well inside the pulse.
+STAMP_TEST_SETTLE_US = 100
 
 # Shifted frames in a row, each offset within LEAD_STAMP_TOLERANCE of the one before, that
 # restart the RAW->P fit (Ruling R19; the rule is the plan's,
@@ -445,33 +450,42 @@ class Rp1Backend:
         # a disabled machine pushes nothing, so no code word reaches a FIFO before a
         # segment exists.
         lib = self._lib
-        # clk_sys BY NAME, inside the shim. This read clock_get_hz(0), which is
-        # clk_gpout0, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
-        # 4294967295 -- so the divider would have been ~2,147 rather than 100.
-        system_hz = lib.wlsync_clk_sys_hz()
-        low, high = _CLK_SYS_SANE_HZ
-        if not low <= system_hz <= high:
-            raise PiolibError(
-                f"RP1 reported clk_sys as {system_hz} Hz, which cannot be right; "
-                "every PIO timestamp is scaled by it"
-            )
-        self._clkdiv = system_hz / (_TICK_HZ * _CYCLES_PER_TICK)
+        # A raise below closes the block first: no backend is returned to close it, and
+        # the shim's open overwrites the block it holds without closing it
+        # (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try.
+        try:
+            # clk_sys BY NAME, inside the shim. This read clock_get_hz(0), which is
+            # clk_gpout0, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
+            # 4294967295 -- so the divider would have been ~2,147 rather than 100.
+            system_hz = lib.wlsync_clk_sys_hz()
+            low, high = _CLK_SYS_SANE_HZ
+            if not low <= system_hz <= high:
+                raise PiolibError(
+                    f"RP1 reported clk_sys as {system_hz} Hz, which cannot be right; "
+                    "every PIO timestamp is scaled by it"
+                )
+            self._clkdiv = system_hz / (_TICK_HZ * _CYCLES_PER_TICK)
 
-        # Load, configure and seed in C, so no struct crosses ctypes. A capture machine
-        # that cannot be configured raises, as it did when capture's start configured it:
-        # a known gap (Ruling R12), a crash-loop under Restart=always
-        # (deploy/wl-sync.service:30), but one that now comes before run() makes a
-        # segment, so it leaves no header-only segment at each restart.
-        words = (ctypes.c_uint16 * len(program.STROBE_CAPTURE))(*program.STROBE_CAPTURE)
-        self._sm = _check(
-            lib.wlsync_start_capture(
-                words, len(program.STROBE_CAPTURE),
-                program.WRAP_TARGET, program.WRAP, program.ENTRY,
-                CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
-                self._clkdiv, program.encode_mov_x_not_null(),
-            ),
-            "starting strobed capture",
-        )
+            # Load, configure and seed in C, so no struct crosses ctypes. A capture
+            # machine that cannot be configured raises, as it did when capture's start
+            # configured it: a known gap (Ruling R12), a crash-loop under Restart=always
+            # (deploy/wl-sync.service:30), but one that now comes before run() makes a
+            # segment, so it leaves no header-only segment at each restart.
+            words = (ctypes.c_uint16 * len(program.STROBE_CAPTURE))(
+                *program.STROBE_CAPTURE
+            )
+            self._sm = _check(
+                lib.wlsync_start_capture(
+                    words, len(program.STROBE_CAPTURE),
+                    program.WRAP_TARGET, program.WRAP, program.ENTRY,
+                    CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
+                    self._clkdiv, program.encode_mov_x_not_null(),
+                ),
+                "starting strobed capture",
+            )
+        except BaseException:
+            lib.wlsync_pio_close()
+            raise
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
         # pio/wlsync_pio.c:175-177, :197-202) must not stop the capture machine, and
         # raising here would: nothing above catches it (wl_sync/cli.py:1750-1761). The
@@ -589,11 +603,21 @@ class Rp1Backend:
         ONE PIOLIB CALLER. No pump thread exists yet (`start_strobed_capture` starts it),
         so this thread reads the test machine's FIFO, as it opened the block.
 
+        IT WITNESSES THE RISE, not merely a stamp (Ruling R29). The idle `jmp pin` tests the
+        level (wl_sync/rp1/program.py:99), so a PIO that saw GPIO17 high while it is low
+        would capture at the enable, and one that saw it inverted would stamp the fall.
+        Neither stamps a rise, and on one count each would lose every B, yet each has a
+        stamp in the FIFO by the time the pulse ends. So what the FIFO holds before the
+        rise is discarded, and the FIFO is read while GPIO17 is still high: a pass is a
+        stamp that came with the rise.
+
         THE PULSE: GPIO17 taken as the output emit_pulses drives (`_drive`), low; the test
-        machine started and enabled; GPIO17 high for STAMP_TEST_HIGH_US, then low; the
-        FIFO read, and one stamp is a pass; the machine disabled; and STAMP_TEST_QUIET_S of
-        LOW. The hold sleeps where `_drive` spins: its length needs no precision, since a
-        single pulse of any length under 7.5 ms fails the lead's quarter-point checks
+        machine started and enabled; STAMP_TEST_SETTLE_US for a stamp of the enable to
+        land, and the FIFO emptied; GPIO17 high; STAMP_TEST_SETTLE_US, and the FIFO read;
+        GPIO17 held high until STAMP_TEST_HIGH_US after the rise, then low; the machine
+        disabled; and STAMP_TEST_QUIET_S of LOW. One stamp read is a pass. The hold sleeps
+        where `_drive` spins: its length needs no precision, since a single pulse of any
+        length under 7.5 ms fails the lead's quarter-point checks
         (wl_sync/barcode.py:135-138).
 
         NEVER RAISES: an exception is a failed test, and the box records anyway, split.
@@ -625,20 +649,26 @@ class Rp1Backend:
             else:
                 test = started
                 _check(lib.wlsync_sm_set_enabled(test, 1), "enabling the test machine")
+                # Whatever the FIFO holds now came before the rise: a stamp of the enable,
+                # from a PIO that sees GPIO17 high while it is low.
+                time.sleep(STAMP_TEST_SETTLE_US / 1e6)
+                for _ in range(lib.wlsync_sm_rx_level(test)):
+                    lib.wlsync_sm_get(test)
                 driven = True
                 rise_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
                 self._out.set_value(BARCODE_PIN, Value.ACTIVE)
+                # Read while GPIO17 is still high, so a stamp of the fall is not taken for
+                # the rise's. The rise's pair is in by now (STAMP_TEST_SETTLE_US). Its data
+                # word has the capture window's lines, so pair_fifo's upper-half check
+                # holds (pio/wlsync_pio.c:187-189).
+                time.sleep(STAMP_TEST_SETTLE_US / 1e6)
+                level = lib.wlsync_sm_rx_level(test)
+                entries = [lib.wlsync_sm_get(test) for _ in range(level - level % 2)]
                 hold_ns = (rise_ns + STAMP_TEST_HIGH_US * 1_000
                            - time.clock_gettime_ns(time.CLOCK_MONOTONIC))
                 if hold_ns > 0:
                     time.sleep(hold_ns / 1e9)
                 self._out.set_value(BARCODE_PIN, Value.INACTIVE)
-                # The pair is in the FIFO 5.5 us after the rise
-                # (wl_sync/rp1/pio_capture.py:87-92), long before the fall. Its data word
-                # has the capture window's lines, so pair_fifo's upper-half check holds
-                # (pio/wlsync_pio.c:187-189).
-                level = lib.wlsync_sm_rx_level(test)
-                entries = [lib.wlsync_sm_get(test) for _ in range(level - level % 2)]
                 if not pair_fifo(entries, CODE_DATA_COUNT):
                     reason = "no stamp when GPIO17 rose"
         except Exception as error:  # noqa: BLE001 - a failed test: the box records anyway

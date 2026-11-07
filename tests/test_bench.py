@@ -334,7 +334,6 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
     capsys.readouterr()
 
 
-
 def test_the_stamps_command_reports_a_failed_start_up_test_and_runs_no_frame(
     monkeypatch, capsys
 ):
@@ -382,6 +381,7 @@ def test_the_stamps_command_reports_a_failed_start_up_test_and_runs_no_frame(
         "start-up test failed (no stamp when GPIO17 rose): this process records split, "
         "and has no stamps to count"
     ]
+
 
 def test_a_short_run_reports_no_tail_beyond_its_widest_bracket():
     """`statistics.quantiles` defaults to "exclusive", which extrapolates past the
