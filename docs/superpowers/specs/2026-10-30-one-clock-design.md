@@ -1,6 +1,6 @@
 # D5: code words, barcodes and edges on one clock, in SI seconds (approved; reworked)
 
-**Status:** approved by the user on 2026-10-30 (D5) and reworked on 2026-11-07 for their answers. The main change is that session time is now in SI seconds. Nothing in it is built. It is written for a builder to plan from.
+**Status:** approved by the user on 2026-10-30 (D5) and reworked on 2026-11-07 for their answers. The main change is that session time is now in SI seconds. Revised the same day after a builder check (ruling OC-R1): the capture program does not count 2:1 and is not wrap-safe, so it is fixed first (Part 0, §2.1). Nothing in it is built. It is written for a builder to plan from.
 
 **The approval, verbatim** (wl-phantom's main checkout, `.superpowers/sdd/2026-10-19-phase-1-generator-and-monitor/questions-for-you.md:331-333`):
 > D5: PIO-clock design approved. Answers: session time corrected to SI seconds (not RP1's crystal rate; the design must be reworked for this); a missed lead edge drops its B with an ERROR; no pass line for edges (software mapping); the header names its clocks (done, `timebase`). Next: plan + build.
@@ -21,6 +21,7 @@
 **Marks:**
 - **[user]** is a decision of the user's, dated.
 - **[mine]** is a judgement of mine (the draft's author's and this rework's).
+- **[OC-R1]** is a ruling of 2026-11-07 by the session coordinating the build. It followed a builder check of `1fc21b6`, which found that the capture program loses ticks and is not wrap-safe. It is not the user's.
 - **[unverified]** means no primary source confirms it. Each one is in §4, what bench day must measure.
 
 **Terms used below:**
@@ -35,7 +36,7 @@
 
 | # | Decision | Whose | § |
 |---|---|---|---|
-| 1 | RP1's PIO count is the box's one clock. A second state machine, running the capture program unchanged, stamps each barcode lead edge through a GPIO17→GPIO19 loopback, so W and B are one count. | [user, 2026-10-30] | 2.1 |
+| 1 | RP1's PIO count is the box's one clock. A second state machine, running the same program as the code-word machine, stamps each barcode lead edge through a GPIO17→GPIO19 loopback, so W and B are one count. | [user, 2026-10-30] | 2.1 |
 | 2 | GPIO19 is spent on the loopback. It was not answered on its own (draft Q1), but the recommendation approved names it. B4 can still remove the wire. | [user, 2026-10-30], by the approval | 2.1 |
 | 3 | Session time is in SI seconds, not RP1's crystal rate. | [user, 2026-10-30] | 2.2 |
 | 4 | SI is reached by **one rate, fixed for the whole process**: an affine map from P to SI µs. A map that follows NTP continuously is rejected. | [mine] | 2.2 |
@@ -49,6 +50,11 @@
 | 12 | `barcode_delay_us` is 0 on the new backend, by construction. | [mine] | 2.6 |
 | 13 | The word pump's thread drains both state machines, so piolib is used from one thread during capture. | [mine] | 2.1 |
 | 14 | Draft Q5, run the acceptance gate on a long process, is withdrawn: W–B error no longer grows with process age. | [mine] | 4 |
+| 15 | **Part 0:** the capture program is fixed so that every path, entry and exit included, costs 2 cycles per decrement, on both machines alike. It is built first, because it fixes today's W path whatever the open questions' answers. | [OC-R1] | 2.1 |
+| 16 | Every `jmp x--` is wrap-safe: when X was 0, it falls through only to an instruction that continues its path correctly. | [OC-R1] | 2.1 |
+| 17 | B3 is split: B3a keeps the shared-pin test for start skew, and B3b tests the two machines on independent event streams. | [OC-R1] | 4 |
+| 18 | After a frame, every stamp up to the frame's end is consumed. Only stamps between frames warn. | [OC-R1] | 2.5 |
+| 19 | systemd-timesyncd is required on the box (deploy docs, `wl.yaml`). | [OC-R1] | 2.2 |
 
 ---
 
@@ -58,13 +64,15 @@
 
 | Record | Where its tick comes from | Which oscillator |
 |---|---|---|
-| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz (`rp1/program.py:90-107`, `rp1/backend.py:49-50`, `:280`). | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
+| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz in the idle loop (`rp1/program.py:90-107`, `rp1/backend.py:49-50`, `:280`). Not across a captured event's entry and exit, which lose 1.5 ticks (§2.1, Part 0). | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
 | `B` | `backend.now_us()` = `CLOCK_MONOTONIC − _origin_ns`, read immediately before the frame (`cli.py:787-790`, `rp1/backend.py:243-245`). | The CPU's system counter, plus NTP. |
 | `E` | The kernel's `ktime_get_ns()` in the hard IRQ (Linux `drivers/gpio/gpiolib-cdev.c`, `line_event_timestamp`), minus the same origin (`rp1/backend.py:375-386`, `rp1/gpio.py:210-228`). | The CPU's system counter, plus NTP. |
 
 **The join happens once.** `_origin_ns` is read just before the state machine is enabled (`rp1/backend.py:285-286`).
 
 **clk_sys is a constant, not a measurement.** piolib's `rp1_clock_get_hz` returns a hard-coded `200 * MHZ` for clk_sys (`piolib/pio_rp1.c`).
+
+**A second fault, in today's W path alone (found 2026-11-07).** The capture program loses 1.5 ticks per event, and it can leave the program when its counter wraps. §2.1's Part 0 gives the detail and the fix.
 
 **The error grows from capture start.**
 - Capture starts once per process (`cli.py:503-504`).
@@ -94,14 +102,75 @@
 
 ### 2.1 One count: W and B on the PIO counter (option c-loop) [user, 2026-10-30]
 
-**Mechanism (the draft's (c), kept):**
-- A second state machine runs the existing capture program unchanged: same instructions, same offset in instruction memory, same divider.
+#### Part 0: the capture program, fixed first [OC-R1]
+
+**Entry and exit lose time.** This was verified in `rp1/program.py`, and by a cycle simulation of its listing [mine, 2026-11-07].
+- The idle loop costs 2 cycles per decrement: `jmp pin` at 0, then `jmp x--` at 1 (`program.py:91-93`).
+- **Entering a capture** costs 3 cycles for one decrement: the taken `jmp pin` at 0, then 2 and 3.
+- **Leaving it** costs 4 cycles for one decrement: `jmp pin` at 10 not taken, then `jmp` to idle at 11 (`program.py:103-106`), then 0 and 1.
+- So each captured event loses 1.5 ticks, for any strobe at least 2 cycles wide. The simulation lost 600 ticks over 400 events.
+
+**Why the tests missed it.** `cycles_per_decrement_by_path` (`program.py:113-128`) is a hand-written table that leaves out the entry and the exit. Its test (`tests/test_rp1_program.py:69-83`) checks the table, not the program.
+
+**What it costs:**
+- **Today's W path** loses 1.5 µs per strobe. That is 900 µs over the 600-strobe run of Task 5b Step 3, the run `program.py:116-119` cites, so it fails that gate on arithmetic alone.
+- **An unfixed stamp machine** would lose 1.5 ticks per rising edge of the barcode.
+  - This year's values have 5–13 rising edges per frame, mean 9.1 (computed with `barcode.encode`).
+  - That is about 14 ppm of W–B drift, varying with the value and with the strobe rate.
+  - The draft's B3, with both machines on GPIO16, feeds both machines one stream, so it cannot show this.
+
+**The wrap fault.**
+- If X reaches 0 at the held loop's `jmp x--` (`program.py:106`), it falls through to offset + 13, outside the program. What runs next depends on where `pio_add_program` placed the program.
+- Only instruction 1 is protected, by `WRAP = 1` (`program.py:109-110`).
+- The barcode is high about 10% of every second, so the stamp machine would hit this at about one wrap in 10, roughly once every 12 h. W would hit it rarely.
+- The simulation left the program in 60 of 1,200 runs started with X near 0.
+
+**The requirements [OC-R1]:**
+- Every path costs exactly 2 cycles per decrement, including the entry into a capture and the exit back to idle.
+- Every `jmp x--` is wrap-safe. When X was 0 it falls through only to an instruction that continues its path correctly, or it sits at the wrap.
+- Both machines run the same program, so W and B keep the same latency.
+- The test derives each path's cost by simulating `STROBE_CAPTURE` itself, including X = 0 at every `jmp x--`. That replaces the hand-written table.
+
+**A candidate that meets them** [mine; simulated, not run on silicon]. It is 13 instructions, as today:
+
+```
+ 0  jmp x--, 1     ; entry: pairs with the taken jmp pin at 11
+ 1  in pins, 16
+ 2  jmp x--, 3
+ 3  push noblock   ; word 1: data
+ 4  jmp x--, 5
+ 5  mov isr, x
+ 6  jmp x--, 7
+ 7  push noblock   ; word 2: counter
+ 8  jmp x--, 9     ; held: the decrement, falling into the test either way
+ 9  jmp pin, 8     ; held while high
+10  jmp x--, 11    ; exit: pairs with the untaken test, falling into idle either way
+11  jmp pin, 0     ; idle (wrap_target)
+12  jmp x--, 11    ; idle (wrap)
+```
+
+**What the simulation showed:**
+- Over 400 random events, widths from 2 to 300 cycles, it lost 0 ticks. Today's listing lost 600 on the same events.
+- It stayed in the program in all 1,200 runs started with X near 0.
+- The counter it pushed lay a constant 4.0–4.5 ticks after the rising edge. The half tick is the pin being sampled every 2 cycles.
+
+**What the candidate changes for the builder:**
+- Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:118`), not offset + 0.
+- `in pins` samples the data 1 µs after the strobe is seen, against 0.5 µs today. Whether the task PC holds its code that long is **[unverified]**, a Task 5b check.
+- The ≈2.5 µs constant in `docs/next-session.md:145-148` becomes this listing's constant.
+
+**Part 0 stands alone [OC-R1].** It fixes today's W path whatever the answers in §8, and without it Task 5b Step 3 cannot pass. So it is built before the rest.
+
+#### The stamp machine
+
+**Mechanism (the draft's (c), kept, on Part 0's program):**
+- A second state machine runs the same program as the code-word machine: Part 0's, at the same offset in instruction memory, with the same divider.
   - Its jmp pin is GPIO19, wired to GPIO17, the barcode output.
   - On the board this is a series resistor, before layout (`wl.yaml:33-40`). On the bench it is a jumper from header pin 11 to pin 35.
 - Both state machines are seeded by `pio_sm_exec`, as today (`pio/wlsync_pio.c:120-123`).
 - They are enabled together through `pio_enable_sm_in_sync_mask` → `PIO_IOC_SM_ENABLE_SYNC` (`piolib.h`, `pio_rp1.c`). So they count one P.
 - The second machine's push at a frame's first rising edge **is** that frame's `B`: the edge on the wire, on the count `W` uses.
-- The same program gives the same pin-to-push latency on both. The known ≈2.5 µs between strobe and `mov isr, x` (`docs/next-session.md:145-148`) is therefore shared by W and B, and cancels between them.
+- The same program gives the same pin-to-push latency on both: 4.0–4.5 ticks for the candidate. So the latency is shared by W and B, and cancels between them.
 
 **What the shim needs (`pio/wlsync_pio.c`).** `wlsync_start_capture` cannot simply be called twice:
 - It adds the program each time (`:95-99`). The second machine must reuse the first one's offset.
@@ -123,8 +192,8 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 - At a 1 ms poll the 4-pair FIFO (`rp1/backend.py:115`) cannot overflow inside a frame: rising edges are at least 10 ms apart (`barcode.py:3-9`).
 
 **`W` against `B`:**
-- Zero drift, by construction.
-- The constant is ≤ 1 tick if the sync enable starts both dividers together, as the Pico SDK's does **[unverified on RP1; B3]**.
+- No drift, given Part 0. With every path at 2 cycles per decrement, each machine's count is cycles / 2 whatever its events. Without Part 0 the stamp machine drifts about 14 ppm from W.
+- The constant is ≤ 1 tick if the sync enable starts both dividers together, as the Pico SDK's does **[unverified on RP1; B3a]**.
 - The origin offset (bench check 3, `docs/next-session.md:137-139`) drops out of W against B.
 
 ### 2.2 Session time in SI seconds [user, 2026-10-30; mechanism mine]
@@ -187,6 +256,11 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
   - Ordinary users may call it with modes 0 (adjtimex(2): *"Ordinary users are restricted to a value of either 0 or ADJ_OFFSET_SS_READ"*).
   - `offset` is in ns when STA_NANO is set.
   - This excludes the first sync's slew, which can be up to 0.4 s (systemd `timesyncd-manager.c`, `NTP_MAX_ADJUST`).
+- **systemd-timesyncd must be the box's NTP client [OC-R1].**
+  - The offset gate assumes the client corrects the clock through the kernel's PLL.
+  - The builder check found that under chrony `offset` stays 0, so large slews would pass the gate. That was not verified here.
+  - At build, the deploy docs require timesyncd, and `wl.yaml`'s `third_party` gains it with its reason (CLAUDE.md: a dependency added updates `third_party`).
+  - As a self-check [mine], the gate also requires STA_PLL in adjtimex's `status`. That timesyncd sets it is **[unverified; B7 logs `status`]**.
 - The bracket width w is under the B5 limit.
 
 **How NTP steps and slews are handled:**
@@ -305,14 +379,15 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 ### 2.5 A missed lead edge [user, 2026-10-30: drop its B with an ERROR]
 
-**Detection, in `emit_pulses` after the frame:**
-1. Stamps queued since the previous frame, before this frame's bracket opened, are discarded with a WARNING: `%d stamps on GPIO19 before barcode %d's lead edge, discarded: something drove the loopback between frames`. Nothing else drives GPIO17 between frames, because the frame ends low (`rp1/backend.py:510-521`).
-2. `emit_pulses` waits until the pump has drained past the bracket's end, at most 50 ms [mine]. Then it takes the first stamp.
-3. The stamp is kept only if it lies within the bracket mapped to P, ±1 ms [mine].
+**Detection, in `emit_pulses` after the frame** (steps 1 and 3 are [OC-R1]; in `1fc21b6` they warned on every frame):
+1. `emit_pulses` waits until the pump has drained past **the frame's end**, not only the lead edge's bracket. It waits at most 50 ms past that end [mine]. The frame ends low (`rp1/backend.py:510-521`).
+2. Of the stamps queued since the previous frame ended, it takes the first that lies within the lead edge's bracket mapped to P, ±1 ms [mine].
    - 1 ms covers the warm-up map many times over.
-   - A stale stamp from the previous frame is about 0.8 s off, and this frame's later edges are ≥ 20 ms after the lead (`barcode.py:5-7`).
+   - This frame's later edges are ≥ 20 ms after the lead (`barcode.py:5-7`).
    - Only a glitch within 1 ms of the lead edge could pass for it. B10 would show one.
-4. No stamp in the window means the B is dropped.
+3. Every other stamp from the bracket to the frame's end is consumed silently. These are the frame's own later rising edges, 4–12 a frame.
+4. A stamp between the previous frame's end and this frame's bracket is discarded with a WARNING: `%d stamps on GPIO19 between frames, before barcode %d, discarded: something drove the loopback between frames`. Nothing else drives GPIO17 between frames.
+5. No stamp in the window means the B is dropped.
 
 **The protocol change.**
 - `emit_pulses` returns the stamp's raw P, or None (`backend.py:96-97`).
@@ -386,7 +461,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 | No calibration | exact, at RP1's rate (`"rp1-pio"`) | exact once paired | collected; used from the next start |
 | NTP roll | ticks run on, same r | same | unaffected |
 | Restart | a new process: new P origin, possibly a newer r | warm, seeded by the file | — |
-| P wrap (71.6 min) | both machines wrap together; `_BoxClock` unchanged | mapped into P mod 2³² and unwrapped | unwrapped counts |
+| P wrap (71.6 min) | both machines wrap together, given Part 0's wrap-safe `jmp x--` (today's held loop leaves the program, `program.py:106`); `_BoxClock` unchanged | mapped into P mod 2³² and unwrapped | unwrapped counts |
 | Missed lead edge | that `B` dropped, ERROR (§2.5) | one pair fewer | one pair fewer |
 | Stamp FIFO dead (pump thread stopped) | every `B` dropped; health reports the stop (`rp1/backend.py:475-482`) | map extrapolates and degrades | stops |
 
@@ -394,7 +469,8 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 | File | Change |
 |---|---|
-| `pio/wlsync_pio.c` | Stamp-machine start (jmp pin only, shared offset); sync enable of both. |
+| `wl_sync/rp1/program.py`, `pio/strobe_capture.pio`, `tests/test_rp1_program.py` | **Part 0, first:** the fixed listing; the cycle table replaced by a simulation of `STROBE_CAPTURE`, with X = 0 at every `jmp x--`; `_assert_encoders_agree` follows the instructions used. |
+| `pio/wlsync_pio.c` | Part 0: start at the idle entry. Then the stamp-machine start (jmp pin only, shared offset) and a sync enable of both. |
 | `wl_sync/rp1/backend.py` | Second machine; the pump drains both; `emit_pulses` brackets the lead edge and returns the stamp; `now_us()` from the map; `timebase` per instance; `barcode_delay_us` 0. |
 | `wl_sync/rp1/gpio.py` | `edge_tick_us` → the map; the (MONO, RAW) table on each pass; `span_us` conversion. |
 | `wl_sync/rp1/pio_capture.py` | Stamp pairs through `pair_fifo`; `WORDS_LAG_US`. |
@@ -405,9 +481,13 @@ What matters for the budget is that the map is affine, which it is by constructi
 | `wl_sync/log.py`, `wl_sync/pins.py` | Docstrings (§2.6); `barcode_loop`. |
 | `wl_sync/bench.py` | The loopback report gives E's constant and spread (B6) and dropped `B`s. |
 | `hardware/gen/gen_breakout_pi_interface.py`, breakout spec §4 | GPIO19 loopback resistor. |
-| `deploy/README.md`, `wl.yaml`, `docs/pending-wl-preproc-amendments.md` | New `timebase` values, the calibration file, the delay; the status at build. |
+| `deploy/README.md`, `wl.yaml`, `docs/pending-wl-preproc-amendments.md` | New `timebase` values, the calibration file, the delay; systemd-timesyncd required (`third_party`); the status at build. |
 
-**Size:** about 1 week for c-loop, as the draft estimated, plus about 3 days for the SI calibration, the map and their tests, plus bench [mine].
+**Size** [mine]:
+- Part 0: about 1–2 days, first.
+- c-loop: about 1 week, as the draft estimated.
+- The SI calibration, the map and their tests: about 3 days.
+- Then bench.
 
 ---
 
@@ -415,7 +495,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 | Quantity | On the ±100 µs path? | Figure |
 |---|---|---|
-| W against B | Yes | No drift. A constant ≤ 1 tick (B3). Converting both through one map differs by \|r−1\| × (≤ 1 s to the nearest frame): ≤ 0.2 µs at 200 ppm. Rounding ±0.5 µs. |
+| W against B | Yes | No drift, given Part 0. Without it: ~14 ppm on the stamp machine, and 1.5 µs per strobe on W. A constant ≤ 1 tick (B3a). Converting both through one map differs by \|r−1\| × (≤ 1 s to the nearest frame): ≤ 0.2 µs at 200 ppm. Rounding ±0.5 µs. |
 | `B`'s straightness, relative to each device's crystal (wl-preproc's one-rate fits) | Yes: W reaches the devices through it | The affine map adds 0. RP1's own wander remains, as any crystal's does (B8). |
 | `B` jitter | Yes | From the software tick's ~150 µs per frame (wl-phantom `compare.py:126`) to the PIO's tick. |
 | Absolute rate against SI | No (devices fit their own rate) | Target ≤ 1 ppm [mine]: 3.6 ms of duration an hour, ~0.3 ns on a 300 ms reaction time. ≤ 0.56 ppm at a 1 h baseline if θ ≤ 1 ms **[unverified; B7, B8]**. |
@@ -435,7 +515,9 @@ What matters for the budget is that the map is affine, which it is by constructi
 |---|---|---|---|
 | B1 | Now | **Shared reference?** `dmesg \| grep arch_timer`. With GPIO16 jumpered to GPIO20, pulse at 1 Hz for 1 h, sample (MONO, RAW) every 100 ms, and find the rate of W against E converted to RAW. | Informational. It no longer decides the design (§5). If shared (under 0.01 ppm), the RAW→P fit reduces to an offset. |
 | B2 | Now | **Today's W–B drift.** wl-phantom §5.5, at least 1 h. | Expected to fail. Report the ppm; it should match B8's rate against B1's. |
-| B3 | Build | **Lockstep.** Two machines, the same program, both with jmp pin GPIO16, sync-enabled; 10⁵ strobes. | The tick difference is identical on every event, and ≤ 1. **A gate (§5).** |
+| P0 | Build, first | **Part 0 on silicon.** Task 5b Step 3 (`docs/next-session.md:124-150`) on the fixed program, with one machine. | ±100 µs and zero dropped words over 600 strobes. No loss per strobe: the old listing's 1.5 µs a strobe would show as a slope against the strobe count. |
+| B3a | Build | **Start skew.** Two machines on Part 0's program, both with jmp pin GPIO16, sync-enabled; 10⁵ strobes. | The tick difference is identical on every event, and ≤ 1. |
+| B3b | Build | **No loss per event, on independent streams [OC-R1].** Machine A's jmp pin takes a dense stream: a spare output toggled in software with RAW brackets, for example GPIO18→GPIO16 (header pin 12→36), ≥ 10⁵ events, widths down to a few µs. Machine B takes the barcode loop (11→35). Over ≥ 1 h, fit each machine's count against RAW through its own events' brackets. | The two slopes agree within 0.01 ppm, whatever each stream's rate. A loss per event shows as ticks lost × event rate: the old listing at 1 kHz is 1,500 ppm. **B3a and B3b together are a gate (§5).** |
 | B4 | Build | **Barcode visible to PIO.** c-direct with no wire, then c-loop with the 11→35 jumper. | Every lead edge stamped. c-direct working removes the wire. |
 | B5 | Now | **Bracket width** (RAW either side of the first `set_value`) over 8 h. | Informational. It sets the rejection limit for wide brackets (§2.2, §2.3). |
 | B6 | After | **E mapping.** GPIO17 to GPIO19 and to GPIO20 at once, 8 h: E mapped minus the stamp (`bench loopback`). | **No pass line** [user]. Report the median (E's constant) and the spread at p50, p99 and p99.9. |
@@ -449,7 +531,8 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 ## 5. What would overturn it
 
-1. **B3 shows the two machines cannot be held in lockstep,** or that the skew is not a constant ≤ 1 tick.
+0. **P0 shows that Part 0's program does not count 2:1 on RP1.** That stops Task 5b as well as this design, and needs its own diagnosis before anything else.
+1. **B3a or B3b shows the two machines cannot be held in lockstep.** That is: the skew is not a constant ≤ 1 tick, or a machine still loses ticks per event.
    - Fall back to the draft's (a): W fitted onto the stamp machine's count, or onto RAW, through the same loopback pairs.
    - Accept the fit's residual on W.
    - The SI map applies unchanged.
@@ -474,7 +557,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - It keeps a software-timed B.
   - Whether an exec'd instruction costs the machine a cycle on RP1 is **[unverified]**.
   - Its pair-collection idea survives, fed instead by (c)'s loopback (§2.2).
-  - It is still the fallback if B3 fails.
+  - It is still the fallback if B3a or B3b fails.
 - **(b) Move edges onto PIO.** It needs one machine per line, and 2–3 are free (`MAX_PIO_SMS 4`; RP1's block count **[unverified, believed 1]**).
   - Partial (b), for example `pd1_comp` on a free machine, was tied to a pass line for edges. The user declined one [2026-10-30], so it is not built.
 - **(d) Stamp B and E from RAW.** It takes NTP out of B and E, but not RP1 against the CPU, and B stays software-timed.
@@ -486,6 +569,9 @@ What matters for the budget is that the map is affine, which it is by constructi
   - It is a separate decision.
 - **A map that tracks NTP continuously** (new in this rework) is rejected for the reason in §2.2.
 - **A header field for the applied rate** is rejected for the reason in §2.6.
+- **Corrected, not chosen.** The draft, and this rework's `1fc21b6`, said the second machine runs "the existing capture program unchanged", with W against B at "zero drift, by construction".
+  - Both claims were wrong: the program loses 1.5 ticks per event and is not wrap-safe.
+  - OC-R1 corrected them (§2.1, Part 0).
 
 **The draft's questions, as answered:**
 - **Q1, GPIO19:** answered by the approval of the recommendation that spends it (decision 2).
@@ -517,12 +603,26 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 ## 8. Questions only the user can answer
 
-- **Q1. Is "SI seconds" meant as this design reaches it?**
-  - The design: RP1's count scaled by one rate, fixed for each process and measured against NTP by earlier processes. That makes ticks SI to within about 1 ppm on average, with the crystal's own wander within a day left in.
-  - The alternative is to follow NTP continuously. It would also remove the wander, but it puts NTP's phase error (unmeasured, plausibly a millisecond) into every device's alignment through wl-preproc's one-rate fits, and needs wl-preproc to fit rate piecewise.
-  - The answer decides whether the map is affine or tracking.
+- **Q1. Is "SI seconds" meant as this design reaches it, and what of a box with no calibration?**
+  - **The design:** RP1's count scaled by one rate, fixed for each process and measured against NTP by earlier processes. That makes ticks SI to within about 1 ppm on average, with the crystal's own wander within a day left in.
+  - **The alternative** is to follow NTP continuously. It would also remove the wander, but it puts NTP's phase error (unmeasured, plausibly a millisecond) into every device's alignment through wl-preproc's one-rate fits, and needs wl-preproc to fit rate piecewise.
+  - **The uncalibrated case.** After a fresh install, a board swap or a lost file, the box records `"rp1-pio"`, at RP1's rate, until its next start. On a box left running, that can be weeks. The options:
+    - **accept it.** This is the default if unanswered.
+    - **restart automatically between sessions** once a 1 h estimate exists. One rate per process still holds; the cost is a restart nobody asked for, which is a new clock.
+    - **apply the new r at the next session-open roll.** No session spans that roll, but it breaks one rate per `process_uuid` (`log.py:108-122`) and wl-phantom's one slope shared by every domain (`compare.py:124-125`).
+  - The answers decide whether the map is affine or tracking, and whether a process may change its rate.
 - **Q2. When the loopback is absent for a whole process, should the box fall back?**
   - Under your Q3 answer every frame's `B` is dropped, so that process logs no barcodes and its sessions cannot be timed from the box.
+  - **The edges lose their anchor too.** Without the loopback the RAW→P fit gets no pairs, so E is mapped from the origin join at the calibration's P/RAW ratio.
+    - With a calibration file, E drifts from W by however far that ratio has moved since it was measured **[unverified; B8]**.
+    - Without one, E drifts by the two crystals' difference: tens of ppm **[unverified]**, about 0.1 s an hour at 30 ppm.
   - **Keep that:** a loud ERROR episode and nothing else. This is the default if unanswered.
-  - **Or test and fall back:** the box tests the loopback before its first segment, with one short pulse the decoders reject (it fails the lead's quarter-point checks, `barcode.py:120-123`). The pulse must end more than `IDLE_MIN_US`, 0.4 s, before the first frame, or the decoders lose that frame too (`barcode.py:37`, `:113`). If the test fails, that process falls back to today's split clock (`timebase "split"`, software-timed `B`).
-  - The fallback keeps the split backend in the code, and gives a session with W–B drift instead of an untimed one.
+  - **Or test and fall back:** the box tests the loopback before its first segment, with one short pulse the decoders reject (it fails the lead's quarter-point checks, `barcode.py:120-123`). The pulse must end more than `IDLE_MIN_US`, 0.4 s, before the first frame, or the decoders lose that frame too (`barcode.py:37`, `:113`). If the test fails, that process falls back to today's split clock (`timebase "split"`, software-timed `B`). B and E are then on MONO together, and only W drifts.
+  - The fallback keeps the split backend in the code, and gives a session with W drifting from B and E instead of one with no `B` and E unanchored.
+- **Q3. What is the hardware and deploy scope of this work?**
+  - **A spike on the box first?** May the build use wl-sync-rig0 over ssh for a spike before the ~1.5 weeks of software that rest on it? The spike would cover Part 0's program, the stamp machine, B3a and B3b. A failure there changes the design (§5).
+  - **Who fits the jumpers?**
+    - 11→35 for the loopback (B4, B3b, B6, B8, B10);
+    - 11→38 for B6's edge input;
+    - 12→36 if B3b's dense stream comes from GPIO18.
+  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:167`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
