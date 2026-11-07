@@ -126,12 +126,15 @@ second board or a signal generator on the strobe and data lines:
 
     ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0
 
-**Check these first, in this order.** The first three are listed the same way in
+**Check these first, in this order.** Items 2 and 3 are listed the same way in
 `pio/strobe_capture.pio`.
 
-1. **`jmp x--, <next instruction>` is a legal one-cycle decrement.** The entire ±100 µs
-   argument rests on it. If it is not, the padding scheme collapses and the capture path
-   starts losing time again — roughly 2 µs per event, 1.2 ms over a 600-event run.
+1. **The fixed program on silicon (P0).** Run the plan's bench checklist P0
+   (`docs/superpowers/plans/2026-11-07-one-clock.md:1255`) first. The capture program changed on
+   2026-11-07 because it lost 1.5 µs per strobe (900 µs over Step 3's 600 strobes) and could
+   leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
+   proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
+   silicon. The entire ±100 µs argument rests on it.
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -148,13 +151,27 @@ second board or a signal generator on the strobe and data lines:
    2.29 V, below the comparator's 2.50 V threshold. Measure a camera group's strobe wired
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
-There is also a **known constant** bias of about 2.5 µs, because `mov isr, x` runs 5
-cycles after the strobe is observed. Constant is the important word: it is a host-side
-subtraction, not jitter. Measure it rather than trusting the comment, since it depends on
-final instruction placement.
+7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
+   strobe (`wl_sync/rp1/backend.py:305-310`). The strobe is tested every 2 PIO cycles (1 µs), so
+   a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
+   read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
+   the extra 0.5 µs covers skew between the strobe and data paths. The old program's docs said
+   1.0 µs, which assumed edges on cycle boundaries; for an edge at any instant it needed 1.5 µs.
+   Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
+   previous one (`wl_sync/rp1/backend.py:311-312`).
+8. **Rebuild the shim first.** The backend refuses a shim that is not version 2
+   (`deploy/README.md:334-335`, `wl_sync/rp1/backend.py:151`). P0's first step builds it.
+
+There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
+x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
+tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
+spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
+(`tests/test_rp1_program.py:159`). Its mean is a host-side subtraction; the spread is
+jitter. Measure it rather than trusting the comment, since it depends on final instruction
+placement.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
-§3 lists the measurements that decide how code words and barcodes get onto one clock (B1–B7).
+§4 and the plan's bench section (`docs/superpowers/plans/2026-11-07-one-clock.md`, P0 and B1–B10) list the measurements that decide how code words and barcodes get onto one clock.
 The cheapest two can be done on this same bench day:
 - **B1:** `dmesg | grep arch_timer` on the box. Then, with GPIO16 jumpered to GPIO20, find the
   rate of code words against edges converted to `CLOCK_MONOTONIC_RAW`. Under 0.01 ppm means RP1

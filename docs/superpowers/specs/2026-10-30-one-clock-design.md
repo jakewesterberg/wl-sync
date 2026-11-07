@@ -153,6 +153,7 @@
 - Over 400 random events, widths from 2 to 300 cycles, it lost 0 ticks. Today's listing lost 600 on the same events.
 - It stayed in the program in all 1,200 runs started with X near 0.
 - The counter it pushed lay a constant 4.0–4.5 ticks after the rising edge. The half tick is the pin being sampled every 2 cycles.
+  *[corrected 2026-11-07, plan 2026-11-07-one-clock: the simulation read X at the second `push`, but `mov isr, x` latches it one decrement earlier. And the strobe is tested every 2 cycles, so a real edge is seen 0–1 µs late. The word therefore holds the count 3.0–4.0 ticks after the edge (a mean of 3.5; the spread is a full tick, not a half), and the pair is in the FIFO within 5.5 µs of the edge (`tests/test_rp1_program.py:159`).]*
 
 **What the candidate changes for the builder:**
 - Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:118`), not offset + 0.
@@ -171,6 +172,7 @@
 - They are enabled together through `pio_enable_sm_in_sync_mask` → `PIO_IOC_SM_ENABLE_SYNC` (`piolib.h`, `pio_rp1.c`). So they count one P.
 - The second machine's push at a frame's first rising edge **is** that frame's `B`: the edge on the wire, on the count `W` uses.
 - The same program gives the same pin-to-push latency on both: 4.0–4.5 ticks for the candidate. So the latency is shared by W and B, and cancels between them.
+  *[corrected 2026-11-07: 3.0–4.0 ticks. Its mean is shared by W and B and cancels between them; each stamp keeps its own spread of up to 1 tick.]*
 
 **What the shim needs (`pio/wlsync_pio.c`).** `wlsync_start_capture` cannot simply be called twice:
 - It adds the program each time (`:95-99`). The second machine must reuse the first one's offset.
