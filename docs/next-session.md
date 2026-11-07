@@ -110,7 +110,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 `deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
 
 **Before anything runs the box, rebuild and install the shim, version 2** (P0 item 1,
-`docs/superpowers/plans/2026-11-07-one-clock.md:1257`). The backend refuses an older shim
+`docs/superpowers/plans/2026-11-07-one-clock.md:1550`). The backend refuses an older shim
 (`deploy/README.md:337-340`).
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
@@ -135,7 +135,7 @@ unverified semantics (one cycle per instruction, `jmp x--` legal, `mov isr, x` c
 bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
 
 1. **The fixed program on silicon (P0).** Run the plan's bench checklist P0
-   (`docs/superpowers/plans/2026-11-07-one-clock.md:1255`) first. The capture program changed on
+   (`docs/superpowers/plans/2026-11-07-one-clock.md:1548`) first. The capture program changed on
    2026-11-07 because it lost 1.5 µs per strobe (900 µs over Step 3's 600 strobes) and could
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on

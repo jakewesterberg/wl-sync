@@ -421,6 +421,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - The frame after the roll cannot be protected this way (§7).
 
 **A loopback absent for a whole process** (a wire missing or cut) drops every `B`. The box then logs no barcodes, and wl-preproc cannot time its sessions: *"the sync box log decoded no barcodes"* (`timebase/clock.py:130-131`). Whether the box should fall back is Q2.
+*[Answered 2026-11-07 (the user, Q2): test, then fall back. A process whose loopback fails its start-up test records `"split"`, so it keeps its `B` records (§8 Q2).]*
 
 ### 2.6 What is written
 
@@ -435,6 +436,7 @@ What matters for the budget is that the map is affine, which it is by constructi
     - All paths share one rate.
   - **`"rp1-pio"`:** the same, unscaled. Ticks count RP1's crystal, because no calibration was usable at start. All paths still share one rate.
 - `"split"` stays defined for segments already written. The build removes the split backend unless Q2 keeps it as a fallback.
+  *[Answered 2026-11-07 (the user, Q2): Q2 keeps it. The split backend is not removed. It stays as a per-process mode, for a process whose loopback fails its start-up test (§8 Q2).]*
 - `"fake"` is unchanged.
 
 **No header field is added** [mine]. The header forbids unknown fields (`log.py:57`), so a field would make every pinned reader refuse new segments. The user has said the header names its clocks through `timebase`. The applied r, its age and its baseline go to the journal at start.
@@ -614,6 +616,7 @@ What matters for the budget is that the map is affine, which it is by constructi
     - **restart automatically between sessions** once a 1 h estimate exists. One rate per process still holds; the cost is a restart nobody asked for, which is a new clock.
     - **apply the new r at the next session-open roll.** No session spans that roll, but it breaks one rate per `process_uuid` (`log.py:108-122`) and wl-phantom's one slope shared by every domain (`compare.py:124-125`).
   - The answers decide whether the map is affine or tracking, and whether a process may change its rate.
+  - *Answered 2026-11-07 (the user): "Accept + install step".* The design stands: one rate per process, and with no usable calibration a process records `"rp1-pio"` until its next start. The deploy docs add one step: after an install or a board swap, the box runs at least 1 h and is then restarted once, between sessions. Nothing else changes, and no other repository changes.
 - **Q2. When the loopback is absent for a whole process, should the box fall back?**
   - Under your Q3 answer every frame's `B` is dropped, so that process logs no barcodes and its sessions cannot be timed from the box.
   - **The edges lose their anchor too.** Without the loopback the RAW→P fit gets no pairs, so E is mapped from the origin join at the calibration's P/RAW ratio.
@@ -622,6 +625,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - **Keep that:** a loud ERROR episode and nothing else. This is the default if unanswered.
   - **Or test and fall back:** the box tests the loopback before its first segment, with one short pulse the decoders reject (it fails the lead's quarter-point checks, `barcode.py:120-123`). The pulse must end more than `IDLE_MIN_US`, 0.4 s, before the first frame, or the decoders lose that frame too (`barcode.py:37`, `:113`). If the test fails, that process falls back to today's split clock (`timebase "split"`, software-timed `B`). B and E are then on MONO together, and only W drifts.
   - The fallback keeps the split backend in the code, and gives a session with W drifting from B and E instead of one with no `B` and E unanchored.
+  - *Answered 2026-11-07 (the user): "Test, then fall back".* The box tests the loopback before its first segment. On a failure, that process records `"split"`: `B` read from MONO before the frame, and edges through the MONO origin. The split backend stays in the code as a per-process mode. How the test is made is the plan's (Task 1.10a).
 - **Q3. What is the hardware and deploy scope of this work?**
   - **A spike on the box first?** May the build use wl-sync-rig0 over ssh for a spike before the ~1.5 weeks of software that rest on it? The spike would cover Part 0's program, the stamp machine, B3a and B3b. A failure there changes the design (§5).
   - **Who fits the jumpers?**
@@ -629,3 +633,8 @@ What matters for the budget is that the map is affine, which it is by constructi
     - 11→38 for B6's edge input;
     - 12→36 if B3b's dense stream comes from GPIO18.
   - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:192`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
+  - *Answered 2026-11-07 (the user): a spike first, "Yes, spike first"; the hardware, "Not yet".*
+    - Nothing physical for now: no jumpers, no signal generator, no board. So nobody fits the jumpers above yet.
+    - The spike covers only what needs no wiring (the plan's bench section S). B3a and B3b wait for jumpers, unless B4's c-direct case works there.
+    - The unit stays `--fake`, and moving it off is not part of this work.
+    - The board's loopback resistor (the plan's Task 1.14) is not built.
