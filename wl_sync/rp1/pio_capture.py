@@ -84,12 +84,27 @@ class WordsDroppedError(RuntimeError):
     """The RX FIFO was full when drained, so `push noblock` may have discarded words."""
 
 
-# How long after a strobe edge both of its words are in the RX FIFO, with room to spare.
-# The program (wl_sync.rp1.program) runs at 2 MHz, 0.5 us a cycle. The idle loop tests
-# the strobe every 2 cycles, so a strobe is seen up to 2 cycles after it rises; the second
-# word is pushed 8 cycles after the `jmp pin` that saw it, and the push completes 1 cycle
-# later. 2 + 8 + 1 = 11 cycles after the edge, 5.5 us; 10 leaves 4.5 us of margin.
-WORDS_LAG_US = 10
+# How long after a strobe edge both of its words are in the RX FIFO, as the box clock
+# that `polled_at` is read on sees it, with room to spare. The program
+# (wl_sync.rp1.program) runs at 2 MHz, 0.5 us a cycle. The idle loop tests the strobe
+# every 2 cycles, so a strobe is seen up to 2 cycles after it rises; the second word is
+# pushed 8 cycles after the `jmp pin` that saw it, and the push completes 1 cycle later.
+# 2 + 8 + 1 = 11 cycles after the edge, 5.5 us. That was the whole allowance, at 10 us.
+#
+# 1_000 ON ONE COUNT, BECAUSE THE CLOCK IS AN ESTIMATE THERE. A word's tick is P itself,
+# and `polled_at` is now_us(), the RAW->P fit's estimate of P, so the lag must also cover
+# how far ahead of P the estimate runs. The spec widens it for the warm-up error, tens of
+# us before the first pairs, and finds 1 ms costs a roll nothing measurable (spec §2.4,
+# docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). 1 ms also covers the
+# estimate while lead edges still match, since a match needs the map within
+# LEAD_STAMP_TOLERANCE of the stamp (wl_sync/clockmap.py:47-51).
+#
+# In a split process `polled_at` is MONO us since the origin, as it was at 10, and
+# "before" is on that clock (`WordPump.handle`). 1_000 is a larger lag than it needs
+# there, and still safe, because a larger lag only claims less. The stamp drain's mark
+# follows the same rule (`StampPump.stamps_through`), so a frame waits about 1 ms longer
+# for it.
+WORDS_LAG_US = 1_000
 
 
 class WordPump:

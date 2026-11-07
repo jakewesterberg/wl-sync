@@ -137,6 +137,22 @@ def test_an_uncalibrated_fit_matches_every_lead_edge_before_its_slope_is_freed(p
     assert unmatched == []
 
 
+def test_restart_drops_the_pairs_and_runs_its_line_through_one_pair_at_the_seed_slope():
+    """Ruling R19: a fit that has lost the lead edges restarts at one, as if it held that
+    pair alone (Task 1.2's rule), whatever it held before."""
+    fit = RawToP(0)
+    for k in range(1, 41):  # +40 ppm, and past FIT_FREE_SLOPE_PAIRS: the slope is free
+        fit.add(k * S, 300 + k * 1_000_040)
+    assert fit.counts_per_ns() == Fraction(1_000_040, 10**9)
+    r, p = 50 * S + 7, 123_456_789
+    fit.restart(r, p)
+    assert fit.p_of(r + 1_000_000_000) == p + 1_000_000
+    assert fit.counts_per_ns() == Fraction(1, 1000)
+    fit.add(51 * S, 51_000_123)  # the newest pair, at the seed slope
+    assert fit.p_of(52 * S) == 51_000_123 + 1_000_000
+    assert fit.p_of(50 * S) == 51_000_123 - 1_000_000
+
+
 def test_thirty_pairs_or_more_fit_their_own_slope():
     fit = RawToP(0)
     for k in range(1, 41):

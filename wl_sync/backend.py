@@ -104,11 +104,11 @@ class StampLag:
 # The lead edge has no stamp at all.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
 # The start of the cause for a stamp outside the lead edge's window. The rest gives the
-# distance (wl_sync/rp1/backend.py:838-843), which differs frame to frame, so the run
+# distance (wl_sync/rp1/backend.py:1001-1006), which differs frame to frame, so the run
 # loop tells the kind by this.
 STAMP_TOO_FAR_PREFIX = "the stamp lies "
 # No frame can be matched, because the stamp machine never started (Ruling R15) or its
-# drain has stopped (Ruling R16) (wl_sync/rp1/backend.py:813-818).
+# drain has stopped (Ruling R16) (wl_sync/rp1/backend.py:973-980).
 STAMPS_NOT_STARTED = "the stamp machine did not start"
 STAMPS_STOPPED = "the stamp drain stopped"
 
@@ -190,8 +190,8 @@ class SyncBackend(Protocol):
         Recorder's one clock, which unwraps these and compares them with the roll's
         boundary (wl_sync.cli._await_delivery).
 
-        A path that will deliver nothing more, because its thread has stopped, is left
-        out: there is nothing to wait for.
+        A path that will deliver nothing more, because it has stopped, is left out:
+        there is nothing to wait for.
         """
 
     def stamp_lag(self) -> StampLag | None:

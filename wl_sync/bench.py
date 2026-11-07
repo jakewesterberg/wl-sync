@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:835-843),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:997-1006),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -233,7 +233,7 @@ def stamp_run(
         if stamp.tick is None:
             # Only a stamp too far leaves its distance in the match: `nearest` is set
             # when a stamp lay before the end and none in the window
-            # (wl_sync/clockmap.py:249-251).
+            # (wl_sync/clockmap.py:260-262).
             far = None if trace is None else trace.lead.nearest
             kind = stamp.missed if far is None else STAMP_TOO_FAR
             report.missed[kind] = report.missed.get(kind, 0) + 1

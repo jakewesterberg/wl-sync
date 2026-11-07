@@ -158,8 +158,9 @@ def test_stamps_through_follows_the_word_pumps_rule():
     from wl_sync.rp1.pio_capture import WORDS_LAG_US, StampPump
 
     pump = StampPump(data_count=DATA)
+    polled_at = 3 * WORDS_LAG_US  # past the lag, so the mark is not wrapped below zero
     assert pump.stamps_through is None
-    assert pump.handle([], polled_at=1_000) is True
-    assert pump.stamps_through == 1_000 - WORDS_LAG_US - 1
+    assert pump.handle([], polled_at=polled_at) is True
+    assert pump.stamps_through == polled_at - WORDS_LAG_US - 1
     assert pump.handle([], polled_at=None) is True
-    assert pump.stamps_through == 1_000 - WORDS_LAG_US - 1
+    assert pump.stamps_through == polled_at - WORDS_LAG_US - 1

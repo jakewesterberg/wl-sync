@@ -160,6 +160,17 @@ class RawToP:
             self._pairs.append((raw_ns, p))
             self._line = self._fit()
 
+    def restart(self, raw_ns: int, p: int) -> None:
+        """Drop every pair and hold this one alone, so the line runs through it at the
+        seed slope, as with one pair (the rule above). For a fit that has lost the lead
+        edges, at any pair count (Ruling R19; wl_sync/rp1/backend.py `_reacquire`): no
+        later pair could correct it, and past FIT_FREE_SLOPE_PAIRS one far pair barely
+        moves a line fitted over FIT_WINDOW_PAIRS."""
+        with self._lock:
+            self._pairs.clear()
+            self._pairs.append((raw_ns, p))
+            self._line = self._fit()
+
     def p_of(self, raw_ns: int) -> int:
         with self._lock:
             slope, anchor_raw, anchor_p = self._line
