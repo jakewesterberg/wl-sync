@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import threading
 from bisect import bisect_left
+from collections.abc import Sequence
 from collections import deque
 from dataclasses import dataclass
 from fractions import Fraction
@@ -34,6 +35,12 @@ BRACKET_WIDTH_MAX_NS = 100_000
 # noise (spec §3), so the fit moves only its offset and keeps the seeded slope.
 FIT_WINDOW_PAIRS = 120
 FIT_FREE_SLOPE_PAIRS = 30
+
+# Spec §2.5 step 2: the lead edge's stamp may lie this far outside its mapped CPU bracket
+# ("±1 ms"), in P counts (1 count = 1 us at 1 MHz). The map is good to far less once warm;
+# the frame's own later edges are >= 20 ms after the lead (spec §2.5 step 2), so a window
+# this narrow cannot take one for it.
+LEAD_STAMP_TOLERANCE = 1_000
 
 _NS_PER_US = 1_000
 _PPB = 1_000_000_000
@@ -203,3 +210,74 @@ class MappedTimebase:
         "converted at the current P/RAW ratio"). Not a difference of two mapped ticks,
         which would mix two interpolations: at 50 ppm an hour is 180 ms otherwise."""
         return max(0, round((after_ns - before_ns) * self._fit.counts_per_ns()))
+
+
+def unwrap_near(raw: int, near: int) -> int:
+    """The integer congruent to `raw` mod 2**32 that lies nearest `near`. A stamp is a
+    32-bit count; the bracket it is matched against is not wrapped. A tie (exactly half
+    a wrap away) goes to the lower."""
+    modulus = _TICK_MASK + 1
+    return raw + modulus * round_half_down(Fraction(near - raw, modulus))
+
+
+def round_half_down(value: Fraction) -> int:
+    # `round` goes to even on a tie, which would make `unwrap_near`'s tie depend on the
+    # parity of the wrap count; the lower is the same answer everywhere.
+    floor = value.__floor__()
+    return floor + 1 if value - floor > Fraction(1, 2) else floor
+
+
+@dataclass(frozen=True)
+class LeadStamp:
+    """What one frame made of the stamps queued since the last. `p` is the lead edge's
+    stamp, or None if none lay in the window. `between` counts stamps before the window
+    (spec §2.5 step 4), `consumed` the frame's own later edges (step 3), `leftover` the
+    stamps after the frame's end, which belong to the next. `nearest` is set only when
+    `p` is None: the distance from the bracket's nearer end to the closest stamp at or
+    before the frame's end, for the journal's "the stamp lies %d us from" cause."""
+
+    p: int | None
+    between: int
+    consumed: int
+    leftover: tuple[int, ...]
+    nearest: int | None
+
+
+def match_lead_stamp(
+    stamps: Sequence[int],
+    bracket: tuple[int, int],
+    end: int,
+    tolerance: int = LEAD_STAMP_TOLERANCE,
+) -> LeadStamp:
+    """Spec §2.5 steps 2-5. `stamps` are unwrapped and in order; `bracket` is the lead
+    edge's CPU bracket mapped to P and `end` the frame's end mapped to P."""
+    low, high = bracket[0] - tolerance, bracket[1] + tolerance
+    p: int | None = None
+    between = consumed = 0
+    leftover: list[int] = []
+    nearest: int | None = None
+    for stamp in stamps:
+        if p is None and low <= stamp <= high:
+            p = stamp
+        elif stamp > end:
+            leftover.append(stamp)
+        else:
+            # Past the end is the next frame's, so it is never the nearest (§2.5 step 2
+            # takes stamps "queued since the previous frame ended"). Distance is to the
+            # bracket's nearer end; inside the bracket it is zero, though a stamp there
+            # would have been `p`.
+            gap = max(bracket[0] - stamp, stamp - bracket[1], 0)
+            nearest = gap if nearest is None else min(nearest, gap)
+            if stamp < low:
+                between += 1
+            else:
+                # The frame's own later edges are consumed whether or not the lead was
+                # found (spec §2.5 step 3, "every other stamp ... to the frame's end").
+                consumed += 1
+    return LeadStamp(
+        p=p,
+        between=between,
+        consumed=consumed,
+        leftover=tuple(leftover),
+        nearest=None if p is not None else nearest,
+    )

@@ -7,10 +7,14 @@ from wl_sync.clockmap import (
     BRACKET_WIDTH_MAX_NS,
     FIT_FREE_SLOPE_PAIRS,
     FIT_WINDOW_PAIRS,
+    LEAD_STAMP_TOLERANCE,
     ClockPair,
+    LeadStamp,
     MappedTimebase,
     MonoRawTable,
     RawToP,
+    match_lead_stamp,
+    unwrap_near,
 )
 
 S = 10**9
@@ -192,3 +196,70 @@ def test_the_slope_is_free_at_exactly_thirty_pairs_and_not_at_twenty_nine():
 
     assert fitted(29) == Fraction(1, 1000)
     assert fitted(30) == Fraction(1_000_020, 10**9)
+
+
+B0 = 10_000_000
+BRACKET = (B0, B0 + 20)
+END = B0 + 220_000
+
+
+def test_the_lead_stamp_tolerance_is_a_millisecond():
+    assert LEAD_STAMP_TOLERANCE == 1_000
+
+
+def test_the_first_stamp_in_the_bracket_is_the_lead_edge():
+    got = match_lead_stamp([B0 + 4, B0 + 20_004, B0 + 60_004], BRACKET, END)
+    assert got == LeadStamp(p=B0 + 4, between=0, consumed=2, leftover=(), nearest=None)
+
+
+def test_a_stamp_within_the_tolerance_of_the_bracket_counts():
+    assert match_lead_stamp([B0 - 900], BRACKET, END).p == B0 - 900
+
+
+def test_the_window_edges_are_inclusive():
+    assert match_lead_stamp([B0 - 1_000], BRACKET, END).p == B0 - 1_000
+    assert match_lead_stamp([B0 + 20 + 1_000], BRACKET, END).p == B0 + 1_020
+    assert match_lead_stamp([B0 + 1_021], BRACKET, END).p is None
+
+
+def test_stamps_before_the_window_are_between_frames():
+    got = match_lead_stamp([B0 - 5_000, B0 - 1_001, B0 + 4], BRACKET, END)
+    assert (got.between, got.p) == (2, B0 + 4)
+
+
+def test_with_no_stamp_nothing_is_nearest():
+    got = match_lead_stamp([], BRACKET, END)
+    assert (got.p, got.nearest, got.between, got.consumed, got.leftover) == (None, None, 0, 0, ())
+
+
+def test_a_missed_lead_edge_names_the_nearest_stamp_after_it():
+    got = match_lead_stamp([B0 + 20_020, B0 + 60_020], BRACKET, END)
+    assert (got.p, got.nearest, got.consumed) == (None, 20_000, 2)
+
+
+def test_nearest_is_measured_from_the_nearer_end_of_the_bracket():
+    # Before the bracket the nearer end is bracket[0]; the stamp 5_000 before it.
+    assert match_lead_stamp([B0 - 5_000], BRACKET, END).nearest == 5_000
+    # Of two stamps, the closer one by either end.
+    got = match_lead_stamp([B0 - 5_000, B0 + 20 + 3_000], BRACKET, END)
+    assert got.nearest == 3_000
+
+
+def test_the_frames_end_is_inclusive_and_later_stamps_wait():
+    got = match_lead_stamp([B0 + 4, END, END + 1], BRACKET, END)
+    assert (got.consumed, got.leftover) == (1, (END + 1,))
+
+
+def test_stamps_after_the_frame_end_wait_for_the_next_frame():
+    got = match_lead_stamp([B0 + 4, END + 1], BRACKET, END)
+    assert (got.leftover, got.consumed) == ((END + 1,), 0)
+
+
+def test_a_stamp_after_the_end_is_not_nearest():
+    got = match_lead_stamp([END + 1], BRACKET, END)
+    assert (got.p, got.nearest, got.leftover) == (None, None, (END + 1,))
+
+
+def test_a_raw_count_is_unwrapped_to_the_one_nearest():
+    assert unwrap_near(5, 2**32 - 3) == 2**32 + 5
+    assert unwrap_near(2**32 - 3, 2**32 + 5) == 2**32 - 3
