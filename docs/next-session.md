@@ -141,7 +141,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses a shim that is not version 3 (`deploy/README.md:337-342`,
-   `wl_sync/rp1/backend.py:151`).
+   `wl_sync/rp1/backend.py:175`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -159,23 +159,23 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
 7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
-   strobe (`wl_sync/rp1/backend.py:329-334`). The strobe is tested every 2 PIO cycles (1 µs), so
+   strobe (`wl_sync/rp1/backend.py:393-398`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
    the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
    1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
-   previous one (`wl_sync/rp1/backend.py:335-336`).
+   previous one (`wl_sync/rp1/backend.py:399-400`).
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
 (`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
-latched count, inverted (`wl_sync/rp1/pio_capture.py:78`) and handed on as it is (`:173`).
+latched count, inverted (`wl_sync/rp1/pio_capture.py:79`) and handed on as it is (`:174`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
-`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:387-391`),
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:451-459`),
 so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
@@ -305,7 +305,7 @@ left, so no further panel connector fits. One fix-up came with it:
 
 - **Code words and barcodes are timed by different clocks, and NTP slews one of them.**
   - Code-word ticks come from RP1's PIO counter, which runs off the crystal and is joined to
-    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:269-270`).
+    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:318-319`).
   - Barcode (`B`) and edge ticks come from `CLOCK_MONOTONIC`, which follows NTP's frequency
     correction.
   - On the box NTP was applying **−6.5 ppm** (`timedatectl timesync-status`), so the two paths

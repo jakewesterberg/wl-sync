@@ -113,3 +113,53 @@ def test_a_failing_word_consumer_stops_the_pump_and_is_held():
     pump = WordPump(on_word=explode, data_count=DATA)
     assert pump.handle(stream((10, 1))) is False
     assert isinstance(pump.error, OSError)
+
+
+# --- The stamp machine's pump (Task 1.10) -------------------------------------------------
+#
+# The stamp machine runs the capture program with GPIO0-15 as its data window, so its
+# FIFO carries the same (data, counter) pairs and `pair_fifo`'s upper-half check holds.
+# What it hands over is the counter alone: the P count of each rising edge on its pin.
+
+
+def test_a_stamp_pump_hands_over_its_stamps_in_order():
+    from wl_sync.rp1.pio_capture import StampPump
+
+    pump = StampPump(data_count=DATA)
+    assert pump.handle(stream((10, 0), (20, 0))) is True
+    assert pump.take() == [10, 20]
+    assert pump.take() == []
+    assert pump.error is None
+
+
+def test_a_full_stamp_fifo_is_held_and_the_pump_continues():
+    """As for the word pump: whole pairs may have gone, and the stream is still intact."""
+    from wl_sync.rp1.pio_capture import StampPump, WordsDroppedError
+
+    pump = StampPump(data_count=DATA)
+    assert pump.handle(stream((10, 0)), fifo_was_full=True) is True
+    assert isinstance(pump.error, WordsDroppedError)
+    assert pump.take() == [10]
+
+
+def test_a_desynced_stamp_stream_is_held_and_stops_the_pump():
+    """A slipped pairing would read counters as data and data as counters: stamps for
+    edges that never happened. The batch is refused and the pump says to stop."""
+    from wl_sync.rp1.pio_capture import StampPump
+
+    pump = StampPump(data_count=DATA)
+    slipped = stream((10, 0), (20, 0))[1:] + [0]
+    assert pump.handle(slipped) is False
+    assert isinstance(pump.error, DesyncError)
+    assert pump.take() == []
+
+
+def test_stamps_through_follows_the_word_pumps_rule():
+    from wl_sync.rp1.pio_capture import WORDS_LAG_US, StampPump
+
+    pump = StampPump(data_count=DATA)
+    assert pump.stamps_through is None
+    assert pump.handle([], polled_at=1_000) is True
+    assert pump.stamps_through == 1_000 - WORDS_LAG_US - 1
+    assert pump.handle([], polled_at=None) is True
+    assert pump.stamps_through == 1_000 - WORDS_LAG_US - 1

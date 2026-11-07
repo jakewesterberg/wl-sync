@@ -1,6 +1,7 @@
-"""Bench checks that read a recorded segment back. Not part of the recording path.
+"""Bench checks. Not part of the recording path.
 
     python -m wl_sync.bench loopback <segment or day directory> [--gpio 20]
+    python -m wl_sync.bench stamps [--stamp-pin {17,19}] [--frames N] [--gpiochip PATH]
 
 THE LOOPBACK. With the barcode output jumpered to an edge input, every frame the box
 emits lands in its own segment twice: as the `B` record it logged, and as the edges it
@@ -11,19 +12,38 @@ after every frame, so only a run's first barcode could ever decode.
 
 Finding frames is delegated to `barcode.decode_edges`, never reimplemented here, so a
 change to the codec cannot leave this check and the receivers disagreeing.
+
+THE STAMPS. `stamps` runs the box's barcode against its own stamp machine, live, with
+no segment: every frame's lead edge should be stamped, and each of its later rising
+edges consumed. It also gives the lead edge's CPU bracket width for every frame, which
+bench check B5 needs. Capture runs beside it, as the run loop's does, so the box is
+loaded as it is when recording; with nothing wired, a code word or an edge is itself a
+finding.
 """
 
 from __future__ import annotations
 
 import argparse
+import random
 import sys
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from statistics import median
+from statistics import median, quantiles
 
-from wl_sync.barcode import decode_edges
+from wl_sync.backend import CaptureDegraded
+from wl_sync.barcode import INTERVAL_US, decode_edges, encode
 from wl_sync.log import BarcodeEmitted, Edge, read_log
-from wl_sync.pins import BARCODE_PIN, GPIO_MAP
+from wl_sync.pins import (
+    BARCODE_LOOP_PIN,
+    BARCODE_PIN,
+    CODE_DATA_BASE,
+    CODE_DATA_COUNT,
+    CODE_STROBE_PIN,
+    EDGE_PINS,
+    GPIO_MAP,
+)
 from wl_sync.segment import SEGMENT_PATTERN, segment_index_of
 
 # pd1_comp's line, free while no breakout board is fitted: GPIO17 -> GPIO20 is header
@@ -103,6 +123,158 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
     return report
 
 
+# One frame a second, as the run loop emits them (barcode.INTERVAL_US).
+STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
+
+_NS_PER_US = 1_000
+
+
+@dataclass
+class StampRunReport:
+    """What the stamp machine made of a run of the box's own frames.
+
+    `edges_short` counts the stamped frames whose later rising edges were not all
+    consumed; a frame with no lead stamp is counted in `missed` alone. `stamps_seen` is
+    every stamp the frames accounted for: leads, plus consumed, plus between. `words`
+    and `edges` are the records capture delivered meanwhile.
+    """
+
+    frames: int = 0
+    stamped: int = 0
+    missed: dict[str, int] = field(default_factory=dict)
+    edges_short: int = 0
+    between: int = 0
+    stamps_seen: int = 0
+    widths_ns: list[int] = field(default_factory=list)
+    words: int = 0
+    edges: int = 0
+
+    @property
+    def passed(self) -> bool:
+        """Every lead edge stamped, every later edge consumed, and nothing between."""
+        return bool(self.frames and self.stamped == self.frames
+                    and self.edges_short == 0 and self.between == 0)
+
+    def summary(self) -> str:
+        lines = [
+            f"barcode stamps: {'PASS' if self.passed else 'FAIL'}",
+            f"  frames {self.frames}, stamped {self.stamped}",
+        ]
+        lines.extend(
+            f"  missed {count}: {cause}" for cause, count in sorted(self.missed.items())
+        )
+        lines.append(
+            f"  edges_short {self.edges_short}, between {self.between}, "
+            f"stamps_seen {self.stamps_seen}"
+        )
+        lines.append(f"  words {self.words}, edges {self.edges}")
+        if len(self.widths_ns) >= 2:
+            # n=1000 gives the 999 cut points: index 989 is p99, 998 is p99.9.
+            cuts = quantiles(self.widths_ns, n=1000)
+            lines.append(
+                f"  bracket width over {len(self.widths_ns)} frames: "
+                f"median {median(self.widths_ns) / _NS_PER_US:.1f} us, "
+                f"p99 {cuts[989] / _NS_PER_US:.1f} us, "
+                f"p99.9 {cuts[998] / _NS_PER_US:.1f} us"
+            )
+        return "\n".join(lines)
+
+
+def _rises(pulses: Sequence[tuple[int, int]]) -> int:
+    """A frame's rising edges, on a line LOW before it: a run of set bits is one."""
+    rises, level = 0, 0
+    for pulse_level, _ in pulses:
+        if pulse_level and not level:
+            rises += 1
+        level = pulse_level
+    return rises
+
+
+def stamp_run(backend, values: Sequence[int], pace: Callable[[], None]) -> StampRunReport:
+    """Emit each value's frame on the barcode pin, and count what the stamps made of it.
+
+    `pace()` runs between frames, not before the first or after the last. After each
+    frame, `last_frame` gives the match and the bracket width, and `take_pairs()` is
+    drained: the backend keeps every pair until it is taken, and a run of 28,800 frames
+    would otherwise hold them all.
+    """
+    report = StampRunReport()
+    for index, value in enumerate(values):
+        if index:
+            pace()
+        pulses = encode(value)
+        stamp = backend.emit_pulses(BARCODE_PIN, pulses)
+        trace = backend.last_frame
+        backend.take_pairs()
+        report.frames += 1
+        report.between += stamp.between
+        if stamp.tick is None:
+            report.missed[stamp.missed] = report.missed.get(stamp.missed, 0) + 1
+        else:
+            report.stamped += 1
+        if trace is None:
+            continue
+        lead = trace.lead
+        report.widths_ns.append(trace.width_ns)
+        report.stamps_seen += (lead.p is not None) + lead.consumed + lead.between
+        if stamp.tick is not None and lead.consumed != _rises(pulses) - 1:
+            report.edges_short += 1
+    return report
+
+
+def _pacer(period_s: float) -> Callable[[], None]:
+    """Sleeps until `period_s` after the previous frame began, so frames keep a fixed
+    period however long each took to emit and match."""
+    due = time.monotonic()
+
+    def pace() -> None:
+        nonlocal due
+        due += period_s
+        delay = due - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+
+    return pace
+
+
+def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
+    """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1183-1188): building
+    # it needs the shim and a GPIO chip, which `loopback` never touches.
+    from wl_sync.rp1.backend import Rp1Backend
+
+    words = edges = 0
+
+    def on_word(tick: int, word: int) -> None:  # the word pump's thread alone
+        nonlocal words
+        words += 1
+
+    def on_edge(gpio: int, level: int, tick: int) -> None:  # the edge pump's alone
+        nonlocal edges
+        edges += 1
+
+    rng = random.Random(frames)
+    values = [rng.getrandbits(32) for _ in range(frames)]
+    backend = Rp1Backend(chip_path=chip_path, stamp_pin=stamp_pin)
+    try:
+        backend.start_strobed_capture(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
+                                      on_word)
+        backend.start_edge_capture(EDGE_PINS, on_edge)
+        report = stamp_run(backend, values, _pacer(STAMP_RUN_PERIOD_S))
+    finally:
+        backend.close()
+    # Read after close(), which has stopped both pumps, so neither count still moves.
+    report.words, report.edges = words, edges
+    print(report.summary())
+    try:
+        # What capture held at the end, which run() also asks for after close()
+        # (wl_sync/cli.py:951-953): a full stamp FIFO would explain short frames.
+        backend.check_health()
+    except CaptureDegraded as degraded:
+        print(f"  capture degraded: {degraded}")
+    return 0 if report.passed else 1
+
+
 def _segment_of(path: Path) -> Path:
     """A segment file as given, or a day directory's last segment."""
     if path.is_dir():
@@ -123,8 +295,22 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("path", type=Path, help="a segment, or a day directory")
     check.add_argument("--gpio", type=int, default=DEFAULT_LOOP_GPIO,
                        help=f"the edge input jumpered to GPIO{BARCODE_PIN}")
+    stamps = commands.add_parser(
+        "stamps", help="the box's own barcode, stamped by its stamp machine, live"
+    )
+    stamps.add_argument(
+        "--stamp-pin", type=int, choices=(BARCODE_PIN, BARCODE_LOOP_PIN),
+        default=BARCODE_LOOP_PIN,
+        help=f"GPIO{BARCODE_LOOP_PIN}, the loopback, or GPIO{BARCODE_PIN} itself "
+             "(bench B4)",
+    )
+    stamps.add_argument("--frames", type=int, default=60, help="one a second")
+    stamps.add_argument("--gpiochip", default="/dev/gpiochip0",
+                        help="RP1's GPIO bank, as for wl-sync record")
     args = parser.parse_args(argv)
 
+    if args.command == "stamps":
+        return _stamps(args.stamp_pin, args.frames, args.gpiochip)
     report = loopback(_segment_of(args.path), args.gpio)
     print(report.summary())
     return 0 if report.passed else 1

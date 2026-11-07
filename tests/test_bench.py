@@ -109,3 +109,203 @@ def test_the_command_line_exits_nonzero_on_a_failed_loopback(tmp_path, capsys):
     assert main(["loopback", str(_segment(tmp_path)), "--gpio", str(LOOP_GPIO)]) == 0
     assert main(["loopback", str(_segment(tmp_path, return_low=False))]) == 1
     assert "FAIL" in capsys.readouterr().out
+
+
+# --- The stamp run: the stamp machine's view of the box's own barcode (Task 1.10) ---------
+#
+# Run on the box for the spike, so these script the backend: each frame's FrameStamp, and
+# the match and bracket width it leaves in `last_frame`.
+
+
+def _rising_edges(pulses):
+    """The frame's rising edges on a line that starts LOW, as the stamp machine sees it:
+    consecutive set bits are one HIGH, so one edge."""
+    edges, level = 0, 0
+    for pulse_level, _ in pulses:
+        if pulse_level and not level:
+            edges += 1
+        level = pulse_level
+    return edges
+
+
+class _ScriptedBackend:
+    """`emit_pulses`, `last_frame` and `take_pairs`, as Rp1Backend has them, scripted."""
+
+    def __init__(self, frames):
+        self._frames = iter(frames)
+        self.last_frame = None
+        self.emitted = []
+        self.pairs_taken = 0
+
+    def emit_pulses(self, pin, pulses):
+        self.emitted.append((pin, list(pulses)))
+        stamp, self.last_frame = next(self._frames)
+        return stamp
+
+    def take_pairs(self):
+        self.pairs_taken += 1
+        return []
+
+
+def _whole(value, k, width_ns=30_000, between=0, short=0):
+    """A frame stamped at its lead edge, with `short` of its later edges unseen."""
+    from wl_sync.backend import FrameStamp
+    from wl_sync.clockmap import LeadStamp
+    from wl_sync.rp1.backend import FrameTrace
+
+    p = 1_000_000 * (k + 1)
+    consumed = _rising_edges(encode(value)) - 1 - short
+    lead = LeadStamp(p=p, between=between, consumed=consumed, leftover=(), nearest=None)
+    return FrameStamp(p, between=between), FrameTrace(lead, width_ns)
+
+
+def _unstamped(width_ns=30_000):
+    from wl_sync.backend import STAMP_NOT_SEEN, FrameStamp
+    from wl_sync.clockmap import LeadStamp
+    from wl_sync.rp1.backend import FrameTrace
+
+    lead = LeadStamp(p=None, between=0, consumed=0, leftover=(), nearest=None)
+    return FrameStamp(None, STAMP_NOT_SEEN), FrameTrace(lead, width_ns)
+
+
+def test_a_stamp_run_counts_lead_edges_later_edges_and_widths():
+    from wl_sync.bench import stamp_run
+    from wl_sync.pins import BARCODE_PIN
+
+    values = [FIRST, FIRST + 1, FIRST + 2]
+    backend = _ScriptedBackend(
+        [_whole(v, k, width_ns=30_000 + 1_000 * k) for k, v in enumerate(values)]
+    )
+    paced = []
+    report = stamp_run(backend, values, lambda: paced.append(len(backend.emitted)))
+
+    assert report.passed, report.summary()
+    assert report.frames == 3 and report.stamped == 3
+    assert report.missed == {} and report.edges_short == 0 and report.between == 0
+    assert report.stamps_seen == sum(_rising_edges(encode(v)) for v in values)
+    assert report.widths_ns == [30_000, 31_000, 32_000]
+    assert "p99.9" in report.summary()
+    assert backend.emitted == [(BARCODE_PIN, encode(v)) for v in values]
+    assert paced == [1, 2], "pace() is called between frames, not before or after them"
+    assert backend.pairs_taken == 3
+
+
+def test_a_stamp_run_with_no_stamp_fails_and_counts_by_cause():
+    from wl_sync.backend import STAMP_NOT_SEEN
+    from wl_sync.bench import stamp_run
+
+    values = [FIRST, FIRST + 1, FIRST + 2]
+    backend = _ScriptedBackend([_unstamped() for _ in values])
+    report = stamp_run(backend, values, lambda: None)
+
+    assert not report.passed
+    assert report.stamped == 0
+    assert report.missed == {STAMP_NOT_SEEN: 3}
+    assert report.stamps_seen == 0
+    assert report.edges_short == 0, "a frame with no lead stamp is counted as missed only"
+    assert STAMP_NOT_SEEN in report.summary()
+
+
+def test_a_frame_missing_a_later_edge_is_short():
+    from wl_sync.bench import stamp_run
+
+    values = [FIRST, FIRST + 1, FIRST + 2]
+    frames = [_whole(v, k, short=1 if k == 1 else 0) for k, v in enumerate(values)]
+    report = stamp_run(_ScriptedBackend(frames), values, lambda: None)
+
+    assert report.stamped == 3
+    assert report.edges_short == 1
+    assert not report.passed
+
+
+def test_stamps_between_frames_fail_the_run():
+    from wl_sync.bench import stamp_run
+
+    values = [FIRST, FIRST + 1, FIRST + 2]
+    frames = [_whole(v, k, between=2 if k == 2 else 0) for k, v in enumerate(values)]
+    report = stamp_run(_ScriptedBackend(frames), values, lambda: None)
+
+    assert report.stamped == 3 and report.edges_short == 0
+    assert report.between == 2
+    assert report.stamps_seen == sum(_rising_edges(encode(v)) for v in values) + 2
+    assert not report.passed
+
+
+def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_the_run(
+    monkeypatch, capsys
+):
+    """The command S runs on the box, against a stand-in for Rp1Backend: what it is built
+    with, what it starts, the values it sends, that it closes, and that the exit status
+    is the run's."""
+    import random
+
+    from wl_sync import bench
+    from wl_sync.backend import FrameStamp
+    from wl_sync.clockmap import LeadStamp
+    from wl_sync.pins import (
+        BARCODE_PIN, CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN, EDGE_PINS,
+    )
+    from wl_sync.rp1 import backend as rp1
+    from wl_sync.rp1.backend import FrameTrace
+
+    built = []
+    stamping = True
+
+    class _Box:
+        def __init__(self, **kwargs):
+            built.append(self)
+            self.kwargs = kwargs
+            self.started = []
+            self.emitted = []
+            self.last_frame = None
+            self.closed = False
+
+        def start_strobed_capture(self, data_base, data_count, strobe_pin, on_word,
+                                  on_loss=None):
+            self.started.append(("codes", data_base, data_count, strobe_pin))
+            on_word(1, 2)  # with nothing wired, a W is itself a finding
+
+        def start_edge_capture(self, pins, on_edge, on_loss=None):
+            self.started.append(("edges", tuple(pins)))
+
+        def emit_pulses(self, pin, pulses):
+            self.emitted.append((pin, list(pulses)))
+            if not stamping:
+                stamp, self.last_frame = _unstamped()
+                return stamp
+            p = 1_000_000 * len(self.emitted)
+            lead = LeadStamp(p, 0, _rising_edges(pulses) - 1, (), None)
+            self.last_frame = FrameTrace(lead, 30_000)
+            return FrameStamp(p)
+
+        def take_pairs(self):
+            return []
+
+        def check_health(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(rp1, "Rp1Backend", _Box)
+    monkeypatch.setattr(bench, "STAMP_RUN_PERIOD_S", 0)
+
+    assert bench.main(["stamps", "--stamp-pin", "17", "--frames", "4",
+                       "--gpiochip", "/dev/gpiochip4"]) == 0
+    [box] = built
+    assert box.kwargs == {"chip_path": "/dev/gpiochip4", "stamp_pin": 17}
+    assert box.started == [
+        ("codes", CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN),
+        ("edges", tuple(EDGE_PINS)),
+    ]
+    rng = random.Random(4)
+    assert box.emitted == [(BARCODE_PIN, encode(rng.getrandbits(32))) for _ in range(4)]
+    assert box.closed
+    out = capsys.readouterr().out
+    assert "PASS" in out and "words 1" in out
+
+    stamping = False
+    assert bench.main(["stamps"]) == 1
+    assert built[1].kwargs == {"chip_path": "/dev/gpiochip0", "stamp_pin": 19}
+    assert built[1].closed
+    assert "FAIL" in capsys.readouterr().out

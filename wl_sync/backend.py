@@ -88,6 +88,27 @@ class StampLag:
     allowance_us: int
 
 
+# The cause of a dropped `B` whose lead edge has no stamp at all. It completes the
+# journal's "barcode %d dropped: <cause>" (spec §2.5,
+# docs/superpowers/specs/2026-10-30-one-clock-design.md:401-404).
+STAMP_NOT_SEEN = "its lead edge was not stamped"
+
+
+@dataclass(frozen=True)
+class FrameStamp:
+    """What `emit_pulses` found of the frame it drove: its lead edge's stamp, or why not.
+
+    `tick` is a raw 32-bit count, as every tick a backend hands over is; None means the
+    frame's `B` is dropped. `missed` then completes "barcode N dropped: ...", the journal
+    line only the run loop can write, because only it knows N. `between` counts the
+    stamps found between the previous frame and this one and discarded.
+    """
+
+    tick: int | None
+    missed: str = ""
+    between: int = 0
+
+
 class SyncBackend(Protocol):
     timebase: str
     """Which clocks this backend's ticks count, written into every segment header

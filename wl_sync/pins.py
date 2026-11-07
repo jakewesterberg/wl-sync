@@ -12,7 +12,7 @@ CODE_DATA_COUNT = 16
 CODE_STROBE_PIN = 16
 BARCODE_PIN = 17
 # The barcode output looped back to an input, so the stamp machine can watch it without
-# taking GPIO17 from libgpiod, which drives it (wl_sync/rp1/backend.py:591-626).
+# taking GPIO17 from libgpiod, which drives it (wl_sync/rp1/backend.py:721-776).
 BARCODE_LOOP_PIN = 19
 
 # Camera frame-time inputs, one exposure strobe per camera group. These were spare

@@ -11,12 +11,13 @@ complaint, so the error was silent and cumulative for the rest of the session.
 Keeping a working implementation of a format the hardware no longer emits would
 be a trap, not a courtesy.
 
-This module is pure arithmetic plus `WordPump`'s decisions about failure, and is
+This module is pure arithmetic plus the pumps' decisions about failure, and is
 tested on a laptop. Only the piolib calls that produce `entries` are hardware-gated.
 """
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Sequence
 
 from wl_sync.backend import CaptureLoss
@@ -177,3 +178,96 @@ class WordPump:
         if polled_at is not None:
             self.delivered_through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF
         return True
+
+
+class StampPump:
+    """Queues the stamp machine's stamps for `emit_pulses`, and survives what goes wrong.
+
+    The stamp machine runs the capture program with GPIO0-15 as its data window, so its
+    FIFO carries the same (data, counter) pairs as the word machine's and each batch goes
+    through `pair_fifo`, whose upper-half check holds (spec §2.1,
+    docs/superpowers/specs/2026-10-30-one-clock-design.md:185). Only the counter is
+    kept: the P count of a rising edge on the stamp pin, raw, 32 bits.
+
+    Failures are WordPump's, and are met the same way, except that nothing here is a
+    record. A FULL FIFO is held and the pump CONTINUES. A DESYNC is held, the batch is
+    refused, and the pump STOPS: `stopped` turns True, and `handle` returns False. There
+    is no consumer to fail, and no L record: stamps are not written, and the L format's
+    paths are W and E (wl_sync/log.py:316-317).
+
+    LOCKED, because it is shared across two threads: `handle` runs on the pump's, and
+    `take`, `stamps_through`, `stopped` and `take_error` on the run loop's.
+    """
+
+    def __init__(self, data_count: int) -> None:
+        self._data_count = data_count
+        self._lock = threading.Lock()
+        self._queued: list[int] = []
+        self._through: int | None = None
+        self._error: BaseException | None = None
+        self._stopped = False
+
+    @property
+    def stamps_through(self) -> int | None:
+        """Every stamp at or before this raw P count has been queued, by WordPump's rule
+        (`WordPump.handle`): `polled_at` less WORDS_LAG_US less 1. None until the first
+        drain that can say."""
+        with self._lock:
+            return self._through
+
+    @property
+    def error(self) -> BaseException | None:
+        with self._lock:
+            return self._error
+
+    @property
+    def stopped(self) -> bool:
+        with self._lock:
+            return self._stopped
+
+    def handle(
+        self,
+        entries: Sequence[int],
+        fifo_was_full: bool = False,
+        polled_at: int | None = None,
+    ) -> bool:
+        """Queue one drained batch. Returns False when the pump should stop.
+
+        `polled_at` is the P count read just before the drain looked at the FIFO, passed
+        only when the drain left no half pair behind, as for `WordPump.handle`. It is on
+        P, not on `now_us()`: the frame's end it is compared with is a P count.
+        """
+        if fifo_was_full:
+            with self._lock:  # recorded, and we keep going
+                self._error = WordsDroppedError(
+                    "the stamp machine's RX FIFO was full when drained: "
+                    "barcode stamps may have been lost"
+                )
+        try:
+            events = pair_fifo(entries, self._data_count)
+        except DesyncError as error:
+            self.stop(error)
+            return False
+        with self._lock:
+            self._queued.extend(tick for tick, _ in events)
+            if polled_at is not None:
+                self._through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF
+        return True
+
+    def stop(self, error: BaseException) -> None:
+        """Hold `error` and stop: the drain refused a batch, or failed itself."""
+        with self._lock:
+            self._error = error
+            self._stopped = True
+
+    def take(self) -> list[int]:
+        """The raw stamps queued since the last call, in the order they were pushed."""
+        with self._lock:
+            taken, self._queued = self._queued, []
+        return taken
+
+    def take_error(self) -> BaseException | None:
+        """The held error, cleared: check_health reports each one once."""
+        with self._lock:
+            error, self._error = self._error, None
+        return error
