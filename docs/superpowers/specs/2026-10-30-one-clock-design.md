@@ -1,6 +1,6 @@
 # D5: code words, barcodes and edges on one clock, in SI seconds (approved; reworked)
 
-**Status:** approved by the user on 2026-10-30 (D5) and reworked on 2026-11-07 for their answers. The main change is that session time is now in SI seconds. Revised the same day after a builder check (ruling OC-R1): the capture program does not count 2:1 and is not wrap-safe, so it is fixed first (Part 0, §2.1). Nothing in it is built. It is written for a builder to plan from.
+**Status:** approved by the user on 2026-10-30 (D5) and reworked on 2026-11-07 for their answers. The main change is that session time is now in SI seconds. Revised the same day after a builder check (ruling OC-R1): the capture program does not count 2:1 and is not wrap-safe, so it is fixed first (Part 0, §2.1). *[2026-11-07: amended again the same day for the user's c-direct answer, after the spike. See decision 2's note.]* Nothing in it is built. It is written for a builder to plan from.
 
 **The approval, verbatim** (wl-phantom's main checkout, `.superpowers/sdd/2026-10-19-phase-1-generator-and-monitor/questions-for-you.md:331-333`):
 > D5: PIO-clock design approved. Answers: session time corrected to SI seconds (not RP1's crystal rate; the design must be reworked for this); a missed lead edge drops its B with an ERROR; no pass line for edges (software mapping); the header names its clocks (done, `timebase`). Next: plan + build.
@@ -36,8 +36,8 @@
 
 | # | Decision | Whose | § |
 |---|---|---|---|
-| 1 | RP1's PIO count is the box's one clock. A second state machine, running the same program as the code-word machine, stamps each barcode lead edge through a GPIO17→GPIO19 loopback, so W and B are one count. | [user, 2026-10-30] | 2.1 |
-| 2 | GPIO19 is spent on the loopback. It was not answered on its own (draft Q1), but the recommendation approved names it. B4 can still remove the wire. | [user, 2026-10-30], by the approval | 2.1 |
+| 1 | RP1's PIO count is the box's one clock. A second state machine, running the same program as the code-word machine, stamps each barcode lead edge through a GPIO17→GPIO19 loopback, so W and B are one count. *[2026-11-07, c-direct (the user): it reads GPIO17 itself, with no loopback. See decision 2's note.]* | [user, 2026-10-30] | 2.1 |
+| 2 | GPIO19 is spent on the loopback. It was not answered on its own (draft Q1), but the recommendation approved names it. B4 can still remove the wire. *[2026-11-07, c-direct (the user): B4 removed it. In the spike, B4's c-direct case stamped 300 of 300 lead edges with nothing wired (the plan's bench S.4), and the user chose "Adopt c-direct". The consequences: the stamp machine reads GPIO17 itself and leaves it libgpiod's output; there is no GPIO17→GPIO19 wire on the bench or the board; GPIO19 stays spare; `gpio_map` gains nothing; and the board's loopback resistor (the plan's Task 1.14) is dropped for good.]* | [user, 2026-10-30], by the approval; *c-direct [user, 2026-11-07]* | 2.1 |
 | 3 | Session time is in SI seconds, not RP1's crystal rate. | [user, 2026-10-30] | 2.2 |
 | 4 | SI is reached by **one rate, fixed for the whole process**: an affine map from P to SI µs. A map that follows NTP continuously is rejected. | [mine] | 2.2 |
 | 5 | That rate is measured against NTP-disciplined MONO over at least 1 h, by earlier processes, and persisted. It is never changed inside a process, and not at a roll. | [mine] | 2.2 |
@@ -169,6 +169,10 @@
 - A second state machine runs the same program as the code-word machine: Part 0's, at the same offset in instruction memory, with the same divider.
   - Its jmp pin is GPIO19, wired to GPIO17, the barcode output.
   - On the board this is a series resistor, before layout (`wl.yaml:37-45`). On the bench it is a jumper from header pin 11 to pin 35.
+  - *[2026-11-07, c-direct (the user): its jmp pin is GPIO17 itself. The machine leaves the pin's function alone, so the pin stays libgpiod's output, and nothing is wired: no resistor and no jumper.*
+    - *Bench S.4 found that the PIO reads GPIO17's pad whatever its function. GPIO17 stayed an output (`pinctrl`: `17: op dl pd | lo`). The PIO still stamped every lead edge, 300 of 300.*
+    - *"The edge on the wire" below is GPIO17's own edge. The shim's start initialises no pin in this case (`claim_jmp_pin` 0, the plan's Task 1.9), so the "jmp pin only" step below no longer applies.*
+    - *A process's start now tests that the stamp machine starts and sees GPIO17 (the plan's Task 1.10a; §8 Q2's note).]*
 - Both state machines are seeded by `pio_sm_exec`, as today (`pio/wlsync_pio.c:129-132`).
 - They are enabled together through `pio_enable_sm_in_sync_mask` → `PIO_IOC_SM_ENABLE_SYNC` (`piolib.h`, `pio_rp1.c`). So they count one P.
 - The second machine's push at a frame's first rising edge **is** that frame's `B`: the edge on the wire, on the count `W` uses.
@@ -182,10 +186,12 @@
 
 So the build adds a stamp-machine start:
 - It initialises only the jmp pin (GPIO19; `PIO[19]` is function a7, datasheet Table 4).
+  - *[2026-11-07, c-direct: under c-direct it initialises none. GPIO17 keeps libgpiod's function. The start can still claim a spare pin, for the bench's controls (the plan's Task 1.9b).]*
 - It reads `in pins, 16` from GPIO0, so `pair_fifo`'s upper-half check still holds (`rp1/pio_capture.py:57-60`).
 - It adds a sync enable for both machines.
 
 piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this uses 2.
+*[2026-11-07, c-direct: a third is claimed at each start for the start-up test, and left disabled (the plan's Task 1.10a). One stays free.]*
 
 **Who drains the stamp FIFO: the word pump's thread [mine; this changes the draft].**
 - The draft had the run loop drain it once after each frame.
@@ -248,7 +254,7 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 - `emit_pulses` reads MONO and RAW immediately before and after the lead edge's `set_value` (`rp1/backend.py:581`): the bracket.
 - It also reads REALTIME−MONO.
 - The stamp machine gives that edge's P.
-- So each frame gives (P, MONO midpoint, RAW midpoint, bracket width w, REALTIME−MONO). This is the draft's option (a) pair source, fed by (c)'s loopback. It serves three uses:
+- So each frame gives (P, MONO midpoint, RAW midpoint, bracket width w, REALTIME−MONO). This is the draft's option (a) pair source, fed by (c)'s loopback *[2026-11-07, c-direct: fed by the stamp machine reading GPIO17 itself (§2.1's note)]*. It serves three uses:
   1. the SI estimate (here);
   2. the edge map (§2.3);
   3. `now_us()` (§2.4).
@@ -390,6 +396,7 @@ What matters for the budget is that the map is affine, which it is by constructi
    - Only a glitch within 1 ms of the lead edge could pass for it. B10 would show one.
 3. Every other stamp from the bracket to the frame's end is consumed silently. These are the frame's own later rising edges, 4–12 a frame.
 4. A stamp between the previous frame's end and this frame's bracket is discarded with a WARNING: `%d stamps on GPIO19 between frames, before barcode %d, discarded: something drove the loopback between frames`. Nothing else drives GPIO17 between frames.
+   *[2026-11-07, c-direct: the stamps are GPIO17's, and there is no loopback. The plan's Task 1.7 rewords the WARNING to name GPIO17. It also names a stamp's other ways to land between frames: a drain too late for the frame before, and a fit that has drifted.]*
 5. No stamp in the window means the B is dropped.
 
 **The protocol change.**
@@ -404,6 +411,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - `the stamp lies %d us from the frame's lead edge as the CPU bracketed it (%d us allowed)`.
 - When the episode ends (the next kept `B`, or the run's end), if it dropped more than one:
   `ERROR %d barcodes dropped in a row, %d to %d: their lead edges were not stamped; check the GPIO17->GPIO19 loopback`
+  *[2026-11-07, c-direct: there is no loopback to check. The plan's Task 1.7 ends this line with advice for each kind of cause in the episode instead. The kinds are: not stamped, stamped too far, the stamp machine did not start, and the stamp drain stopped. The last two are causes the build added.]*
 - At the run's end: `barcodes: %d emitted, %d dropped this run`.
 
 **What a dropped B costs:**
@@ -422,6 +430,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 **A loopback absent for a whole process** (a wire missing or cut) drops every `B`. The box then logs no barcodes, and wl-preproc cannot time its sessions: *"the sync box log decoded no barcodes"* (`timebase/clock.py:130-131`). Whether the box should fall back is Q2.
 *[Answered 2026-11-07 (the user, Q2): test, then fall back. A process whose loopback fails its start-up test records `"split"`, so it keeps its `B` records (§8 Q2).]*
+*[2026-11-07, c-direct (the user): there is no wire to be missing or cut. Two things can still fail for a whole process: the stamp machine's start, and the PIO's sight of GPIO17. The start-up test checks both, and a process that fails it records `"split"` (§8 Q2's note).]*
 
 ### 2.6 What is written
 
@@ -437,6 +446,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - **`"rp1-pio"`:** the same, unscaled. Ticks count RP1's crystal, because no calibration was usable at start. All paths still share one rate.
 - `"split"` stays defined for segments already written. The build removes the split backend unless Q2 keeps it as a fallback.
   *[Answered 2026-11-07 (the user, Q2): Q2 keeps it. The split backend is not removed. It stays as a per-process mode, for a process whose loopback fails its start-up test (§8 Q2).]*
+  *[2026-11-07, c-direct: read that as a process whose stamp machine fails its start-up test.]*
 - `"fake"` is unchanged.
 
 **No header field is added** [mine]. The header forbids unknown fields (`log.py:57`), so a field would make every pinned reader refuse new segments. The user has said the header names its clocks through `timebase`. The applied r, its age and its baseline go to the journal at start.
@@ -455,6 +465,10 @@ What matters for the budget is that the map is affine, which it is by constructi
 - The roll barrier's drift note (`cli.py:313-316`).
 
 **`GPIO_MAP` gains `"barcode_loop": 19`** (`pins.py:20-36`). That map is written into every header (`cli.py:273`); it changes content, not schema. `EDGE_PINS` is unchanged.
+*[2026-11-07, c-direct (the user): it gains nothing.*
+- *Under c-direct nothing is wired to GPIO19, and nothing reads it, so the entry would be false in every header.*
+- *The stamp machine reads `"barcode_out"` itself.*
+- *The key, added on the build's branch, never reached main. With it gone, `gpio_map`'s content stays main's (the plan's Task 1.9b).]*
 
 ### 2.7 Failure modes
 
@@ -483,9 +497,9 @@ What matters for the budget is that the map is affine, which it is by constructi
 | `wl_sync/backend.py` | Protocol: `emit_pulses` → `int \| None`, `timebase` per instance, the backend's `barcode_delay_us`. `FakeBackend` gets two clocks (a P rate and a CPU rate), so a test fails on today's drift and passes on the map. |
 | `wl_sync/service.py` | The Recorder applies `round(P / r)` at each record, to `now()` and to `delivered_through()`. |
 | `wl_sync/cli.py` | `B` from the stamp; dropped-`B` episodes; the last-emitted checkpoint; the NTP-roll wait; calibration read at start and persisted hourly; `--barcode-delay-us` handling. |
-| `wl_sync/log.py`, `wl_sync/pins.py` | Docstrings (§2.6); `barcode_loop`. |
+| `wl_sync/log.py`, `wl_sync/pins.py` | Docstrings (§2.6); `barcode_loop`. *[2026-11-07, c-direct: no `barcode_loop` (§2.6's note).]* |
 | `wl_sync/bench.py` | The loopback report gives E's constant and spread (B6) and dropped `B`s. |
-| `hardware/gen/gen_breakout_pi_interface.py`, breakout spec §4 | GPIO19 loopback resistor. |
+| `hardware/gen/gen_breakout_pi_interface.py`, breakout spec §4 | GPIO19 loopback resistor. *[2026-11-07, c-direct: dropped for good; nothing changes on the board.]* |
 | `deploy/README.md`, `wl.yaml`, `docs/pending-wl-preproc-amendments.md` | New `timebase` values, the calibration file, the delay; systemd-timesyncd required (`third_party`); the status at build. |
 
 **Size** [mine]:
@@ -522,14 +536,14 @@ What matters for the budget is that the map is affine, which it is by constructi
 | B2 | Now | **Today's W–B drift.** wl-phantom §5.5, at least 1 h. | Expected to fail. Report the ppm; it should match B8's rate against B1's. |
 | P0 | Build, first | **Part 0 on silicon.** Task 5b Step 3 (`docs/next-session.md:128-159`) on the fixed program, with one machine. | ±100 µs and zero dropped words over 600 strobes. No loss per strobe: the old listing's 1.5 µs a strobe would show as a slope against the strobe count. |
 | B3a | Build | **Start skew.** Two machines on Part 0's program, both with jmp pin GPIO16, sync-enabled; 10⁵ strobes. | The tick difference is identical on every event, and ≤ 1. |
-| B3b | Build | **No loss per event, on independent streams [OC-R1].** Machine A's jmp pin takes a dense stream: a spare output toggled in software with RAW brackets, for example GPIO18→GPIO16 (header pin 12→36), ≥ 10⁵ events, widths down to a few µs. Machine B takes the barcode loop (11→35). Over ≥ 1 h, fit each machine's count against RAW through its own events' brackets. | The two slopes agree within 0.01 ppm, whatever each stream's rate. A loss per event shows as ticks lost × event rate: the old listing at 1 kHz is 1,500 ppm. **B3a and B3b together are a gate (§5).** |
-| B4 | Build | **Barcode visible to PIO.** c-direct with no wire, then c-loop with the 11→35 jumper. | Every lead edge stamped. c-direct working removes the wire. |
+| B3b | Build | **No loss per event, on independent streams [OC-R1].** Machine A's jmp pin takes a dense stream: a spare output toggled in software with RAW brackets, for example GPIO18→GPIO16 (header pin 12→36), ≥ 10⁵ events, widths down to a few µs. Machine B takes the barcode loop (11→35). Over ≥ 1 h, fit each machine's count against RAW through its own events' brackets. *[2026-11-07, c-direct: no jumper. Machine A reads GPIO18 itself, unclaimed **[unverified for GPIO18]**, and machine B reads GPIO17 itself (the plan's bench S, "If S.4 passes").]* | The two slopes agree within 0.01 ppm, whatever each stream's rate. A loss per event shows as ticks lost × event rate: the old listing at 1 kHz is 1,500 ppm. **B3a and B3b together are a gate (§5).** |
+| B4 | Build | **Barcode visible to PIO.** c-direct with no wire, then c-loop with the 11→35 jumper. | Every lead edge stamped. c-direct working removes the wire. *[2026-11-07: answered. c-direct stamped 300 of 300 (the plan's S.4), and the user adopted it. c-loop is not needed.]* |
 | B5 | Now | **Bracket width** (RAW either side of the first `set_value`) over 8 h. | Informational. It sets the rejection limit for wide brackets (§2.2, §2.3). |
-| B6 | After | **E mapping.** GPIO17 to GPIO19 and to GPIO20 at once, 8 h: E mapped minus the stamp (`bench loopback`). | **No pass line** [user]. Report the median (E's constant) and the spread at p50, p99 and p99.9. |
+| B6 | After | **E mapping.** GPIO17 to GPIO19 and to GPIO20 at once, 8 h: E mapped minus the stamp (`bench loopback`). *[2026-11-07, c-direct: GPIO17 to GPIO20 alone (11→38). The stamp machine reads GPIO17 itself.]* | **No pass line** [user]. Report the median (E's constant) and the spread at p50, p99 and p99.9. |
 | B7 | Now | **NTP.** Log `adjtimex` (`offset`, `freq`, `constant`, `status`) every 10 s from a cold boot through 8 h. Note any step (REALTIME−MONO). | Informational. It sets the gate's 1 ms and the 1 h baseline: θ's spread is the SI estimate's error. |
 | B8 | After (or Now: GPIO17 jumpered to GPIO16 makes each lead edge a `W`, against its `B` on MONO) | **RP1 against SI.** The calibration over 8 h, on two days. Report r, r per hour, and day to day. | r within ±200 ppm (that confirms clk_sys = 200 MHz too). **If r moves more than 1 ppm within a day, the fixed-rate target cannot hold: revisit (§5).** Leaves the first calibration file. |
 | B9 | Now | **The board serial** a CM5 exposes (`/proc/device-tree/serial-number` or `/proc/cpuinfo`) **[unverified]**, and whether the RP1 crystal sits on the module **[unverified]**. | It names the calibration key. |
-| B10 | After | **Missed stamps.** Count dropped `B`s over 8 h with the loopback fitted. | Zero. Any drop is investigated, because each costs every device a matched pair. |
+| B10 | After | **Missed stamps.** Count dropped `B`s over 8 h with the loopback fitted. *[2026-11-07, c-direct: there is no loopback to fit, so it runs on the built box as it stands.]* | Zero. Any drop is investigated, because each costs every device a matched pair. |
 | — | After | **The ±100 µs gate.** Task 5b Step 3 as written (`docs/next-session.md:128-159`), and wl-phantom §5.5 on the B6 run. | ±100 µs. Draft Q5 is withdrawn [mine]: W–B error no longer grows with process age, and the 8 h runs cover several wraps. |
 
 ---
@@ -538,7 +552,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 0. **P0 shows that Part 0's program does not count 2:1 on RP1.** That stops Task 5b as well as this design, and needs its own diagnosis before anything else.
 1. **B3a or B3b shows the two machines cannot be held in lockstep.** That is: the skew is not a constant ≤ 1 tick, or a machine still loses ticks per event.
-   - Fall back to the draft's (a): W fitted onto the stamp machine's count, or onto RAW, through the same loopback pairs.
+   - Fall back to the draft's (a): W fitted onto the stamp machine's count, or onto RAW, through the same loopback pairs. *[2026-11-07, c-direct: the same lead-edge pairs, from the stamp machine on GPIO17.]*
    - Accept the fit's residual on W.
    - The SI map applies unchanged.
 2. **B8 shows RP1's rate moving more than 1 ppm within a day.** A rate fixed per process then misses the SI target. The choices are:
@@ -561,7 +575,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - It puts a fit's noise, and a bias of up to w/2 that cannot be calibrated, on W, which is the hard path.
   - It keeps a software-timed B.
   - Whether an exec'd instruction costs the machine a cycle on RP1 is **[unverified]**.
-  - Its pair-collection idea survives, fed instead by (c)'s loopback (§2.2).
+  - Its pair-collection idea survives, fed instead by (c)'s loopback (§2.2). *[2026-11-07, c-direct: fed by the stamp machine reading GPIO17.]*
   - It is still the fallback if B3a or B3b fails.
 - **(b) Move edges onto PIO.** It needs one machine per line, and 2–3 are free (`MAX_PIO_SMS 4`; RP1's block count **[unverified, believed 1]**).
   - Partial (b), for example `pd1_comp` on a free machine, was tied to a pass line for edges. The user declined one [2026-10-30], so it is not built.
@@ -569,6 +583,11 @@ What matters for the budget is that the map is affine, which it is by constructi
   - Its exact MONO→RAW conversion is step 1 of §2.3.
 - **c-direct** (GPIO17 as the jmp pin, no wire) is not rejected. B4 decides it.
   - Datasheet §3.1.1: *"If the same peripheral input is connected to multiple GPIOs, the peripheral sees the logical OR"*. That suggests inputs are routed by FUNCSEL, and so that c-direct will not work.
+  - *[2026-11-07: B4 decided it, and c-direct works. The plan's bench S.4 ran on `wl-sync-rig0` with nothing wired: `bench stamps --stamp-pin 17 --frames 300`.*
+    - *300 of 300 lead edges were stamped, with `edges_short` 0, `between` 0, and 3,080 stamps seen.*
+    - *GPIO17 stayed libgpiod's output throughout (`pinctrl`: `17: op dl pd | lo // GPIO17 = output`).*
+    - *So the PIO reads GPIO17's pad whatever its function **[inferred from S.4; no document read says so]**. The datasheet's sentence did not predict that.*
+    - *The user adopted c-direct the same day (decision 2's note). An 8 h run on GPIO17 (S.5) is counting missed stamps.]*
 - **c-gen** (PIO generates the barcode) is not in this build. It needs a new program (about 15–19 of the 19 free instructions **[unverified]**).
   - It would remove `emit_pulses`' GIL spin (`rp1/backend.py:63-69`).
   - It is a separate decision.
@@ -579,7 +598,7 @@ What matters for the budget is that the map is affine, which it is by constructi
   - OC-R1 corrected them (§2.1, Part 0).
 
 **The draft's questions, as answered:**
-- **Q1, GPIO19:** answered by the approval of the recommendation that spends it (decision 2).
+- **Q1, GPIO19:** answered by the approval of the recommendation that spends it (decision 2). *[2026-11-07, c-direct: not spent after all. GPIO19 stays spare (decision 2's note).]*
 - **Q2, the rate:** SI seconds [user]. This rework is the answer's design.
 - **Q3, a lead edge not drained:** drop that `B` with an ERROR [user] (§2.5).
 - **Q4, name the clock:** `timebase` [user, done in `c67599f`]. The values are in §2.6.
@@ -626,15 +645,21 @@ What matters for the budget is that the map is affine, which it is by constructi
   - **Or test and fall back:** the box tests the loopback before its first segment, with one short pulse the decoders reject (it fails the lead's quarter-point checks, `barcode.py:120-123`). The pulse must end more than `IDLE_MIN_US`, 0.4 s, before the first frame, or the decoders lose that frame too (`barcode.py:37`, `:113`). If the test fails, that process falls back to today's split clock (`timebase "split"`, software-timed `B`). B and E are then on MONO together, and only W drifts.
   - The fallback keeps the split backend in the code, and gives a session with W drifting from B and E instead of one with no `B` and E unanchored.
   - *Answered 2026-11-07 (the user): "Test, then fall back".* The box tests the loopback before its first segment. On a failure, that process records `"split"`: `B` read from MONO before the frame, and edges through the MONO origin. The split backend stays in the code as a per-process mode. How the test is made is the plan's (Task 1.10a).
+  - *[2026-11-07, c-direct (the user): there is no loopback, so what the test witnesses changes. Its pulse, its place and its fallback do not.*
+    - *Under c-direct, two things can fail for a whole process: the stamp machine's start, and the PIO's sight of GPIO17 while libgpiod drives it. S.4 found that sight on this box. It belongs to the silicon and the kernel, not to the wiring.*
+    - *Before the first segment, the box configures both machines and leaves them disabled. It then drives the same 1 ms pulse on GPIO17, witnessed by a third state machine on GPIO17, enabled alone and then disabled.*
+    - *A machine that does not start, or a pulse that no machine stamps, puts the process on `"split"`, as answered.*
+    - *The sync enable stays untested (a refused one cannot be seen).*
+    - *The plan's Task 1.10a has the mechanism.]*
 - **Q3. What is the hardware and deploy scope of this work?**
   - **A spike on the box first?** May the build use wl-sync-rig0 over ssh for a spike before the ~1.5 weeks of software that rest on it? The spike would cover Part 0's program, the stamp machine, B3a and B3b. A failure there changes the design (§5).
   - **Who fits the jumpers?**
-    - 11→35 for the loopback (B4, B3b, B6, B8, B10);
+    - 11→35 for the loopback (B4, B3b, B6, B8, B10); *[2026-11-07, c-direct: none of them needs it now]*
     - 11→38 for B6's edge input;
     - 12→36 if B3b's dense stream comes from GPIO18.
   - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:192`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
   - *Answered 2026-11-07 (the user): a spike first, "Yes, spike first"; the hardware, "Not yet".*
     - Nothing physical for now: no jumpers, no signal generator, no board. So nobody fits the jumpers above yet.
-    - The spike covers only what needs no wiring (the plan's bench section S). B3a and B3b wait for jumpers, unless B4's c-direct case works there.
+    - The spike covers only what needs no wiring (the plan's bench section S). B3a and B3b wait for jumpers, unless B4's c-direct case works there. *[2026-11-07: it did (S.4), so they can run with no wire, on a harness not yet planned.]*
     - The unit stays `--fake`, and moving it off is not part of this work.
-    - The board's loopback resistor (the plan's Task 1.14) is not built.
+    - The board's loopback resistor (the plan's Task 1.14) is not built. *[2026-11-07, c-direct (the user): dropped for good.]*
