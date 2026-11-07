@@ -991,6 +991,13 @@ class _TwoCrystalClock:
             elapsed_ns = self._true_ns - self.p_zero_ns
             return int(elapsed_ns * self._rp1 / 1_000) & 0xFFFF_FFFF
 
+    def p_at_mono(self, mono_ns):
+        """The PIO count when MONO read `mono_ns`: where an edge the kernel stamped then
+        belongs on P."""
+        with self._lock:
+            true_ns = (mono_ns - self._mono_offset_ns) / self._slew / self._cpu
+            return int((true_ns - self.p_zero_ns) * self._rp1 / 1_000) & 0xFFFF_FFFF
+
 
 @pytest.fixture
 def crystals(monkeypatch, gpiod):
@@ -1556,7 +1563,7 @@ def test_the_edge_buffer_holds_a_whole_read(lib, gpiod, monkeypatch):
     still waiting in the kernel."""
     from wl_sync.rp1.gpio import EDGE_READ_MAX
 
-    backend = Rp1Backend()
+    backend = _started(lib, lambda tick, word: None)  # one count: edges map through its fit
     try:
         backend.start_edge_capture([20], lambda gpio, level, tick: None)
     finally:
@@ -1573,11 +1580,9 @@ def test_the_edge_buffer_holds_a_whole_read(lib, gpiod, monkeypatch):
         backend.close()
 
 
-def _edge_now_less(backend, seqno, us):
-    """An edge the kernel stamped `us` before now, on the backend's own timebase. All on
-    GPIO20, so its line's number is the request's, rising and falling in turn."""
-    import types
-
+def _edge_stamped(seqno, timestamp_ns):
+    """An edge the kernel stamped at `timestamp_ns` on MONO. All on GPIO20, so its line's
+    number is the request's, rising and falling in turn."""
     kinds = types.SimpleNamespace(RISING_EDGE="rising", FALLING_EDGE="falling")
     return types.SimpleNamespace(
         global_seqno=seqno,
@@ -1585,8 +1590,13 @@ def _edge_now_less(backend, seqno, us):
         line_offset=20,
         event_type=kinds.RISING_EDGE if seqno % 2 else kinds.FALLING_EDGE,
         Type=kinds,
-        timestamp_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC) - us * 1_000,
+        timestamp_ns=timestamp_ns,
     )
+
+
+def _edge_now_less(backend, seqno, us):
+    """An edge the kernel stamped `us` before now (`_edge_stamped`)."""
+    return _edge_stamped(seqno, time.clock_gettime_ns(time.CLOCK_MONOTONIC) - us * 1_000)
 
 
 def test_the_edge_pump_witnesses_how_late_edges_reach_it(lib, gpiod):
@@ -1599,6 +1609,7 @@ def test_the_edge_pump_witnesses_how_late_edges_reach_it(lib, gpiod):
     seen = []
     backend = Rp1Backend()
     assert backend.stamp_lag() is None
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)  # the fit
     time.sleep(0.1)  # so an edge stamped 50 ms ago is after the origin
     backend.start_edge_capture([20], lambda gpio, level, tick: seen.append(tick))
     try:
@@ -1638,6 +1649,7 @@ def test_lost_edges_reach_check_health_by_cause_and_a_swap_does_not(lib, gpiod):
 
     seen = []
     backend = Rp1Backend()
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)  # the fit
     time.sleep(0.01)  # so an edge stamped 1 ms ago is after the origin
     backend.start_edge_capture([20, 26, 27], lambda gpio, level, tick: seen.append(gpio))
     try:
@@ -1672,7 +1684,7 @@ def test_the_edge_thread_takes_a_last_look_when_capture_stops(lib, gpiod, monkey
     monkeypatch.setattr(
         gpio.EdgePump, "finish", lambda pump, request, now_us: looks.append(request)
     )
-    backend = Rp1Backend()
+    backend = _started(lib, lambda tick, word: None)  # one count: edges map through its fit
     backend.start_edge_capture([20], lambda gpio, level, tick: None)
     request = backend._edges
     backend.close()
@@ -1690,7 +1702,7 @@ def test_check_health_takes_the_edge_loss_under_the_pumps_lock(lib, gpiod, monke
     monkeypatch.setattr(
         gpio.EdgePump, "take_error", lambda pump: taken.append(pump) or take(pump)
     )
-    backend = Rp1Backend()
+    backend = _started(lib, lambda tick, word: None)  # one count: edges map through its fit
     backend.start_edge_capture([20], lambda gpio, level, tick: None)
     try:
         backend._pump._hold(gpio.UnaccountedEdgeError(unaccounted=1))
@@ -1727,6 +1739,7 @@ def _held_gap_on_a_still_clock(backend, gpiod):
         )
 
     seen = []
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)  # the fit
     time.sleep(0.01)  # so an edge stamped 1 ms ago is after the origin
     frozen = backend.now_us()
     backend.now_us = lambda: frozen
@@ -1856,6 +1869,178 @@ def test_close_returns_on_a_still_clock_with_traffic_through_the_stop(lib, gpiod
         backend.check_health()
 
 
+# --- E on the box clock (Task 1.11) ------------------------------------------------------
+#
+# The kernel stamps each edge on MONO. On one count the edge pump maps it onto P, MONO ->
+# RAW through a table the edge thread fills, then RAW -> P through the lead-edge fit (spec
+# §2.3, docs/superpowers/specs/2026-10-30-one-clock-design.md:354-364). A split process,
+# which has no fit, counts it in MONO us since the origin, as before the one-clock build.
+
+
+def _clock_reads(monkeypatch):
+    """The real clocks, with every read the backend makes recorded as (thread, clock,
+    value). Each pass of the edge pump is recorded as (thread, "pass", None), and its last
+    look as (thread, "finish", None)."""
+    from wl_sync.rp1 import gpio
+
+    reads = []
+
+    def clock(which):
+        value = time.clock_gettime_ns(which)
+        reads.append((threading.current_thread().name, which, value))
+        return value
+
+    monkeypatch.setattr(rp1, "time", types.SimpleNamespace(
+        CLOCK_REALTIME=time.CLOCK_REALTIME,
+        CLOCK_MONOTONIC=time.CLOCK_MONOTONIC,
+        CLOCK_MONOTONIC_RAW=time.CLOCK_MONOTONIC_RAW,
+        clock_gettime_ns=clock,
+        sleep=time.sleep,
+        monotonic=time.monotonic,
+    ))
+    for name, mark in (("pump_once", "pass"), ("finish", "finish")):
+        def marked(pump, request, now_us, _mark=mark, _real=getattr(gpio.EdgePump, name)):
+            reads.append((threading.current_thread().name, _mark, None))
+            return _real(pump, request, now_us)
+
+        monkeypatch.setattr(gpio.EdgePump, name, marked)
+    return reads
+
+
+def test_edges_land_on_the_pio_count_not_on_cpu_time(lib, gpiod, crystals):
+    """The CPU's crystal 50 ppm fast and RP1's true. After forty frames an edge the kernel
+    stamped on MONO is delivered on P, to 2 counts, where MONO us since the origin, which a
+    split process counts, are more than a millisecond off."""
+    from wl_sync.barcode import encode
+
+    clock = crystals(cpu_ppm=50, rp1_ppm=0)
+    seen = []
+    backend = _started(lib, lambda tick, word: None)
+    backend.start_edge_capture([20], lambda gpio, level, tick: seen.append(tick))
+    try:
+        for k in range(40):
+            assert backend.emit_pulses(17, encode(1000 + k)).tick is not None, k
+            clock.sleep(0.5)
+        stamp_ns = clock.ns
+        gpiod.edges.append(_edge_stamped(1, stamp_ns))
+        assert _until(lambda: seen)
+    finally:
+        backend.close()
+    p = clock.p_at_mono(stamp_ns)
+    assert abs(seen[0] - p) <= 2, (seen[0], p)
+    assert abs((stamp_ns - backend._origin_ns) // 1_000 - p) > 1_000
+
+
+def test_the_edge_thread_reads_mono_and_raw_together_on_every_pass(lib, gpiod, monkeypatch):
+    """Spec §2.3 step 1 (the same file's :355-358): before each pass, and before the last
+    look, the edge thread reads (MONO, RAW) for the edge map's table. RAW is read either
+    side of MONO and paired by its midpoint, so the pair is one instant whatever a clock
+    read costs, and a wide bracket is dropped (Ruling R31). start_edge_capture adds the
+    first, on its caller's thread, before the edge thread exists."""
+    from wl_sync import clockmap
+
+    added = []
+
+    class _Table(clockmap.MonoRawTable):
+        def add(self, mono_ns, raw_ns):
+            added.append((threading.current_thread().name, mono_ns, raw_ns))
+            super().add(mono_ns, raw_ns)
+
+    monkeypatch.setattr(rp1, "MonoRawTable", _Table)
+    reads = _clock_reads(monkeypatch)
+    backend = _started(lib, lambda tick, word: None)
+    backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    try:
+        assert _until(lambda: sum(entry[1] == "pass" for entry in reads) >= 5)
+    finally:
+        backend.close()
+
+    names = {time.CLOCK_MONOTONIC: "MONO", time.CLOCK_MONOTONIC_RAW: "RAW"}
+    edge = [(names.get(which, which), value)
+            for thread, which, value in reads if thread == "wl-sync-edges"]
+    looked = edge.index(("finish", None))
+    passes = [
+        i for i, (what, _) in enumerate(edge[:looked + 1]) if what in ("pass", "finish")
+    ]
+    assert len(passes) >= 6
+    taken = []
+    for i in passes:
+        (first, raw_before), (middle, mono), (last, raw_after) = edge[i - 3:i]
+        assert (first, middle, last) == ("RAW", "MONO", "RAW"), edge[i - 3:i + 1]
+        if raw_after - raw_before <= rp1.MONO_RAW_BRACKET_MAX_NS:
+            taken.append((mono, (raw_before + raw_after) // 2))
+    assert [(mono, raw) for thread, mono, raw in added[1:]] == taken
+    assert {thread for thread, _, _ in added[1:]} == {"wl-sync-edges"}
+    assert added[0][0] == threading.current_thread().name
+
+
+def test_a_mono_raw_reading_with_a_wide_bracket_is_dropped(monkeypatch):
+    """Ruling R31. A RAW bracket wider than MONO_RAW_BRACKET_MAX_NS was interrupted, and its
+    midpoint can be half of it off, so the reading is dropped: here 60 us wide, which would
+    have put the pair 30 us off. Start-up's reading is kept however wide, since an empty
+    table places no edge."""
+    from wl_sync.clockmap import MonoRawTable
+
+    reads = []
+    monkeypatch.setattr(rp1, "time", types.SimpleNamespace(
+        CLOCK_MONOTONIC=time.CLOCK_MONOTONIC,
+        CLOCK_MONOTONIC_RAW=time.CLOCK_MONOTONIC_RAW,
+        clock_gettime_ns=lambda _which: reads.pop(0),
+    ))
+    assert rp1.MONO_RAW_BRACKET_MAX_NS == 50_000
+    table = MonoRawTable()
+    # RAW, MONO, RAW, in microseconds: MONO runs 1 000 000 us behind RAW.
+    for raw_before, mono, raw_after, keep_wide in (
+        (2_000_000, 1_000_020, 2_000_040, False),  # 40 us: kept
+        (4_000_000, 3_000_020, 4_000_060, False),  # 60 us: dropped
+        (4_100_000, 3_100_020, 4_100_060, True),   # 60 us at start-up: kept
+    ):
+        reads[:] = [raw_before * 1_000, mono * 1_000, raw_after * 1_000]
+        rp1.Rp1Backend._add_mono_raw(table, keep_wide=keep_wide)
+    assert list(table._readings) == [
+        (1_000_020_000, 2_000_020_000), (3_100_020_000, 4_100_030_000),
+    ]
+
+
+def test_a_split_process_counts_edges_from_the_monotonic_origin_as_today(
+    lib, gpiod, monkeypatch
+):
+    """A process whose stamp machine failed its start-up test (Task 1.10a) has no fit to map
+    through: an edge stamped 1 500 us after the origin is delivered at 1 500, and the edge
+    thread reads MONO alone, for the now_us() its marks are on."""
+    reads = _clock_reads(monkeypatch)
+    seen = []
+    backend = Rp1Backend()
+    backend._fall_back_to_split("x")
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    backend.start_edge_capture([20], lambda gpio, level, tick: seen.append(tick))
+    try:
+        gpiod.edges.append(_edge_stamped(1, backend._origin_ns + 1_500_000))
+        assert _until(lambda: seen and sum(entry[1] == "pass" for entry in reads) >= 5)
+    finally:
+        backend.close()
+    assert seen == [1_500]
+    on_the_edge_thread = {which for thread, which, _ in reads
+                          if thread == "wl-sync-edges" and which not in ("pass", "finish")}
+    assert on_the_edge_thread == {time.CLOCK_MONOTONIC}
+
+
+def test_edges_cannot_be_mapped_before_the_count_has_started(lib, gpiod):
+    """On one count the edge map runs through the RAW->P fit, which the sync enable makes
+    (`start_strobed_capture`), and run() starts codes before edges (wl_sync/cli.py:582-583).
+    Refused, the start opens no line request and fixes nothing: a calibration can still be
+    applied."""
+    backend = Rp1Backend()
+    try:
+        with pytest.raises(RuntimeError, match="start_strobed_capture"):
+            backend.start_edge_capture([20], lambda gpio, level, tick: None)
+        assert not any("event_buffer_size" in kwargs for kwargs in gpiod.requested)
+        assert backend._edge_thread is None
+        assert backend.apply_calibration(None) is not None  # nothing has started
+    finally:
+        backend.close()
+
+
 # --- L records through the backend's own threads (2026-10-30) ----------------------------
 #
 # The pumps report each loss where they find it, from their own threads; the Recorder
@@ -1922,7 +2107,11 @@ def test_a_full_fifo_reaches_the_journal_but_not_the_segment(lib, gpiod, tmp_pat
     assert read_log(path)[1] == [CodeWord(tick_us=10, word=1)]
 
 
-def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
+@pytest.mark.parametrize("split", [False, True], ids=["one-count", "split"])
+def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path, split):
+    """In a split process the window's start is the edge before's tick, exactly. On one
+    count it is `after` less a span at the fit's ratio, rounded once where the two edges'
+    mapped ticks round twice (wl_sync/clockmap.py:265-269), so it is within a count."""
     import types
 
     from wl_sync.log import Edge, Loss, read_log
@@ -1937,6 +2126,9 @@ def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_p
         )
 
     backend, recorder, close_sink, path = _recording_on(tmp_path)
+    if split:
+        backend._fall_back_to_split("x")
+    recorder.capture_codes(0, DATA, DATA)  # as run() does: on one count, the fit
     time.sleep(0.01)  # so an edge stamped 2 ms ago is after the origin
     recorder.capture_edges([20])
     try:
@@ -1953,8 +2145,9 @@ def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_p
     assert isinstance(first, Edge) and isinstance(second, Edge)
     assert loss == Loss(
         tick_us=second.tick_us, path="E", gpio=20, count=2, bound="exact",
-        cause="buffer_overflow", before_us=first.tick_us, after_us=second.tick_us,
+        cause="buffer_overflow", before_us=loss.before_us, after_us=second.tick_us,
     )
+    assert abs(loss.before_us - first.tick_us) <= (0 if split else 1)
 
 
 def _calibration(rate_ppb=0, p_per_raw_ppb=0):
@@ -2421,10 +2614,12 @@ def test_with_no_stamp_machine_check_health_does_not_report_it_again(lib, gpiod,
 
 
 def _start(backend, path):
-    """Start one capture path: the strobed words, or the edges."""
-    if path == "strobed":
+    """Start one capture path: the strobed words, or the edges. On one count the edges map
+    through the fit the strobed start makes, so they cannot start alone
+    (`start_edge_capture`), and the words start first, as run() starts them."""
+    if path == "strobed" or not backend._split:
         backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
-    else:
+    if path == "edges":
         backend.start_edge_capture([20], lambda gpio, level, tick: None)
 
 
@@ -2729,7 +2924,7 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
 
 
 # Ruling R19: the fit finds the lead edges again. Below FIT_FREE_SLOPE_PAIRS only a matched
-# pair moves the fit (wl_sync/clockmap.py:128-137), so a fit that has lost the lead edges
+# pair moves the fit (wl_sync/clockmap.py:150-159), so a fit that has lost the lead edges
 # gets no pair to correct it. Three shifted frames in a row, their offsets agreeing,
 # restart it.
 

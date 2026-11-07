@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from wl_sync.backend import CaptureLoss
 
@@ -81,13 +82,17 @@ def _since(later: int, earlier: int) -> int:
 class DroppedEdgeError(RuntimeError):
     """Edges the kernel saw that never reached the record as events of their own.
 
-    Three kinds, each counted in edge events:
+    Four kinds, each counted in edge events:
       * `overflowed`, GPIO -> count: a gap in the line's own numbers. The kernel's
         buffer was full and threw its oldest events away.
       * `coalesced`, GPIO -> count: two events in a row on the line at the same level.
         An edge between them never became an event of its own.
       * `unaccounted`: request numbers that never arrived and that nothing on any line
         explains. The cause cannot be known, so none is named.
+      * `unplaced`, GPIO -> count: events whose stamp the edge timebase could not place
+        on the box clock (EdgeTimebase), left out so that capture goes on (Ruling R30).
+        The journal's alone: an L record's causes are a closed set that wl-preproc reads
+        (wl_sync/log.py:276-288).
     Raised as the subclass for its one kind, and as this class when one report carries
     more than one.
     """
@@ -97,30 +102,44 @@ class DroppedEdgeError(RuntimeError):
         overflowed: dict[int, int] | None = None,
         coalesced: dict[int, int] | None = None,
         unaccounted: int = 0,
+        unplaced: dict[int, int] | None = None,
     ) -> None:
         self.overflowed = dict(overflowed or {})
         self.coalesced = dict(coalesced or {})
         self.unaccounted = unaccounted
-        super().__init__(_describe(self.overflowed, self.coalesced, self.unaccounted))
+        self.unplaced = dict(unplaced or {})
+        super().__init__(
+            _describe(self.overflowed, self.coalesced, self.unaccounted, self.unplaced)
+        )
 
     def __reduce__(self):
         # Rebuilt from its counts, not from its message, so copy and pickle work.
-        return type(self), (self.overflowed, self.coalesced, self.unaccounted)
+        counts = (self.overflowed, self.coalesced, self.unaccounted, self.unplaced)
+        return type(self), counts
 
     @property
     def lost(self) -> int:
         return (
             sum(self.overflowed.values()) + sum(self.coalesced.values()) + self.unaccounted
+            + sum(self.unplaced.values())
         )
 
     def combine(self, other: DroppedEdgeError) -> DroppedEdgeError:
         """Both reports as one, so a health check that finds both says so."""
-        overflowed, coalesced = dict(self.overflowed), dict(self.coalesced)
-        for gpio, count in other.overflowed.items():
-            overflowed[gpio] = overflowed.get(gpio, 0) + count
-        for gpio, count in other.coalesced.items():
-            coalesced[gpio] = coalesced.get(gpio, 0) + count
-        return _dropped(overflowed, coalesced, self.unaccounted + other.unaccounted)
+        merged = []
+        for mine, theirs in (
+            (self.overflowed, other.overflowed),
+            (self.coalesced, other.coalesced),
+            (self.unplaced, other.unplaced),
+        ):
+            counts = dict(mine)
+            for gpio, count in theirs.items():
+                counts[gpio] = counts.get(gpio, 0) + count
+            merged.append(counts)
+        overflowed, coalesced, unplaced = merged
+        return _dropped(
+            overflowed, coalesced, self.unaccounted + other.unaccounted, unplaced
+        )
 
 
 class EdgeBufferOverflowError(DroppedEdgeError):
@@ -136,22 +155,30 @@ class UnaccountedEdgeError(DroppedEdgeError):
     """Numbers the kernel gave edges that never arrived, with nothing to say why."""
 
 
-def _dropped(overflowed, coalesced, unaccounted=0) -> DroppedEdgeError:
+class UnplacedEdgeError(DroppedEdgeError):
+    """Edges whose stamp the edge timebase could not place on the box clock, left out."""
+
+
+def _dropped(overflowed, coalesced, unaccounted=0, unplaced=None) -> DroppedEdgeError:
     kinds = [
         kind
         for kind, present in (
             (EdgeBufferOverflowError, overflowed),
             (CoalescedEdgeError, coalesced),
             (UnaccountedEdgeError, unaccounted),
+            (UnplacedEdgeError, unplaced),
         )
         if present
     ]
     kind = kinds[0] if len(kinds) == 1 else DroppedEdgeError
-    return kind(overflowed, coalesced, unaccounted)
+    return kind(overflowed, coalesced, unaccounted, unplaced)
 
 
 def _describe(
-    overflowed: dict[int, int], coalesced: dict[int, int], unaccounted: int
+    overflowed: dict[int, int],
+    coalesced: dict[int, int],
+    unaccounted: int,
+    unplaced: dict[int, int],
 ) -> str:
     """"N edge event(s) lost (cause on where): why", one clause per kind."""
 
@@ -177,6 +204,12 @@ def _describe(
             f"{unaccounted} edge event(s) lost on an unknown line: numbered interrupts "
             "that never arrived, from coalesced interrupts, a kernel buffer overflow on "
             "a line that has not fired since, or an event delivered later than the window"
+        )
+    if unplaced:
+        parts.append(
+            f"{sum(unplaced.values())} edge event(s) lost (no place on the box clock"
+            f"{where(unplaced)}): the edge timebase could not map the kernel's stamp, so "
+            "the edge was left out and capture went on"
         )
     return "; ".join(parts)
 
@@ -208,12 +241,14 @@ def pulse_deadlines(
 
 
 def edge_tick_us(timestamp_ns: int, origin_ns: int) -> int:
-    """A kernel edge timestamp on this box's shared 32-bit timebase.
+    """A kernel edge timestamp as MONO us since `origin_ns`, 32 bits: a split process's
+    edge tick (MonotonicOrigin).
 
     libgpiod stamps edge events from CLOCK_MONOTONIC inside the kernel, at interrupt
-    time -- `LineSettings.event_clock` defaults to `Clock.MONOTONIC`. That is the same
-    clock `Rp1Backend.now_us()` counts from, so an edge needs no correction for when
-    this process happened to be scheduled. Reading a clock in the callback instead
+    time -- `LineSettings.event_clock` defaults to `Clock.MONOTONIC`. In a split process
+    that is the clock `Rp1Backend.now_us()` counts from, so an edge needs no correction
+    for when this process happened to be scheduled; on one count the stamp is mapped onto
+    P instead (wl_sync.clockmap.MappedTimebase). Reading a clock in the callback instead
     would fold thread wake-up latency into every edge, which is precisely the error
     this box exists to keep out of the record.
 
@@ -226,6 +261,51 @@ def edge_tick_us(timestamp_ns: int, origin_ns: int) -> int:
             "it would sort before every record in the segment"
         )
     return ((timestamp_ns - origin_ns) // 1_000) % TICK_WRAP_US
+
+
+class EdgeTimebase(Protocol):
+    """Where a kernel edge stamp, on CLOCK_MONOTONIC, lands on the box clock: the clock
+    `now_us()` reads, so the pump's marks and its witness compare like with like. A split
+    process gives EdgePump a MonotonicOrigin, and one count wl_sync.clockmap's
+    MappedTimebase."""
+
+    def tick(self, timestamp_ns: int) -> int:
+        """The stamp's tick, raw, 32 bits. Raises ValueError for a stamp it cannot place."""
+        ...
+
+    def span(self, after_ns: int, before_ns: int) -> int:
+        """The ticks from `before_ns` to `after_ns`, as a distance, never below 0."""
+        ...
+
+
+class MonotonicOrigin:
+    """MONO us since an origin: a split process's edge timebase, and every process's
+    before the one-clock build."""
+
+    def __init__(self, origin_ns: int) -> None:
+        self._origin_ns = origin_ns
+
+    def tick(self, timestamp_ns: int) -> int:
+        return edge_tick_us(timestamp_ns, self._origin_ns)
+
+    def span(self, after_ns: int, before_ns: int) -> int:
+        # Each stamp floored to us first, as its tick is, so the span is the difference
+        # of the two ticks exactly.
+        return max(
+            0,
+            (after_ns - self._origin_ns) // 1_000 - (before_ns - self._origin_ns) // 1_000,
+        )
+
+
+# How far apart two edges on one line may be stamped for the order guard to compare their
+# ticks (EdgePump, EACH LINE IN TICK ORDER; Ruling R30). The ticks are compared with
+# `_since`, which reads a difference right only within half a wrap, and a line can be
+# quiet for longer: against a tick from before, its next edge read as behind, and was
+# clamped to that stale tick, with every edge after it for up to 35.8 min. Within a
+# quarter wrap of stamps the difference is the stamps' plus the map's movement, under a
+# second (an R19 restart moves the fit by at most IDLE_MIN_US, wl_sync/clockmap.py:333-337),
+# so `_since` reads it right. Beyond it no map moves an edge back so far: no guard needed.
+_GUARD_REACH_NS = TICK_WRAP_US // 4 * 1_000
 
 
 @dataclass(eq=False)
@@ -652,6 +732,22 @@ class EdgePump:
     that can say. `stamp_lag_max_us` and `stamp_lag_over` are the witness for the one
     assumption that rule rests on (also `pump_once`).
 
+    THE TIMEBASE places every kernel stamp on the box clock (EdgeTimebase): an edge's
+    tick, the witness's bound, the mark held below a gap and an L record's window. On one
+    count it is MappedTimebase, whose map moves while the pump runs: its table with each
+    (MONO, RAW) reading, its fit with each lead-edge pair.
+
+    EACH LINE IN TICK ORDER (wl_sync/log.py:382-385). A map that moved between two edges
+    on one line can put the second before the first, so the second is delivered at the
+    first one's tick, and an L record written just before it takes that tick too
+    (wl_sync/log.py:387-388). Only for edges stamped within _GUARD_REACH_NS of each other,
+    which says why (Ruling R30).
+
+    AN EDGE THE TIMEBASE CANNOT PLACE IS LEFT OUT, and capture goes on: it is counted as
+    unplaced (DroppedEdgeError) for check_health(), and a loss found at it is left to the
+    journal. It once stopped the pump, and every edge after it went unrecorded. A held
+    mark or an L record whose stamp cannot be placed is dropped the same way (Ruling R30).
+
     EACH LOSS GOES TO `on_loss` TOO, as a CaptureLoss, for its L record in the segment
     (wl_sync.log.Loss), from this thread, so it keeps its place among the edges: an
     overflow or a pair just before the event that showed it, an unaccounted number once
@@ -667,10 +763,23 @@ class EdgePump:
     waits.
     """
 
-    def __init__(self, on_edge, origin_ns: int, on_loss=None) -> None:
+    def __init__(
+        self,
+        on_edge,
+        origin_ns: int | None = None,
+        on_loss=None,
+        *,
+        timebase: EdgeTimebase | None = None,
+    ) -> None:
+        # Exactly one: `origin_ns` is MonotonicOrigin's shorthand, as edges were placed
+        # before the one-clock build.
+        if (origin_ns is None) == (timebase is None):
+            raise TypeError("EdgePump takes exactly one of origin_ns and timebase")
         self._on_edge = on_edge
         self._on_loss = on_loss
-        self._origin_ns = origin_ns
+        self._timebase = MonotonicOrigin(origin_ns) if timebase is None else timebase
+        # Each line's last edge delivered, GPIO -> (its stamp, its tick), for the guard.
+        self._last_on_line: dict[int, tuple[int, int]] = {}
         self._seqnos = SeqnoTracker()
         self._held = threading.Lock()
         self._waited_out = False
@@ -711,7 +820,7 @@ class EdgePump:
         at most EDGE_READ_MAX, so one read need not empty the buffer.
 
         THE WITNESS. Every edge a read returns was in the buffer when the read returned,
-        so the clock then, less the edge's stamp, bounds from above how long the kernel
+        so the clock then, less the edge's tick, bounds from above how long the kernel
         took to buffer it. The bound also counts the pump's own lateness. The largest is
         `stamp_lag_max_us`, and `stamp_lag_over` counts the edges whose bound exceeded
         EDGE_STAMP_LAG_US. A quiet maximum confirms the assumption on the box.
@@ -753,22 +862,29 @@ class EdgePump:
 
     def _publish(self) -> None:
         """Publish the mark THE RULE gives, held below the event that showed the
-        earliest gap still open, if that is earlier."""
+        earliest gap still open, if that is earlier. Nothing is held below an event the
+        timebase cannot place: the gap's L record, which the hold waits for, is placed by
+        that event's stamp, and while it has no place, `_report` sends none."""
         mark = self._through
         shown = self._seqnos.first_open_shown_ns()
         if mark is not None and shown is not None:
-            held = (edge_tick_us(shown, self._origin_ns) - 1) % TICK_WRAP_US
+            try:
+                held = (self._timebase.tick(shown) - 1) % TICK_WRAP_US
+            except ValueError:
+                held = mark
             if _since(mark, held) > 0:
                 mark = held
         self.delivered_through = mark
 
     def _witness(self, events, read_at: int) -> None:
         """Bound each edge's stamp-to-buffer lag by `read_at`, the clock when the read
-        returned. An edge stamped before the origin is left to `handle` to refuse."""
+        returned. An edge the timebase cannot place is left to `handle`, which skips it
+        and counts it."""
         for event in events:
-            if event.timestamp_ns < self._origin_ns:
+            try:
+                tick = self._timebase.tick(event.timestamp_ns)
+            except ValueError:
                 continue
-            tick = edge_tick_us(event.timestamp_ns, self._origin_ns)
             bound = (read_at - tick) % TICK_WRAP_US
             if self.stamp_lag_max_us is None or bound > self.stamp_lag_max_us:
                 self.stamp_lag_max_us = bound
@@ -783,7 +899,8 @@ class EdgePump:
         the buffer's order, which already holds each line's edges in order. The mark
         moves only after the whole batch, so which ticks have been delivered does not
         depend on their order within it. A loss the check found at an event goes to
-        `on_loss` just before that event goes to `on_edge`."""
+        `on_loss` just before that event goes to `on_edge`, at the tick `_place` gave
+        it. An event `_place` cannot place goes to neither."""
         try:
             self._seqnos.check(events, read_at)
         except DroppedEdgeError as dropped:
@@ -791,18 +908,36 @@ class EdgePump:
         found = self._seqnos.take_found()
         for index, event in enumerate(events):
             try:
+                tick = self._place(event)
+                if tick is None:
+                    continue
                 for site in found.get(index, ()):
-                    self._report(site, ahead=True)
+                    self._report(site, ahead=True, after=tick)
                 rising = event.event_type is event.Type.RISING_EDGE
-                self._on_edge(
-                    event.line_offset,
-                    1 if rising else 0,
-                    edge_tick_us(event.timestamp_ns, self._origin_ns),
-                )
+                self._on_edge(event.line_offset, 1 if rising else 0, tick)
             except BaseException as error:  # noqa: BLE001 - surfaced by check_health
                 self.fail(error)
                 return False
         return True
+
+    def _place(self, event) -> int | None:
+        """The event's tick, mapped once (EACH LINE IN TICK ORDER), or None for an edge
+        the timebase cannot place, which is counted as unplaced (AN EDGE THE TIMEBASE
+        CANNOT PLACE). Mapped twice, an edge and the L record just before it could take
+        two ticks: the map can move between the calls, and the guard moves only one."""
+        gpio, stamp = event.line_offset, event.timestamp_ns
+        try:
+            tick = self._timebase.tick(stamp)
+        except ValueError:
+            self._hold(UnplacedEdgeError(unplaced={gpio: 1}))
+            return None
+        last = self._last_on_line.get(gpio)
+        if last is not None:
+            last_stamp, last_tick = last
+            if abs(stamp - last_stamp) < _GUARD_REACH_NS and _since(tick, last_tick) < 0:
+                tick = last_tick
+        self._last_on_line[gpio] = (stamp, tick)
+        return tick
 
     def finish(self, request, now_us: Callable[[], int]) -> None:
         """The last look, once capture is told to stop: deliver what the kernel still
@@ -888,26 +1023,29 @@ class EdgePump:
                 return False
         return True
 
-    def _report(self, site: _Site, ahead: bool) -> None:
-        """One loss to `on_loss`, its stamps made ticks on the shared 32-bit timebase.
-        The event after it is recent and goes raw; the one before it can be any age, so
-        it goes as an exact distance back (CaptureLoss)."""
+    def _report(self, site: _Site, ahead: bool, after: int | None = None) -> None:
+        """One loss to `on_loss`, placed by the timebase. `after` is the tick `handle`
+        gave the event it goes just before; otherwise the event after it is placed here.
+        That event is recent and goes raw; the one before it can be any age, so it goes
+        as a distance back in the timebase's counts (CaptureLoss). A loss whose event
+        after has no place is not sent: the journal's report of it stands."""
         if self._on_loss is None:
             return
+        if after is None:
+            try:
+                after = self._timebase.tick(site.after_ns)
+            except ValueError:
+                return
         span = None
         if site.before_ns is not None:
-            span = max(
-                0,
-                (site.after_ns - self._origin_ns) // 1_000
-                - (site.before_ns - self._origin_ns) // 1_000,
-            )
+            span = self._timebase.span(site.after_ns, site.before_ns)
         self._on_loss(
             CaptureLoss(
                 cause=site.cause,
                 count=site.count,
                 bound=site.bound,
                 gpio=site.gpio,
-                after=edge_tick_us(site.after_ns, self._origin_ns),
+                after=after,
                 span_us=span,
                 ahead=ahead,
             )

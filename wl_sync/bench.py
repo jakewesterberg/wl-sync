@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1215-1223),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1283-1291),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -223,7 +223,7 @@ def stamp_run(
         if stamp.tick is None:
             # Only a stamp too far leaves its distance in the match: `nearest` is set
             # only for a lead the frame's rises align on outside its window, or for one
-            # refused beyond reach (wl_sync/clockmap.py:276-278).
+            # refused beyond reach (wl_sync/clockmap.py:298-300).
             far = None if trace is None else trace.lead.nearest
             kind = stamp.missed if far is None else STAMP_TOO_FAR
             report.missed[kind] = report.missed.get(kind, 0) + 1
@@ -291,7 +291,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     stopped: _Terminated | None = None
     backend = Rp1Backend(chip_path=chip_path, stamp_pin=stamp_pin)
     if backend.stamp_test_failure:
-        # The process is split (wl_sync/rp1/backend.py:1091-1094): each frame's B is the
+        # The process is split (wl_sync/rp1/backend.py:1159-1162): each frame's B is the
         # clock read before it, and nothing is stamped or matched. Were it run, every frame
         # would count as stamped (`stamp_run`), and it would pass on stamps never seen.
         print(f"start-up test failed ({backend.stamp_test_failure}): this process records "

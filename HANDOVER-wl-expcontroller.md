@@ -363,7 +363,7 @@ above are struck through and replaced in place, dated.
    manifest of the folder they are in *(corrected 2026-10-18, later: there is one manifest per
    folder now, not one per day)*.
 8. **Edges can be lost without a mark in the file.** If the kernel's edge buffer overflows, the gap
-   is detected (libgpiod sequence numbers, `wl_sync/rp1/gpio.py:127`) but not written into the
+   is detected (libgpiod sequence numbers, `wl_sync/rp1/gpio.py:146`) but not written into the
    segment. Since Step A *(later on 2026-10-18)*, the run loop calls `check_health()` every second,
    and the gap reaches the journal once per episode as `capture degraded, still recording: …`. The
    strobed event codes now get the same treatment, and a full PIO FIFO is reported the same way. **A pulse count taken from the file is exact only for a day whose journal

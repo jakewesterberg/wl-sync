@@ -10,6 +10,7 @@ from wl_sync.clockmap import (
     LEAD_STAMP_TOLERANCE,
     ClockPair,
     LeadStamp,
+    MONO_RAW_SPAN_MIN_NS,
     MappedTimebase,
     MonoRawTable,
     IDENTITY,
@@ -46,14 +47,20 @@ def test_mono_is_carried_to_raw_by_interpolation():
     assert table_of((1_000, 5_000), (21_000, 25_010)).raw_of(11_000) == 15_005
 
 
-def test_past_the_last_reading_mono_is_extrapolated_at_the_last_rate():
-    assert table_of((1_000, 5_000), (21_000, 25_010)).raw_of(31_000) == 35_015
+# Three readings a second apart: 30 us of RAW gained in the first second, 10 us lost in the
+# next, so the whole table runs 10 ppm fast and its last two readings 10 ppm slow.
+_TWO_SECONDS = ((0, 0), (S, S + 30_000), (2 * S, 2 * S + 20_000))
 
 
-def test_before_the_first_reading_mono_is_extrapolated_at_the_first_rate():
-    table = table_of((1_000, 5_000), (21_000, 25_010), (41_000, 45_000))
-    # the first two readings run at 20_010 / 20_000, not the later 19_990 / 20_000
-    assert table.raw_of(-9_000) == 5_000 - 10_005
+def test_past_the_last_reading_mono_is_extrapolated_at_the_whole_tables_rate():
+    """Ruling R31: at the slope from the first reading to the last, not the last two's."""
+    assert table_of(*_TWO_SECONDS).raw_of(3 * S) == 2 * S + 20_000 + S + 10_000
+
+
+def test_before_the_first_reading_mono_is_extrapolated_at_the_whole_tables_rate():
+    """Ruling R31: at the slope from the first reading to the last, not the first two's
+    (30 ppm fast)."""
+    assert table_of(*_TWO_SECONDS).raw_of(-S) == -S - 10_000
 
 
 def test_with_one_reading_mono_and_raw_differ_by_its_offset():
@@ -69,12 +76,41 @@ def test_a_table_with_no_reading_refuses():
 
 
 def test_the_table_keeps_only_its_newest_readings():
-    # rates: 1.0 up to the third reading, then 2.0, 3.0, 4.0, 5.0
-    readings = [(0, 0), (10, 10), (20, 20), (30, 40), (40, 70), (50, 110)]
+    """Ruling R31: what falls before the kept readings is extrapolated at their own
+    slope, first to last, where it was the first two's."""
+    # RAW keeps pace with MONO to the third reading, then gains 3 us a second.
+    readings = [
+        (0, 0), (S, S), (2 * S, 2 * S), (3 * S, 3 * S + 3_000),
+        (4 * S, 4 * S + 6_000), (5 * S, 5 * S + 9_000),
+    ]
     table = table_of(*readings, keep=4)
-    # the oldest two are gone, so the first rate is the third-to-fourth one, 2.0
-    assert table.raw_of(10) == 20 - 20
-    assert table_of(*readings).raw_of(10) == 10
+    # The oldest two are gone, so a second before the third reading is extrapolated at
+    # the kept readings' 3 ppm.
+    assert table.raw_of(S) == S - 3_000
+    assert table_of(*readings).raw_of(S) == S
+
+
+def test_noise_on_two_close_readings_moves_an_extrapolated_edge_by_no_more_than_the_noise():
+    """Ruling R31. Two seconds of readings 20 ms apart on RAW = MONO, then one 100 us after
+    the last, read 1 us off. An edge 20 ms later is that 1 us off, and 10 ns for the
+    slope it bent over two seconds. At the slope of the last two readings it was 201 us
+    off: 1 us over 100 us, carried 20 ms."""
+    readings = [(k * 20_000_000, k * 20_000_000) for k in range(101)]
+    close = 2 * S + 100_000
+    table = table_of(*readings, (close, close + 1_000))
+    edge = close + 20_000_000
+    assert table.raw_of(edge) - edge == 1_000 + 10
+
+
+def test_a_table_spanning_under_a_second_extrapolates_at_slope_one():
+    """Ruling R31. Under MONO_RAW_SPAN_MIN_NS the nearer reading's offset alone, as with one
+    reading: NTP's slew keeps MONO within 500 ppm of RAW. At the span, the table's own
+    slope, here 5 ppm."""
+    assert MONO_RAW_SPAN_MIN_NS == S
+    short = table_of((0, 0), (S - 1, S - 1 + 5_000))
+    assert short.raw_of(2 * S) == 2 * S + 5_000
+    assert short.raw_of(-S) == -S
+    assert table_of((0, 0), (S, S + 5_000)).raw_of(2 * S) == 2 * S + 10_000
 
 
 def test_a_reading_that_goes_back_in_mono_is_ignored():

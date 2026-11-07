@@ -81,6 +81,16 @@ def _round(value: Fraction) -> int:
     return round(value)
 
 
+# The span the table must cover before it extrapolates at its own slope (Ruling R31).
+# MONO and RAW come from one counter and differ only by NTP's slew, at most 500 ppm, so
+# slope 1 is never far off: 10 us over a 20 ms extrapolation at the very limit. A slope
+# read off readings a second or more apart is better still. A slope read off two close
+# readings is not: it turns each reading's error into an edge's error times distance over
+# spacing, and one reading 1 us off, 100 us after the one before, put an edge 20 ms on
+# 200 us out.
+MONO_RAW_SPAN_MIN_NS = 1_000_000_000
+
+
 class MonoRawTable:
     """MONO readings paired with RAW readings, newest `keep` of them.
 
@@ -95,7 +105,7 @@ class MonoRawTable:
 
     def add(self, mono_ns: int, raw_ns: int) -> None:
         # A MONO that goes back would break `raw_of`'s search, but this runs on the edge
-        # pump's thread and an exception there fails edge capture (wl_sync/rp1/gpio.py:803-805);
+        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1022-1025):
         # the box records anyway, so the reading is dropped. The caller may log it.
         if self._readings:
             last_mono, _ = self._readings[-1]
@@ -108,21 +118,33 @@ class MonoRawTable:
         self._readings.append((mono_ns, raw_ns))
 
     def raw_of(self, mono_ns: int) -> int:
-        """Interpolates between the readings either side. Outside the table it
-        extrapolates from the two nearest readings; with one it applies that reading's
-        offset only; with none it raises `LookupError`."""
+        """Interpolates between the readings either side. Outside the table, before the
+        first reading or after the last, it extrapolates from the nearer end at the slope
+        across the whole table, first reading to last, or at slope 1 while the table
+        spans less than MONO_RAW_SPAN_MIN_NS (Ruling R31; one reading spans none). With
+        none it raises `LookupError`.
+
+        NOT THE TWO NEAREST READINGS, as it was. An edge is nearly always stamped after
+        the newest reading, which the edge thread takes before it waits, so nearly every
+        edge is extrapolated, and the two newest readings can be a pass apart: under 1 ms
+        when the edges come fast (MONO_RAW_SPAN_MIN_NS says what that cost)."""
         readings = self._readings
         if not readings:
             raise LookupError("no MONO/RAW reading yet")
-        if len(readings) == 1:
-            mono0, raw0 = readings[0]
+        (first_mono, first_raw), (last_mono, last_raw) = readings[0], readings[-1]
+        if first_mono <= mono_ns <= last_mono and len(readings) > 1:
+            i = bisect_left(readings, mono_ns, key=lambda reading: reading[0])
+            i = min(max(i, 1), len(readings) - 1)
+            (mono0, raw0), (mono1, raw1) = readings[i - 1], readings[i]
+            return raw0 + _round(
+                Fraction((mono_ns - mono0) * (raw1 - raw0), mono1 - mono0)
+            )
+        nearer = (first_mono, first_raw) if mono_ns < first_mono else (last_mono, last_raw)
+        mono0, raw0 = nearer
+        span = last_mono - first_mono
+        if span < MONO_RAW_SPAN_MIN_NS:
             return raw0 + (mono_ns - mono0)
-        # The pair whose line is used: the bracketing one inside the table, the nearest
-        # two beyond either end.
-        i = bisect_left(readings, mono_ns, key=lambda reading: reading[0])
-        i = min(max(i, 1), len(readings) - 1)
-        (mono0, raw0), (mono1, raw1) = readings[i - 1], readings[i]
-        return raw0 + _round(Fraction((mono_ns - mono0) * (raw1 - raw0), mono1 - mono0))
+        return raw0 + _round(Fraction((mono_ns - mono0) * (last_raw - first_raw), span))
 
 
 class RawToP:
@@ -219,7 +241,7 @@ class MappedTimebase:
         """An edge's P count, wrapped to 32 bits like every tick in this package.
 
         Refuses an edge whose RAW precedes the origin, as `edge_tick_us` does
-        (wl_sync/rp1/gpio.py:223-227): it would sort before every record in the segment.
+        (wl_sync/rp1/gpio.py:258-262): it would sort before every record in the segment.
         """
         try:
             raw_ns = self._table.raw_of(timestamp_ns)

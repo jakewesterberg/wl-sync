@@ -19,11 +19,11 @@ design keeps:
     the program has used six since 2026-11-07.
 
 EDGE CAPTURE AND BARCODE OUTPUT ARE NOT PIO, and are bound to libgpiod v2
-instead. Individual-pin edge events are not a PIO facility -- piolib's `gpio_*`
-calls configure pins rather than deliver transitions -- and libgpiod is the
-better tool anyway: the kernel stamps every edge from CLOCK_MONOTONIC at
-interrupt time, on the same clock `now_us()` counts from, so an edge carries no
-trace of when this process happened to be scheduled.
+instead: piolib's `gpio_*` calls configure pins rather than deliver transitions.
+The kernel stamps every edge from CLOCK_MONOTONIC at interrupt time, so an edge
+carries no trace of when this process happened to be scheduled. On one count the
+stamp is mapped onto the PIO count, MONO -> RAW -> P (wl_sync.clockmap); a split
+process counts it from the MONO origin, as before the one-clock build.
 
 EVERYTHING HERE FAILS BY GOING QUIET. A pump thread that dies, a kernel event
 buffer that overflows, a PIO FIFO that drops words: none of them interrupt the
@@ -50,8 +50,8 @@ from wl_sync.backend import (
 from wl_sync.barcode import rises_us
 from wl_sync.calibration import Calibration
 from wl_sync.clockmap import (
-    BRACKET_WIDTH_MAX_NS, IDENTITY, LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP,
-    TickScale, match_lead_stamp, unwrap_near,
+    BRACKET_WIDTH_MAX_NS, IDENTITY, LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp,
+    MappedTimebase, MonoRawTable, RawToP, TickScale, match_lead_stamp, unwrap_near,
 )
 from wl_sync.pins import (
     BARCODE_PIN, CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN, GPIO_MAP, SPARE_PINS,
@@ -127,6 +127,16 @@ REACQUIRE_FRAMES = 3
 # the sequence-number gap EdgePump records and check_health reports. It must hold a
 # whole read (EDGE_READ_MAX), or the edge pump would take every full read for a short one.
 _EDGE_EVENT_BUFFER = 1024
+
+# The widest RAW bracket a (MONO, RAW) reading for the edge map may have (`_add_mono_raw`;
+# Ruling R31). The pair takes MONO at the bracket's midpoint, so a bracket w wide can put
+# it w/2 off. Three clock reads take far less; a wider bracket was interrupted, by
+# preemption or a GIL hand-off mid-reading (emit_pulses holds the GIL up to 2 ms a pulse,
+# :79-81). Half of it, 25 us, reaches only edges stamped beside that reading: a table
+# spanning a second bends 20 ms of extrapolation by under 1 us
+# (wl_sync/clockmap.py MONO_RAW_SPAN_MIN_NS). Provisional, as BRACKET_WIDTH_MAX_NS is,
+# until bench day measures what a reading costs.
+MONO_RAW_BRACKET_MAX_NS = 50_000
 
 # How long close() waits for each capture thread to stop. The edge thread's last look
 # (EdgePump.finish) is sized to end inside it: see STOP_PASSES.
@@ -349,12 +359,13 @@ class Rp1Backend:
     fall back"; spec §2.6, docs/superpowers/specs/2026-10-30-one-clock-design.md:447-449):
 
       * ONE COUNT, the default. Both machines run, enabled in sync, so W and B count one
-        P. B is the stamp machine's count of the frame's lead edge, and now_us() is RAW
-        mapped onto P through the lead-edge fit (spec §2.4, the same file's :375-387).
+        P. B is the stamp machine's count of the frame's lead edge, now_us() is RAW
+        mapped onto P through the lead-edge fit (spec §2.4, the same file's :375-387),
+        and E is the kernel's MONO stamp mapped through RAW onto P (§2.3, :354-364).
       * SPLIT, the path before the one-clock build, kept for a process whose stamp
         machine cannot be trusted: `_fall_back_to_split`, which `__init__` calls when the
         stamp machine does not start or fails its start-up test (`_test_stamp_machine`).
-        The capture machine runs alone, joined to MONO once at the origin, and B and
+        The capture machine runs alone, joined to MONO once at the origin, and B, E and
         now_us() count MONO us since that origin.
     """
 
@@ -404,6 +415,10 @@ class Rp1Backend:
         self._edge_stop: threading.Event | None = None
         self._edge_thread: threading.Thread | None = None
         self._pump: EdgePump | None = None
+        # The edge map's MONO -> RAW readings, on one count: made by start_edge_capture,
+        # then the edge thread's alone (MonoRawTable takes no lock). None in a split
+        # process, which has no map.
+        self._edge_table: MonoRawTable | None = None
         self._words: WordPump | None = None
         self._word_stop: threading.Event | None = None
         self._word_thread: threading.Thread | None = None
@@ -423,6 +438,9 @@ class Rp1Backend:
         # RAW -> P (wl_sync.clockmap.RawToP), made at the sync enable. None before it, so
         # no provisional fit exists to be captured by mistake.
         self._fit: RawToP | None = None
+        # RAW at the sync enable, where the fit starts: the edge map refuses an edge
+        # before it (wl_sync/clockmap.py:252-257).
+        self._origin_raw_ns: int | None = None
         # The fit's seeded P per RAW rate, as ppb above 1. 0 until a calibration is given.
         self._seed_ppb = 0
         # Lead-edge pairs not yet taken, oldest first. Appended on the run loop's thread,
@@ -520,8 +538,8 @@ class Rp1Backend:
         # B ticks must share it or the three paths do not align. Captured as close to
         # the enable as this can be; the residual offset is one syscall, and
         # BENCH DAY MUST MEASURE IT rather than assume it is negligible -- it is spent
-        # directly out of the +/-100 us budget. On one count E alone uses it, until Task
-        # 1.11 maps E onto P.
+        # directly out of the +/-100 us budget. Only a split process counts from it: on
+        # one count E is mapped onto P (`start_edge_capture`).
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # What one count's now_us() counts from until the fit exists at the sync enable,
         # as split's counts MONO from the reading above.
@@ -764,9 +782,10 @@ class Rp1Backend:
         machine is not in the mask."""
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
-        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:131-137).
+        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:153-159).
         # Read after MONO, so RAW is the reading nearer the enable.
-        self._fit = RawToP(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), self._seed_ppb)
+        self._origin_raw_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+        self._fit = RawToP(self._origin_raw_ns, self._seed_ppb)
         mask = (1 << self._sm) | (1 << self._sm_stamps)
         _check(self._lib.wlsync_enable_in_sync(mask), "enabling the state machines")
 
@@ -905,9 +924,16 @@ class Rp1Backend:
         NOT PIO. Edge capture is not a PIO facility -- piolib's `gpio_*` calls
         configure pins rather than deliver transitions -- and it does not need to be:
         the kernel stamps each event from CLOCK_MONOTONIC AT INTERRUPT TIME, which is
-        better than anything this process could do for itself. `now_us()` counts from
-        the same clock, so the edges land on the shared timebase with no correction
-        for thread wake-up latency.
+        better than anything this process could do for itself, and carries no thread
+        wake-up latency. Where the stamp lands is per mode:
+
+          * ONE COUNT: on P, mapped MONO -> RAW through a table the edge thread fills
+            (`_pump_edges`), then RAW -> P through the lead-edge fit (spec §2.3,
+            docs/superpowers/specs/2026-10-30-one-clock-design.md:354-364). The fit is
+            made at the sync enable, so this refuses to run before
+            `start_strobed_capture`; run() starts codes first (wl_sync/cli.py:582-583).
+          * SPLIT: MONO us since the origin, which `now_us()` counts too, as before the
+            one-clock build.
 
         `on_edge` is called from this thread, so the sink behind it must be a
         `QueuedSink` -- see wl_sync.service. That is what makes a capture thread's
@@ -923,6 +949,13 @@ class Rp1Backend:
                 f"(EDGE_READ_MAX, {EDGE_READ_MAX}): every full read would look short, "
                 "and the edge pump's mark would pass edges still in the kernel"
             )
+        if not self._split and self._fit is None:
+            # Before `_started`, so a start refused here fixes neither the mode nor the
+            # calibration, and before the request, so none is left open.
+            raise RuntimeError(
+                "edge capture maps each edge onto the PIO count through the RAW->P fit, "
+                "which start_strobed_capture makes: start strobed capture first"
+            )
         self._started = True  # the edge pump's marks read now_us(), whose mode is fixed now
         settings = gpiod.LineSettings(
             direction=Direction.INPUT,
@@ -935,7 +968,19 @@ class Rp1Backend:
             consumer="wl-sync",
             event_buffer_size=_EDGE_EVENT_BUFFER,
         )
-        self._pump = EdgePump(on_edge, self._origin_ns, on_loss)
+        if self._split:
+            self._pump = EdgePump(on_edge, self._origin_ns, on_loss)
+        else:
+            # The table's first reading here, on this thread, before the edge thread
+            # exists; every later one on that thread (`_pump_edges`). Kept however wide:
+            # an empty table places no edge.
+            self._edge_table = MonoRawTable()
+            self._add_mono_raw(self._edge_table, keep_wide=True)
+            self._pump = EdgePump(
+                on_edge,
+                on_loss=on_loss,
+                timebase=MappedTimebase(self._edge_table, self._fit, self._origin_raw_ns),
+            )
         self._edge_stop = threading.Event()
         self._edge_thread = threading.Thread(
             target=self._pump_edges, name="wl-sync-edges", daemon=True
@@ -951,7 +996,10 @@ class Rp1Backend:
         loud, and the run loop is expected to call it every second.
 
         Each pass is one wait and at most one read (`EdgePump.pump_once`), which also
-        moves the mark a roll waits on. The wait is EDGE_WAIT_S, 20 ms; it was 0.2 s.
+        moves the mark a roll waits on. The wait is EDGE_WAIT_S, 20 ms; it was 0.2 s. On
+        one count each pass, and the last look, begins with a (MONO, RAW) reading for the
+        edge map (`_add_mono_raw`; spec §2.3 step 1, the same file's :355-358): about
+        50 Hz. A split process has no map and reads none.
 
         One last look after the stop (`EdgePump.finish`), as the word pump drains once
         more: it delivers what the kernel still holds and reports every gap still held,
@@ -961,10 +1009,15 @@ class Rp1Backend:
         and (STOP_PASSES + 1) x EDGE_WAIT_S = 0.82 s on a clock that stands still: both
         inside close()'s join, _STOP_JOIN_S.
         """
+        table = self._edge_table
         try:
             while not self._edge_stop.is_set():
+                if table is not None:
+                    self._add_mono_raw(table)
                 if not self._pump.pump_once(self._edges, self.now_us):
                     return
+            if table is not None:
+                self._add_mono_raw(table)
             self._pump.finish(self._edges, self.now_us)
         except BaseException as error:  # noqa: BLE001 - surfaced by check_health
             # check_health() reports the stop. A loss still held for its window is
@@ -972,6 +1025,21 @@ class Rp1Backend:
             lost = self._pump.abandon(error)
             if lost is not None:
                 log.error("edge capture stopped with a loss still held: %s", lost)
+
+    @staticmethod
+    def _add_mono_raw(table: MonoRawTable, keep_wide: bool = False) -> None:
+        """One (MONO, RAW) reading for the edge map: RAW read either side of MONO, and
+        paired by their midpoint, so the pair is one instant whatever a clock read costs,
+        as `_set_bracketed` brackets the lead edge. Read back to back, RAW would lie one
+        read after MONO and every edge that far late. A bracket wider than
+        MONO_RAW_BRACKET_MAX_NS is dropped unless `keep_wide`. `add` never raises
+        (wl_sync/clockmap.py:106-118)."""
+        raw_before = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+        mono = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        raw_after = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+        if raw_after - raw_before > MONO_RAW_BRACKET_MAX_NS and not keep_wide:
+            return
+        table.add(mono, (raw_before + raw_after) // 2)
 
     def delivered_through(self) -> dict[str, int | None]:
         """How far each capture path started has delivered (`SyncBackend`), as each pump
@@ -1247,7 +1315,7 @@ class Rp1Backend:
         R24 and R26 amend it).
 
         WHY. Below FIT_FREE_SLOPE_PAIRS the line runs through the newest pair at the seed
-        slope, and only a matched pair moves it (wl_sync/clockmap.py:128-137). A wrong
+        slope, and only a matched pair moves it (wl_sync/clockmap.py:150-159). A wrong
         stamp that became the anchor, or misses for longer than LEAD_STAMP_TOLERANCE over
         the slope's error, leave every later lead edge outside its window, and no pair
         comes to correct the line. Past the 30th pair one far pair barely moves a line

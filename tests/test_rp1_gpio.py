@@ -321,6 +321,12 @@ class _Kernel:
         return taken
 
 
+def _noting(read, events):
+    """`events`, with each one's stamp in us noted in `read`."""
+    read.extend(event.timestamp_ns // 1_000 for event in events)
+    return events
+
+
 def test_the_mark_never_passes_an_undelivered_edge_whatever_the_kernel_does():
     """Bursts, single edges and silences, each edge reaching the buffer anywhere up to
     EDGE_STAMP_LAG_US after its stamp. After every step of the pump the mark is behind
@@ -339,14 +345,21 @@ def test_the_mark_never_passes_an_undelivered_edge_whatever_the_kernel_does():
     last = stamp
 
     kernel = _Kernel(edges, now_us=500_000)  # clear of 0, so no mark wraps below it
-    delivered = set()
-    pump = EdgePump(on_edge=lambda g, l, t: delivered.add(t), origin_ns=0)
+    # Each edge delivered is known by its stamp, in the order the reads returned them. Not
+    # by its tick: _Kernel puts every edge on one line and buffers them in arrival order,
+    # and an edge that arrives after a later one on its line is delivered at that one's
+    # tick (EdgePump, EACH LINE IN TICK ORDER).
+    read, take = [], kernel.read_edge_events
+    kernel.read_edge_events = lambda max_events=None: _noting(read, take(max_events))
+    delivered = []
+    pump = EdgePump(on_edge=lambda g, l, t: delivered.append(t), origin_ns=0)
     stamps, oldest = [s for s, _ in edges], 0  # stamps ascend; oldest undelivered
     steps = 0
     while kernel.on_the_way or kernel.buffer:
         assert pump.pump_once(kernel, kernel.now_us)
         steps += 1
-        while oldest < len(stamps) and stamps[oldest] in delivered:
+        done = set(read[:len(delivered)])
+        while oldest < len(stamps) and stamps[oldest] in done:
             oldest += 1
         mark = pump.delivered_through
         if mark is not None and oldest < len(stamps):
@@ -1721,3 +1734,292 @@ def test_an_unaccounted_window_whose_stamps_invert_collapses_to_its_end(tmp_path
     assert _refusals(caplog) == []
     backend.recorder.check_health()
 
+
+
+# --- The edge timebase (Task 1.11) --------------------------------------------------------
+#
+# The pump places each kernel stamp through the timebase it is given: MonotonicOrigin in a
+# split process, as before the one-clock build, and wl_sync.clockmap.MappedTimebase on one
+# count, whose map moves while the pump runs. A stand-in here sets both of its answers.
+
+
+class _Timebase:
+    """An EdgeTimebase a test sets. `tick` maps a kernel stamp in ns to its tick, us by
+    default; `offset` moves every tick, as a fit update moves the map; a stamp in `refuse`
+    raises ValueError, as MappedTimebase does for an edge it cannot place. `spans` records
+    each `span` asked for."""
+
+    def __init__(self, tick=lambda ns: ns // 1_000, span=None):
+        self._tick = tick
+        self._span = span
+        self.offset = 0
+        self.refuse = set()
+        self.spans = []
+
+    def tick(self, timestamp_ns):
+        if timestamp_ns in self.refuse:
+            raise ValueError(f"no place for {timestamp_ns}")
+        return (self._tick(timestamp_ns) + self.offset) % (1 << 32)
+
+    def span(self, after_ns, before_ns):
+        self.spans.append((after_ns, before_ns))
+        if self._span is not None:
+            return self._span(after_ns, before_ns)
+        return max(0, after_ns // 1_000 - before_ns // 1_000)
+
+
+def test_an_edge_pump_places_edges_through_the_timebase_it_is_given():
+    """The edge's tick, the witness's bound and the mark held below a gap's edge all come
+    from the timebase: on one count every one of them is on P, as now_us() is."""
+    seen = []
+    request = _Request(
+        [[_ev(1, 26, 1, True, 40_000), _ev(3, 27, 1, True, 41_000)]], now_us=70_000
+    )
+    pump = EdgePump(
+        lambda g, l, t: seen.append(t), timebase=_Timebase(lambda ns: ns // 1_000 + 7)
+    )
+    assert pump.pump_once(request, request.now_us)
+    assert seen == [40_007, 41_007]
+    assert pump.stamp_lag_max_us == 70_000 - 40_007
+    # Number 2 is held open, so the mark stays below the edge that showed it.
+    assert pump.delivered_through == 41_007 - 1
+
+
+def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
+    """Review Focus 3. A fit update between two GPIO20 edges maps the second 3 counts
+    before the first. Each line's E records are in tick order (wl_sync/log.py:382-385), so
+    it is delivered at the first one's tick. GPIO21's edge at that same 497 has no edge
+    of its own line before it, and lands where it is mapped."""
+    seen = []
+    timebase = _Timebase()
+    pump = EdgePump(lambda g, l, t: seen.append((g, t)), timebase=timebase)
+    timebase.offset = 500 - 40_000
+    assert pump.handle([_ev(1, 20, 1, True, 40_000)], read_at=45_000)
+    timebase.offset = 497 - 40_010  # the map moves
+    assert pump.handle(
+        [_ev(2, 20, 2, False, 40_010), _ev(3, 21, 1, True, 40_010)], read_at=45_100
+    )
+    assert seen == [(20, 500), (20, 500), (21, 497)]
+
+
+def test_a_loss_windows_span_comes_from_the_timebase():
+    """The window's start is a distance back from `after` (CaptureLoss), which on one count
+    is P counts at the fit's ratio, not MONO us (wl_sync/clockmap.py:265-269)."""
+    losses = []
+    timebase = _Timebase(span=lambda after_ns, before_ns: 12_345)
+    pump = EdgePump(lambda *_: None, on_loss=losses.append, timebase=timebase)
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(5, 20, 5, True, 40_400),
+    ]
+    pump.handle(events, read_at=50_000)
+    [loss] = losses
+    assert (loss.cause, loss.after, loss.span_us) == ("buffer_overflow", 40_400, 12_345)
+    assert timebase.spans == [(40_400_000, 40_100_000)]
+
+
+def test_origin_ns_is_shorthand_for_the_monotonic_origin():
+    """Coverage. A split process's arithmetic, as before the one-clock build: the tick is
+    edge_tick_us, and the span floors each stamp to us before subtracting."""
+    from wl_sync.backend import CaptureLoss
+    from wl_sync.rp1.gpio import MonotonicOrigin
+
+    origin = 1_000_000
+    assert MonotonicOrigin(origin).tick(5_000_999) == 4_000
+    assert edge_tick_us(5_000_999, origin) == 4_000
+    assert MonotonicOrigin(origin).span(5_000_999, 2_001_001) == 4_000 - 1_001
+    assert MonotonicOrigin(origin).span(2_001_001, 5_000_999) == 0
+    with pytest.raises(ValueError):
+        MonotonicOrigin(origin).tick(999_999)
+
+    events = [
+        _ev(1, 20, 1, True, 40_000), _ev(2, 20, 2, False, 40_100),
+        _ev(5, 20, 5, True, 40_400),
+    ]
+
+    def delivered(**timebase):
+        seen, losses = [], []
+        pump = EdgePump(lambda g, l, t: seen.append(t), on_loss=losses.append, **timebase)
+        pump.handle(events, read_at=50_000)
+        return seen, losses
+
+    by_origin = delivered(origin_ns=origin)
+    assert by_origin == delivered(timebase=MonotonicOrigin(origin))
+    assert by_origin[0] == [39_000, 39_100, 39_400]
+    assert by_origin[1] == [CaptureLoss(
+        cause="buffer_overflow", count=2, bound="exact", gpio=20, after=39_400,
+        span_us=300, ahead=True,
+    )]
+    with pytest.raises(TypeError):
+        EdgePump(lambda *_: None)
+    with pytest.raises(TypeError):
+        EdgePump(lambda *_: None, origin, timebase=MonotonicOrigin(origin))
+
+
+def test_the_witness_skips_an_edge_its_timebase_cannot_place():
+    """As it skipped an edge before the MONO origin: MappedTimebase refuses a RAW before
+    its origin, and a P below 0, with ValueError (wl_sync/clockmap.py:246-262)."""
+
+    def tick(ns):
+        if ns < 100:
+            raise ValueError("before the origin")
+        return ns // 1_000
+
+    request = _Request([[_FakeEvent(1, 20, True, 50)]])
+    pump = EdgePump(lambda *_: None, timebase=_Timebase(tick))
+    pump.pump_once(request, request.now_us)
+    assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (None, 0)
+
+
+def test_a_line_quiet_for_more_than_half_a_wrap_is_never_clamped_to_a_stale_tick():
+    """Ruling R30. The order guard compares two ticks with _since, which reads a difference
+    right only within half a wrap, 35.8 min. GPIO20 fires at 1 s, is quiet for 40 min,
+    then fires once a second for 40 min, as a reward line can across a break. Against the
+    tick of 1 s, most of those edges read as behind; a guard that took them for it put
+    1,895 of them at that one tick, tens of minutes from where they belong."""
+    from wl_sync.rp1.gpio import TICK_WRAP_US
+
+    seen = []
+    pump = EdgePump(lambda g, l, t: seen.append(t), origin_ns=0)
+    first_us = 1_000_000
+    stamps_us = [first_us] + [
+        first_us + 40 * 60_000_000 + k * 1_000_000 for k in range(40 * 60)
+    ]
+    for seqno, stamp_us in enumerate(stamps_us, start=1):
+        assert pump.handle([_edge(seqno, stamp_us)], read_at=stamp_us % TICK_WRAP_US)
+    assert seen == [stamp_us % TICK_WRAP_US for stamp_us in stamps_us]
+    assert pump.take_error() is None
+
+
+def test_the_order_guard_reaches_a_quarter_wrap_of_stamps_and_no_further():
+    """Within a quarter wrap of the line's last stamp, _since reads a backward step right
+    whatever the map did, so an edge mapped behind is held at the line's last tick.
+    Beyond it no map moves an edge back that far, and the edge lands where it is mapped."""
+    from wl_sync.rp1.gpio import TICK_WRAP_US
+
+    quarter_us = TICK_WRAP_US // 4
+    for gap_us, expected in ((quarter_us - 1, 500), (quarter_us, 497)):
+        seen = []
+        timebase = _Timebase()
+        pump = EdgePump(lambda g, l, t: seen.append(t), timebase=timebase)
+        timebase.offset = 500 - 40_000
+        pump.handle([_edge(1, 40_000)], read_at=45_000)
+        timebase.offset = 497 - (40_000 + gap_us)  # mapped 3 counts behind the first
+        pump.handle([_edge(2, 40_000 + gap_us)], read_at=45_100)
+        assert seen == [500, expected], gap_us
+
+
+class _PumpedThrough(_Pumped):
+    """_Pumped, its edge pump on a timebase the test gives."""
+
+    def __init__(self, request, timebase):
+        super().__init__(request)
+        self.timebase = timebase
+
+    def start_edge_capture(self, pins, on_edge, on_loss=None):
+        FakeBackend.start_edge_capture(self, pins, on_edge, on_loss)
+        self.edges = EdgePump(on_edge, on_loss=on_loss, timebase=self.timebase)
+
+
+def test_a_loss_written_ahead_of_an_edge_keeps_its_lines_order(tmp_path):
+    """Ruling R30. GPIO20's own numbers jump from 1 to 4, after the map moved: its edge
+    at 40 100 us is mapped to 497, behind the 500 of the line's edge before it, and is
+    held there at 500. The overflow's record goes just before it at its tick
+    (wl_sync/log.py:387-388). Mapped again on its own, the record took 497, and the line
+    read E@500, L@497, E@500."""
+    timebase = _Timebase()
+    backend = _PumpedThrough(
+        _Request([[_ev(1, 20, 1, True, 40_000)], [_ev(4, 20, 4, False, 40_100)], None]),
+        timebase,
+    )
+    path = tmp_path / "seg-000.log"
+    writer = SegmentWriter(path, HEADER)
+    Recorder(backend, sink=writer).capture_edges([20])
+    timebase.offset = 500 - 40_000
+    backend.pump(50_000)
+    timebase.offset = 497 - 40_100  # the map moves
+    backend.pump(50_100, 80_000)
+
+    records = _segment(writer, path)
+    assert [(type(r).__name__, r.tick_us) for r in records] == [
+        ("Edge", 500), ("Loss", 500), ("Edge", 500),
+    ]
+    [loss] = _losses(records)
+    assert (loss.after_us, loss.before_us) == (500, 400)
+
+
+def test_an_edge_its_timebase_cannot_place_is_skipped_counted_and_capture_goes_on():
+    """Ruling R30: the box records anyway. An edge with no place on the box clock was a
+    ValueError that stopped the pump, and every edge after it was lost. It is left out
+    and counted, as a fourth kind of lost edge, for the journal alone: the L record's
+    causes are a closed set (wl_sync/log.py:276-288). The overflow its own numbers showed
+    has nowhere to go either, and the journal keeps it too."""
+    import copy
+    import pickle
+
+    from wl_sync.rp1.gpio import DroppedEdgeError, UnplacedEdgeError
+
+    seen, losses = [], []
+    timebase = _Timebase()
+    timebase.refuse.update({40_100_000, 40_300_000})
+    pump = EdgePump(
+        lambda g, l, t: seen.append(t), on_loss=losses.append, timebase=timebase
+    )
+    assert pump.handle([_edge(1, 40_000), _edge(2, 40_100), _edge(3, 40_200)], 50_000)
+    assert seen == [40_000, 40_200]
+    error = pump.take_error()
+    assert type(error) is UnplacedEdgeError and error.unplaced == {20: 1}
+    assert error.lost == 1
+    assert "1 edge event(s) lost (no place on the box clock on GPIO20)" in str(error)
+    for again in (copy.copy(error), pickle.loads(pickle.dumps(error))):
+        assert type(again) is UnplacedEdgeError and str(again) == str(error)
+
+    # Numbered 6 on its line after 3: two lost, and itself without a place.
+    assert pump.handle([_ev(6, 20, 6, False, 40_300), _edge(7, 40_400)], 50_100)
+    assert seen == [40_000, 40_200, 40_400]
+    assert losses == []
+    error = pump.take_error()
+    assert type(error) is DroppedEdgeError
+    assert (error.overflowed, error.unplaced, error.lost) == ({20: 2}, {20: 1}, 3)
+
+
+def test_a_mark_held_at_a_stamp_the_timebase_cannot_place_does_not_stop_the_pump():
+    """Ruling R30. The mark is held below the edge that showed an open gap, by that edge's
+    tick. If the map can no longer place it, nothing is held: the gap's record, which the
+    hold waits for, cannot be placed either (`_report`). The pump goes on."""
+    from wl_sync.rp1.gpio import EDGE_STAMP_LAG_US
+
+    timebase = _Timebase()
+    request = _Request(
+        [[_ev(1, 26, 1, True, 40_000), _ev(3, 27, 1, True, 41_000)],
+         [_ev(4, 26, 2, False, 70_500)]],
+        now_us=70_000,
+    )
+    pump = EdgePump(lambda *_: None, timebase=timebase)
+    assert pump.pump_once(request, request.now_us)
+    assert pump.delivered_through == 41_000 - 1  # held below the edge that showed 2
+    timebase.refuse.add(41_000_000)
+    request.now = 71_000
+    assert pump.pump_once(request, request.now_us)
+    assert pump._seqnos.holding
+    assert pump.delivered_through == 71_000 - EDGE_STAMP_LAG_US - 1  # the rule's own
+
+
+def test_a_loss_record_the_timebase_cannot_place_is_left_to_the_journal():
+    """Ruling R30. Number 2 never comes, and its window closes once the map can no longer
+    place the edge that showed the gap. No L record is written, the pump goes on, and the
+    journal reports the loss as it always has."""
+    from wl_sync.rp1.gpio import UnaccountedEdgeError
+
+    losses = []
+    timebase = _Timebase()
+    request = _Request([[_ev(1, 26, 1, True, 40_000), _ev(3, 27, 1, True, 41_000)], None])
+    pump = EdgePump(lambda *_: None, on_loss=losses.append, timebase=timebase)
+    assert pump.pump_once(request, request.now_us)  # at 50 000 us
+    timebase.refuse.add(41_000_000)
+    request.now = 80_000
+    assert pump.pump_once(request, request.now_us)  # a wait that times out: it closes
+    assert not pump._seqnos.holding
+    assert losses == []
+    assert isinstance(pump.take_error(), UnaccountedEdgeError)
+    assert pump.error is None and pump.delivered_through == 79_999
