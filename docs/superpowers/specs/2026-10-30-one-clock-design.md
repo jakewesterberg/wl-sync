@@ -158,7 +158,7 @@
 **What the candidate changes for the builder:**
 - Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:118`), not offset + 0.
 - `in pins` samples the data 1 µs after the strobe is seen, against 0.5 µs today. Whether the task PC holds its code that long is **[unverified]**, a Task 5b check.
-- The ≈2.5 µs constant in `docs/next-session.md:145-148` becomes this listing's constant.
+- The ≈2.5 µs constant in `docs/next-session.md:170-176` becomes this listing's constant.
 
 **Part 0 stands alone [OC-R1].** It fixes today's W path whatever the answers in §8, and without it Task 5b Step 3 cannot pass. So it is built before the rest.
 
@@ -196,7 +196,7 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 **`W` against `B`:**
 - No drift, given Part 0. With every path at 2 cycles per decrement, each machine's count is cycles / 2 whatever its events. Without Part 0 the stamp machine drifts about 14 ppm from W.
 - The constant is ≤ 1 tick if the sync enable starts both dividers together, as the Pico SDK's does **[unverified on RP1; B3a]**.
-- The origin offset (bench check 3, `docs/next-session.md:137-139`) drops out of W against B.
+- The origin offset (bench check 3, `docs/next-session.md:147-149`) drops out of W against B.
 
 ### 2.2 Session time in SI seconds [user, 2026-10-30; mechanism mine]
 
@@ -517,7 +517,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 |---|---|---|---|
 | B1 | Now | **Shared reference?** `dmesg \| grep arch_timer`. With GPIO16 jumpered to GPIO20, pulse at 1 Hz for 1 h, sample (MONO, RAW) every 100 ms, and find the rate of W against E converted to RAW. | Informational. It no longer decides the design (§5). If shared (under 0.01 ppm), the RAW→P fit reduces to an offset. |
 | B2 | Now | **Today's W–B drift.** wl-phantom §5.5, at least 1 h. | Expected to fail. Report the ppm; it should match B8's rate against B1's. |
-| P0 | Build, first | **Part 0 on silicon.** Task 5b Step 3 (`docs/next-session.md:124-150`) on the fixed program, with one machine. | ±100 µs and zero dropped words over 600 strobes. No loss per strobe: the old listing's 1.5 µs a strobe would show as a slope against the strobe count. |
+| P0 | Build, first | **Part 0 on silicon.** Task 5b Step 3 (`docs/next-session.md:128-159`) on the fixed program, with one machine. | ±100 µs and zero dropped words over 600 strobes. No loss per strobe: the old listing's 1.5 µs a strobe would show as a slope against the strobe count. |
 | B3a | Build | **Start skew.** Two machines on Part 0's program, both with jmp pin GPIO16, sync-enabled; 10⁵ strobes. | The tick difference is identical on every event, and ≤ 1. |
 | B3b | Build | **No loss per event, on independent streams [OC-R1].** Machine A's jmp pin takes a dense stream: a spare output toggled in software with RAW brackets, for example GPIO18→GPIO16 (header pin 12→36), ≥ 10⁵ events, widths down to a few µs. Machine B takes the barcode loop (11→35). Over ≥ 1 h, fit each machine's count against RAW through its own events' brackets. | The two slopes agree within 0.01 ppm, whatever each stream's rate. A loss per event shows as ticks lost × event rate: the old listing at 1 kHz is 1,500 ppm. **B3a and B3b together are a gate (§5).** |
 | B4 | Build | **Barcode visible to PIO.** c-direct with no wire, then c-loop with the 11→35 jumper. | Every lead edge stamped. c-direct working removes the wire. |
@@ -527,7 +527,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 | B8 | After (or Now: GPIO17 jumpered to GPIO16 makes each lead edge a `W`, against its `B` on MONO) | **RP1 against SI.** The calibration over 8 h, on two days. Report r, r per hour, and day to day. | r within ±200 ppm (that confirms clk_sys = 200 MHz too). **If r moves more than 1 ppm within a day, the fixed-rate target cannot hold: revisit (§5).** Leaves the first calibration file. |
 | B9 | Now | **The board serial** a CM5 exposes (`/proc/device-tree/serial-number` or `/proc/cpuinfo`) **[unverified]**, and whether the RP1 crystal sits on the module **[unverified]**. | It names the calibration key. |
 | B10 | After | **Missed stamps.** Count dropped `B`s over 8 h with the loopback fitted. | Zero. Any drop is investigated, because each costs every device a matched pair. |
-| — | After | **The ±100 µs gate.** Task 5b Step 3 as written (`docs/next-session.md:124-150`), and wl-phantom §5.5 on the B6 run. | ±100 µs. Draft Q5 is withdrawn [mine]: W–B error no longer grows with process age, and the 8 h runs cover several wraps. |
+| — | After | **The ±100 µs gate.** Task 5b Step 3 as written (`docs/next-session.md:128-159`), and wl-phantom §5.5 on the B6 run. | ±100 µs. Draft Q5 is withdrawn [mine]: W–B error no longer grows with process age, and the 8 h runs cover several wraps. |
 
 ---
 
@@ -627,4 +627,4 @@ What matters for the budget is that the map is affine, which it is by constructi
     - 11→35 for the loopback (B4, B3b, B6, B8, B10);
     - 11→38 for B6's edge input;
     - 12→36 if B3b's dense stream comes from GPIO18.
-  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:167`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
+  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:189`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").

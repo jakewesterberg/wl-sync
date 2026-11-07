@@ -109,6 +109,10 @@ The box is `wl-sync-rig0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from
 NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, and
 `deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
 
+**Before anything runs the box, rebuild and install the shim, version 2** (P0 item 1,
+`docs/superpowers/plans/2026-11-07-one-clock.md:1257`). The backend refuses an older shim
+(`deploy/README.md:334-335`).
+
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
 
@@ -126,15 +130,18 @@ second board or a signal generator on the strobe and data lines:
 
     ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0
 
-**Check these first, in this order.** Items 2 and 3 are listed the same way in
-`pio/strobe_capture.pio`.
+**Check these first, in this order.** `pio/strobe_capture.pio:123-129` lists the program's own
+unverified semantics (one cycle per instruction, `jmp x--` legal, `mov isr, x` copying all 32
+bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
 
 1. **The fixed program on silicon (P0).** Run the plan's bench checklist P0
    (`docs/superpowers/plans/2026-11-07-one-clock.md:1255`) first. The capture program changed on
    2026-11-07 because it lost 1.5 µs per strobe (900 µs over Step 3's 600 strobes) and could
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
-   silicon. The entire ±100 µs argument rests on it.
+   silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
+   shim; the backend refuses a shim that is not version 2 (`deploy/README.md:334-335`,
+   `wl_sync/rp1/backend.py:151`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -159,8 +166,6 @@ second board or a signal generator on the strobe and data lines:
    1.0 µs, which assumed edges on cycle boundaries; for an edge at any instant it needed 1.5 µs.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
    previous one (`wl_sync/rp1/backend.py:311-312`).
-8. **Rebuild the shim first.** The backend refuses a shim that is not version 2
-   (`deploy/README.md:334-335`, `wl_sync/rp1/backend.py:151`). P0's first step builds it.
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
