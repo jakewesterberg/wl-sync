@@ -297,8 +297,10 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     report = StampRunReport()
     stopped: _Terminated | None = None
     backend = Rp1Backend(chip_path=chip_path, stamp_pin=stamp_pin)
-    outer = signal.signal(signal.SIGTERM, _terminate)
+    installed, outer = False, None
     try:
+        # Inside the try, so the backend is closed even if installing fails.
+        outer, installed = signal.signal(signal.SIGTERM, _terminate), True
         backend.start_strobed_capture(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
                                       on_word)
         backend.start_edge_capture(EDGE_PINS, on_edge)
@@ -306,8 +308,14 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     except _Terminated as terminated:
         stopped = terminated
     finally:
-        backend.close()
-        signal.signal(signal.SIGTERM, outer)
+        if installed:
+            # A second SIGTERM must not cut close() short and lose the summary.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        try:
+            backend.close()
+        finally:
+            if installed:  # put back whatever close() does
+                signal.signal(signal.SIGTERM, signal.SIG_DFL if outer is None else outer)
     # Read after close(), which has stopped both pumps, so neither count still moves.
     report.words, report.edges = words, edges
     print(report.summary())
