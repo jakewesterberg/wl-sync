@@ -853,7 +853,7 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:973-1058); under --fake, the fake's clock
+            # has ended (wl_sync/rp1/backend.py:1122-1209); under --fake, the fake's clock
             # as the frame starts (wl_sync/backend.py:238-243). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
@@ -868,9 +868,9 @@ def run(
                 # Stamps before the frame's lead, or before its window when its rises
                 # align on no lead (wl_sync/clockmap.py:270-272). A drain that gave up on
                 # the frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-                # (wl_sync/rp1/backend.py:1018-1025). A fit that has drifted leaves them
+                # (wl_sync/rp1/backend.py:1169-1176). A fit that has drifted leaves them
                 # too, the frame's own when its rises align on none. And GPIO17 is this
-                # process's own output (wl_sync/rp1/backend.py:359-360), so anything else
+                # process's own output (wl_sync/rp1/backend.py:373-374), so anything else
                 # is a fault on the line.
                 log.warning(
                     "%d stamps on GPIO17 between frames, before barcode %d, discarded: "
@@ -907,7 +907,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:410-412, :1054-1055), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:425-427, :1207-1208), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
@@ -1315,15 +1315,15 @@ _DROP_ADVICE = {
         "no stamp came for their lead edges; with the service stopped, python -m "
         "wl_sync.bench stamps shows whether the stamp machine still sees GPIO17"
     ),
-    # Ruling R15. The start fails with EBUSY when the PIO block has no unused state
-    # machine (pio/wlsync_pio.c:175-177); its own ERROR gives the errno
-    # (wl_sync/rp1/backend.py:579-583).
+    # Ruling R15, a guard now that such a process records split (Task 1.10a). The start
+    # fails with EBUSY when the block has no unused state machine (pio/wlsync_pio.c:175-177);
+    # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:484-497).
     STAMPS_NOT_STARTED: (
         "the stamp machine did not start; restart once nothing else holds the PIO "
         "block's state machines"
     ),
     # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
-    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:860-864, :876-880).
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1009-1013, :1025-1029).
     STAMPS_STOPPED: (
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"

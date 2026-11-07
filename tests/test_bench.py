@@ -264,6 +264,8 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
     stamping = True
 
     class _Box:
+        stamp_test_failure = ""  # the start-up test passed
+
         def __init__(self, **kwargs):
             built.append(self)
             self.kwargs = kwargs
@@ -332,6 +334,55 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
     capsys.readouterr()
 
 
+
+def test_the_stamps_command_reports_a_failed_start_up_test_and_runs_no_frame(
+    monkeypatch, capsys
+):
+    """A process whose stamp machine failed its start-up test records split, where B is
+    the clock read before each frame and nothing is stamped: run, every frame would count
+    as stamped, and the run would pass on stamps it never saw."""
+    from wl_sync import bench
+    from wl_sync.rp1 import backend as rp1
+
+    built = []
+
+    class _Box:
+        stamp_test_failure = "no stamp when GPIO17 rose"
+
+        def __init__(self, **kwargs):
+            built.append(self)
+            self.started = []
+            self.emitted = []
+            self.closed = False
+
+        def start_strobed_capture(self, *args, **kwargs):
+            self.started.append("codes")
+
+        def start_edge_capture(self, *args, **kwargs):
+            self.started.append("edges")
+
+        def emit_pulses(self, pin, pulses):
+            self.emitted.append(pin)
+            raise AssertionError("a frame was emitted")
+
+        def check_health(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(rp1, "Rp1Backend", _Box)
+    monkeypatch.setattr(bench, "STAMP_RUN_PERIOD_S", 0)
+
+    assert bench.main(["stamps", "--frames", "3"]) == 1
+    [box] = built
+    assert box.emitted == [] and box.started == []
+    assert box.closed
+    assert capsys.readouterr().out.splitlines() == [
+        "start-up test failed (no stamp when GPIO17 rose): this process records split, "
+        "and has no stamps to count"
+    ]
+
 def test_a_short_run_reports_no_tail_beyond_its_widest_bracket():
     """`statistics.quantiles` defaults to "exclusive", which extrapolates past the
     sample: 60 widths whose widest is 90 us gave a p99.9 of 90.9 us."""
@@ -397,6 +448,8 @@ def test_a_sigterm_ends_the_stamps_command_closed_and_summarised(monkeypatch, ca
     built = []
 
     class _Box:
+        stamp_test_failure = ""  # the start-up test passed
+
         def __init__(self, **kwargs):
             built.append(self)
             self.emitted = 0

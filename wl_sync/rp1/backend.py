@@ -53,10 +53,12 @@ from wl_sync.clockmap import (
     BRACKET_WIDTH_MAX_NS, IDENTITY, LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP,
     TickScale, match_lead_stamp, unwrap_near,
 )
-from wl_sync.pins import BARCODE_PIN, GPIO_MAP, SPARE_PINS
+from wl_sync.pins import (
+    BARCODE_PIN, CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN, GPIO_MAP, SPARE_PINS,
+)
 from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
-from wl_sync.rp1.pio_capture import StampPump, WordPump
+from wl_sync.rp1.pio_capture import StampPump, WordPump, pair_fifo
 
 # Every path is 2 cycles a decrement (tests/test_rp1_program.py:80), clocked at 2 MHz.
 _TICK_HZ = 1_000_000
@@ -88,6 +90,17 @@ _WORD_POLL_S = 0.001
 # 800 ms of idle between frames (wl_sync/barcode.py:11).
 STAMP_DRAIN_WAIT_S = 0.05
 _STAMP_WAIT_POLL_S = 0.001
+
+# THE START-UP TEST'S PULSE on GPIO17 (`_test_stamp_machine`), which reaches every device
+# on the barcode line. 1 ms high, so no decoder takes it for a frame: a lead must still be
+# high a quarter of LEAD in, 2.5 ms after its rise (wl_sync/barcode.py:40, :135-136).
+STAMP_TEST_HIGH_US = 1_000
+# Then this long LOW before anything else drives GPIO17. A decoder takes the pulse's fall
+# for the end of the idle a lead must follow, so the first frame must rise more than
+# IDLE_MIN_US, 0.4 s, after it or no decoder finds it (wl_sync/barcode.py:37, :128). The
+# first frame comes later still: run() begins only once the backend exists
+# (wl_sync/cli.py:1751-1753, :455).
+STAMP_TEST_QUIET_S = 0.5
 
 # Shifted frames in a row, each offset within LEAD_STAMP_TOLERANCE of the one before, that
 # restart the RAW->P fit (Ruling R19; the rule is the plan's,
@@ -334,9 +347,10 @@ class Rp1Backend:
         P. B is the stamp machine's count of the frame's lead edge, and now_us() is RAW
         mapped onto P through the lead-edge fit (spec §2.4, the same file's :375-387).
       * SPLIT, the path before the one-clock build, kept for a process whose stamp
-        machine cannot be trusted: `_fall_back_to_split`, which Task 1.10a calls. The
-        capture machine runs alone, joined to MONO once at the origin, and B and now_us()
-        count MONO us since that origin.
+        machine cannot be trusted: `_fall_back_to_split`, which `__init__` calls when the
+        stamp machine does not start or fails its start-up test (`_test_stamp_machine`).
+        The capture machine runs alone, joined to MONO once at the origin, and B and
+        now_us() count MONO us since that origin.
     """
 
     # One count's: W and B count P at RP1's own rate, until `apply_calibration` is given
@@ -377,8 +391,9 @@ class Rp1Backend:
         _check(self._lib.wlsync_pio_open(pio_index), f"opening PIO block {pio_index}")
         # After the open, never before: piolib's encoders read the current block.
         _assert_encoders_agree(self._lib)
+        # Both are configured below, before this returns. The stamp machine's is None for
+        # good if it could not start, and the process is then split.
         self._sm: int | None = None
-        # None until the stamp machine starts, and None for good if it could not.
         self._sm_stamps: int | None = None
         self._chip_path = chip_path
         self._edges = None
@@ -418,6 +433,74 @@ class Rp1Backend:
         # The offsets of the shifted frames in a row so far, newest last (Ruling R19;
         # `_reacquire`). Run loop's thread only.
         self._shifted: list[int] = []
+        # "" when the stamp machine passed its start-up test, and otherwise why it did not
+        # (`_test_stamp_machine`); `bench stamps` reads it.
+        self.stamp_test_failure = ""
+
+        # BOTH MACHINES ARE CONFIGURED HERE, BEFORE THE FIRST SEGMENT, and enabled when
+        # capture starts (`start_strobed_capture`). main() builds the backend before run()
+        # (wl_sync/cli.py:1751-1753), and run() names the timebase in the first header
+        # (:563-573), so the start-up test's result reaches every segment. Configuring runs
+        # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:90, :153), and
+        # a disabled machine pushes nothing, so no code word reaches a FIFO before a
+        # segment exists.
+        lib = self._lib
+        # clk_sys BY NAME, inside the shim. This read clock_get_hz(0), which is
+        # clk_gpout0, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
+        # 4294967295 -- so the divider would have been ~2,147 rather than 100.
+        system_hz = lib.wlsync_clk_sys_hz()
+        low, high = _CLK_SYS_SANE_HZ
+        if not low <= system_hz <= high:
+            raise PiolibError(
+                f"RP1 reported clk_sys as {system_hz} Hz, which cannot be right; "
+                "every PIO timestamp is scaled by it"
+            )
+        self._clkdiv = system_hz / (_TICK_HZ * _CYCLES_PER_TICK)
+
+        # Load, configure and seed in C, so no struct crosses ctypes. A capture machine
+        # that cannot be configured raises, as it did when capture's start configured it:
+        # a known gap (Ruling R12), a crash-loop under Restart=always
+        # (deploy/wl-sync.service:30), but one that now comes before run() makes a
+        # segment, so it leaves no header-only segment at each restart.
+        words = (ctypes.c_uint16 * len(program.STROBE_CAPTURE))(*program.STROBE_CAPTURE)
+        self._sm = _check(
+            lib.wlsync_start_capture(
+                words, len(program.STROBE_CAPTURE),
+                program.WRAP_TARGET, program.WRAP, program.ENTRY,
+                CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
+                self._clkdiv, program.encode_mov_x_not_null(),
+            ),
+            "starting strobed capture",
+        )
+        # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
+        # pio/wlsync_pio.c:175-177, :197-202) must not stop the capture machine, and
+        # raising here would: nothing above catches it (wl_sync/cli.py:1750-1761). The
+        # process records split instead, with the errno in the ERROR below.
+        stamps = lib.wlsync_start_stamp(
+            program.WRAP_TARGET, program.WRAP, program.ENTRY,
+            CODE_DATA_BASE, self._stamp_pin, int(self._stamp_pin != BARCODE_PIN),
+            self._clkdiv, program.encode_mov_x_not_null(),
+        )
+        if stamps < 0:
+            failure = f"the stamp machine did not start (errno {-stamps})"
+        else:
+            self._sm_stamps = stamps
+            failure = self._test_stamp_machine()
+        if failure:
+            self.stamp_test_failure = failure
+            log.error(
+                "the stamp machine's start-up test failed (%s): this process records "
+                "timebase split, with B and E on CLOCK_MONOTONIC and W on RP1's crystal, "
+                "until a restart passes it",
+                failure,
+            )
+            self._fall_back_to_split(failure)
+        else:
+            log.info(
+                "the stamp machine saw GPIO17 rise at start-up: B is the stamp machine's "
+                "count of each lead edge"
+            )
+
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
         # B ticks must share it or the three paths do not align. Captured as close to
@@ -451,8 +534,8 @@ class Rp1Backend:
 
     def _fall_back_to_split(self, reason: str) -> None:
         """Put this process in split mode: the capture machine alone, B and now_us() on
-        MONO since the origin, and no calibration (`apply_calibration`). Task 1.10a calls
-        it at construction, when the stamp machine fails its start-up test; it journals
+        MONO since the origin, and no calibration (`apply_calibration`). `__init__` calls
+        it when the stamp machine does not start or fails its start-up test; it journals
         `reason` itself, and this logs nothing.
 
         Refused once a capture path has started, because the mode is the whole process's:
@@ -476,6 +559,102 @@ class Rp1Backend:
         self.timebase = "split"
         self.barcode_delay_us = None
 
+    def _test_stamp_machine(self) -> str:
+        """Whether the PIO sees GPIO17 rise: "" when it does, and otherwise why not. Q2's
+        "test, then fall back", once, before the first segment (spec §8 Q2,
+        docs/superpowers/specs/2026-10-30-one-clock-design.md:648-653). `__init__` calls it
+        once the stamp machine has started, and falls back to split on a failure.
+
+        WHAT IT WITNESSES. Under c-direct B rests on three things that hold or fail for a
+        whole process: the stamp machine's start, which `__init__` checks; the PIO's sight
+        of GPIO17 while libgpiod drives it, which this tests; and the sync enable, which
+        the shim cannot see refused (pio/wlsync_pio.c:207-210) and which stays untested.
+        Bench S.4 found that sight on wl-sync-rig0, against datasheet §3.1.1's suggestion
+        (the spec's :585-589). It belongs to the silicon, the kernel and the pin
+        controller's driver, so an RP1 revision or a kernel change could take it away
+        [unverified: whether anything would]. Nothing after the start is tested: a stopped
+        drain or a lost fit drops its Bs frame by frame.
+
+        A THIRD MACHINE, THE TEST MACHINE, NOT THE STAMP MACHINE: that one's count must
+        start at the sync enable, on the capture machine's edge, and the shim cannot put a
+        machine back at its entry without a new export. The test machine is
+        `wlsync_start_stamp` again, on the loaded program, as the stamp machine is
+        configured under c-direct: reading GPIO17, unclaimed, so GPIO17 stays libgpiod's
+        output (pio/wlsync_pio.c:159-161). So it reads GPIO17 whatever pin the stamp
+        machine reads, a spare one included. It is enabled alone and disabled on every
+        path, and is in no sync mask and no pump. It stays claimed, disabled, until the
+        block closes, since the shim exports no unclaim: of the block's four machines
+        (pio/wlsync_pio.c:155-157), capture, stamp and test, with one free.
+
+        ONE PIOLIB CALLER. No pump thread exists yet (`start_strobed_capture` starts it),
+        so this thread reads the test machine's FIFO, as it opened the block.
+
+        THE PULSE: GPIO17 taken as the output emit_pulses drives (`_drive`), low; the test
+        machine started and enabled; GPIO17 high for STAMP_TEST_HIGH_US, then low; the
+        FIFO read, and one stamp is a pass; the machine disabled; and STAMP_TEST_QUIET_S of
+        LOW. The hold sleeps where `_drive` spins: its length needs no precision, since a
+        single pulse of any length under 7.5 ms fails the lead's quarter-point checks
+        (wl_sync/barcode.py:135-138).
+
+        NEVER RAISES: an exception is a failed test, and the box records anyway, split.
+        Exception, not BaseException, so a KeyboardInterrupt still stops the process.
+        """
+        import gpiod
+        from gpiod.line import Direction, Value
+
+        lib = self._lib
+        reason = ""
+        test: int | None = None
+        driven = False
+        try:
+            if self._out is None:
+                self._out = gpiod.request_lines(
+                    self._chip_path,
+                    config={BARCODE_PIN: gpiod.LineSettings(
+                        direction=Direction.OUTPUT, output_value=Value.INACTIVE,
+                    )},
+                    consumer="wl-sync",
+                )
+            started = lib.wlsync_start_stamp(
+                program.WRAP_TARGET, program.WRAP, program.ENTRY,
+                CODE_DATA_BASE, BARCODE_PIN, 0,
+                self._clkdiv, program.encode_mov_x_not_null(),
+            )
+            if started < 0:
+                reason = f"the test machine did not start (errno {-started})"
+            else:
+                test = started
+                _check(lib.wlsync_sm_set_enabled(test, 1), "enabling the test machine")
+                driven = True
+                rise_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+                self._out.set_value(BARCODE_PIN, Value.ACTIVE)
+                hold_ns = (rise_ns + STAMP_TEST_HIGH_US * 1_000
+                           - time.clock_gettime_ns(time.CLOCK_MONOTONIC))
+                if hold_ns > 0:
+                    time.sleep(hold_ns / 1e9)
+                self._out.set_value(BARCODE_PIN, Value.INACTIVE)
+                # The pair is in the FIFO 5.5 us after the rise
+                # (wl_sync/rp1/pio_capture.py:87-92), long before the fall. Its data word
+                # has the capture window's lines, so pair_fifo's upper-half check holds
+                # (pio/wlsync_pio.c:187-189).
+                level = lib.wlsync_sm_rx_level(test)
+                entries = [lib.wlsync_sm_get(test) for _ in range(level - level % 2)]
+                if not pair_fifo(entries, CODE_DATA_COUNT):
+                    reason = "no stamp when GPIO17 rose"
+        except Exception as error:  # noqa: BLE001 - a failed test: the box records anyway
+            reason = f"the test could not run ({error})"
+        finally:
+            if test is not None:
+                try:
+                    _check(lib.wlsync_sm_set_enabled(test, 0), "disabling the test machine")
+                except Exception as error:  # noqa: BLE001 - as above
+                    # A pass included: the block refused a call the production machines
+                    # need, and the test machine may still be running.
+                    reason = reason or f"the test could not run ({error})"
+        if driven:
+            time.sleep(STAMP_TEST_QUIET_S)
+        return reason
+
     def start_strobed_capture(
         self,
         data_base: int,
@@ -496,52 +675,40 @@ class Rp1Backend:
         1 us, and must rise at least 6 us after the previous one; closer strobes may merge
         (tests/test_rp1_program.py:136, :142, :176, :183 and :191).
 
-        PER MODE. On one count the stamp machine starts beside the capture machine, the
-        fit is made, and both are enabled in sync. In a split process the capture machine
-        starts and is enabled alone, as before the one-clock build.
+        PER MODE. On one count the origin and the fit are made, and both machines enabled
+        in sync. In a split process the capture machine is enabled alone, as before the
+        one-clock build.
+
+        THE MACHINES WERE CONFIGURED AT CONSTRUCTION, on the pins wl_sync.pins names
+        (`__init__`), so any others are refused: this starts what is configured, and
+        cannot configure it again.
         """
-        lib = self._lib
         if strobe_pin != data_base + data_count:
             raise ValueError(
                 f"the strobe must sit immediately above the capture window: "
                 f"data {data_base}..{data_base + data_count - 1}, strobe {strobe_pin}"
             )
-        self._started = True
-
-        # clk_sys BY NAME, inside the shim. This read clock_get_hz(0), which is
-        # clk_gpout0, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
-        # 4294967295 -- so the divider would have been ~2,147 rather than 100.
-        system_hz = lib.wlsync_clk_sys_hz()
-        low, high = _CLK_SYS_SANE_HZ
-        if not low <= system_hz <= high:
-            raise PiolibError(
-                f"RP1 reported clk_sys as {system_hz} Hz, which cannot be right; "
-                "every PIO timestamp is scaled by it"
+        if (data_base, data_count, strobe_pin) != (
+            CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN
+        ):
+            raise ValueError(
+                f"the capture machine was configured at construction on data "
+                f"{CODE_DATA_BASE}..{CODE_DATA_BASE + CODE_DATA_COUNT - 1}, strobe "
+                f"{CODE_STROBE_PIN} (wl_sync/pins.py), not data "
+                f"{data_base}..{data_base + data_count - 1}, strobe {strobe_pin}"
             )
-
-        # Load, configure and seed in C, so no struct crosses ctypes. Left DISABLED.
-        words = (ctypes.c_uint16 * len(program.STROBE_CAPTURE))(*program.STROBE_CAPTURE)
-        self._sm = _check(
-            lib.wlsync_start_capture(
-                words, len(program.STROBE_CAPTURE),
-                program.WRAP_TARGET, program.WRAP, program.ENTRY,
-                data_base, data_count, strobe_pin,
-                system_hz / (_TICK_HZ * _CYCLES_PER_TICK),
-                program.encode_mov_x_not_null(),
-            ),
-            "starting strobed capture",
-        )
+        self._started = True
         if self._split:
             self._start_split()
         else:
-            self._start_one_count(data_base, system_hz)
+            self._start_one_count()
 
         # NOTHING DRAINED THE FIFO until 2026-10-18. drain() existed and nothing called
         # it, so the first burst of more than four codes filled the FIFO and `push
         # noblock` discarded every later word without a sound. The pump thread is what
         # makes the strobed path a capture path at all.
         self._words = WordPump(on_word, data_count, on_loss)
-        if self._sm_stamps is not None:
+        if not self._split:
             # The same program, so the same data window and the same pair check.
             self._stamp_pump = StampPump(data_count)
         self._word_stop = threading.Event()
@@ -552,44 +719,26 @@ class Rp1Backend:
 
     def _start_split(self) -> None:
         """The capture machine alone: the origin, then that machine enabled by itself,
-        as before the one-clock build. No stamp machine and no fit, so `_sm_stamps`,
-        `_stamp_pump` and `_fit` stay None."""
+        as before the one-clock build. The stamp machine, configured at construction when
+        it started, is never enabled; no stamp pump and no fit, so `_stamp_pump` and
+        `_fit` stay None."""
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         _check(self._lib.wlsync_sm_set_enabled(self._sm, 1), "enabling the state machine")
 
-    def _start_one_count(self, data_base: int, system_hz: int) -> None:
-        """The stamp machine beside the capture machine, the origin and the fit, then both
-        enabled in sync, so they count one P from one edge (spec §2.1,
-        docs/superpowers/specs/2026-10-30-one-clock-design.md:177)."""
-        lib = self._lib
-        # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
-        # capture machine, and raising here would: nothing above catches it
-        # (wl_sync/service.py:252, wl_sync/cli.py:582 and :1751-1761), so run() would
-        # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
-        # The process records on one count with no stamps, every B dropped as
-        # STAMPS_NOT_STARTED, until Task 1.10a tests the machine at construction and
-        # falls back to split instead; the log line is the record that this run has none.
-        stamps = lib.wlsync_start_stamp(
-            program.WRAP_TARGET, program.WRAP, program.ENTRY,
-            data_base, self._stamp_pin, int(self._stamp_pin != BARCODE_PIN),
-            system_hz / (_TICK_HZ * _CYCLES_PER_TICK),
-            program.encode_mov_x_not_null(),
-        )
-        self._sm_stamps = stamps if stamps >= 0 else None
-        if stamps < 0:
-            log.error(
-                "stamp machine did not start (errno %d): recording without barcode stamps",
-                -stamps,
-            )
+    def _start_one_count(self) -> None:
+        """The origin and the fit, then the capture and stamp machines enabled in sync, so
+        they count one P from one edge (spec §2.1,
+        docs/superpowers/specs/2026-10-30-one-clock-design.md:177). Both were configured
+        at construction, where the stamp machine passed its start-up test: a process whose
+        stamp machine did not start, or failed the test, is split (`__init__`). The test
+        machine is not in the mask."""
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
         # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:131-137).
         # Read after MONO, so RAW is the reading nearer the enable.
         self._fit = RawToP(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), self._seed_ppb)
-        mask = 1 << self._sm
-        if self._sm_stamps is not None:
-            mask |= 1 << self._sm_stamps
-        _check(lib.wlsync_enable_in_sync(mask), "enabling the state machines")
+        mask = (1 << self._sm) | (1 << self._sm_stamps)
+        _check(self._lib.wlsync_enable_in_sync(mask), "enabling the state machines")
 
     def drain(self) -> bool:
         """Move whatever the FIFO holds through the word pump. Returns False when the
@@ -632,7 +781,7 @@ class Rp1Backend:
         read before the FIFO is looked at and handed over only with no half pair left.
         The mark is `_p_now()`, on the fit's count, because the frame's end that
         `emit_pulses` compares it with is mapped through the fit. It is what now_us()
-        reads on one count, the only mode with a stamp machine.
+        reads on one count, the only mode whose stamp machine runs.
         """
         lib = self._lib
         sm, pump = self._sm_stamps, self._stamp_pump
@@ -666,7 +815,7 @@ class Rp1Backend:
         anyway. A desync or a failure of the word drain stops it and leaves the stamp
         drain running (Ruling R16): on one count B is the stamp, so a stamp drain that
         stopped with the words would drop every later B. The thread ends early only when
-        both have stopped; with no stamp machine, as in a split process, that is when
+        both have stopped; with no stamp drain, as in a split process, that is when
         the word drain stops, as before the stamp machine existed. check_health reports
         each.
         """
@@ -711,7 +860,7 @@ class Rp1Backend:
             pump.stop(error)
 
     def _stamp_drain_ended(self) -> bool:
-        """No stamp drain will run again: it stopped, or there is no stamp machine."""
+        """No stamp drain will run again: it stopped, or there is none (split)."""
         pump = self._stamp_pump
         return pump is None or pump.stopped
 
@@ -854,8 +1003,8 @@ class Rp1Backend:
             taken.append(("edge capture", self._pump.take_error()))
         if self._words is not None:  # under the word pump's lock: see WordPump
             taken.append(("event-code capture", self._words.take_error()))
-        # No stamp pump, no stamp path: a stamp machine that never started was logged
-        # once by start_strobed_capture, and each frame's FrameStamp says so again.
+        # No stamp pump, no stamp path: a split process has none, and why it is split
+        # was journaled once, at construction (`__init__`).
         if self._stamp_pump is not None:  # under the stamp pump's lock: see StampPump
             taken.append(("barcode stamping", self._stamp_pump.take_error()))
         for path, error in taken:
@@ -1002,8 +1151,10 @@ class Rp1Backend:
             return FrameStamp(None, STAMP_NOT_SEEN)
         unmatched = LeadStamp(p=None, between=0, consumed=0, leftover=(), nearest=None)
         pump, fit = self._stamp_pump, self._fit
-        # Neither of these waits for the drain: a stamp machine that never started cannot
-        # be drained, and a stopped drain cannot pass the frame's end.
+        # Neither of these waits for the drain: a stamp machine with no pump cannot be
+        # drained, and a stopped drain cannot pass the frame's end. The first is a guard:
+        # a process whose stamp machine did not start is split (`__init__`), and never
+        # comes here.
         if pump is None or fit is None:
             self.last_frame = FrameTrace(unmatched, bracket.width_ns)
             self._shifted = []
@@ -1114,7 +1265,7 @@ class Rp1Backend:
 
     def _stamps_stopped(self) -> bool:
         """The stamp drain has stopped: its own stop, or the pump thread's. False with no
-        stamp machine, as in a split process, which has nothing to stop."""
+        stamp pump, as in a split process, which has nothing to stop."""
         if self._stamp_pump is None:
             return False
         thread = self._word_thread
@@ -1170,8 +1321,9 @@ class Rp1Backend:
 
         The capture threads first, because they call into the sink and the sink is
         about to be closed by the caller; then the state machines (the capture machine
-        and, on one count when it started, the stamp machine; a split process has only
-        the first); then the descriptors. The word pump drains each machine whose drain
+        and the stamp machine when it started, both configured at construction; a split
+        process never enabled the second, and the test machine was disabled where its
+        test ended); then the descriptors. The word pump drains each machine whose drain
         is still running once more on its way out, so it stops before they do.
         """
         for stop in (self._edge_stop, self._word_stop):

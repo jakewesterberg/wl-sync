@@ -109,5 +109,5 @@ WRAP = 12
 # `in pins` runs this many cycles after the `jmp pin` that saw the strobe (the taken jump
 # at 11, then the jmp x-- at 0, then `in pins` at 1), so the data lines are read this
 # long after the strobe was seen. What the task PC must hold, and for how long after
-# raising the strobe, is start_strobed_capture's contract (wl_sync/rp1/backend.py:489-496).
+# raising the strobe, is start_strobed_capture's contract (wl_sync/rp1/backend.py:668-675).
 DATA_SAMPLE_CYCLES = 2

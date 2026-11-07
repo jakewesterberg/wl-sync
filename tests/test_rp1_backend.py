@@ -25,6 +25,10 @@ from wl_sync.rp1.backend import Rp1Backend
 
 DATA = 16
 
+# The LOW after the start-up test's pulse, as the box sleeps it, read before the `lib`
+# fixture sets it to 0.
+_QUIET_ON_THE_BOX_S = rp1.STAMP_TEST_QUIET_S
+
 
 def stream(*events):
     entries = []
@@ -37,12 +41,17 @@ def stream(*events):
 class _FakeShim:
     """libwlsync_pio.so: every call succeeds, and `log` is the order of events.
 
-    SM 0 is the word machine and SM 1 the stamp machine, each with its own RX FIFO:
-    `fifo`, `full` and `push()` are SM 0's, as they were before the stamp machine
-    existed, and `stamp_fifo`, `stamp_full` and `push_stamps()` are SM 1's. `drains`
-    counts SM 0's drains alone. `fifo_calls` records each FIFO call's state machine and
-    thread, and `calls` the thread of every call into the library, which is how a test
-    sees that piolib is called from one thread while capture runs.
+    SM 0 is the word machine, SM 1 the stamp machine and SM 2 the start-up test's machine
+    (Task 1.10a), each with its own RX FIFO: `fifo`, `full` and `push()` are SM 0's, as
+    they were before the stamp machine existed, `stamp_fifo`, `stamp_full` and
+    `push_stamps()` are SM 1's, and `test_fifo` is SM 2's. `drains` counts SM 0's drains
+    alone. `fifo_calls` records each FIFO call's state machine and thread, and `calls` the
+    thread of every call into the library, which is how a test sees that piolib is called
+    from one thread while capture runs.
+
+    `enabled` is the set of machines running, and `enables` every (sm, on) that
+    `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
+    the sync enable, where the PIO's count starts (`crystals`).
 
     Like piolib, its encoders answer correctly only once a PIO block is open -- piolib's
     read the CURRENT block -- so a backend that checks its encodings too early is refused
@@ -56,15 +65,29 @@ class _FakeShim:
         self.full = False
         self.stamp_fifo: list[int] = []
         self.stamp_full = False
+        self.test_fifo: list[int] = []
         self.drains = 0
         self.log: list[str] = []
         self.opened = False
         self.clk_sys_hz = 200_000_000
         self.start_result = 0
         self.started_with: dict | None = None
-        # The stamp machine's start: its SM number, or a negative errno.
+        # The first `wlsync_start_stamp` starts the stamp machine, and returns
+        # `stamp_result`; every later one starts the test machine, and returns
+        # `test_result`. Each is an SM number, or a negative errno.
         self.stamp_result = 1
+        self.test_result = 2
+        # Every call's arguments, in order; `stamp_started_with` is the first's.
+        self.stamp_starts: list[dict] = []
         self.stamp_started_with: dict | None = None
+        # The test machine, once one has started, and each started machine's jmp pin.
+        self.test_sm: int | None = None
+        self.jmp_pins: dict[int, int] = {}
+        self.enabled: set[int] = set()
+        self.enables: list[tuple[int, bool]] = []
+        self.on_sync = None
+        # `wlsync_sm_set_enabled(sm, on)` returns this errno, negated, for (sm, on).
+        self.set_enabled_errno: dict[tuple[int, bool], int] = {}
         self.disabled: list[int] = []
         # The next `wlsync_sm_get` on this SM raises this, once: a drain that fails.
         self.get_failures: dict[int, BaseException] = {}
@@ -123,33 +146,68 @@ class _FakeShim:
     def wlsync_start_stamp(self, wrap_target, wrap, entry, data_base, jmp_pin,
                            claim_jmp_pin, clkdiv, seed):
         self.log.append("start_stamp")
-        self.stamp_started_with = {
+        started_with = {
             "wrap_target": wrap_target, "wrap": wrap, "entry": entry,
             "data_base": data_base, "jmp_pin": jmp_pin,
             "claim_jmp_pin": claim_jmp_pin, "clkdiv": clkdiv, "seed": seed,
         }
-        return self.stamp_result
+        self.stamp_starts.append(started_with)
+        if len(self.stamp_starts) == 1:
+            self.stamp_started_with = started_with
+            result = self.stamp_result
+        else:
+            result = self.test_result
+            if result >= 0:
+                self.test_sm = result
+        if result >= 0:
+            self.jmp_pins[result] = jmp_pin
+        return result
 
     def wlsync_enable_in_sync(self, mask):
         self.log.append(f"sync={mask:#x}")
+        for sm in range(4):
+            if mask >> sm & 1:
+                self.enabled.add(sm)
+                self.enables.append((sm, True))
+        if self.on_sync is not None:
+            self.on_sync()
         return 0
 
     def wlsync_sm_set_enabled(self, sm, enabled):
         self.log.append(f"enabled={bool(enabled)}")
-        if not enabled:
+        self.enables.append((sm, bool(enabled)))
+        errno = self.set_enabled_errno.get((sm, bool(enabled)))
+        if errno is not None:
+            return -errno
+        if enabled:
+            self.enabled.add(sm)
+        else:
+            self.enabled.discard(sm)
             self.disabled.append(sm)
         return 0
+
+    @property
+    def testing(self) -> bool:
+        """The test machine is running: what GPIO17 does now is the start-up test's pulse."""
+        return self.test_sm is not None and self.test_sm in self.enabled
+
+    def watching(self, pin) -> list[int]:
+        """The running machines whose jmp pin is `pin`: those a rise on it is stamped by."""
+        return sorted(sm for sm in self.enabled if self.jmp_pins.get(sm) == pin)
 
     def push(self, entries) -> None:
         with self._lock:
             self.fifo.extend(entries)
 
     def push_stamps(self, entries) -> None:
+        self.push_to(1, entries)
+
+    def push_to(self, sm, entries) -> None:
         with self._lock:
-            self.stamp_fifo.extend(entries)
+            self._fifo_of(sm).extend(entries)
 
     def _fifo_of(self, sm):
-        return self.stamp_fifo if sm == 1 else self.fifo
+        return {1: self.stamp_fifo, 2: self.test_fifo}.get(sm, self.fifo)
 
     def _witness(self, call, sm):
         self.fifo_calls.append((call, sm, threading.current_thread().name))
@@ -158,6 +216,8 @@ class _FakeShim:
         self._witness("rx_full", sm)
         if sm == 1:
             return 1 if self.stamp_full else 0
+        if sm == 2:
+            return 0
         self.drains += 1  # the first call of every drain
         return 1 if self.full else 0
 
@@ -179,6 +239,9 @@ class _FakeShim:
 def lib(monkeypatch, gpiod):
     fake = _FakeShim()
     monkeypatch.setattr(rp1, "_load_shim", lambda: fake)
+    # The LOW after the start-up test's pulse, 0.5 s on the box, which every backend built
+    # on the real clock would sleep. The quiet's own tests set it back.
+    monkeypatch.setattr(rp1, "STAMP_TEST_QUIET_S", 0)
     gpiod.shim = fake  # where the stamp machine's stamps land
     return fake
 
@@ -218,27 +281,40 @@ def test_capture_starts_at_the_programs_entry(lib):
         backend.close()
 
 
-def test_both_machines_start_disabled_and_are_enabled_together_after_the_origin(
+def test_both_machines_are_configured_at_construction_and_enabled_together_at_capture(
     lib, monkeypatch
 ):
+    """Configured before the first segment, so the start-up test's verdict reaches its
+    header, and enabled in sync once capture starts, so W and B count one P. The test
+    machine runs alone at construction and is not in the mask."""
     real = rp1.time.clock_gettime_ns
     names = {time.CLOCK_MONOTONIC: "origin", time.CLOCK_MONOTONIC_RAW: "raw"}
+    capturing = threading.Event()
 
     def clock(which):
-        # Only the origin's reads happen between the starts and the enable: MONO for
+        # Only the origin's reads happen between capture's start and the enable: MONO for
         # now_us(), then RAW for the fit. The pump's reads come after the enable.
-        if "sync=0x3" not in lib.log and "start_stamp" in lib.log:
+        if capturing.is_set() and "sync=0x3" not in lib.log:
             lib.log.append(names.get(which, f"clock {which}"))
         return real(which)
 
     monkeypatch.setattr(rp1.time, "clock_gettime_ns", clock)
-    backend = _started(lib, lambda tick, word: None)
+    backend = Rp1Backend()
     try:
-        started = [e for e in lib.log
+        built = len(lib.log)
+        assert [e for e in lib.log if e.startswith("start_")] == [
+            "start_capture", "start_stamp", "start_stamp",
+        ]
+        assert [s["jmp_pin"] for s in lib.stamp_starts] == [17, 17]
+        assert not {0, 1} & {sm for sm, on in lib.enables if on}
+        assert "sync=" not in " ".join(lib.log)
+
+        capturing.set()
+        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+        started = [e for e in lib.log[built:]
                    if e.startswith(("start_", "sync=", "enabled=", "clock "))
                    or e in names.values()]
-        assert started == ["start_capture", "start_stamp", "origin", "raw", "sync=0x3"]
-        assert "enabled=True" not in lib.log
+        assert started == ["origin", "raw", "sync=0x3"]  # SM 0 and SM 1; not SM 2
     finally:
         backend.close()
 
@@ -280,32 +356,263 @@ def test_a_pin_the_board_allocates_is_refused_as_a_stamp_pin(lib, pin):
         Rp1Backend(stamp_pin=pin)
 
 
-def test_a_stamp_machine_that_cannot_start_is_logged_and_capture_records_on(lib, caplog):
-    """The box records anyway: on one count, without stamps, until Task 1.10a falls back
-    to split at construction instead."""
+def test_close_disables_both_machines(lib):
+    """And the test machine was disabled once, at construction, where its test ended."""
+    backend = _started(lib, lambda tick, word: None)
+    assert lib.disabled == [2]
+    backend.close()
+    assert lib.disabled[0] == 2 and sorted(lib.disabled[1:]) == [0, 1]
+
+
+# --- The start-up test (Task 1.10a) ------------------------------------------------------
+#
+# Before the first segment, a third state machine on GPIO17 (the test machine) is enabled
+# alone, GPIO17 is pulsed once, and the test machine's FIFO is read. A stamp keeps the
+# process on one count; anything else puts it on the split clock, with one ERROR.
+
+_SPLIT_ERROR = (
+    "the stamp machine's start-up test failed ({}): this process records timebase split, "
+    "with B and E on CLOCK_MONOTONIC and W on RP1's crystal, until a restart passes it"
+)
+
+
+def _errors(caplog):
     import logging
-    lib.stamp_result = -16
-    backend = Rp1Backend()
-    with caplog.at_level(logging.ERROR, logger=rp1.log.name):
-        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def _is_split(backend):
+    return (backend.timebase, backend.barcode_delay_us) == ("split", None)
+
+
+def _capture_enables(lib, backend):
+    """What starting capture enabled: (sm, on) in order, and whether it enabled in sync."""
+    enables, log = len(lib.enables), len(lib.log)
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    synced = any(e.startswith("sync=") for e in lib.log[log:])
+    return lib.enables[enables:], synced
+
+
+def test_a_stamp_machine_that_sees_gpio17_leaves_the_process_on_one_count(lib, caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger=rp1.log.name):
+        backend = Rp1Backend()
     try:
-        assert "stamp machine did not start (errno 16): recording without barcode stamps" in caplog.text
-        assert "sync=0x1" in lib.log  # the capture SM's bit alone
-        assert "sync=0x3" not in lib.log
-        assert backend._sm_stamps is None
+        built = threading.current_thread().name
+        assert backend.stamp_test_failure == ""
+        assert backend.timebase == "rp1-pio" and backend.barcode_delay_us == 0
+        assert (
+            "the stamp machine saw GPIO17 rise at start-up: B is the stamp machine's count "
+            "of each lead edge"
+        ) in [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert _errors(caplog) == []
+        _, test = lib.stamp_starts
+        assert (test["jmp_pin"], test["claim_jmp_pin"]) == (17, 0)
+        assert lib.enables == [(2, True), (2, False)]
+        # Read on the constructing thread, before any pump thread existed.
+        reads = {(call, thread) for call, sm, thread in lib.fifo_calls if sm == 2}
+        assert {call for call, _ in reads} >= {"rx_level", "get"}
+        assert {thread for _, thread in reads} == {built}
+        assert "wl-sync-words" not in {thread for _, thread in lib.calls}
+        assert backend._word_thread is None
     finally:
         backend.close()
-    assert "close" in lib.log
+
+
+def test_a_stamp_machine_blind_to_gpio17_puts_the_process_on_the_split_clock_with_an_error(
+    lib, gpiod, caplog
+):
+    import logging
+
+    gpiod.pio_sees_barcode = False
+    with caplog.at_level(logging.INFO, logger=rp1.log.name):
+        backend = Rp1Backend()
+    try:
+        assert backend.stamp_test_failure == "no stamp when GPIO17 rose"
+        assert _is_split(backend)
+        assert _errors(caplog) == [_SPLIT_ERROR.format("no stamp when GPIO17 rose")]
+        enables, synced = _capture_enables(lib, backend)
+        assert enables == [(0, True)] and not synced
+    finally:
+        backend.close()
+
+
+def test_a_stamp_machine_that_cannot_start_puts_the_process_on_the_split_clock(
+    lib, caplog
+):
+    """It used to record on one count with every B dropped (Ruling R12). No test machine
+    is started: there is no stamp machine for it to vouch for."""
+    import logging
+
+    lib.stamp_result = -16  # -EBUSY: another client holds the block's machines
+    with caplog.at_level(logging.INFO, logger=rp1.log.name):
+        backend = Rp1Backend()
+    try:
+        reason = "the stamp machine did not start (errno 16)"
+        assert backend.stamp_test_failure == reason
+        assert _is_split(backend)
+        assert lib.log.count("start_stamp") == 1
+        assert lib.enables == []
+        assert _errors(caplog) == [_SPLIT_ERROR.format(reason)]
+        enables, synced = _capture_enables(lib, backend)
+        assert enables == [(0, True)] and not synced
+    finally:
+        backend.close()
     assert lib.disabled == [0]
-    assert [r for r in caplog.records if r.levelno == logging.ERROR] != []
-    assert len([r for r in caplog.records if r.levelno >= logging.ERROR]) == 1
 
 
-def test_close_disables_both_machines(lib):
+def test_a_test_machine_that_cannot_start_falls_back_and_never_raises(lib, gpiod, caplog):
+    lib.test_result = -16
+    backend = Rp1Backend()
+    try:
+        reason = "the test machine did not start (errno 16)"
+        assert backend.stamp_test_failure == reason
+        assert _is_split(backend)
+        assert _errors(caplog) == [_SPLIT_ERROR.format(reason)]
+        assert lib.enables == [] and gpiod.sets == []  # nothing to watch a pulse
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("where", ["request", "pulse"])
+def test_a_test_that_cannot_run_falls_back_and_never_raises(lib, gpiod, caplog, where):
+    """GPIO17 cannot be taken, or a level cannot be set mid-pulse. The test machine is
+    started only once the line is held, and is disabled on every path after."""
+    if where == "request":
+        def busy(path, config, consumer, **kwargs):
+            raise OSError("busy")
+
+        gpiod.request_lines = busy
+        error = "busy"
+    else:
+        gpiod.set_failures = [None, OSError("EIO")]  # the rise is set; the fall raises
+        error = "EIO"
+    backend = Rp1Backend()
+    try:
+        reason = f"the test could not run ({error})"
+        assert backend.stamp_test_failure == reason
+        assert _is_split(backend)
+        assert _errors(caplog) == [_SPLIT_ERROR.format(reason)]
+        if where == "request":
+            assert lib.log.count("start_stamp") == 1 and lib.enables == []
+        else:
+            assert lib.enables == [(2, True), (2, False)] and lib.enabled == set()
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("on", [True, False], ids=["enable", "disable"])
+def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
+    lib, caplog, on
+):
+    """A disable that fails after a pass fails the test too: the block refused a call the
+    production machines need, and the test machine may still be running."""
+    lib.set_enabled_errno[(2, on)] = 5
+    backend = Rp1Backend()
+    try:
+        what = "enabling" if on else "disabling"
+        reason = f"the test could not run ({what} the test machine failed: errno 5)"
+        assert backend.stamp_test_failure == reason
+        assert _is_split(backend)
+        assert lib.enables[-1] == (2, False), "the test machine was not disabled"
+        assert _errors(caplog) == [_SPLIT_ERROR.format(reason)]
+    finally:
+        backend.close()
+
+
+def test_the_test_pulse_is_one_the_decoders_reject(lib, gpiod, monkeypatch):
+    """One rise and one fall, STAMP_TEST_HIGH_US apart: the line is low again a quarter
+    of LEAD in, where a lead must still be high (wl_sync/barcode.py:40, :135-136)."""
+    from wl_sync.barcode import FRAME_US, IDLE_MIN_US, decode_edges
+
+    monkeypatch.setattr(rp1, "time", gpiod.clock)
+    Rp1Backend().close()
+    (rise_ns, high), (fall_ns, low) = gpiod.sets
+    assert (high, low) == (1, 0)
+    assert rp1.STAMP_TEST_HIGH_US == 1_000
+    assert (fall_ns - rise_ns) / 1_000 == pytest.approx(rp1.STAMP_TEST_HIGH_US, abs=20)
+    assert (fall_ns - rise_ns) / 1_000 < 2_500
+    # The idle before it is known, and the record runs a frame past it, so the decoder
+    # does test it as a lead.
+    rise_us, fall_us = rise_ns // 1_000, fall_ns // 1_000
+    edges = [(rise_us, 1), (fall_us, 0), (rise_us + 2 * FRAME_US, 0)]
+    assert decode_edges(edges, start_us=rise_us - IDLE_MIN_US) == []
+
+
+def test_the_first_frame_decodes_after_the_test_pulse(lib, gpiod, monkeypatch):
+    """STAMP_TEST_QUIET_S of LOW after the pulse, more than IDLE_MIN_US, so a decoder that
+    takes the pulse's fall for the end of the idle still finds the first frame."""
+    from wl_sync.barcode import IDLE_MIN_US, decode_edges, encode
+
+    assert _QUIET_ON_THE_BOX_S == 0.5
+    monkeypatch.setattr(rp1, "STAMP_TEST_QUIET_S", _QUIET_ON_THE_BOX_S)
+    monkeypatch.setattr(rp1, "time", gpiod.clock)  # where the quiet costs nothing
+    backend = Rp1Backend()
+    try:
+        backend.emit_pulses(17, encode(1000))
+        gpiod.clock.sleep(0.8)
+        backend.emit_pulses(17, encode(1001))
+    finally:
+        backend.close()
+    edges = []
+    for ns, level in gpiod.sets:
+        if not edges or edges[-1][1] != level:
+            edges.append((ns // 1000, level))
+    (_, high), (fall_us, low), (lead_us, _) = edges[:3]
+    assert (high, low) == (1, 0)
+    barcodes = decode_edges(edges, start_us=edges[0][0] - IDLE_MIN_US)
+    assert barcodes[0].value == 1000 and barcodes[0].start_us == lead_us
+    assert lead_us - fall_us > IDLE_MIN_US
+
+
+def test_the_test_machines_stamp_never_reaches_a_frame(lib, gpiod, crystals):
+    """Its stamp went to SM 2, which no pump drains: had the test used the stamp machine,
+    the first frame would carry it as a stamp between."""
+    from wl_sync.barcode import encode
+
+    crystals()
     backend = _started(lib, lambda tick, word: None)
-    backend.close()
-    assert set(lib.disabled) == {0, 1}
-    assert len(lib.disabled) == 2
+    try:
+        first = backend.emit_pulses(17, encode(1000))
+    finally:
+        backend.close()
+    assert first.between == 0
+    assert first.tick == gpiod.leads[1]
+    test_stamps = [p for sm, p in gpiod.pushes if sm == 2]
+    assert len(test_stamps) == 1 and gpiod.pushes[0] == (2, test_stamps[0])
+    assert {sm for sm, _ in gpiod.pushes[1:]} == {1}
+    drained = {sm for _, sm, thread in lib.fifo_calls if thread == "wl-sync-words"}
+    assert 2 not in drained and 1 in drained
+
+
+def test_start_strobed_capture_refuses_pins_other_than_those_configured(lib):
+    """The machines are configured at construction, on wl_sync.pins' capture window."""
+    backend = Rp1Backend()
+    try:
+        with pytest.raises(ValueError, match="configured"):
+            backend.start_strobed_capture(0, 8, 8, lambda tick, word: None)
+        # The strobe's placement is checked first, as before.
+        with pytest.raises(ValueError, match="immediately above"):
+            backend.start_strobed_capture(0, 8, 9, lambda tick, word: None)
+        assert backend._word_thread is None and not backend._started
+    finally:
+        backend.close()
+
+
+def test_with_a_spare_stamp_pin_the_test_still_reads_gpio17(lib):
+    """Bench S.3 and S.3b's controls put the stamp machine on an unwired spare pin. The
+    test is of the PIO's sight of GPIO17, whatever the stamp machine reads."""
+    backend = Rp1Backend(stamp_pin=19)
+    try:
+        stamp, test = lib.stamp_starts
+        assert (stamp["jmp_pin"], stamp["claim_jmp_pin"]) == (19, 1)
+        assert (test["jmp_pin"], test["claim_jmp_pin"]) == (17, 0)
+        assert backend.stamp_test_failure == ""
+        assert backend.timebase == "rp1-pio"
+    finally:
+        backend.close()
 
 
 def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch):
@@ -461,8 +768,10 @@ def test_close_delivers_what_the_fifo_held_before_the_state_machine_stops(lib):
     lib.push(stream((10, 7)))
     backend.close()
 
-    assert "word=7" in lib.log
-    assert lib.log.index("word=7") < lib.log.index("enabled=False")
+    # From the sync enable: the test machine was enabled and disabled at construction.
+    captured = lib.log[lib.log.index("sync=0x3"):]
+    assert "word=7" in captured
+    assert captured.index("word=7") < captured.index("enabled=False")
 
 
 class _FakeTime:
@@ -497,15 +806,20 @@ class _TwoCrystalClock:
     the pump's own sleeps move true time too. RAW reads true x (1 + cpu_ppm 1e-6), and
     MONO reads the same unless a test slews it: RAW x (1 + mono_slew_ppm 1e-6) plus
     mono_offset_ns, as NTP moves MONO and not RAW. REALTIME reads MONO plus an offset,
-    and `p_now()`, the PIO count, true x (1 + rp1_ppm 1e-6) in microseconds.
+    and `p_now()`, the PIO count, true time since P's zero x (1 + rp1_ppm 1e-6) in
+    microseconds.
 
     A read samples at its middle, 10 us in. So an edge set between two reads lies at
     their midpoint, as the fit assumes of a bracket; sampled at either end, every pair
     would carry half a read, 10 counts, into the fit.
 
-    True time starts at 0, so P's zero lies four reads, about 70 counts, before the
-    RAW origin, where on silicon it is one syscall after. The first pair takes up that
-    offset, as it takes up the real one.
+    P'S ZERO IS THE SYNC ENABLE, as on silicon: `crystals` has the shim fake call
+    `start_p` there. True time starts at 0, and P counted from it until Task 1.10a, when
+    P's zero lay four reads, about 70 counts, before the RAW origin. Construction now
+    holds GPIO17 high for STAMP_TEST_HIGH_US, so counted from 0, P would run more than
+    LEAD_STAMP_TOLERANCE ahead of the fit before its first pair. From the enable, it lies
+    half a read, 10 counts, after the RAW origin, where on silicon it is one syscall
+    after. The first pair takes up that offset, as it takes up the real one.
     """
 
     CLOCK_REALTIME = 0
@@ -519,6 +833,7 @@ class _TwoCrystalClock:
         self._rp1 = 1 + rp1_ppm * 1e-6
         self._slew = 1 + mono_slew_ppm * 1e-6
         self._mono_offset_ns = mono_offset_ns
+        self.p_zero_ns = 0  # true time at P's zero
         self._lock = threading.Lock()
 
     def _mono(self, raw_ns):
@@ -552,19 +867,28 @@ class _TwoCrystalClock:
         with self._lock:
             return self._mono(round(self._true_ns * self._cpu))
 
+    def start_p(self):
+        """The sync enable: P counts from here."""
+        with self._lock:
+            self.p_zero_ns = self._true_ns
+
     def p_now(self):
         with self._lock:
-            return int(self._true_ns * self._rp1 / 1_000) & 0xFFFF_FFFF
+            elapsed_ns = self._true_ns - self.p_zero_ns
+            return int(elapsed_ns * self._rp1 / 1_000) & 0xFFFF_FFFF
 
 
 @pytest.fixture
 def crystals(monkeypatch, gpiod):
-    """Puts the backend and the gpiod fake on a `_TwoCrystalClock`."""
+    """Puts the backend and the gpiod fake on a `_TwoCrystalClock`, whose P starts at the
+    shim fake's sync enable."""
 
     def make(cpu_ppm=0, rp1_ppm=0, **mono):
         clock = _TwoCrystalClock(cpu_ppm, rp1_ppm, **mono)
         monkeypatch.setattr(rp1, "time", clock)
         gpiod.clock = clock
+        if gpiod.shim is not None:
+            gpiod.shim.on_sync = clock.start_p
         return clock
 
     return make
@@ -574,23 +898,27 @@ def crystals(monkeypatch, gpiod):
 def gpiod(monkeypatch):
     """A stand-in for the libgpiod v2 bindings that records every level set.
 
-    THE STAMP MACHINE'S VIEW. A rise on GPIO17 is stamped into the stamp machine's FIFO at
-    the PIO count, `clock.p_now()`, while `pio_sees_barcode` is True and the stamp machine's
-    jmp pin is 17 (`lib.stamp_started_with["jmp_pin"]`): a pair of a data word 0 and the
-    inverted count, as the program pushes it. The PIO reads the pin libgpiod drives, with
-    no wire (the box's c-direct, 300/300 lead edges stamped). `stamp_late_us` moves the
-    stamp later than the edge, and `stamped` lists each count pushed. A test that blinds
-    the machine sets `pio_sees_barcode` False AFTER building the backend, because from
-    Task 1.10a on, construction tests that the PIO sees GPIO17. `set_cost_ns` makes each
-    `set_value` take that
-    long, with the edge at its middle.
+    THE PIO'S VIEW. A rise on GPIO17 is stamped at the PIO count, `clock.p_now()`, into the
+    FIFO of every enabled machine whose jmp pin is 17 (`lib.watching(17)`), while
+    `pio_sees_barcode` is True: a pair of a data word 0 and the inverted count, as the
+    program pushes it. The PIO reads the pin libgpiod drives, with no wire (the box's
+    c-direct, 300/300 lead edges stamped). `stamp_late_us` moves a frame's stamps later
+    than the edge, `stamped` lists each count pushed for a frame, and `pushes` every
+    (sm, count) pushed. A test that blinds the machine sets `pio_sees_barcode` False AFTER
+    building the backend, because from Task 1.10a on, construction tests that the PIO sees
+    GPIO17. `set_cost_ns` makes each `set_value` take that long, with the edge at its
+    middle, and `set_failures` holds what each next `set_value` raises, None for none.
 
     FRAMES ARE COUNTED AS THE DECODER FINDS THEM: a rise on GPIO17 after IDLE_MIN_US of LOW,
     or its first rise, begins one, numbered from 1 in `frame` (wl_sync/barcode.py:11-13).
-    `frame_stamp_offset_us` moves every stamp of the frames a test names by that many us.
-    `unstamped_rises` maps a frame to the rises, numbered from 0 for its lead, that go
-    unstamped. `stray_before_lead_us` maps a frame to a stray stamp pushed that many us
-    before its lead's. `leads` gives each frame's lead-edge stamp as pushed."""
+    THE START-UP TEST'S PULSE IS NO FRAME: the decoder rejects it (`Rp1Backend`'s
+    STAMP_TEST_HIGH_US), so what GPIO17 does while the test machine runs (`lib.testing`)
+    is counted in no frame, and its stamp is pushed to the test machine, the one machine
+    enabled then. `frame_stamp_offset_us` moves every stamp of the frames a test names by
+    that many us. `unstamped_rises` maps a frame to the rises, numbered from 0 for its
+    lead, that go unstamped. `stray_before_lead_us` maps a frame to a stray stamp pushed
+    that many us before its lead's. `leads` gives each frame's lead-edge stamp as
+    pushed."""
     import sys
     import types
 
@@ -608,8 +936,16 @@ def gpiod(monkeypatch):
     module.chips = {"/dev/gpiochip0": ("pinctrl-rp1", 54)}
     module.LineSettings = lambda **kwargs: kwargs
 
+    def push(machines, p):
+        for sm in machines:
+            module.pushes.append((sm, p))
+            module.shim.push_to(sm, [0, (~p) & 0xFFFF_FFFF])
+
     class _Request:
         def set_value(self, pin, value):
+            failure = module.set_failures.pop(0) if module.set_failures else None
+            if failure is not None:
+                raise failure
             half = module.set_cost_ns // 2
             if half:
                 module.clock.advance(half)
@@ -617,16 +953,20 @@ def gpiod(monkeypatch):
             rising = value == line.Value.ACTIVE and was != value
             falling = value != line.Value.ACTIVE and was == line.Value.ACTIVE
             module.levels[pin] = value
+            shim = module.shim
+            testing = shim is not None and shim.testing
             lead = False
-            if pin == 17 and rising:
+            if pin == 17 and rising and not testing:
                 fell = module.fell_ns
                 lead = fell is None or module.clock.ns - fell >= IDLE_MIN_US * 1_000
                 module.frame += lead
                 module.rise = 0 if lead else module.rise + 1
-            if pin == 17 and falling:
+            if pin == 17 and falling and not testing:
                 module.fell_ns = module.clock.ns
-            if (rising and pin == 17 and module.pio_sees_barcode and module.shim is not None
-                    and (module.shim.stamp_started_with or {}).get("jmp_pin") == 17
+            watching = shim.watching(17) if shim is not None else []
+            if rising and pin == 17 and module.pio_sees_barcode and testing:
+                push(watching, module.clock.p_now() & 0xFFFF_FFFF)
+            elif (rising and pin == 17 and module.pio_sees_barcode and watching
                     and module.rise not in module.unstamped_rises.get(module.frame, ())):
                 p = (module.clock.p_now() + module.stamp_late_us
                      + module.frame_stamp_offset_us.get(module.frame, 0)) & 0xFFFF_FFFF
@@ -634,11 +974,11 @@ def gpiod(monkeypatch):
                 if stray is not None:  # pushed first: the FIFO is in time order
                     q = (p - stray) & 0xFFFF_FFFF
                     module.stamped.append(q)
-                    module.shim.push_stamps([0, (~q) & 0xFFFF_FFFF])
+                    push(watching, q)
                 module.stamped.append(p)
                 if lead:
                     module.leads[module.frame] = p
-                module.shim.push_stamps([0, (~p) & 0xFFFF_FFFF])
+                push(watching, p)
             module.sets.append((module.clock.ns, value))
             if module.set_cost_ns - half:
                 module.clock.advance(module.set_cost_ns - half)
@@ -695,7 +1035,9 @@ def gpiod(monkeypatch):
     module.pio_sees_barcode = True
     module.stamp_late_us = 0
     module.set_cost_ns = 0
+    module.set_failures = []
     module.stamped = []
+    module.pushes = []
     module.frame = 0
     module.fell_ns = None
     module.frame_stamp_offset_us = {}
@@ -712,16 +1054,20 @@ def gpiod(monkeypatch):
     return module
 
 
-def test_every_barcode_frame_decodes_not_just_the_first(lib, gpiod):
+def test_every_barcode_frame_decodes_not_just_the_first(lib, gpiod, monkeypatch):
     """A frame ends on TRAIL HIGH, and emit_pulses set each level at its pulse's START
     and returned, so the pin stayed HIGH between frames. The decoder finds a frame by
     a rising edge after 400 ms of LOW, which the stuck-high pin never produced again:
     on the box, only the first barcode of a run would have decoded. The codec's own
-    tests could not see it, because their pulse model ends every frame LOW."""
+    tests could not see it, because their pulse model ends every frame LOW.
+
+    Every level the fake saw is decoded, the start-up test's pulse included, so the
+    quiet after it is the box's: on the fake clock, where it costs nothing."""
     from wl_sync.barcode import decode_edges, encode
 
     import wl_sync.rp1.backend as rp1_module
 
+    monkeypatch.setattr(rp1, "STAMP_TEST_QUIET_S", _QUIET_ON_THE_BOX_S)
     rp1_module.time = gpiod.clock
     try:
         backend = Rp1Backend()
@@ -853,23 +1199,19 @@ def test_the_clock_divider_comes_from_the_system_clock(lib):
 
 
 def test_a_system_clock_that_cannot_be_real_is_refused(lib):
+    """At construction, where the machines are configured (Task 1.10a)."""
     lib.clk_sys_hz = 0xFFFF_FFFF  # what RP1 answers for any clock but clk_sys
-    backend = Rp1Backend()
-    try:
-        with pytest.raises(rp1.PiolibError, match="clk_sys"):
-            backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
-    finally:
-        backend.close()
+    with pytest.raises(rp1.PiolibError, match="clk_sys"):
+        Rp1Backend()
+    assert "start_capture" not in lib.log
 
 
 def test_a_capture_that_cannot_start_raises_rather_than_recording_nothing(lib):
+    """At construction, before run() makes a segment (Task 1.10a)."""
     lib.start_result = -16  # -EBUSY: no free state machine
-    backend = Rp1Backend()
-    try:
-        with pytest.raises(rp1.PiolibError, match="errno 16"):
-            backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
-    finally:
-        backend.close()
+    with pytest.raises(rp1.PiolibError, match="errno 16"):
+        Rp1Backend()
+    assert "start_stamp" not in lib.log
 
 
 def test_the_recorders_clock_is_not_read_before_the_origin_moves(lib, gpiod, monkeypatch):
@@ -1634,7 +1976,7 @@ def test_a_stamp_far_from_the_lead_edge_is_missed_with_its_distance(lib, gpiod, 
     backend = _started(lib, lambda tick, word: None)
     try:
         # A first frame warms the map: until a pair moves it, the fake's P runs some
-        # 70 counts ahead of it (_TwoCrystalClock).
+        # 10 counts behind it (_TwoCrystalClock).
         assert backend.emit_pulses(17, encode(999)).tick is not None
         clock.sleep(0.8)
         gpiod.stamp_late_us = 5_000
@@ -1745,6 +2087,8 @@ def test_the_pump_drains_the_stamp_machine_on_its_own_thread(lib, gpiod, crystal
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
     began = len(lib.calls)
+    # While capture runs: construction read the test machine's FIFO on this thread.
+    fifo_began = len(lib.fifo_calls)
     try:
         for value in (1000, 1001):
             assert backend.emit_pulses(17, encode(value)).tick is not None
@@ -1752,7 +2096,8 @@ def test_the_pump_drains_the_stamp_machine_on_its_own_thread(lib, gpiod, crystal
         during = lib.calls[began:]
     finally:
         backend.close()
-    gets = [(sm, thread) for call, sm, thread in lib.fifo_calls if call == "get"]
+    gets = [(sm, thread) for call, sm, thread in lib.fifo_calls[fifo_began:]
+            if call == "get"]
     assert any(sm == 1 for sm, _ in gets), "nothing was taken from the stamp machine"
     assert {thread for _, thread in gets} == {"wl-sync-words"}
     # Every call into the library while capture ran, not only the gets.
@@ -1841,7 +2186,7 @@ def test_the_bracket_the_fit_and_the_mark_follow_raw_not_mono(lib, gpiod, crysta
     backend = _started(lib, lambda tick, word: None)
     try:
         # The origin: before any pair, RAW maps through it. The fixture's P runs some
-        # 70 counts ahead of the origin (_TwoCrystalClock).
+        # 10 counts behind the origin (_TwoCrystalClock).
         before = clock.p_now()
         unpaired = backend._p_now() - (before + clock.p_now()) / 2
         stamps = []
@@ -1857,7 +2202,7 @@ def test_the_bracket_the_fit_and_the_mark_follow_raw_not_mono(lib, gpiod, crysta
     assert took_ns < FRAME_US * 1_000 * 1.0005 + 25_000_000, took_ns
     assert [stamp.tick is not None for stamp in stamps] == [True] * 6
     for pair in pairs:  # the bracket: RAW where RAW goes, MONO where MONO goes
-        assert abs(pair.raw_ns // 1_000 - pair.p) <= 1, pair
+        assert abs((pair.raw_ns - clock.p_zero_ns) // 1_000 - pair.p) <= 1, pair
         assert pair.mono_ns - pair.raw_ns > 10 * 10**9, pair
     before = clock.p_now()  # the fit and the mark, carried on RAW alone
     mapped = backend._p_now()
@@ -1912,7 +2257,8 @@ def test_every_frame_leaves_its_bracket_width_stamped_or_not(lib, gpiod, crystal
     assert unstamped.width_ns > 0
 
 
-# Ruling R15: a stamp machine that never started (R12) costs nothing per frame.
+# Ruling R15: a stamp machine that never started (R12) costs nothing per frame. From Task
+# 1.10a such a process records split, which drains SM 0 alone and has no stamp path.
 
 
 def test_with_no_stamp_machine_the_pump_drains_the_capture_machine_alone(lib):
@@ -1932,28 +2278,8 @@ def test_with_no_stamp_machine_the_pump_drains_the_capture_machine_alone(lib):
     assert {sm for _, sm, _ in lib.fifo_calls} == {0}
 
 
-def test_with_no_stamp_machine_a_frame_is_missed_at_once(lib, gpiod, crystals):
-    from wl_sync.backend import FrameStamp
-    from wl_sync.barcode import encode
-
-    clock = crystals()
-    lib.stamp_result = -16
-    on_word, inside, release = _holding_the_pump()
-    backend = _started(lib, on_word)
-    try:
-        lib.push(stream((10, 1)))
-        assert inside.wait(1)
-        stamp = backend.emit_pulses(17, encode(1000))
-        after_frame_ns = clock.ns - gpiod.sets[-1][0]
-    finally:
-        release.set()
-        backend.close()
-    assert stamp == FrameStamp(None, missed="the stamp machine did not start")
-    assert after_frame_ns < 1_000_000, "it waited for a drain that has no machine"
-
-
 def test_with_no_stamp_machine_check_health_does_not_report_it_again(lib, gpiod, crystals):
-    """start_strobed_capture logged its ERROR once; every check after says nothing.
+    """The construction logged its ERROR once; every check after says nothing.
 
     Coverage: passes on the sources before Task 1.10, which have no stamp path in
     check_health. It pins R15 against the new one."""
@@ -2041,7 +2367,7 @@ def test_a_calibration_seeds_the_fit_before_the_first_pair(lib, gpiod, crystals)
     pair the fit runs through the origin at the seeded rate (spec §2.4), so 10 s on,
     now_us() still keeps pace with P. Unseeded it falls 400 counts behind.
 
-    P's zero in the fixture lies 70 counts before the RAW origin
+    P's zero in the fixture lies 10 counts after the RAW origin
     (_TwoCrystalClock), where on silicon it lies one syscall after it. The first pair
     takes that offset up; before any pair it stays, so it is read at the start and taken
     out. What the seed must keep is that offset, to 2 counts."""
@@ -2076,30 +2402,35 @@ def test_the_rp1_backend_stamps_the_edge_itself_so_its_delay_is_zero(lib):
 
 
 def test_a_split_process_runs_the_capture_machine_alone_as_today(lib, monkeypatch):
-    """Today's start, kept: the capture machine, the origin, then that machine enabled by
-    itself. No stamp machine is started, nothing is sync-enabled, and no fit is made."""
+    """Today's start, kept: the origin, then the capture machine enabled by itself. The
+    stamp machine, configured at construction, is never enabled, nothing is sync-enabled,
+    and no stamp pump or fit is made."""
     real = rp1.time.clock_gettime_ns
     names = {time.CLOCK_MONOTONIC: "origin", time.CLOCK_MONOTONIC_RAW: "raw"}
+    capturing = threading.Event()
 
     def clock(which):
-        if "start_capture" in lib.log and "enabled=True" not in lib.log:
+        if capturing.is_set() and lib.enables[-1] != (0, True):
             lib.log.append(names.get(which, f"clock {which}"))
         return real(which)
 
     backend = Rp1Backend()
     backend._fall_back_to_split("x")
     monkeypatch.setattr(rp1.time, "clock_gettime_ns", clock)
+    built, enables = len(lib.log), len(lib.enables)
+    capturing.set()
     backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
     try:
-        started = [e for e in lib.log
+        started = [e for e in lib.log[built:]
                    if e.startswith(("start_", "sync=", "enabled=", "clock "))
                    or e in names.values()]
-        assert started == ["start_capture", "origin", "enabled=True"]
-        assert backend._sm_stamps is None and backend._stamp_pump is None
-        assert backend._fit is None
+        assert started == ["origin", "enabled=True"]
+        assert lib.enables[enables:] == [(0, True)]
+        assert not any(e.startswith("sync=") for e in lib.log)
+        assert backend._stamp_pump is None and backend._fit is None
     finally:
         backend.close()
-    assert lib.disabled == [0]
+    assert (1, True) not in lib.enables
 
 
 def test_a_split_process_stamps_b_from_the_clock_read_before_the_frame(
@@ -2124,6 +2455,7 @@ def test_a_split_process_stamps_b_from_the_clock_read_before_the_frame(
 
     backend.now_us = now_us
     calls = len(lib.calls)
+    before = len(gpiod.sets)  # the start-up test's pulse, at construction
     try:
         stamp = backend.emit_pulses(17, encode(1000))
         pairs = backend.take_pairs()
@@ -2131,7 +2463,7 @@ def test_a_split_process_stamps_b_from_the_clock_read_before_the_frame(
     finally:
         backend.close()
     mine = [(sets, value) for thread, sets, value in reads if thread != "wl-sync-words"]
-    assert len(mine) == 1 and mine[0][0] == 0, mine
+    assert len(mine) == 1 and mine[0][0] == before, mine
     assert stamp == FrameStamp(mine[0][1])
     assert pairs == [] and gpiod.stamped == []
     # piolib keeps one caller in this mode too, the pump's thread.
@@ -2849,37 +3181,3 @@ def test_check_health_takes_the_word_error_under_the_pumps_lock(lib, monkeypatch
         backend.check_health()  # taken once, and cleared
     finally:
         backend.close()
-
-
-# Rulings R12 and R15, on one count: a stamp machine that did not start leaves the process
-# on one count without stamps until Task 1.10a tests it at construction and falls back.
-
-
-def test_with_no_stamp_machine_one_count_records_every_b_dropped_on_the_seed_line(
-    lib, gpiod, crystals
-):
-    """Nothing crashes. Every B is dropped as STAMPS_NOT_STARTED, now_us() runs on the
-    seeded line through the origin, no pair is made, and the word drain runs on."""
-    from wl_sync.backend import STAMPS_NOT_STARTED, FrameStamp
-    from wl_sync.barcode import encode
-
-    clock = crystals(cpu_ppm=0, rp1_ppm=40)
-    lib.stamp_result = -16
-    seen = []
-    backend = Rp1Backend()
-    backend.apply_calibration(_calibration(rate_ppb=40_000, p_per_raw_ppb=40_000))
-    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: seen.append(word))
-    try:
-        stamps = [backend.emit_pulses(17, encode(1000 + k)) for k in range(3)]
-        lib.push(stream((10, 1)))
-        assert _until(lambda: seen == [1])
-        assert _next_complaint(backend, timeout=0.05) is None
-        pairs = backend.take_pairs()
-    finally:
-        backend.close()
-    assert stamps == [FrameStamp(None, STAMPS_NOT_STARTED)] * 3
-    assert pairs == []
-    assert (backend.timebase, backend.barcode_delay_us) == ("rp1-pio-si", 0)
-    at_rest = _now_less_p(backend, clock)
-    clock.sleep(10)
-    assert abs(_now_less_p(backend, clock) - at_rest) <= 2
