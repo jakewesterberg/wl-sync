@@ -47,7 +47,8 @@ from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import WordPump
 
-_TICK_HZ = 1_000_000  # every path is 2 cycles a decrement (the odd-cycle test), clocked at 2 MHz
+# Every path is 2 cycles a decrement (tests/test_rp1_program.py:80), clocked at 2 MHz.
+_TICK_HZ = 1_000_000
 _CYCLES_PER_TICK = 2
 
 # How long after the program sees a strobe it reads the data lines. The task PC must hold
@@ -301,10 +302,12 @@ class Rp1Backend:
         """Start the capture program; `on_word` gets each strobe's (tick, data).
 
         THE CONTRACT WITH THE TASK PC. The program reads the data lines
-        DATA_SAMPLE_DELAY_US (1 us) after it sees the strobe, which is 1.0-1.5 us after
-        the strobe rises, so the code must be held that long. A strobe must be high for
-        at least 1 us and low for at least 1 us, and must rise at least 6 us after the
-        previous one; closer strobes merge (tests/test_rp1_program.py).
+        DATA_SAMPLE_DELAY_US (1 us) after it sees the strobe. The strobe is tested every
+        2 cycles, so it is seen up to 1 us after it rises, and the data is read 1.0-2.0 us
+        after the rise: the task PC must hold the code at least 2 us after raising the
+        strobe. A strobe must be high for at least 1 us and low for at least 1 us, and
+        must rise at least 6 us after the previous one; closer strobes merge
+        (tests/test_rp1_program.py:136, :142, :175 and :182).
         """
         lib = self._lib
         if strobe_pin != data_base + data_count:

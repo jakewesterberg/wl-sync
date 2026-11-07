@@ -82,7 +82,7 @@ def encode_mov_x_not_null() -> int:
 # the address it would fall through to. A `jmp x--` costs one cycle whether or not it
 # jumps, so X == 0 (the counter's wrap) changes nothing: the instruction falls through to
 # the address it names anyway, and no path can leave the program there. Every path costs
-# two cycles per decrement, entry and exit included; tests/test_rp1_program.py runs the
+# two cycles per decrement, entry and exit included; tests/test_rp1_program.py:80 runs the
 # words in tests/piosim.py to show it.
 STROBE_CAPTURE: tuple[int, ...] = (
     encode_jmp_x_dec(1),  # 0   entry: pairs with the taken jmp pin at 11

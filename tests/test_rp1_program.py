@@ -79,9 +79,10 @@ def _capture(train, *, x=M32, data=lambda c: 0, entry=ENTRY, cycles=None):
 @pytest.mark.parametrize("seed", range(1, 6))
 def test_every_decrement_falls_on_an_odd_cycle_whatever_the_strobes_do(widths, seed):
     """2 cycles per decrement on EVERY path, entry and exit included, derived from the
-    program itself (spec §2.1 Part 0). A path that does not decrement loses 1.2 ms
-    over 600 events, which fails the +/-100 us gate on arithmetic alone. Odd cycles only means no path ever shifts the
-    phase; every address visited means no path went unexercised."""
+    program itself (spec §2.1 Part 0). A path that does not decrement loses about 2 us
+    per event, 1.2 ms over 600 events, which fails the +/-100 us gate on arithmetic
+    alone. Odd cycles only means no path ever shifts the phase; every address visited
+    means no path went unexercised."""
     train = strobe_train(seed, 100, widths=widths)
     result, end = _capture(train)
     assert all(cycle % 2 == 1 for cycle in result.decrement_cycles)
@@ -117,8 +118,9 @@ def test_the_count_runs_on_across_the_counters_wrap():
 
 
 def test_each_strobe_pushes_its_data_then_its_count():
-    """The data is read 1.0-1.5 us after the strobe rises, and the count is latched
-    3.0-3.5 ticks after it: the half is the strobe being sampled every 2 cycles."""
+    """Edges on cycle boundaries: the data is read 1.0-1.5 us after the strobe rises and
+    the count is latched 3.0-3.5 ticks after it. A real edge can fall between two
+    samples and adds up to a further 1 us: the full interval is the next test's."""
     train = strobe_train(seed=3, count=100)
     result, _ = _capture(train, data=lambda cycle: cycle & 0xFFFF)
     data = [word for i, (_, word) in enumerate(result.pushes) if i % 2 == 0]
@@ -146,8 +148,40 @@ def test_strobes_closer_than_six_microseconds_are_merged():
 
 
 def test_a_one_cycle_strobe_is_seen_only_on_a_sampling_cycle():
+    """Coverage: pins that the program samples the strobe every 2 cycles, on even
+    cycles from the entry, which the timing bounds above and below rest on."""
     assert len(_capture([(100, 101)], cycles=200)[0].pushes) == 2
     assert len(_capture([(101, 102)], cycles=200)[0].pushes) == 0
+
+
+@pytest.mark.parametrize("fraction", [0.1, 0.25, 0.5, 0.75, 0.99])
+@pytest.mark.parametrize("whole", [20, 21, 40, 41, 100])
+def test_an_edge_at_any_instant_is_timed_within_the_documented_bounds(whole, fraction):
+    """A real strobe rises at any instant but is tested every 2 cycles, so it is seen up
+    to 1 us late: the data is read 1.0-2.0 us after the rise, the count is latched
+    3.0-4.0 ticks after it, and the pair is in the FIFO within 11 cycles (5.5 us)."""
+    rise = whole + fraction
+    result, _ = _capture([(rise, rise + 4)], data=lambda cycle: cycle & 0xFFFF, cycles=300)
+    assert len(result.pushes) == 2
+    (_, word), (second, counter) = result.pushes
+    seen = (word - DATA_SAMPLE_CYCLES) & 0xFFFF  # the sampling cycle that saw it
+    assert 0 <= seen - rise < 2
+    assert 2 <= seen + DATA_SAMPLE_CYCLES - rise < 4  # cycles: 1.0-2.0 us
+    ticks = (~counter & M32) - rise / 2
+    assert 3 <= ticks < 4
+    assert second + 1 - rise < 11
+
+
+def test_a_low_between_samples_does_not_split_a_strobe():
+    """The strobe is tested every 2 cycles, so a 1 us low that no test falls in is
+    invisible: one capture, not two."""
+    result, _ = _capture([(10, 21), (22, 30)], cycles=100)
+    assert len(result.pushes) == 2
+
+
+def test_a_low_on_a_sampling_cycle_splits_a_strobe_in_two():
+    result, _ = _capture([(10, 20), (21, 30)], cycles=100)
+    assert len(result.pushes) == 4
 
 
 def test_entering_anywhere_but_the_entry_pushes_a_pair_no_strobe_made():

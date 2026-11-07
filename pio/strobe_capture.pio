@@ -81,8 +81,9 @@ c_load_counter:
     jmp x--, c_push_counter     ; [1] that saw the strobe
 c_push_counter:
     push noblock                ; [1] word 2: counter
-    jmp x--, held               ; [1] the decrement, falling into the test either way
-held:
+held:                           ; = offset + 8
+    jmp x--, held_test          ; [1] held: the decrement, falling into the test either way
+held_test:                      ; = offset + 9
     jmp pin, held               ; [1] held while high
     jmp x--, idle               ; [1] exit: pairs with the untaken test, falling into idle
 
@@ -95,23 +96,29 @@ idle:                           ; ENTRY = offset + 11
 ; 13 instructions of the 32-instruction memory, leaving 19 for edge capture.
 ;
 ; ---------------------------------------------------------------------------
-; THE TIMESTAMP. `mov isr, x` runs 6 cycles after the `jmp pin` that saw the
-; strobe, and the count is 3 decrements after it, so the constant lags the strobe
-; by 3.0-3.5 µs (the half is the strobe being sampled every 2 cycles). It is
-; identical for every event, so it is a host-side subtraction, not a jitter term.
+; THE TIMESTAMP. A strobe can rise at any instant but is tested every 2 cycles, so
+; it is seen 0-1 µs after it rises. `mov isr, x` runs 6 cycles after the `jmp pin`
+; that saw it, so the count is latched 3.0-4.0 ticks after the edge. The lag is
+; not constant to the tick but is bounded, and its mean (3.5) is a host-side
+; subtraction; the 1 µs spread is a jitter term inside the ±100 µs budget.
+; (tests/test_rp1_program.py:159, test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
 ;
 ; THE DATA HOLD. `in pins` runs 2 cycles after that `jmp pin`: the data lines are
-; read 1.0 µs after the strobe is seen, 1.0-1.5 µs after it rises, and the task PC
-; must hold the code word that long (rp1.backend.DATA_SAMPLE_DELAY_US).
+; read 1.0-2.0 µs after the strobe rises, and the task PC must hold the code word
+; at least 2 µs after raising the strobe (rp1.backend.DATA_SAMPLE_DELAY_US).
 ;
-; STROBE LIMITS. High for at least 1 µs (two cycles) and low for at least 1 µs,
-; and rising at least 6 µs after the previous strobe; closer strobes merge.
-; tests/test_rp1_program.py pins each of these.
+; THE PAIR is in the FIFO within 11 cycles, 5.5 µs, of the edge.
+;
+; STROBE LIMITS. High for at least 1 µs (two cycles), so a test lands in it; low
+; for at least 1 µs, so a test lands in it (a shorter low between tests is
+; invisible and does not split a strobe); and rising at least 6 µs after the
+; previous strobe, or the two merge. tests/test_rp1_program.py: the burst test :136,
+; the merge test :142, a low between samples :175, a low on a sample :182.
 ;
 ; UNVERIFIED — check these first on bench day, in this order:
 ;   1. Each instruction is one cycle whether or not it jumps; at X = 0 every
 ;      `jmp x--` falls through to the address it names, so the wrap costs no path
-;      anything (tests/test_rp1_program.py simulates it; P0 confirms it on silicon).
+;      anything (tests/test_rp1_program.py:100 simulates it; P0 confirms it on silicon).
 ;   2. That `jmp x--, <next instruction>` is a legal way to spend a decrement, and
 ;      that it is one cycle. The entire ±100 µs argument rests on it.
 ;   3. `mov isr, x` ignoring in_shiftdir and copying all 32 bits straight.

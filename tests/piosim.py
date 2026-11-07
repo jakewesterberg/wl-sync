@@ -1,14 +1,14 @@
 """A cycle-accurate interpreter for PIO instruction words, for tests only.
 
-It replaces a hand-written table (`wl_sync/rp1/program.py:113-128`) whose test
-(`tests/test_rp1_program.py:69-83`) checked the table and not the program: a
+It replaces a hand-written table (`wl_sync/rp1/program.py:113-128` at a452599) whose test
+(`tests/test_rp1_program.py:69-83` at a452599) checked the table and not the program: a
 wrong listing and a matching table passed together. This runs the listing's real
 words, so what a test proves is about the program the box loads.
 
 It models only what it names below, and raises `Unmodelled` for the rest. That is
-the semantics this repository already assumes (`pio/strobe_capture.pio:101-108`,
-`wl_sync/rp1/program.py:42-56`). Whether silicon agrees is the bench's P0, not
-this module's.
+the semantics this repository already assumes (`pio/strobe_capture.pio:101-108` and
+`wl_sync/rp1/program.py:42-56`, both at a452599). Whether silicon agrees is the
+bench's P0, not this module's.
 """
 
 import random
