@@ -807,6 +807,12 @@ def run(
                     stamp.between,
                     value,
                 )
+            # THE BOX CLOCK IS READ EVERY FRAME, kept or dropped. It counts a wrap of the
+            # 32-bit counter only if it is read at least once per 2^32 us
+            # (wl_sync/service.py:98-99), and on a quiet rig record_barcode was what read
+            # it: an episode of drops longer than 71.6 min would lose a wrap, and every
+            # later tick would be placed 4294.967296 s early.
+            recorder.now()
             # A FRAME WITH NO STAMP HAS NO B, and the box records on (the user, 2026-10-30).
             # Every device recorded the frame and only this log lacks it, which costs each
             # device one matched pair (spec Sec.2.5, "What a dropped B costs").

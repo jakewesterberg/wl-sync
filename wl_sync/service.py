@@ -96,7 +96,7 @@ class _BoxClock:
     distance from `now()`, so interleaving cannot confuse it.
 
     PRECONDITIONS. (1) `now()` is read at least once per 71.6 minutes, or a wrap goes
-    uncounted. Every record reads it, and the 1 Hz `record_barcode` guarantees it.
+    uncounted. Records read it, and the run loop reads it every frame (wl_sync/cli.py:815).
     (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
@@ -104,8 +104,8 @@ class _BoxClock:
     whole run by 2^32 us. The first `unwrap` seeds the clock instead.
 
     Ticks cannot go negative: every raw tick is at or after the origin (the PIO counter
-    reads 0 at enable, edges before the origin are refused by `edge_tick_us`, and B ticks
-    are `now_us()`), and lies within +-2^31 us of `now()`.
+    reads 0 at enable, edges before the origin are refused by `edge_tick_us`, and a B tick
+    is its lead edge's stamp, `FrameStamp.tick`), and lies within +-2^31 us of `now()`.
 
     A run that never misses a wrap gets exactly the values the per-path unwrappers
     gave, on both backends: the same origin, with the offset starting at 0.
@@ -182,8 +182,8 @@ class Recorder:
     sink for one reason -- an un-unwrapped `B` tick is on a DIFFERENT TIMEBASE from the
     `E` and `W` ticks it exists to align, and diverges from them by k*2^32 us after the
     first wrap, i.e. after 71.6 minutes of a day-long run. Every path reads that clock, and
-    the 1 Hz barcode path guarantees it is read well inside one wrap period, so a word
-    or edge path that goes silent for hours still lands on the barcodes' timebase.
+    the run loop reads it every frame, its B kept or dropped (wl_sync/cli.py:815), so a
+    word or edge path that goes silent for hours still lands on the barcodes' timebase.
 
     `sink` takes each record as it arrives. The default accumulates in memory and
     `records()` returns them tick-sorted. A streaming sink (`SegmentWriter`) receives

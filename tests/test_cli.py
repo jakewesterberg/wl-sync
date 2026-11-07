@@ -56,7 +56,6 @@ from wl_sync.log import (
 from wl_sync.manifest import build_manifest
 from wl_sync.pins import EDGE_PINS
 from wl_sync.segment import SegmentWriter, segment_name
-from wl_sync.service import Recorder
 from concurrent.futures import Future
 
 from wl_sync.sessions import (
@@ -279,11 +278,12 @@ def test_barcode_and_edge_ticks_stay_on_one_timebase_across_a_wrap(tmp_path):
     assert barcodes[1:] == edges[: len(barcodes) - 1]
 
 
-def test_the_barcode_tick_is_read_before_the_frame_is_emitted(tmp_path):
+def test_the_barcode_tick_is_the_frames_lead_edge_not_its_end(tmp_path):
     """A frame takes 200 ms and BarcodeEmitted means the LEAD rising edge, which is
-    what Barcode.start_us gives every receiving device. Reading the counter after
-    emit_frame() returns put this box's own alignment record a systematic 200 ms behind
-    every device it was aligning."""
+    what Barcode.start_us gives every receiving device. The tick is the stamp emit_pulses
+    returns for that edge, here the fake's counter as the frame starts. A loop that read
+    the counter after emit_frame() returned would record the frame's end instead, a
+    systematic 200 ms behind every device it aligns."""
 
     class _FrameAdvancesTheCounter(FakeBackend):
         def emit_pulses(self, pin, pulses):
@@ -484,6 +484,25 @@ def test_a_dropped_last_barcode_does_not_rewind_the_checkpoint(tmp_path):
 
     assert written == wire[:2]
     assert read_checkpoint(tmp_path / CHECKPOINT_NAME) == wire[2]
+
+
+def test_a_long_episode_of_drops_does_not_lose_a_counter_wrap(tmp_path):
+    """The box clock counts a wrap of the 32-bit counter only if it is read at least once
+    per 2^32 us (71.6 min), and on a quiet rig the run loop's barcode was what read it. A
+    dropped frame records no barcode, so an episode of drops longer than a wrap lost one,
+    and every later tick was placed 4294.967296 s early. The loop now reads the clock every
+    frame, kept or dropped. Here each frame is 1.5e9 us on, so the four dropped frames
+    span a wrap that only they could have seen."""
+    backend = FakeBackend()
+    backend.miss_stamps(range(2, 6))
+
+    def tick_fn(_seconds):
+        backend.set_now_us(backend.now_us() + 1_500_000_000)
+
+    day = run(tmp_path, backend, _clock_from(START), 6, tick_fn)
+    _, records = read_log(day / segment_name(0))
+    ticks = [r.tick_us for r in records if isinstance(r, BarcodeEmitted)]
+    assert ticks == [0, 7_500_000_000]
 
 
 @pytest.mark.parametrize(
@@ -3534,15 +3553,18 @@ def _visit(tmp_path, backend, before_close, iterations=5):
 
 
 def _boundaries(monkeypatch):
-    """Every boundary a roll takes, as the run loop reads it."""
+    """Every boundary a roll takes, as the run loop hands it to the barrier. Taken at the
+    barrier rather than at Recorder.now, which the run loop also reads once a frame, so
+    that a run of dropped barcodes cannot lose a counter wrap: those reads are not
+    boundaries."""
     taken = []
-    original = Recorder.now
+    original = cli._await_delivery
 
-    def spy(self):
-        taken.append(original(self))
-        return taken[-1]
+    def spy(recorder, boundary):
+        taken.append(boundary)
+        original(recorder, boundary)
 
-    monkeypatch.setattr(Recorder, "now", spy)
+    monkeypatch.setattr(cli, "_await_delivery", spy)
     return taken
 
 

@@ -278,7 +278,7 @@ def _terminate(signum: int, frame) -> None:
 
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
-    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1322-1327): building
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1328-1333): building
     # it needs the shim and a GPIO chip, which `loopback` never touches.
     from wl_sync.rp1.backend import Rp1Backend
 
@@ -323,7 +323,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         print(f"  stopped by SIGTERM after {report.frames} of {frames} frames")
     try:
         # What capture held at the end, which run() also asks for after close()
-        # (wl_sync/cli.py:988-990): a full stamp FIFO would explain short frames.
+        # (wl_sync/cli.py:994-996): a full stamp FIFO would explain short frames.
         backend.check_health()
     except CaptureDegraded as degraded:
         print(f"  capture degraded: {degraded}")
