@@ -171,6 +171,11 @@ def test_a_shim_of_another_version_is_refused(monkeypatch):
         rp1._load_shim()
 
 
+def test_a_shim_of_the_current_version_is_accepted():
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
+    assert rp1._check_shim_version(shim) is None
+
+
 def _shape(word):
     """A jmp's address field masked: relocation and target do not change the encoding."""
     return word & ~0x1F if word >> 13 == 0 else word

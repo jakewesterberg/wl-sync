@@ -147,8 +147,11 @@ def _check_shim_version(lib: ctypes.CDLL) -> None:
     """Refuse a libwlsync_pio built before this wl-sync, naming the rebuild.
 
     The box's shim is built once (deploy/README.md step 2), so updating Python alone
-    leaves an old .so in place. An old one ignores the `entry` argument and would start
-    the program at its first instruction.
+    leaves an old .so in place. `entry` sits mid-list, not at the end, so an old one
+    reads every argument after `wrap` one place early (entry as data_base, data_base as
+    data_count, and so on). On this box's pins (wl_sync/pins.py: 0, 16, 16) its own strobe
+    check then fails with errno 22. That is cryptic; this check turns it into the rebuild
+    instruction, and guards later changes whose shifted arguments might pass validation.
     """
     rebuild = (
         "rebuild and reinstall it with pio/build-shim.sh "
