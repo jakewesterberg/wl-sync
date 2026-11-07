@@ -34,6 +34,8 @@ from collections import deque
 from dataclasses import dataclass
 from fractions import Fraction
 
+from wl_sync.barcode import IDLE_MIN_US
+
 # Spec §2.2 and §2.3 reject brackets wider than this; the value itself is not in the
 # spec. Provisional until bench B5 measures what a bracket really costs.
 BRACKET_WIDTH_MAX_NS = 100_000
@@ -269,10 +271,11 @@ class LeadStamp:
     edge's stamp, and the frame's B. None otherwise. `between` counts the stamps up to the
     frame's end that came before the lead, or, with no lead, before the window (spec §2.5
     step 4). `consumed` counts the rest up to the end: the frame's own later edges, and
-    any stray among them (step 3). `leftover` holds the stamps after the frame's end,
-    which belong to the next. `nearest` is set only for a lead outside the window: its
-    distance from the bracket's nearer end, for the journal's "the stamp lies %d us from"
-    cause."""
+    any stray among them (step 3). The RP1 backend adds to `between` the stamps carried
+    from the frame before, which are never this frame's (Ruling R28). `leftover` holds the
+    stamps after the frame's end. `nearest` is set for a lead outside the window, and for
+    an alignment refused beyond `reach`: its distance from the bracket's nearer end, for
+    the journal's "the stamp lies %d us from" cause."""
 
     p: int | None
     between: int
@@ -289,6 +292,7 @@ def match_lead_stamp(
     *,
     rises: Sequence[int],
     tolerance: int = LEAD_STAMP_TOLERANCE,
+    reach: int = IDLE_MIN_US,
 ) -> LeadStamp:
     """Spec §2.5 steps 2-5, by the frame's own rises (Ruling R26). `stamps` are unwrapped
     and ascending, as the stamp drain queues them; nothing here sorts them. `bracket` is
@@ -304,12 +308,22 @@ def match_lead_stamp(
     with every rise aligned but one, and never fewer than two: one stamp alone aligns on
     itself, so a frame that lost its lead would have a later edge taken for it.
 
+    AN ALIGNMENT MORE THAN `reach` FROM THE BRACKET IS REFUSED (Ruling R28): IDLE_MIN_US,
+    0.4 s, which puts its lead nearer another frame's slot than its own, one a second
+    (wl_sync/barcode.py:35-37). It never competes, so a frame before's whole pattern,
+    drained late, cannot outrank this frame's own one rise short. Refused, it leaves no
+    lead, and only its distance in `nearest`.
+
     WHY NOT THE WINDOW ALONE. Every rise after the lead comes at least 20 ms after it
     (wl_sync/barcode.py:5-7), so while the map is within the window, no later edge can
     pass for the lead. With the map off by a rise's distance, one did: a line 20 ms ahead
     of P put the second rise's stamp in the window, its B was written 20 ms off, and the
-    fit anchored there. Aligned, the lead is the stamp the whole frame vouches for, so no
-    other stamp can become B, or anchor the fit through R19's restart.
+    fit anchored there. Aligned, the lead is the stamp the whole frame vouches for: with
+    no stray stamp among them, and none carried from the frame before (which the backend
+    keeps out, Ruling R28), no other stamp can become B, or anchor the fit through R19's
+    restart. With strays, two faults together can still pass: a stray within 1 ms of a
+    lead that went unstamped, as any +-1 ms window allows, or one within the jitter of a
+    lead that was stamped.
 
     A LEAD OUTSIDE THE WINDOW leaves `p` None and its distance in `nearest`: the frame is
     shifted, and its B is dropped (wl_sync/rp1/backend.py, `_reacquire`). With no
@@ -320,6 +334,7 @@ def match_lead_stamp(
     leftover = tuple(stamp for stamp in stamps if stamp > end)
     need = len(rises) if len(rises) < 2 else max(2, len(rises) - 1)
     best: tuple[int, int, bool, int, int] | None = None
+    beyond: tuple[int, int, bool, int, int] | None = None  # the best refused
     for index, candidate in enumerate(frame if rises else ()):
         aligned, off = 1, 0
         for rise in rises[1:]:
@@ -336,12 +351,15 @@ def match_lead_stamp(
             continue
         distance = max(bracket[0] - candidate, candidate - bracket[1], 0)
         key = (-aligned, off, not low <= candidate <= high, distance, index)
-        best = key if best is None or key < best else best
+        if distance > reach:
+            beyond = key if beyond is None or key < beyond else beyond
+        else:
+            best = key if best is None or key < best else best
     if best is None:
         between = sum(1 for stamp in frame if stamp < low)
         return LeadStamp(
             p=None, between=between, consumed=len(frame) - between, leftover=leftover,
-            nearest=None,
+            nearest=None if beyond is None else beyond[3],
         )
     index = best[-1]
     lead = frame[index]

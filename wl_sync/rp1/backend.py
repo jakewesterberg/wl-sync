@@ -40,7 +40,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NamedTuple
 
 from wl_sync.backend import (
@@ -94,10 +94,14 @@ _STAMP_WAIT_POLL_S = 0.001
 # docs/superpowers/plans/2026-11-07-one-clock.md:1468-1485, and `_reacquire` applies it).
 # More than one, because one frame's alignment can be wrong (`clockmap.match_lead_stamp`):
 # a frame that lost its lead aligns its rises on a later edge where they repeat at that
-# distance, as value 0x0001_0000's rises at 0, 95 and 190 ms do. No other value's rises
-# do, and the next frame's value differs, so wrong alignments do not make three in a row.
-# Each shifted frame still costs its B; without the restart, a lost fit cost every B
-# after it.
+# distance. Rises that do must lie evenly from 0 to TRAIL's 190 ms, on the 5 ms slots
+# from 20 ms (wl_sync/barcode.py:3-9), so at 0, 95 and 190 ms: the 17 values from
+# 0x0001_0000 to 0x0001_FFFF whose run of set bits from bit 16 continues downward
+# unbroken (0x0001_0000, 0x0001_8000, ... 0x0001_FFFF). A value is seconds since 2020
+# (wl_sync/clock.py:25, :42-45), so these are instants on 2020-01-01 and 02, and only
+# 0x0001_FFFE and 0x0001_FFFF of them are consecutive: wrong alignments do not make
+# three in a row. Each shifted frame still costs its B; without the restart, a lost fit
+# cost every B after it.
 REACQUIRE_FRAMES = 3
 
 # The edge request's event_buffer_size: the kernel's buffer, and the one libgpiod reads
@@ -454,7 +458,7 @@ class Rp1Backend:
         Refused once a capture path has started, because the mode is the whole process's:
         a path started on one count already reads its clock. Refused too once
         `apply_calibration` has run, because the run loop holds the scale it returned: it
-        keeps a rate keeper because there is one (wl_sync/cli.py:516-546) and scales
+        keeps a rate keeper because there is one (wl_sync/cli.py:517-547) and scales
         every record by it (:580), where a split process's is None. The backend cannot
         take it back."""
         if self._started:
@@ -560,7 +564,7 @@ class Rp1Backend:
         lib = self._lib
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
         # capture machine, and raising here would: nothing above catches it
-        # (wl_sync/service.py:252, wl_sync/cli.py:581 and :1744-1754), so run() would
+        # (wl_sync/service.py:252, wl_sync/cli.py:582 and :1751-1761), so run() would
         # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
         # The process records on one count with no stamps, every B dropped as
         # STAMPS_NOT_STARTED, until Task 1.10a tests the machine at construction and
@@ -579,7 +583,7 @@ class Rp1Backend:
             )
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
-        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:129-135).
+        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:131-137).
         # Read after MONO, so RAW is the reading nearer the enable.
         self._fit = RawToP(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), self._seed_ppb)
         mask = 1 << self._sm
@@ -863,7 +867,7 @@ class Rp1Backend:
                 ("edge capture: stopped", "the edge capture thread stopped unexpectedly")
             )
         # The kind is the one a dead word thread had, so the run loop's episodes are as
-        # they were (wl_sync/cli.py:1217-1247).
+        # they were (wl_sync/cli.py:1218-1248).
         if words_stopped:
             problems.append((
                 "event-code capture: stopped",
@@ -898,7 +902,7 @@ class Rp1Backend:
         piolib has one caller, the pump's.
 
         The run loop records `B` from the stamp returned, or drops it with an ERROR
-        episode when there is none (wl_sync/cli.py:863-894).
+        episode when there is none (wl_sync/cli.py:864-895).
 
         IN A SPLIT PROCESS B is now_us(), MONO us since the origin, read before anything
         else, as the run loop read it before the frame until Task 1.7. So the first frame
@@ -980,8 +984,15 @@ class Rp1Backend:
         the stamp they align on, and its B when it lies in the window (Ruling R26). That
         stamp makes a `ClockPair`; a narrow one moves the fit, and every one is kept for
         `take_pairs`. A lead outside the window makes the frame shifted, and three of those
-        in a row restart the fit (`_reacquire`). Stamps the rises align on no lead with
-        drop the frame's B as STAMPS_OFF_RISES.
+        in a row restart the fit (`_reacquire`). The frame's B is dropped as
+        STAMPS_OFF_RISES when its stamps align on no lead, and as STAMP_NOT_SEEN when it has
+        none of its own.
+
+        THE STAMPS CARRIED FROM THE FRAME BEFORE ARE NEVER THIS FRAME'S (Ruling R28). The
+        frame before's match took them, past its end, before this frame was driven. They
+        are stamps between, and only the fresh ones are aligned. Aligned, a line more than
+        a frame behind P put every frame's whole stamp set into the next, whose rises
+        matched it: the fit restarted 0.8 s off, and every B after was a frame early.
         """
         if bracket is None:  # no rise at all, so nothing for a stamp to be of
             self.last_frame = None
@@ -1010,21 +1021,24 @@ class Rp1Backend:
             if time.clock_gettime_ns(time.CLOCK_MONOTONIC) >= give_up_ns:
                 break
             time.sleep(_STAMP_WAIT_POLL_S)
-        # Ascending, as match_lead_stamp takes them: the leftovers were queued first.
-        stamps = [*self._leftover, *(unwrap_near(stamp, low) for stamp in pump.take())]
-        found = match_lead_stamp(stamps, (low, high), end, rises=rises)
+        # Ascending, as match_lead_stamp takes them, and this frame's alone: the carried
+        # are counted as stamps between, and no more.
+        fresh = [unwrap_near(stamp, low) for stamp in pump.take()]
+        found = match_lead_stamp(fresh, (low, high), end, rises=rises)
+        own = found.between + found.consumed  # fresh stamps up to the end
+        found = replace(found, between=found.between + len(self._leftover))
         self._leftover = found.leftover
         self.last_frame = FrameTrace(found, bracket.width_ns)
         if found.p is None:
             self._reacquire(fit, bracket, found)
-            if found.lead is not None:
+            if found.nearest is not None:  # a lead outside the window, or out of reach
                 return FrameStamp(
                     None,
                     f"{STAMP_TOO_FAR_PREFIX}{found.nearest} us from the frame's lead edge "
                     f"as the CPU bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)",
                     found.between,
                 )
-            if found.between + found.consumed:
+            if own:
                 return FrameStamp(None, STAMPS_OFF_RISES, found.between)
             return FrameStamp(None, STAMP_NOT_SEEN, found.between)
         pair = ClockPair(
@@ -1050,7 +1064,7 @@ class Rp1Backend:
         R24 and R26 amend it).
 
         WHY. Below FIT_FREE_SLOPE_PAIRS the line runs through the newest pair at the seed
-        slope, and only a matched pair moves it (wl_sync/clockmap.py:126-135). A wrong
+        slope, and only a matched pair moves it (wl_sync/clockmap.py:128-137). A wrong
         stamp that became the anchor, or misses for longer than LEAD_STAMP_TOLERANCE over
         the slope's error, leave every later lead edge outside its window, and no pair
         comes to correct the line. Past the 30th pair one far pair barely moves a line
@@ -1058,17 +1072,20 @@ class Rp1Backend:
 
         A SHIFTED FRAME has a narrow bracket and a lead outside its window: the stamp its
         own rises align on (`clockmap.match_lead_stamp`, Ruling R26), which subsumes R24's
-        count and pattern. Its offset is that lead less its bracket's midpoint, both on P.
-        A frame whose lead alone went unstamped aligns no lead, since its rises would need
-        a later edge to align as one; nor does the TRAIL that a line more than 10 ms
-        behind P carries into the next frame (R24), which once restarted the fit 0.8 s
-        off. That frame's rises align on its own lead with only its TRAIL short, so such a
-        line is recovered.
+        count and pattern, within IDLE_MIN_US of its bracket (Ruling R28). Its offset is
+        that lead less its bracket's midpoint, both on P. A frame whose lead alone went
+        unstamped aligns no lead, since its rises would need a later edge to align as one.
+        Stamps carried from the frame before are never aligned (`_lead_stamp`, R28), so
+        the TRAIL a line more than 10 ms behind P carries into the next frame, which once
+        restarted the fit 0.8 s off (R24), plays no part: that frame's rises align on its
+        own lead with only its TRAIL short, and such a line is recovered.
 
         NOT RECOVERED: a frame with two rises past its mapped end, the line behind P by
         more than 200 ms less its last rise before TRAIL, 25 ms at the least
         (wl_sync/barcode.py:3-9), or a frame of two rises, value 0, with its TRAIL past it.
-        Those frames align no lead, and are dropped with no B written for them.
+        Its fresh stamps up to its end then align on no lead, and past about 200 ms it has
+        none: it is dropped, as STAMPS_OFF_RISES or STAMP_NOT_SEEN, with no B written, and
+        is not shifted. So is a frame whose alignment lies beyond IDLE_MIN_US.
 
         The shifted frames' Bs stay dropped, and no pair is handed over for them: their
         lead edges are not where the fit put them. Run loop's thread only, as `_shifted`

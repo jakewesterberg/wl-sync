@@ -98,7 +98,7 @@ class WordsDroppedError(RuntimeError):
 # docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). It covers an estimate
 # up to a little under 1 ms ahead of P: the lag, less the 5.5 us above. Lead edges that
 # still match keep it there, since a match needs the map within LEAD_STAMP_TOLERANCE of
-# the stamp (wl_sync/clockmap.py:47-53).
+# the stamp (wl_sync/clockmap.py:49-55).
 #
 # IT DOES NOT COVER LOST LEAD EDGES. While the fit has lost them, until R19's restart
 # finds them again (wl_sync/rp1/backend.py, `_reacquire`) or for good where it cannot,

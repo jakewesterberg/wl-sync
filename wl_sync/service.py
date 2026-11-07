@@ -96,7 +96,7 @@ class _BoxClock:
     distance from `now()`, so interleaving cannot confuse it.
 
     PRECONDITIONS. (1) `now()` is read at least once per 71.6 minutes, or a wrap goes
-    uncounted. Records read it, and the run loop reads it every frame (wl_sync/cli.py:886).
+    uncounted. Records read it, and the run loop reads it every frame (wl_sync/cli.py:887).
     (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
@@ -182,7 +182,7 @@ class Recorder:
     sink for one reason -- an un-unwrapped `B` tick is on a DIFFERENT TIMEBASE from the
     `E` and `W` ticks it exists to align, and diverges from them by k*2^32 us after the
     first wrap, i.e. after 71.6 minutes of a day-long run. Every path reads that clock, and
-    the run loop reads it every frame, its B kept or dropped (wl_sync/cli.py:886), so a
+    the run loop reads it every frame, its B kept or dropped (wl_sync/cli.py:887), so a
     word or edge path that goes silent for hours still lands on the barcodes' timebase.
 
     `sink` takes each record as it arrives. The default accumulates in memory and

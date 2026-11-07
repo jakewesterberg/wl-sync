@@ -358,7 +358,9 @@ def test_misses_are_counted_by_kind_with_their_distances_as_a_range():
     def far(us):
         cause = (f"the stamp lies {us} us from the frame's lead edge as the CPU "
                  f"bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)")
-        return FrameStamp(None, cause), FrameTrace(LeadStamp(None, 0, 3, (), us), 30_000)
+        # A lead aligned outside its window, as the match leaves it (Ruling R26).
+        lead = LeadStamp(None, 0, 3, (), us, lead=1_000_000 - us)
+        return FrameStamp(None, cause), FrameTrace(lead, 30_000)
 
     def without_a_match(cause):
         return FrameStamp(None, cause), FrameTrace(LeadStamp(None, 0, 0, (), None), 30_000)

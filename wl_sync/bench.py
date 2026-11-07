@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1018-1026),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1032-1040),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -222,8 +222,8 @@ def stamp_run(
         report.between += stamp.between
         if stamp.tick is None:
             # Only a stamp too far leaves its distance in the match: `nearest` is set
-            # only for a lead the frame's rises align on outside its window
-            # (wl_sync/clockmap.py:273-274).
+            # only for a lead the frame's rises align on outside its window, or for one
+            # refused beyond reach (wl_sync/clockmap.py:276-278).
             far = None if trace is None else trace.lead.nearest
             kind = stamp.missed if far is None else STAMP_TOO_FAR
             report.missed[kind] = report.missed.get(kind, 0) + 1
@@ -271,7 +271,7 @@ def _terminate(signum: int, frame) -> None:
 
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
-    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1592-1597): building
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1599-1604): building
     # it needs the shim and a GPIO chip, which `loopback` never touches.
     from wl_sync.rp1.backend import Rp1Backend
 
@@ -316,7 +316,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         print(f"  stopped by SIGTERM after {report.frames} of {frames} frames")
     try:
         # What capture held at the end, which run() also asks for after close()
-        # (wl_sync/cli.py:1087-1089): a full stamp FIFO would explain short frames.
+        # (wl_sync/cli.py:1088-1090): a full stamp FIFO would explain short frames.
         backend.check_health()
     except CaptureDegraded as degraded:
         print(f"  capture degraded: {degraded}")

@@ -382,6 +382,30 @@ def test_more_rises_aligned_outweighs_the_window():
     assert (got.p, got.lead) == (None, lead)
 
 
+# Ruling R28: an alignment more than IDLE_MIN_US from its bracket is refused.
+
+
+def test_an_alignment_beyond_the_idle_is_refused_and_its_distance_named():
+    """Nearer another frame's slot than its own: refused as the lead, so the frame is not
+    shifted, and its distance is named for the journal. At the idle itself it stands."""
+    from wl_sync.barcode import IDLE_MIN_US
+
+    beyond = B0 - IDLE_MIN_US - 1
+    got = match_lead_stamp([beyond + r for r in RISES], BRACKET, END, rises=RISES)
+    assert (got.p, got.lead, got.nearest) == (None, None, IDLE_MIN_US + 1)
+    at = B0 - IDLE_MIN_US
+    assert match_lead_stamp([at + r for r in RISES], BRACKET, END, rises=RISES).lead == at
+
+
+def test_a_frames_own_alignment_in_reach_outranks_a_fuller_one_beyond_it():
+    """A frame before's whole pattern, a second off, and this frame's own, one rise short:
+    the one beyond reach never competes, so this frame's lead is its own."""
+    stale = [B0 - 1_000_000 + r for r in RISES]
+    own = [B0 + 4 + r for r in RISES]
+    got = match_lead_stamp(stale + own[:2] + own[3:], BRACKET, END, rises=RISES)
+    assert (got.p, got.between) == (B0 + 4, len(RISES))
+
+
 def test_a_raw_count_is_unwrapped_to_the_one_nearest():
     assert unwrap_near(5, 2**32 - 3) == 2**32 + 5
     assert unwrap_near(2**32 - 3, 2**32 + 5) == 2**32 - 3

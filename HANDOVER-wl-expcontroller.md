@@ -346,8 +346,8 @@ above are struck through and replaced in place, dated.
    at `POST /session/close`, and its last segment closes then.** The box still records all day, but
    a segment now closes at every open and every close, not only when the process stops: the run loop
    writes the segment's trailer, fsyncs it, and carries on in a new segment in the next folder
-   (`wl_sync/cli.py:337-396`, `follow_state`; `wl_sync/segment.py:115-127`). It does this before it
-   answers (`wl_sync/cli.py:440-448`).
+   (`wl_sync/cli.py:338-397`, `follow_state`; `wl_sync/segment.py:115-127`). It does this before it
+   answers (`wl_sync/cli.py:441-449`).
    So once a close has answered 200, nothing more is written to `<id>/syncbox/`, and its last
    segment is closed, with its trailer; a segment cut short by a crash during the visit still has
    none (item 7). A session-end read after that 200 reads closed files, and a live read does not.

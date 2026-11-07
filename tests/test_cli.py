@@ -21,6 +21,7 @@ from wl_sync.backend import (
     STAMP_NOT_SEEN,
     STAMP_TOO_FAR_PREFIX,
     STAMPS_NOT_STARTED,
+    STAMPS_OFF_RISES,
     STAMPS_STOPPED,
     CaptureLoss,
     FakeBackend,
@@ -350,6 +351,11 @@ _ADVICE = {
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"
     ),
+    STAMPS_OFF_RISES: (
+        "the stamps did not line up with the frames' rises: the stamp machine missed "
+        "edges, or the RAW->P fit had drifted past the frame's TRAIL; python -m "
+        "wl_sync.bench stamps shows which"
+    ),
 }
 
 
@@ -521,8 +527,8 @@ def test_a_long_episode_of_drops_does_not_lose_a_counter_wrap(tmp_path):
 
 @pytest.mark.parametrize(
     "cause",
-    [STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED],
-    ids=["not-stamped", "too-far", "not-started", "drain-stopped"],
+    [STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED, STAMPS_OFF_RISES],
+    ids=["not-stamped", "too-far", "not-started", "drain-stopped", "off-the-rises"],
 )
 def test_an_episode_closes_with_the_advice_for_its_cause(tmp_path, caplog, cause):
     """There is no loopback to check (c-direct, the user, 2026-11-07), so the episode's
@@ -592,11 +598,13 @@ def test_no_journal_line_names_gpio19_or_a_loopback(tmp_path, caplog):
     that does not exist. One run writes every line those texts became: a first drop and
     a close for each cause, and the WARNING."""
     backend = _StampsBetween({1: 2})
-    causes = [STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED]
+    causes = [
+        STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED, STAMPS_OFF_RISES
+    ]
     for n, cause in enumerate(causes):
         backend.miss_stamps({3 * n + 2, 3 * n + 3}, cause)
     with caplog.at_level(logging.DEBUG):
-        _dropping(tmp_path, backend, 13)
+        _dropping(tmp_path, backend, 3 * len(causes) + 1)
 
     assert len(_errors(caplog)) == 2 * len(causes)
     assert any(m.startswith("2 stamps on GPIO17 between frames") for m in caplog.messages)
@@ -3959,7 +3967,7 @@ def test_the_rate_never_changes_within_a_process(tmp_path, monkeypatch):
 def test_the_pairs_are_taken_every_frame_where_no_keeper_runs(tmp_path):
     """A backend that scales nothing runs no keeper, but the loop still takes its pairs
     each frame: the RP1 backend holds every pair until it is taken
-    (wl_sync/rp1/backend.py:406-408), and left there they would pile up, one a second,
+    (wl_sync/rp1/backend.py:410-412), and left there they would pile up, one a second,
     for the life of the process."""
 
     class _CountsTakes(FakeBackend):

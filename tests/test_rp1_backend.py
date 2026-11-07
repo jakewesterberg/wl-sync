@@ -2283,7 +2283,7 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
 
 
 # Ruling R19: the fit finds the lead edges again. Below FIT_FREE_SLOPE_PAIRS only a matched
-# pair moves the fit (wl_sync/clockmap.py:126-135), so a fit that has lost the lead edges
+# pair moves the fit (wl_sync/clockmap.py:128-137), so a fit that has lost the lead edges
 # gets no pair to correct it. Three shifted frames in a row, their offsets agreeing,
 # restart it.
 
@@ -2449,7 +2449,7 @@ def test_shifted_frames_with_wide_brackets_do_not_restart_the_fit(
 ):
     """Three frames stamped 2.0, 2.1 and 2.2 ms from their brackets, which agree, but each
     bracket wider than BRACKET_WIDTH_MAX_NS: a midpoint that uncertain is no place to
-    restart a line, as a wide pair is no pair to fit (wl_sync/clockmap.py:37-39).
+    restart a line, as a wide pair is no pair to fit (wl_sync/clockmap.py:39-41).
     Restarted at the third, the line would lie 2.2 ms from the next frame's lead.
 
     Coverage: passes on the sources before, which never restart the fit. It pins the
@@ -2673,6 +2673,115 @@ def test_a_stray_stamp_in_the_window_is_not_taken_for_the_lead(
     assert traces[2].lead.between == 1  # the stray, a stamp between frames
 
 
+# Ruling R28: stamps carried from the frame before are never this frame's own, and an
+# alignment more than IDLE_MIN_US from its bracket is refused. With the line more than a
+# frame behind P, each frame's whole stamp set was carried into the next, whose rises
+# aligned on it: the fit restarted 0.8 s off and every later B was written a frame early.
+
+
+def test_a_line_more_than_a_frame_behind_p_drops_every_frame_and_never_restarts(
+    lib, gpiod, crystals, caplog, monkeypatch
+):
+    """Every stamp from frame 4 on lands 210 ms after the line: past its frame's end, all
+    of them, so each frame's stamps are carried whole into the next."""
+    import logging
+
+    from wl_sync.backend import STAMP_NOT_SEEN
+
+    restarted = _restarted_at(monkeypatch)
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.frame_stamp_offset_us.update({k: 210_000 for k in range(4, 16)})
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, traces = _frames(backend, clock, gpiod, 15)
+    finally:
+        backend.close()
+    wrong = _wrong(stamps, gpiod)
+    assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
+    assert [stamp.tick for stamp in stamps[3:]] == [None] * 12
+    assert restarted == [] and _restarts(caplog) == []
+    # Frame 5 on: only the frame before's stamps, carried, lie up to the end.
+    assert {stamps[k - 1].missed for k in range(5, 16)} == {STAMP_NOT_SEEN}
+    assert all(traces[k - 1].lead.between > 1 for k in range(5, 16))
+
+
+def test_a_drift_of_2100_s_at_100_ppm_drops_every_frame_and_never_restarts(
+    lib, gpiod, crystals, caplog, monkeypatch
+):
+    """The plan's drift by itself: 100 ppm with seed 0, five frames, then 2,100 s with
+    none, which leaves the line 210 ms behind P."""
+    import logging
+
+    restarted = _restarted_at(monkeypatch)
+    clock = crystals(cpu_ppm=0, rp1_ppm=100)
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, 18, pause={5: 2_100.0})
+    finally:
+        backend.close()
+    wrong = _wrong(stamps, gpiod)
+    assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
+    assert [stamp.tick for stamp in stamps[:5]] == [gpiod.leads[k] for k in range(1, 6)]
+    assert [stamp.tick for stamp in stamps[5:]] == [None] * 13
+    assert restarted == [] and _restarts(caplog) == []
+
+
+def test_a_frame_with_only_carried_stamps_is_not_stamped(lib, gpiod, crystals):
+    """Frame 2's stamps land 15 ms late, so its TRAIL's is carried into frame 3, which the
+    PIO does not see. That stamp was queued before frame 3 was driven, so it is not frame
+    3's: a stamp between, and frame 3's lead edge was not stamped."""
+    from wl_sync.backend import STAMP_NOT_SEEN
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.frame_stamp_offset_us[2] = 15_000
+    try:
+        stamps, traces = _frames(backend, clock, gpiod, 4, blind={3})
+    finally:
+        backend.close()
+    assert stamps[2].tick is None and stamps[2].missed == STAMP_NOT_SEEN
+    assert (stamps[2].between, traces[2].lead.lead) == (1, None)
+    assert stamps[3].tick == gpiod.leads[4]
+
+
+def test_a_frame_before_drained_late_is_not_taken_for_a_lead_a_second_away(
+    lib, gpiod, crystals
+):
+    """The pump is held through frame 3, so frame 3's stamps reach the queue only after its
+    match gave up on them, and are taken with frame 4's, which the PIO does not see. Frame
+    4's rises (value 1001) align on frame 3's (value 1000) all but one, the minimum: a lead
+    a second before frame 4's bracket. More than IDLE_MIN_US away, nearer another frame's
+    slot than its own, it is refused, and frame 4 is not counted as shifted."""
+    from wl_sync.barcode import IDLE_MIN_US, encode
+
+    clock = crystals()
+    on_word, inside, release = _holding_the_pump()
+    backend = _started(lib, on_word)
+    stamps, traces = [], []
+    try:
+        for k, value in enumerate((998, 999, 1000, 1001), 1):
+            if k == 3:
+                lib.push(stream((10, 1)))
+                assert inside.wait(1)  # the pump held: nothing is drained
+            gpiod.pio_sees_barcode = k != 4
+            stamps.append(backend.emit_pulses(17, encode(value)))
+            traces.append(backend.last_frame)
+            if k == 3:
+                release.set()
+                assert _until(lambda: lib.stamp_fifo == [])
+            clock.sleep(0.8)
+        shifted = list(backend._shifted)
+    finally:
+        release.set()
+        backend.close()
+    assert stamps[2].tick is None and stamps[3].tick is None
+    assert traces[3].lead.lead is None, "an alignment a second away was taken for a lead"
+    assert traces[3].lead.nearest > IDLE_MIN_US
+    assert shifted == []
+
+
 # Ruling R25.
 
 
@@ -2680,7 +2789,7 @@ def test_a_stray_stamp_in_the_window_is_not_taken_for_the_lead(
 def test_falling_back_after_a_calibration_was_applied_is_refused(lib, given):
     """The run loop already holds the scale apply_calibration returned, IDENTITY without
     a calibration: it keeps a rate keeper because there is one, and scales every record by
-    it (wl_sync/cli.py:516-546, :580). The backend cannot take it back."""
+    it (wl_sync/cli.py:517-547, :581). The backend cannot take it back."""
     backend = Rp1Backend()
     try:
         backend.apply_calibration(_calibration(40_000, 40_000) if given else None)
