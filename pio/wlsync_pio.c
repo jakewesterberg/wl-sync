@@ -69,6 +69,13 @@ unsigned wlsync_encode_mov_x_not_null(void) { return pio_encode_mov_not(pio_x, p
  * PIO_ORIGIN_ANY, which as a uint32_t is 4294967295. */
 uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
 
+/* Bump whenever an exported signature changes: ctypes cannot see one, so the backend
+ * (wl_sync/rp1/backend.py, _SHIM_VERSION) reads this and refuses a shim of another
+ * version rather than call it with the wrong arguments. 1 was the unversioned original;
+ * 2 adds `entry` to wlsync_start_capture. */
+#define WLSYNC_SHIM_VERSION 2
+int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
+
 /*
  * Load the program and configure one state machine for strobed capture, left DISABLED:
  * the caller takes the timebase origin immediately before enabling it, because that
@@ -76,13 +83,16 @@ uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
  * number, or a negative errno.
  */
 int wlsync_start_capture(const uint16_t *instructions, unsigned length,
-                         unsigned wrap_target, unsigned wrap,
+                         unsigned wrap_target, unsigned wrap, unsigned entry,
                          unsigned data_base, unsigned data_count, unsigned strobe_pin,
                          float clkdiv, unsigned seed_instruction)
 {
     if (g_pio == NULL)
         return -ENODEV;
     if (length == 0 || length > 32 || strobe_pin != data_base + data_count)
+        return -EINVAL;
+    /* `entry` is where the state machine starts, relative to the loaded program. */
+    if (entry >= length || wrap >= length || wrap_target > wrap)
         return -EINVAL;
 
     pio_program_t program = {
@@ -115,7 +125,7 @@ int wlsync_start_capture(const uint16_t *instructions, unsigned length,
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
     sm_config_set_wrap(&config, offset + wrap_target, offset + wrap);
     sm_config_set_clkdiv(&config, clkdiv);
-    pio_sm_init(g_pio, sm, offset, &config);
+    pio_sm_init(g_pio, sm, offset + entry, &config);
 
     /* Seed the counter before enabling: `set` carries a 5-bit immediate only. */
     pio_sm_exec(g_pio, sm, seed_instruction);

@@ -10,6 +10,7 @@ FIFO timing, the chardev -- which is bench day's.
 
 import threading
 import time
+import types
 
 import pytest
 
@@ -85,9 +86,10 @@ class _FakeShim:
         return self.clk_sys_hz
 
     def wlsync_start_capture(self, instructions, length, wrap_target, wrap,
-                             data_base, data_count, strobe_pin, clkdiv, seed):
+                             entry, data_base, data_count, strobe_pin, clkdiv, seed):
         self.started_with = {
             "length": length, "wrap_target": wrap_target, "wrap": wrap,
+            "entry": entry,
             "data_base": data_base, "data_count": data_count, "strobe_pin": strobe_pin,
             "clkdiv": clkdiv, "seed": seed,
         }
@@ -146,6 +148,41 @@ def _started(lib, on_word):
     backend = Rp1Backend()
     backend.start_strobed_capture(0, DATA, DATA, on_word)
     return backend
+
+
+def test_capture_starts_at_the_programs_entry(lib):
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert lib.started_with["entry"] == program.ENTRY
+    finally:
+        backend.close()
+
+
+def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch):
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: types.SimpleNamespace())
+    with pytest.raises(rp1.PiolibError, match=r"pio/build-shim\.sh"):
+        rp1._load_shim()
+
+
+def test_a_shim_of_another_version_is_refused(monkeypatch):
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 1)
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
+    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 2"):
+        rp1._load_shim()
+
+
+def _shape(word):
+    """A jmp's address field masked: relocation and target do not change the encoding."""
+    return word & ~0x1F if word >> 13 == 0 else word
+
+
+def test_every_instruction_the_program_uses_is_checked_against_piolib(lib):
+    """Coverage: closes a gap rather than discriminating today. An instruction added to
+    the program without a piolib cross-check would run unverified on RP1."""
+    lib.opened = True
+    checked = {_shape(ours) for _, ours, _ in rp1._encoder_checks(lib)}
+    used = {_shape(w) for w in (*program.STROBE_CAPTURE, program.encode_mov_x_not_null())}
+    assert used <= checked
 
 
 def test_strobed_words_are_delivered_without_anyone_calling_drain(lib):

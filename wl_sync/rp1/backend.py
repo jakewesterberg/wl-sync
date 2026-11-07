@@ -132,8 +132,41 @@ def _load_shim() -> ctypes.CDLL:
             f"libwlsync_pio not found ({error}). This backend is hardware-gated: build "
             "it on the box with pio/build-shim.sh and install it (deploy/README.md)."
         ) from error
+    _check_shim_version(lib)
     _declare(lib)
     return lib
+
+
+# Bump with WLSYNC_SHIM_VERSION in pio/wlsync_pio.c whenever an exported signature
+# changes: ctypes cannot see a signature, so a stale .so would be called with the wrong
+# arguments without a sound. 1 is the unversioned original; 2 adds `entry`.
+_SHIM_VERSION = 2
+
+
+def _check_shim_version(lib: ctypes.CDLL) -> None:
+    """Refuse a libwlsync_pio built before this wl-sync, naming the rebuild.
+
+    The box's shim is built once (deploy/README.md step 2), so updating Python alone
+    leaves an old .so in place. An old one ignores the `entry` argument and would start
+    the program at its first instruction.
+    """
+    rebuild = (
+        "rebuild and reinstall it with pio/build-shim.sh "
+        "(deploy/README.md, step 2: piolib, compiled into this repository's shim)"
+    )
+    version_of = getattr(lib, "wlsync_shim_version", None)
+    if version_of is None:
+        raise PiolibError(
+            f"libwlsync_pio predates shim versioning and this wl-sync needs {_SHIM_VERSION}: "
+            + rebuild
+        )
+    version_of.restype = ctypes.c_int
+    version = version_of()
+    if version != _SHIM_VERSION:
+        raise PiolibError(
+            f"libwlsync_pio is version {version}, and this wl-sync needs {_SHIM_VERSION}: "
+            + rebuild
+        )
 
 
 def _declare(lib: ctypes.CDLL) -> None:
@@ -152,7 +185,7 @@ def _declare(lib: ctypes.CDLL) -> None:
     lib.wlsync_clk_sys_hz.restype = ctypes.c_uint32
     lib.wlsync_start_capture.argtypes = [
         ctypes.POINTER(ctypes.c_uint16), ctypes.c_uint,   # instructions, length
-        ctypes.c_uint, ctypes.c_uint,                     # wrap_target, wrap
+        ctypes.c_uint, ctypes.c_uint, ctypes.c_uint,      # wrap_target, wrap, entry
         ctypes.c_uint, ctypes.c_uint, ctypes.c_uint,      # data_base, data_count, strobe
         ctypes.c_float, ctypes.c_uint,                    # clkdiv, seed instruction
     ]
@@ -174,6 +207,19 @@ def _check(result: int, what: str) -> int:
     return result
 
 
+def _encoder_checks(lib: ctypes.CDLL) -> tuple[tuple[str, int, int], ...]:
+    """(name, ours, piolib's) for every instruction the program uses."""
+    return (
+        ("jmp", program.encode_jmp(5), lib.wlsync_encode_jmp(5)),
+        ("jmp pin", program.encode_jmp_pin(5), lib.wlsync_encode_jmp_pin(5)),
+        ("jmp x--", program.encode_jmp_x_dec(1), lib.wlsync_encode_jmp_x_dec(1)),
+        ("in pins", program.encode_in_pins(16), lib.wlsync_encode_in_pins(16)),
+        ("push noblock", program.encode_push_noblock(), lib.wlsync_encode_push_noblock()),
+        ("mov isr,x", program.encode_mov_isr_x(), lib.wlsync_encode_mov_isr_x()),
+        ("mov x,~null", program.encode_mov_x_not_null(), lib.wlsync_encode_mov_x_not_null()),
+    )
+
+
 def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
     """Every instruction this program uses, checked against piolib's own encoder.
 
@@ -185,18 +231,9 @@ def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
     MUST RUN AFTER THE BLOCK IS OPEN: piolib's encoders read the current block.
     Confirmed on silicon 2026-10-18: all seven agree.
     """
-    checks = (
-        ("jmp", program.encode_jmp(5), lib.wlsync_encode_jmp(5)),
-        ("jmp pin", program.encode_jmp_pin(5), lib.wlsync_encode_jmp_pin(5)),
-        ("jmp x--", program.encode_jmp_x_dec(1), lib.wlsync_encode_jmp_x_dec(1)),
-        ("in pins", program.encode_in_pins(16), lib.wlsync_encode_in_pins(16)),
-        ("push noblock", program.encode_push_noblock(), lib.wlsync_encode_push_noblock()),
-        ("mov isr,x", program.encode_mov_isr_x(), lib.wlsync_encode_mov_isr_x()),
-        ("mov x,~null", program.encode_mov_x_not_null(), lib.wlsync_encode_mov_x_not_null()),
-    )
     wrong = [
         f"{name}: ours {ours:#06x} != piolib {theirs:#06x}"
-        for name, ours, theirs in checks
+        for name, ours, theirs in _encoder_checks(lib)
         if ours != theirs
     ]
     if wrong:
@@ -275,7 +312,7 @@ class Rp1Backend:
         self._sm = _check(
             lib.wlsync_start_capture(
                 words, len(program.STROBE_CAPTURE),
-                program.WRAP_TARGET, program.WRAP,
+                program.WRAP_TARGET, program.WRAP, program.ENTRY,
                 data_base, data_count, strobe_pin,
                 system_hz / (_TICK_HZ * _CYCLES_PER_TICK),
                 program.encode_mov_x_not_null(),

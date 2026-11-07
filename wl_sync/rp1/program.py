@@ -106,6 +106,9 @@ STROBE_CAPTURE: tuple[int, ...] = (
     encode_jmp_x_dec(_HELD),  # 12
 )
 
+# Where the state machine starts, relative to where pio_add_program put the program. The
+# first instruction today; wlsync_start_capture adds it to the load offset.
+ENTRY = 0
 WRAP_TARGET = _IDLE
 WRAP = 1  # the idle loop auto-wraps; every other path jumps explicitly
 
