@@ -3,14 +3,20 @@
 Every record sits on RP1's PIO count P. One rate r per process scales P to SI
 microseconds; r is the slope of P against NTP-disciplined CLOCK_MONOTONIC (MONO),
 measured over earlier processes and only over pairs this gate lets through. Nothing
-here reads a clock or touches a file, except `probe_kernel_ntp`'s one adjtimex read.
+here reads a clock; the only I/O is `probe_kernel_ntp`'s one adjtimex read and the
+calibration file that carries r into the next process.
 """
 
 import ctypes
 from dataclasses import dataclass
 from fractions import Fraction
 from math import sqrt
+from pathlib import Path
+from typing import Literal
 
+from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
+
+from wl_sync.clock import write_durably
 from wl_sync.clockmap import ClockPair
 
 STA_PLL = 0x0001
@@ -188,3 +194,82 @@ class RateEstimator:
         if ppb is None:
             return None
         return ppb, self._all_raw.x_last / 1e9
+
+
+# Beside the barcode checkpoint in the rig root (cli.py:443; spec Sec.2.2, "Persisting it").
+RATE_FILE_NAME = ".wl-sync-pio-rate"
+# A sanity bound, not a tolerance: a clk_sys that is not really 200 MHz, or a broken
+# reference, lands outside it (spec Sec.2.2).
+RATE_BOUND_PPB = 200_000
+
+DEVICE_TREE_SERIAL = Path("/proc/device-tree/serial-number")
+CPUINFO = Path("/proc/cpuinfo")
+
+
+class Calibration(BaseModel):
+    """What one process measured and the next applies. Strict on read: an unknown field
+    means a file from some other version, which is not trusted to mean what we think."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    format: Literal[1] = 1
+    serial: str
+    rate_ppb: int
+    p_per_raw_ppb: int
+    baseline_s: float
+    pairs: int
+    residual_rms_us: float
+    boot_id: str
+    written_at: AwareDatetime
+
+
+def read_calibration(path: Path, serial: str | None) -> tuple[Calibration | None, str]:
+    """`(calibration, "")` when usable, else `(None, reason)`. Never raises: the box
+    records anyway, at r = 1, and the reason ends the WARNING in spec Sec.2.2."""
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None, "no calibration file"
+    except (OSError, ValueError) as error:  # ValueError: undecodable bytes
+        return None, f"the calibration file is unreadable ({error})"
+    try:
+        calibration = Calibration.model_validate_json(text)
+    except ValidationError as error:
+        return None, f"the calibration file is unreadable ({error})"
+    if serial is None:
+        return None, "this board's serial cannot be read"
+    if calibration.serial != serial:
+        return None, (f"it is another board's (serial {calibration.serial}, "
+                      f"this board {serial})")
+    if abs(calibration.rate_ppb) > RATE_BOUND_PPB:
+        return None, f"its rate, {calibration.rate_ppb:+d} ppb, is outside +-200 ppm"
+    return calibration, ""
+
+
+def write_calibration(path: Path, calibration: Calibration) -> None:
+    """Atomic and durable, exactly as the barcode checkpoint is (`write_durably`): a
+    power cut must not leave a rate that parses but belongs to no measurement."""
+    write_durably(path, calibration.model_dump_json() + "\n")
+
+
+def probe_board_serial() -> str | None:
+    """This board's serial number, or None where it cannot be read. Never raises.
+
+    Verified on the box: spike S.6, 2026-11-07, on wl-sync-rig0 (a CM5 Lite, revision
+    d041a0). `/proc/device-tree/serial-number` holds the serial followed by a NUL byte,
+    so it is stripped of NULs; `/proc/cpuinfo`'s `Serial` line gives the same value.
+    The device tree is tried first, cpuinfo as the fallback."""
+    try:
+        serial = DEVICE_TREE_SERIAL.read_bytes().decode("ascii", "ignore").strip("\x00 \t\r\n")
+        if serial:
+            return serial
+    except OSError:
+        pass
+    try:
+        for line in CPUINFO.read_text().splitlines():
+            key, _, value = line.partition(":")
+            if key.strip() == "Serial" and value.strip():
+                return value.strip()
+    except (OSError, ValueError):
+        pass
+    return None

@@ -167,3 +167,132 @@ def test_timex_is_the_linux_size_on_lp64():
     import ctypes
     if ctypes.sizeof(ctypes.c_long) == 8:
         assert ctypes.sizeof(Timex) == 208
+
+
+# --- Task 1.5: the calibration file ------------------------------------------------
+
+import datetime  # noqa: E402
+import os  # noqa: E402
+
+from wl_sync.calibration import (  # noqa: E402
+    RATE_BOUND_PPB,
+    RATE_FILE_NAME,
+    Calibration,
+    probe_board_serial,
+    read_calibration,
+    write_calibration,
+)
+
+SERIAL = "0123456789abcdef"  # made up
+
+
+def make_cal(**over):
+    fields = dict(serial=SERIAL, rate_ppb=-12_345, p_per_raw_ppb=3_000, baseline_s=3600.5,
+                  pairs=60, residual_rms_us=1.5, boot_id="boot-a",
+                  written_at=datetime.datetime(2026, 11, 7, 12, 0, tzinfo=datetime.timezone.utc))
+    fields.update(over)
+    return Calibration(**fields)
+
+
+def test_a_calibration_round_trips_through_its_file(tmp_path):
+    path = tmp_path / RATE_FILE_NAME
+    cal = make_cal()
+    write_calibration(path, cal)
+    assert read_calibration(path, SERIAL) == (cal, "")
+    assert cal.written_at.tzinfo is not None
+    with pytest.raises(Exception):
+        cal.rate_ppb = 1  # frozen
+
+
+def test_no_file_is_no_calibration_and_says_so(tmp_path):
+    assert read_calibration(tmp_path / RATE_FILE_NAME, SERIAL) == (None, "no calibration file")
+
+
+@pytest.mark.parametrize("junk", ["not json at all", "{}"])
+def test_an_unreadable_file_is_no_calibration(tmp_path, junk):
+    path = tmp_path / RATE_FILE_NAME
+    path.write_text(junk)
+    cal, reason = read_calibration(path, SERIAL)
+    assert cal is None
+    assert reason.startswith("the calibration file is unreadable (")
+
+
+def test_an_unknown_field_is_unreadable(tmp_path):
+    path = tmp_path / RATE_FILE_NAME
+    write_calibration(path, make_cal())
+    import json
+    data = json.loads(path.read_text())
+    data["surprise"] = 1
+    path.write_text(json.dumps(data))
+    cal, reason = read_calibration(path, SERIAL)
+    assert cal is None and reason.startswith("the calibration file is unreadable (")
+
+
+def test_a_directory_in_place_of_the_file_is_unreadable_not_a_raise(tmp_path):
+    cal, reason = read_calibration(tmp_path, SERIAL)
+    assert cal is None and reason.startswith("the calibration file is unreadable (")
+
+
+def test_another_boards_calibration_is_refused(tmp_path):
+    path = tmp_path / RATE_FILE_NAME
+    write_calibration(path, make_cal(serial="aaaa"))
+    assert read_calibration(path, "bbbb") == (
+        None, "it is another board's (serial aaaa, this board bbbb)")
+
+
+def test_an_unreadable_serial_refuses_every_calibration(tmp_path):
+    path = tmp_path / RATE_FILE_NAME
+    write_calibration(path, make_cal())
+    assert read_calibration(path, None) == (None, "this board's serial cannot be read")
+
+
+def test_a_rate_beyond_200_ppm_is_refused_and_200_is_not(tmp_path):
+    path = tmp_path / RATE_FILE_NAME
+    assert RATE_BOUND_PPB == 200_000
+    for ok in (-200_000, 200_000):
+        write_calibration(path, make_cal(rate_ppb=ok))
+        assert read_calibration(path, SERIAL)[0].rate_ppb == ok
+    for bad, text in ((200_001, "+200001"), (-200_001, "-200001")):
+        write_calibration(path, make_cal(rate_ppb=bad))
+        assert read_calibration(path, SERIAL) == (
+            None, f"its rate, {text} ppb, is outside +-200 ppm")
+
+
+def test_the_calibration_and_its_directory_are_both_fsynced(tmp_path, monkeypatch):
+    """Mirrors tests/test_clock.py's checkpoint fsync test: by inode, so it asserts which
+    objects were made durable, not how the code was written."""
+    synced = []
+    real_fsync = os.fsync
+
+    def spy(fd):
+        synced.append(os.fstat(fd).st_ino)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    path = tmp_path / RATE_FILE_NAME
+    write_calibration(path, make_cal())
+    assert path.stat().st_ino in synced, "the calibration's bytes were never fsynced"
+    assert tmp_path.stat().st_ino in synced, "the rename was never fsynced"
+
+
+def test_the_board_serial_comes_from_the_device_tree_then_cpuinfo(tmp_path, monkeypatch):
+    tree = tmp_path / "serial-number"
+    cpuinfo = tmp_path / "cpuinfo"
+    monkeypatch.setattr(calibration, "DEVICE_TREE_SERIAL", tree)
+    monkeypatch.setattr(calibration, "CPUINFO", cpuinfo)
+    assert probe_board_serial() is None  # neither exists
+
+    cpuinfo.write_text("processor\t: 0\nSerial\t\t: 00000000cafe0001\nModel\t: x\n")
+    assert probe_board_serial() == "00000000cafe0001"
+
+    tree.write_bytes(b"0123456789abcdef\x00")  # the device tree NUL-terminates
+    assert probe_board_serial() == "0123456789abcdef"
+
+    tree.write_bytes(b"\x00")  # empty: fall through to cpuinfo
+    assert probe_board_serial() == "00000000cafe0001"
+
+
+def test_probe_board_serial_never_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(calibration, "DEVICE_TREE_SERIAL", tmp_path)  # a directory
+    monkeypatch.setattr(calibration, "CPUINFO", tmp_path / "missing")
+    assert probe_board_serial() is None

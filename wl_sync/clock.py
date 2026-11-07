@@ -99,27 +99,26 @@ def read_checkpoint(path: Path) -> int | None:
         return None
 
 
-def write_checkpoint(path: Path, value: int) -> None:
+def write_durably(path: Path, text: str) -> None:
     """Write atomically AND durably.
 
     Atomic -- temp file plus rename -- so a crash mid-write cannot leave a truncated
-    number that happens to parse as a much smaller one. That covers a process crash,
-    where the page cache survives and the rename is already visible to the next reader.
+    file (for the checkpoint, a number that happens to parse as a much smaller one).
+    That covers a process crash, where the page cache survives and the rename is
+    already visible to the next reader.
 
     Durable -- two fsyncs -- so it also covers POWER LOSS, where it does not. Without
     them the bytes and the rename can both still be in the page cache when the rail
-    drops, and the box returns to a stale checkpoint; on a dead RTC the clamp is then
-    the only thing choosing values, so everything after the stale mark is re-issued.
+    drops, and the box returns to a stale file; for the checkpoint, on a dead RTC the
+    clamp is then the only thing choosing values, so everything after the stale mark is
+    re-issued.
     THE SECOND FSYNC IS THE DIRECTORY, and it is not optional: making the file's
     contents durable says nothing about whether the rename that gave the file its name
     reached the disk.
-
-    The cost is one more fsync per second alongside the segment's own, which spec
-    Sec.4.1 already sized the NVMe for.
     """
     temporary = path.with_suffix(path.suffix + ".tmp")
     with open(temporary, "w") as handle:
-        handle.write(f"{value}\n")
+        handle.write(text)
         handle.flush()
         os.fsync(handle.fileno())
     temporary.replace(path)
@@ -128,6 +127,15 @@ def write_checkpoint(path: Path, value: int) -> None:
         os.fsync(directory)
     finally:
         os.close(directory)
+
+
+def write_checkpoint(path: Path, value: int) -> None:
+    """Write the checkpoint through `write_durably`.
+
+    The cost is one more fsync per second alongside the segment's own, which spec
+    Sec.4.1 already sized the NVMe for.
+    """
+    write_durably(path, f"{value}\n")
 
 
 @dataclass(frozen=True, slots=True)
