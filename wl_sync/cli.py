@@ -907,7 +907,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:430-432, :1237-1238), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:428-430, :1237-1238), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see

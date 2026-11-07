@@ -394,8 +394,6 @@ class Rp1Backend:
         _check_chip(chip_path)
         self._lib = _load_shim()
         _check(self._lib.wlsync_pio_open(pio_index), f"opening PIO block {pio_index}")
-        # After the open, never before: piolib's encoders read the current block.
-        _assert_encoders_agree(self._lib)
         # Both are configured below, before this returns. The stamp machine's is None for
         # good if it could not start, and the process is then split.
         self._sm: int | None = None
@@ -454,6 +452,8 @@ class Rp1Backend:
         # the shim's open overwrites the block it holds without closing it
         # (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try.
         try:
+            # After the open, never before: piolib's encoders read the current block.
+            _assert_encoders_agree(lib)
             # clk_sys BY NAME, inside the shim. This read clock_get_hz(0), which is
             # clk_gpout0, and RP1 answers every index but clk_sys with PIO_ORIGIN_ANY --
             # 4294967295 -- so the divider would have been ~2,147 rather than 100.

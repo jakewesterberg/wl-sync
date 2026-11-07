@@ -662,11 +662,45 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
-@pytest.mark.parametrize("fault", ["clk_sys", "capture"])
-def test_a_machine_that_cannot_be_configured_closes_the_block_before_raising(lib, fault):
+def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch):
+    """Coverage: both settles of the start-up test (Task 1.10a's re-review). The discard
+    comes a settle after the enable and before the rise, and the read a settle after the
+    rise; without this, removing either settle passed every other test."""
+    monkeypatch.setattr(rp1, "time", gpiod.clock)
+    at = {}
+    enable, level = lib.wlsync_sm_set_enabled, lib.wlsync_sm_rx_level
+
+    def set_enabled(sm, on):
+        if sm == 2 and on:
+            at["enabled"] = gpiod.clock.ns
+        return enable(sm, on)
+
+    def rx_level(sm):
+        if sm == 2:
+            at.setdefault("reads", []).append(gpiod.clock.ns)
+        return level(sm)
+
+    lib.wlsync_sm_set_enabled, lib.wlsync_sm_rx_level = set_enabled, rx_level
+    Rp1Backend().close()
+    (rise_ns, _), _ = gpiod.sets
+    discard, read = at["reads"]
+    settle_ns = rp1.STAMP_TEST_SETTLE_US * 1_000
+    assert discard - at["enabled"] >= settle_ns
+    assert discard < rise_ns and read - rise_ns >= settle_ns
+
+
+@pytest.mark.parametrize("fault", ["encoders", "clk_sys", "capture"])
+def test_a_machine_that_cannot_be_configured_closes_the_block_before_raising(
+    lib, fault, monkeypatch
+):
     """The shim's open overwrites the block it holds without closing it
     (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try."""
-    if fault == "clk_sys":
+    if fault == "encoders":
+        def disagree(_lib):
+            raise rp1.PiolibError("an encoder disagrees")
+
+        monkeypatch.setattr(rp1, "_assert_encoders_agree", disagree)
+    elif fault == "clk_sys":
         lib.clk_sys_hz = 0xFFFF_FFFF
     else:
         lib.start_result = -16
