@@ -95,10 +95,22 @@ class StampLag:
     allowance_us: int
 
 
-# The cause of a dropped `B` whose lead edge has no stamp at all. It completes the
-# journal's "barcode %d dropped: <cause>" (spec §2.5,
-# docs/superpowers/specs/2026-10-30-one-clock-design.md:401-404).
+# Why a frame's `B` is dropped: each completes the journal's "barcode %d dropped: <cause>"
+# (spec §2.5, docs/superpowers/specs/2026-10-30-one-clock-design.md:407-415). ALL HERE,
+# beside the protocol, because the run loop gives each kind its own advice when an
+# episode of drops ends (wl_sync/cli.py:1213-1243), and imports the RP1 backend only to
+# build it (wl_sync/cli.py:1322-1327).
+#
+# The lead edge has no stamp at all.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
+# The start of the cause for a stamp outside the lead edge's window. The rest gives the
+# distance (wl_sync/rp1/backend.py:838-843), which differs frame to frame, so the run
+# loop tells the kind by this.
+STAMP_TOO_FAR_PREFIX = "the stamp lies "
+# No frame can be matched, because the stamp machine never started (Ruling R15) or its
+# drain has stopped (Ruling R16) (wl_sync/rp1/backend.py:813-818).
+STAMPS_NOT_STARTED = "the stamp machine did not start"
+STAMPS_STOPPED = "the stamp drain stopped"
 
 
 @dataclass(frozen=True)

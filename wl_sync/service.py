@@ -370,10 +370,10 @@ class Recorder:
     def record_barcode(self, tick: int, value: int) -> None:
         """Record a barcode this box emitted, unwrapping its tick on the shared clock.
 
-        `tick` is the RAW backend counter sampled immediately BEFORE the frame is
-        emitted, so the recorded tick marks the frame's lead rising edge rather than
-        its end 200 ms later. The emit loop calls this instead of writing to the sink
-        itself, so `B` ticks land on the same unwrapped timebase as `E` and `W`.
+        `tick` is the frame's lead rising edge as the backend stamped it, a RAW count
+        (`FrameStamp.tick`), so the record marks the edge every device reports rather
+        than the frame's end 200 ms later. The emit loop calls this instead of writing to
+        the sink itself, so `B` ticks land on the same unwrapped timebase as `E` and `W`.
         """
         self._sink.write(
             BarcodeEmitted(tick_us=self._scale.tick(self._clock.unwrap(tick)), value=value)

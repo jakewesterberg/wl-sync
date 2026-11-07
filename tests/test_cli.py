@@ -17,7 +17,15 @@ from pathlib import Path
 import pytest
 
 from wl_sync import cli, manifest, sessions
-from wl_sync.backend import CaptureLoss, FakeBackend
+from wl_sync.backend import (
+    STAMP_NOT_SEEN,
+    STAMP_TOO_FAR_PREFIX,
+    STAMPS_NOT_STARTED,
+    STAMPS_STOPPED,
+    CaptureLoss,
+    FakeBackend,
+    FrameStamp,
+)
 from wl_sync.barcode import FRAME_US, IDLE_MIN_US, N_BITS
 from wl_sync.cli import (
     CHECKPOINT_NAME,
@@ -264,10 +272,10 @@ def test_barcode_and_edge_ticks_stay_on_one_timebase_across_a_wrap(tmp_path):
     assert barcodes == sorted(barcodes), "B ticks jumped backwards across the wrap"
     assert edges == sorted(edges)
     assert max(edges) > TICK_WRAP_US, "test did not actually cross a wrap boundary"
-    # run() reads now_us() immediately before emitting each frame, and nothing between
-    # the injected edge and that read moves the fake's counter, so iteration i+1's
-    # barcode tick IS iteration i's injected edge tick. Equality across the wrap is the
-    # whole claim: both paths report the same instant as the same number.
+    # run() records the stamp FakeBackend.emit_pulses returns, its counter as the frame
+    # starts, and nothing between the injected edge and that frame moves the counter, so
+    # iteration i+1's barcode tick IS iteration i's injected edge tick. Equality across
+    # the wrap is the whole claim: both paths report the same instant as the same number.
     assert barcodes[1:] == edges[: len(barcodes) - 1]
 
 
@@ -293,6 +301,274 @@ def test_the_barcode_tick_is_read_before_the_frame_is_emitted(tmp_path):
     _, records = read_log(day / segment_name(0))
     ticks = [r.tick_us for r in records if isinstance(r, BarcodeEmitted)]
     assert ticks == [0, FRAME_US], "barcode tick is the frame's END, not its lead edge"
+
+
+# --- B is the lead edge's stamp, and a missed stamp drops its B (one-clock spec §2.5) ---
+
+
+# The journal's lines, verbatim: spec §2.5, with the episode's close and the WARNING as
+# the plan's Task 1.7 rewords them for c-direct (no GPIO17->GPIO19 loopback).
+_DROPPED = (
+    "barcode {} dropped: {}. Every device recorded the frame; this log has no B for it"
+)
+_DROPPED_IN_A_ROW = "{} barcodes dropped in a row, {} to {}: {}"
+_BETWEEN = (
+    "{} stamps on GPIO17 between frames, before barcode {}, discarded: late stamps of the "
+    "frame before, a fit that has drifted, or something else driving the barcode line"
+)
+_TOO_FAR = (
+    STAMP_TOO_FAR_PREFIX
+    + "1500 us from the frame's lead edge as the CPU bracketed it (1000 us allowed)"
+)
+_ADVICE = {
+    STAMP_NOT_SEEN: (
+        "no stamp came for their lead edges; with the service stopped, python -m "
+        "wl_sync.bench stamps shows whether the stamp machine still sees GPIO17"
+    ),
+    _TOO_FAR: (
+        "their stamps lay outside the lead edges' windows, so the RAW->P fit had lost them"
+    ),
+    STAMPS_NOT_STARTED: (
+        "the stamp machine did not start; restart once nothing else holds the PIO block's "
+        "state machines"
+    ),
+    STAMPS_STOPPED: (
+        "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
+        "it again"
+    ),
+}
+
+
+class _StampLagsTheClock(FakeBackend):
+    """Stamps each lead edge 37 us after the clock the run loop can read: two clocks, as
+    on the box, where the stamp machine counts the edge and `now_us()` is the CPU's."""
+
+    def emit_pulses(self, pin, pulses):
+        super().emit_pulses(pin, pulses)
+        return FrameStamp(self._tick + 37)
+
+
+class _StampsBetween(FakeBackend):
+    """Finds `between[n]` stamps between frames before frame n (1-based), as Rp1Backend
+    counts the ones it discards (FrameStamp.between)."""
+
+    def __init__(self, between):
+        super().__init__()
+        self._between = between
+
+    def emit_pulses(self, pin, pulses):
+        stamp = super().emit_pulses(pin, pulses)
+        return FrameStamp(stamp.tick, stamp.missed, self._between.get(len(self.emitted), 0))
+
+
+def _dropping(tmp_path, backend, frames, caplog=None, tick_fn=None):
+    """Record `frames` frames on `backend`, with cli's journal at INFO in `caplog`; return
+    the values that went onto the wire and the `B` values written."""
+    if caplog is not None:
+        caplog.set_level(logging.INFO, logger=cli.log.name)
+    tick_fn = tick_fn or (lambda _s: None)
+    folder = run(tmp_path, backend, _clock_from(START), frames, tick_fn)
+    return _wire_values(backend), _values(folder / segment_name(0))
+
+
+def _errors(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_a_barcode_is_recorded_at_its_stamp_not_at_the_clock_read_before_it(tmp_path):
+    """A `B` is its frame's lead edge as the backend stamped it (spec §2.5, "The protocol
+    change"). The loop used to read the clock just before the frame and record that,
+    which on the box is the CPU's reading, not the stamp machine's count of the edge."""
+    backend = _StampLagsTheClock()
+
+    def tick_fn(_seconds):
+        backend.set_now_us(backend.now_us() + 1_000_000)
+
+    day = run(tmp_path, backend, _clock_from(START), 3, tick_fn)
+    _, records = read_log(day / segment_name(0))
+    ticks = [r.tick_us for r in records if isinstance(r, BarcodeEmitted)]
+    assert ticks == [37, 1_000_037, 2_000_037]
+
+
+def test_a_dropped_barcode_writes_no_b_record_and_one_error(tmp_path, caplog):
+    """A frame whose lead edge has no stamp went onto the wire, and every device recorded
+    it; only this log has no `B` for it (the user, 2026-10-30: drop it with an ERROR).
+    The box records on."""
+    backend = FakeBackend()
+    backend.miss_stamps({2})
+    wire, written = _dropping(tmp_path, backend, 4, caplog)
+
+    assert written == [wire[0], wire[2], wire[3]]
+    assert _errors(caplog) == [_DROPPED.format(wire[1], "its lead edge was not stamped")]
+
+
+def test_a_run_of_dropped_barcodes_is_one_episode_named_when_it_ends(tmp_path, caplog):
+    """A stamp machine that has stopped misses every frame, and an ERROR a frame would be
+    86,400 lines a day. An episode is one ERROR at its first drop and one naming the
+    whole range at the next frame kept."""
+    backend = FakeBackend()
+    backend.miss_stamps({2, 3, 4})
+    seen = []  # how many ERRORs had been logged by the end of each iteration
+    wire, written = _dropping(
+        tmp_path, backend, 6, caplog, tick_fn=lambda _s: seen.append(len(_errors(caplog)))
+    )
+
+    assert written == [wire[0], wire[4], wire[5]]
+    assert _errors(caplog) == [
+        _DROPPED.format(wire[1], STAMP_NOT_SEEN),
+        _DROPPED_IN_A_ROW.format(3, wire[1], wire[3], _ADVICE[STAMP_NOT_SEEN]),
+    ]
+    assert seen == [0, 1, 1, 1, 2, 2]  # the range is named with frame 5, the next kept
+
+
+def test_a_single_dropped_barcode_is_not_also_reported_as_a_run(tmp_path, caplog):
+    """An episode of one is named by its first ERROR alone, whether the next frame kept
+    ends it or the run does."""
+    backend = FakeBackend()
+    backend.miss_stamps({2, 4})
+    wire, written = _dropping(tmp_path, backend, 4, caplog)
+
+    assert written == [wire[0], wire[2]]
+    assert _errors(caplog) == [
+        _DROPPED.format(wire[1], STAMP_NOT_SEEN),
+        _DROPPED.format(wire[3], STAMP_NOT_SEEN),
+    ]
+
+
+def test_an_episode_open_at_the_end_is_named_at_the_end(tmp_path, caplog):
+    """No frame is kept after the last drops, so the run's end closes the episode."""
+    backend = FakeBackend()
+    backend.miss_stamps({3, 4})
+    seen = []
+    wire, written = _dropping(
+        tmp_path, backend, 4, caplog, tick_fn=lambda _s: seen.append(len(_errors(caplog)))
+    )
+
+    assert written == wire[:2]
+    assert _errors(caplog) == [
+        _DROPPED.format(wire[2], STAMP_NOT_SEEN),
+        _DROPPED_IN_A_ROW.format(2, wire[2], wire[3], _ADVICE[STAMP_NOT_SEEN]),
+    ]
+    assert seen == [0, 0, 1, 1]  # named after the loop, not by any frame
+
+
+def test_the_run_ends_saying_how_many_barcodes_were_dropped(tmp_path, caplog):
+    backend = FakeBackend()
+    backend.miss_stamps({2, 3, 5})
+    _dropping(tmp_path, backend, 6, caplog)
+
+    summary = [m for m in caplog.messages if m.startswith("barcodes:")]
+    assert summary == ["barcodes: 6 emitted, 3 dropped this run"]
+
+
+def test_stamps_between_frames_are_a_warning_naming_the_next_barcode(tmp_path, caplog):
+    """Stamps found between two frames are discarded with a WARNING, which names the
+    frame they came before (spec §2.5 step 4). They cost that frame nothing: its `B` is
+    kept."""
+    backend = _StampsBetween({2: 3})
+    wire, written = _dropping(tmp_path, backend, 3, caplog)
+
+    assert written == wire
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings == [_BETWEEN.format(3, wire[1])]
+    assert _errors(caplog) == []
+
+
+def test_a_dropped_last_barcode_does_not_rewind_the_checkpoint(tmp_path):
+    """The checkpoint is the last value EMITTED, not the last `B` written (spec §2.5,
+    "Two rules"). Read from the segment it would be the second value, behind a third that
+    every device recorded, and the next start could issue that value again."""
+    backend = FakeBackend()
+    backend.miss_stamps({3})
+    wire, written = _dropping(tmp_path, backend, 3)
+
+    assert written == wire[:2]
+    assert read_checkpoint(tmp_path / CHECKPOINT_NAME) == wire[2]
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED],
+    ids=["not-stamped", "too-far", "not-started", "drain-stopped"],
+)
+def test_an_episode_closes_with_the_advice_for_its_cause(tmp_path, caplog, cause):
+    """There is no loopback to check (c-direct, the user, 2026-11-07), so the episode's
+    close says what to do about the kind of miss it held."""
+    backend = FakeBackend()
+    backend.miss_stamps({2, 3}, cause)
+    wire, _ = _dropping(tmp_path, backend, 4, caplog)
+
+    assert _errors(caplog) == [
+        _DROPPED.format(wire[1], cause),
+        f"2 barcodes dropped in a row, {wire[1]} to {wire[2]}: " + _ADVICE[cause],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("misses", "kinds"),
+    [
+        (
+            [({2}, STAMP_NOT_SEEN), ({3, 4}, STAMPS_STOPPED)],
+            [STAMP_NOT_SEEN, STAMPS_STOPPED],
+        ),
+        (
+            [({2}, STAMPS_STOPPED), ({3, 4}, STAMP_NOT_SEEN)],
+            [STAMPS_STOPPED, STAMP_NOT_SEEN],
+        ),
+        (
+            # Two distances are one kind: the cause carries its distance.
+            [
+                ({2}, _TOO_FAR),
+                ({3}, _TOO_FAR.replace("1500", "2500")),
+                ({4}, STAMPS_STOPPED),
+            ],
+            [_TOO_FAR, STAMPS_STOPPED],
+        ),
+    ],
+    ids=["not-stamped-then-stopped", "stopped-then-not-stamped", "too-far-twice"],
+)
+def test_an_episode_of_two_causes_gives_each_advice_once_in_order(
+    tmp_path, caplog, misses, kinds
+):
+    """One episode can hold several kinds of miss: a drain that stops after frames went
+    unstamped, say. Its close gives each kind's advice once, in the order first seen."""
+    backend = FakeBackend()
+    for frames, cause in misses:
+        backend.miss_stamps(frames, cause)
+    wire, _ = _dropping(tmp_path, backend, 5, caplog)
+
+    assert _errors(caplog) == [
+        _DROPPED.format(wire[1], misses[0][1]),
+        _DROPPED_IN_A_ROW.format(3, wire[1], wire[3], "; ".join(_ADVICE[k] for k in kinds)),
+    ]
+
+
+def test_a_cause_with_no_advice_closes_its_episode_as_it_is(tmp_path, caplog):
+    """A cause the run loop has no advice for is still named, so a backend's new cause is
+    never lost from the close."""
+    backend = FakeBackend()
+    backend.miss_stamps({2, 3}, "x")
+    wire, _ = _dropping(tmp_path, backend, 4, caplog)
+
+    assert _errors(caplog)[-1] == f"2 barcodes dropped in a row, {wire[1]} to {wire[2]}: x"
+
+
+def test_no_journal_line_names_gpio19_or_a_loopback(tmp_path, caplog):
+    """c-direct (the user, 2026-11-07): the stamp machine reads GPIO17 itself, and nothing
+    is wired to GPIO19. Spec §2.5's texts sent the operator to a GPIO17->GPIO19 loopback
+    that does not exist. One run writes every line those texts became: a first drop and
+    a close for each cause, and the WARNING."""
+    backend = _StampsBetween({1: 2})
+    causes = [STAMP_NOT_SEEN, _TOO_FAR, STAMPS_NOT_STARTED, STAMPS_STOPPED]
+    for n, cause in enumerate(causes):
+        backend.miss_stamps({3 * n + 2, 3 * n + 3}, cause)
+    with caplog.at_level(logging.DEBUG):
+        _dropping(tmp_path, backend, 13)
+
+    assert len(_errors(caplog)) == 2 * len(causes)
+    assert any(m.startswith("2 stamps on GPIO17 between frames") for m in caplog.messages)
+    assert "GPIO19" not in caplog.text
+    assert "loopback" not in caplog.text
 
 
 def test_a_dead_coin_cell_degrades_the_record_instead_of_refusing_to_start(tmp_path):
@@ -2090,7 +2366,7 @@ class _SteppableMonotonic(_Monotonic):
 
 def _awaiting_ntp(
     tmp_path, monkeypatch, answer, frames, script=None, timeouts=None,
-    clock=None, frame_s=None, after_sleep=None,
+    clock=None, frame_s=None, after_sleep=None, backend=None,
 ):
     """Record `frames` frames on a fake monotonic clock, with the NTP probe answering
     `answer(now)` at monotonic `now`, and return the monotonic times it was asked at.
@@ -2107,7 +2383,8 @@ def _awaiting_ntp(
     call was made with, None where the caller left the default.
 
     `clock` replaces the default _Monotonic, `frame_s` makes each frame hold the pin
-    that long (_FramesTakeRealTime), and `after_sleep()` runs after every sleep."""
+    that long (_FramesTakeRealTime), and `after_sleep()` runs after every sleep.
+    `backend`, if given, replaces the FakeBackend, and `frame_s` is then not used."""
     if clock is None:
         clock = _Monotonic(wall_at_start=START + datetime.timedelta(seconds=0.5))
     asked = []
@@ -2132,7 +2409,8 @@ def _awaiting_ntp(
         if after_sleep is not None:
             after_sleep()
 
-    backend = FakeBackend() if frame_s is None else _FramesTakeRealTime(clock, frame_s)
+    if backend is None:
+        backend = FakeBackend() if frame_s is None else _FramesTakeRealTime(clock, frame_s)
     run(tmp_path, backend, clock.wall, frames, tick_fn, mono_fn=clock, requests=requests)
     return asked
 
@@ -2172,6 +2450,46 @@ def test_a_run_begun_before_ntp_synced_rolls_once_in_place_when_it_syncs(
     assert (summary["gaps"], summary["overlaps"]) == ([], [])
     [line] = [m for m in caplog.messages if m.startswith("recording into")]
     assert "NTP synchronized" in line and str(after) in line
+
+
+def test_the_ntp_roll_waits_for_a_frame_whose_barcode_was_kept(tmp_path, monkeypatch):
+    """wl-preproc reads a roll in place as adjacent when the values step by 1 or 2 across
+    it, and the grid can already skip one value there (wl_sync/log.py:135-141). A `B`
+    dropped just before the roll would make the step 3, which reads as a gap. So the roll
+    waits for a frame whose `B` was kept (spec §2.5, "Two rules")."""
+    backend = FakeBackend()
+    backend.miss_stamps({12})
+    _awaiting_ntp(tmp_path, monkeypatch, lambda now: now >= 105, frames=40, backend=backend)
+
+    folder = unassigned_dir(tmp_path, DAY)
+    assert _segments(folder) == [segment_name(0), segment_name(1)]
+    before, after = _values(folder / segment_name(0)), _values(folder / segment_name(1))
+    # The yes came after frame 11, as in the test above. Frame 12's B was dropped, so the
+    # roll came after frame 13, the first frame kept.
+    assert len(before) == 12
+    assert before[-1] == before[-2] + 2
+    assert after[0] == before[-1] + 1
+
+
+def test_a_session_roll_with_a_dropped_barcode_still_leaves_the_ntp_roll_nothing_to_do(
+    tmp_path, monkeypatch
+):
+    """A session roll in the iteration the NTP roll waits into drops it, even when that
+    iteration's `B` was dropped: the session's roll has already judged its own segment.
+    Passes against the sources before Task 1.7, which never kept a roll due; it pins the
+    order of the two rules, and fails if the dropped `B` is looked at first."""
+    backend = FakeBackend()
+    backend.miss_stamps({12})
+    _awaiting_ntp(
+        tmp_path, monkeypatch, lambda now: now >= 105, frames=20,
+        script={11: [_request("open", "r1")]}, backend=backend,
+    )
+
+    # The poll after frame 11 hears yes; the open is carried out after frame 12.
+    assert _segments(unassigned_dir(tmp_path, DAY)) == [segment_name(0)]
+    session = tmp_path / "2026-08-16_01" / "syncbox"
+    assert _segments(session) == [segment_name(0)]
+    assert _trust(session / segment_name(0)) == (True, "")
 
 
 @pytest.mark.parametrize(

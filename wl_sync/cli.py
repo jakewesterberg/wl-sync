@@ -26,7 +26,13 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from wl_sync.backend import FakeBackend
+from wl_sync.backend import (
+    STAMP_NOT_SEEN,
+    STAMP_TOO_FAR_PREFIX,
+    STAMPS_NOT_STARTED,
+    STAMPS_STOPPED,
+    FakeBackend,
+)
 from wl_sync.barcode import IDLE_MIN_US
 from wl_sync.clock import (
     BARCODE_EPOCH,
@@ -524,13 +530,15 @@ def run(
     values = _ValueSource(now_fn, first_value, mono_fn)
     generator = BarcodeGenerator(backend, BARCODE_PIN)
     health = _HealthReport(backend, recorder)
+    drops = _DroppedBarcodes()
 
-    # The last barcode of the segments this run has rolled away from. A roll leaves the
-    # new writer with no barcode yet, so a run that rolls in its final iteration would
-    # otherwise read "no barcodes were written" at the end and rewind the checkpoint to
-    # `first_value`; a restart would then reuse values, which must be unique across the
-    # box (spec Sec.4). See the end of the loop.
-    carried_last: int | None = None
+    # The last value that went onto the wire, whether or not its B was kept, and what the
+    # checkpoint is at the end (spec Sec.2.5, "Two rules"). The segments cannot say: a
+    # dropped B leaves a value on every device and in no segment, and a roll in the last
+    # iteration leaves the new writer with no barcode yet. Read from them, the checkpoint
+    # could fall behind values the devices recorded, and a restart would issue them again,
+    # when values must be unique across the box (spec Sec.4). See the end of the loop.
+    last_emitted: int | None = None
 
     def ask_ntp(*, polling: bool = False) -> None:
         """Ask NTP whether it has synced, and note when it was asked.
@@ -581,10 +589,10 @@ def run(
         The roll when NTP first syncs waits too: it costs a few tens of milliseconds, and
         every segment boundary then means the same thing.
         """
-        nonlocal folder, session_id, carried_last, rolls
+        nonlocal folder, session_id, rolls
         _await_delivery(recorder, recorder.now())
         rolls += 1
-        old_folder, outgoing = folder, sink.sink
+        old_folder = folder
         written_at = now_fn()
         roll_trust = evaluate_roll(written_at, values.emitting(), ntp_known)
         new_segment, make_writer = _segment_factory(
@@ -598,9 +606,6 @@ def run(
             timebase=backend.timebase,
         )
         sink.roll(make_writer, now_fn())
-        # The outgoing writer's span is final now that its trailer is written.
-        if outgoing.barcode_last is not None:
-            carried_last = outgoing.barcode_last
         folder, session_id = new_folder, new_id
         log.info(
             "recording into %s (session %s, %s): clock_trusted=%s clock_reason=%s",
@@ -772,22 +777,44 @@ def run(
             # self-describing, the other is false; that asymmetry is the whole argument.
             write_checkpoint(checkpoint_path, value)
 
-            # Sampled BETWEEN the mark and the frame, not at the top of the iteration. A
-            # frame takes 200 ms (barcode.FRAME_US) and the record means the LEAD rising
-            # edge, which is what every receiving device reports, so reading the counter
-            # after emit_frame() returns puts this box's own alignment record a systematic
-            # 200 ms behind everything it is aligning. Reading it before write_checkpoint
-            # would be wrong in the same direction and for the same reason -- that call
-            # fsyncs twice, so the tick would predate the edge by however long the medium
-            # took. Immediately before emission is the only placement that stays true.
+            # B IS THE LEAD EDGE AS THE BACKEND STAMPED IT (spec Sec.2.5, "The protocol
+            # change"). Every receiving device reports a frame by its lead rising edge
+            # (`Barcode.start_us`), so this box's own record must mean that instant. On the
+            # box it is the stamp machine's count of GPIO17 rising, matched once the frame
+            # has ended (wl_sync/rp1/backend.py:795-857); under --fake, the fake's clock
+            # as the frame starts (wl_sync/backend.py:234-239). The loop used to read the
+            # clock itself just before the frame, which on the box is the CPU's reading of
+            # MONO, not the edge.
             #
             # Recorded through the Recorder rather than straight to the writer so the tick
             # is unwrapped on the Recorder's shared clock -- a raw counter would diverge from the
             # E and W ticks it exists to align by 2^32 us at every 71.6-minute wrap.
-            tick = backend.now_us()
-            generator.emit_frame(value)
+            stamp = generator.emit_frame(value)
+            last_emitted = value
             frame_end = mono_fn()
-            recorder.record_barcode(tick, value)
+            if stamp.between:
+                # Three things put a stamp before a lead edge's window
+                # (wl_sync/clockmap.py:296-297). A drain that gave up on the frame before
+                # at STAMP_DRAIN_WAIT_S left its stamps unmatched
+                # (wl_sync/rp1/backend.py:822-829). A fit that places a lead edge late
+                # leaves that edge's own stamp before the window. And GPIO17 is this
+                # process's own output (wl_sync/rp1/backend.py:326-327), so anything else
+                # is a fault on the line.
+                log.warning(
+                    "%d stamps on GPIO17 between frames, before barcode %d, discarded: "
+                    "late stamps of the frame before, a fit that has drifted, or something "
+                    "else driving the barcode line",
+                    stamp.between,
+                    value,
+                )
+            # A FRAME WITH NO STAMP HAS NO B, and the box records on (the user, 2026-10-30).
+            # Every device recorded the frame and only this log lacks it, which costs each
+            # device one matched pair (spec Sec.2.5, "What a dropped B costs").
+            if stamp.tick is None:
+                drops.dropped(value, stamp.missed)
+            else:
+                drops.kept()
+                recorder.record_barcode(stamp.tick, value)
             if not announced_first:
                 # THE VALUE THAT WENT ONTO THE WIRE, which the start line cannot know: it
                 # names the floor _resume() computed, and the first frame reads the clock
@@ -847,6 +874,14 @@ def run(
             # session opened or closed in that iteration, its roll has already asked NTP
             # and judged a segment, so the NTP roll is dropped.
             #
+            # AND PAST A FRAME WHOSE B WAS DROPPED (spec Sec.2.5, "Two rules"). wl-preproc
+            # reads a roll in place as adjacent when the values step by 1 or 2 across it,
+            # and the grid placed again after the sync's step can already skip one value
+            # there (wl_sync/log.py:135-141). A B dropped just before the roll would make
+            # the step 3, which reads as a gap, so the roll stays due until a frame's B is
+            # kept. A session roll in any iteration it waits into still drops it, and is
+            # looked at first: that roll has judged its own segment, whatever the frame.
+            #
             # A BUDGET FOR THE POLL: its probe gives up after NTP_POLL_TIMEOUT_S, which
             # fits in the ~0.75 s after the frame with ~0.45 s to spare, and each poll
             # that fails doubles the wait before the next, up to NTP_POLL_BACKOFF_MAX_S
@@ -857,8 +892,10 @@ def run(
             # segment. A None is "could not ask" and changes nothing. Placed after the
             # requests, so that an open in this iteration counts as the last ask.
             if ntp_roll_due:
-                ntp_roll_due = False
-                if rolls == rolls_before_requests:
+                if rolls != rolls_before_requests:
+                    ntp_roll_due = False
+                elif not drops.dropped_last:
+                    ntp_roll_due = False
                     roll_to, roll_id = folder, session_id
                     if folder.is_relative_to(out / "unassigned"):
                         value_day = _barcode_day(value)
@@ -952,17 +989,13 @@ def run(
         # the final FIFO drain -- would otherwise never be reported.
         health()
         health.summary()
+        drops.close()
         sink.close(now_fn())
-        # `or` would conflate a legitimate barcode value of 0 -- the epoch itself, which a
-        # dead-RTC start really does emit -- with "no barcodes were written".
-        # Read through the sink, not the local `writer`: a roll replaces the segment
-        # writer, and the first one's span stops at the roll.
-        # NEVER REWIND: a roll in the last iteration leaves the current writer with no
-        # barcode, and the value emitted before the roll lives only in the one carried.
-        barcode_last = sink.sink.barcode_last
-        if barcode_last is None:
-            barcode_last = carried_last
-        last = first_value if barcode_last is None else barcode_last
+        # NEVER REWIND: the last value emitted, not the last B written (see
+        # `last_emitted`), or `first_value` when no frame went out. `is None`, not `or`,
+        # which would take a legitimate barcode value of 0 -- the epoch itself, which a
+        # dead-RTC start really does emit -- for "no frame went out".
+        last = first_value if last_emitted is None else last_emitted
         write_checkpoint(checkpoint_path, last)
         write_manifest(folder)
         return folder
@@ -1170,6 +1203,112 @@ class _HealthReport:
                 lag.allowance_us,
                 lag.over,
             )
+
+
+# What an episode's closing ERROR advises for each kind of cause it held, verbatim from
+# the plan's Task 1.7 (docs/superpowers/plans/2026-11-07-one-clock.md:990-999): spec
+# Sec.2.5 sent every episode to a GPIO17->GPIO19 loopback, and under c-direct the stamp
+# machine reads GPIO17 itself, with nothing wired. The causes are the backend's
+# (wl_sync/backend.py:98-113).
+_DROP_ADVICE = {
+    STAMP_NOT_SEEN: (
+        "no stamp came for their lead edges; with the service stopped, python -m "
+        "wl_sync.bench stamps shows whether the stamp machine still sees GPIO17"
+    ),
+    # Ruling R15. The start fails with EBUSY when the PIO block has no unused state
+    # machine (pio/wlsync_pio.c:175-177); its own ERROR gives the errno
+    # (wl_sync/rp1/backend.py:449-453).
+    STAMPS_NOT_STARTED: (
+        "the stamp machine did not start; restart once nothing else holds the PIO "
+        "block's state machines"
+    ),
+    # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:702-706, :716-720).
+    STAMPS_STOPPED: (
+        "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
+        "it again"
+    ),
+}
+# A stamp outside its window carries its distance, so its cause is told by its start.
+_TOO_FAR_ADVICE = (
+    "their stamps lay outside the lead edges' windows, so the RAW->P fit had lost them"
+)
+
+
+def _drop_advice(cause: str) -> str:
+    """What an episode's close says for `cause`: its kind's advice, or a cause with none
+    as it is, so a cause a backend adds later is still named."""
+    if cause.startswith(STAMP_TOO_FAR_PREFIX):
+        return _TOO_FAR_ADVICE
+    return _DROP_ADVICE.get(cause, cause)
+
+
+class _DroppedBarcodes:
+    """The journal of the `B` records the run loop drops: frames whose lead edge the
+    backend did not stamp (spec Sec.2.5, "The journal").
+
+    THE BOX RECORDS ON. A dropped `B` is a frame every device recorded and this log
+    lacks, which costs each device one matched pair; its value was spent when the
+    checkpoint marked it, so nothing here touches the checkpoint.
+
+    EDGE-TRIGGERED, as _HealthReport is: a stamp machine that has stopped misses every
+    frame, and an ERROR a frame would be 86,400 lines a day. An episode is a run of
+    drops. Its first drop is one ERROR naming the frame and why; if it dropped more than
+    one, its end is one more, naming the range and the advice for each kind of cause it
+    held, each once, in the order first seen. It ends at the next frame kept, or at
+    `close()`, which also gives the run's count.
+    """
+
+    def __init__(self) -> None:
+        self._emitted = 0
+        self._dropped = 0
+        # The open episode: its first value (None when there is none), its last, how
+        # many it dropped, and the advice for each kind of cause it has held.
+        self._first: int | None = None
+        self._last = 0
+        self._count = 0
+        self._advice: list[str] = []
+
+    @property
+    def dropped_last(self) -> bool:
+        """The last frame's `B` was dropped. The NTP roll waits while it is (run())."""
+        return self._first is not None
+
+    def dropped(self, value: int, cause: str) -> None:
+        self._emitted += 1
+        self._dropped += 1
+        if self._first is None:
+            log.error(
+                "barcode %d dropped: %s. Every device recorded the frame; this log has no "
+                "B for it",
+                value,
+                cause,
+            )
+            self._first, self._count, self._advice = value, 0, []
+        self._last = value
+        self._count += 1
+        advice = _drop_advice(cause)
+        if advice not in self._advice:
+            self._advice.append(advice)
+
+    def kept(self) -> None:
+        self._emitted += 1
+        self._end_episode()
+
+    def close(self) -> None:
+        self._end_episode()
+        log.info("barcodes: %d emitted, %d dropped this run", self._emitted, self._dropped)
+
+    def _end_episode(self) -> None:
+        if self._first is not None and self._count > 1:
+            log.error(
+                "%d barcodes dropped in a row, %d to %d: %s",
+                self._count,
+                self._first,
+                self._last,
+                "; ".join(self._advice),
+            )
+        self._first = None
 
 
 class _StopFlag:

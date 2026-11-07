@@ -44,7 +44,8 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from wl_sync.backend import (
-    STAMP_NOT_SEEN, CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
+    STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_STOPPED,
+    CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
 )
 from wl_sync.calibration import Calibration
 from wl_sync.clockmap import (
@@ -86,13 +87,6 @@ _WORD_POLL_S = 0.001
 # 800 ms of idle between frames (wl_sync/barcode.py:11).
 STAMP_DRAIN_WAIT_S = 0.05
 _STAMP_WAIT_POLL_S = 0.001
-
-# Why a frame has no stamp when there is nothing to match it against. Each completes the
-# journal's "barcode %d dropped: <cause>", as STAMP_NOT_SEEN does. Neither waits for the
-# drain: a stamp machine that never started cannot be drained, and a stopped drain
-# cannot pass the frame's end.
-STAMPS_NOT_STARTED = "the stamp machine did not start"
-STAMPS_STOPPED = "the stamp drain stopped"
 
 # The edge request's event_buffer_size: the kernel's buffer, and the one libgpiod reads
 # into. Generous, because the kernel's buffer overflows SILENTLY and the only witness is
@@ -441,7 +435,7 @@ class Rp1Backend:
         )
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
         # capture machine, and raising here would: nothing above catches it
-        # (wl_sync/service.py:252, wl_sync/cli.py:504 and :1333-1343), so run() would
+        # (wl_sync/service.py:252, wl_sync/cli.py:510 and :1472-1482), so run() would
         # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
         # Recording without stamps is today's split behaviour; the log line is the
         # record that this run has none.
@@ -747,9 +741,8 @@ class Rp1Backend:
         here calls piolib: this runs on the run loop's thread, and while capture runs
         piolib has one caller, the pump's.
 
-        In this half the stamp is only returned. The run loop still records `B` from the
-        clock read before the frame (wl_sync/cli.py:787-790), and the loop ignores what
-        `BarcodeGenerator.emit_frame` hands back (wl_sync/service.py:67-68).
+        The run loop records `B` from the stamp returned, or drops it with an ERROR
+        episode when there is none (wl_sync/cli.py:792-817).
         """
         import gpiod
         from gpiod.line import Direction, Value
@@ -815,6 +808,8 @@ class Rp1Backend:
             return FrameStamp(None, STAMP_NOT_SEEN)
         unmatched = LeadStamp(p=None, between=0, consumed=0, leftover=(), nearest=None)
         pump, fit = self._stamp_pump, self._fit
+        # Neither of these waits for the drain: a stamp machine that never started cannot
+        # be drained, and a stopped drain cannot pass the frame's end.
         if pump is None or fit is None:
             self.last_frame = FrameTrace(unmatched, bracket.width_ns)
             return FrameStamp(None, STAMPS_NOT_STARTED)
@@ -842,8 +837,8 @@ class Rp1Backend:
                 return FrameStamp(None, STAMP_NOT_SEEN, found.between)
             return FrameStamp(
                 None,
-                f"the stamp lies {found.nearest} us from the frame's lead edge as the CPU "
-                f"bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)",
+                f"{STAMP_TOO_FAR_PREFIX}{found.nearest} us from the frame's lead edge "
+                f"as the CPU bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)",
                 found.between,
             )
         pair = ClockPair(
