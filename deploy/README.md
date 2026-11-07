@@ -332,7 +332,8 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
 
    Rebuild and reinstall the shim whenever `pio/wlsync_pio.c` changes. The backend reads
    `wlsync_shim_version` at start and refuses a shim of another version, naming this
-   step. Version 2 (2026-11-07) starts the program at its entry.
+   step. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed. It starts the
+   program at its entry.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
    `gpio`. If it is `root:root`, piolib's README gives a udev rule.

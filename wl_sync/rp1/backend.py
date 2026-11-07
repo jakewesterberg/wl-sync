@@ -15,7 +15,8 @@ design keeps:
     (`_assert_encoders_agree`). If RP1's PIO ever diverges from RP2040 in any
     instruction this program uses, the box refuses to start instead of recording
     wrong timestamps -- the failure that would otherwise be found months later in a
-    session nobody can align. All seven agreed on the CM5, 2026-10-18.
+    session nobody can align. All seven agreed on the CM5, 2026-10-18;
+    the program has used six since 2026-11-07.
 
 EDGE CAPTURE AND BARCODE OUTPUT ARE NOT PIO, and are bound to libgpiod v2
 instead. Individual-pin edge events are not a PIO facility -- piolib's `gpio_*`
@@ -46,8 +47,12 @@ from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import WordPump
 
-_TICK_HZ = 1_000_000  # the program's idle loop is 2 cycles, clocked at 2 MHz
+_TICK_HZ = 1_000_000  # every path is 2 cycles a decrement (the odd-cycle test), clocked at 2 MHz
 _CYCLES_PER_TICK = 2
+
+# How long after the program sees a strobe it reads the data lines. The task PC must hold
+# the code word that long (start_strobed_capture).
+DATA_SAMPLE_DELAY_US = program.DATA_SAMPLE_CYCLES / _CYCLES_PER_TICK * 1_000_000 / _TICK_HZ
 
 # How long before a deadline to stop sleeping and spin. time.sleep overshoots by
 # roughly a millisecond, which is a fifth of a barcode bit slot.
@@ -139,7 +144,8 @@ def _load_shim() -> ctypes.CDLL:
 
 # Bump with WLSYNC_SHIM_VERSION in pio/wlsync_pio.c whenever an exported signature
 # changes: ctypes cannot see a signature, so a stale .so would be called with the wrong
-# arguments without a sound. 1 is the unversioned original; 2 adds `entry`.
+# arguments without a sound. 1 is the unversioned original; 2: `entry` added,
+# `wlsync_encode_jmp` removed.
 _SHIM_VERSION = 2
 
 
@@ -177,7 +183,7 @@ def _declare(lib: ctypes.CDLL) -> None:
     lib.wlsync_pio_open.argtypes = [ctypes.c_uint]
     lib.wlsync_pio_open.restype = ctypes.c_int
     lib.wlsync_pio_close.restype = None
-    for encoder in ("wlsync_encode_jmp", "wlsync_encode_jmp_pin", "wlsync_encode_jmp_x_dec",
+    for encoder in ("wlsync_encode_jmp_pin", "wlsync_encode_jmp_x_dec",
                     "wlsync_encode_in_pins"):
         getattr(lib, encoder).argtypes = [ctypes.c_uint]
         getattr(lib, encoder).restype = ctypes.c_uint
@@ -213,7 +219,6 @@ def _check(result: int, what: str) -> int:
 def _encoder_checks(lib: ctypes.CDLL) -> tuple[tuple[str, int, int], ...]:
     """(name, ours, piolib's) for every instruction the program uses."""
     return (
-        ("jmp", program.encode_jmp(5), lib.wlsync_encode_jmp(5)),
         ("jmp pin", program.encode_jmp_pin(5), lib.wlsync_encode_jmp_pin(5)),
         ("jmp x--", program.encode_jmp_x_dec(1), lib.wlsync_encode_jmp_x_dec(1)),
         ("in pins", program.encode_in_pins(16), lib.wlsync_encode_in_pins(16)),
@@ -232,7 +237,8 @@ def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
     every session until someone notices, so it must stop the box instead.
 
     MUST RUN AFTER THE BLOCK IS OPEN: piolib's encoders read the current block.
-    Confirmed on silicon 2026-10-18: all seven agree.
+    Confirmed on silicon 2026-10-18: all seven agreed; the program has used six since
+    2026-11-07.
     """
     wrong = [
         f"{name}: ours {ours:#06x} != piolib {theirs:#06x}"
@@ -292,6 +298,14 @@ class Rp1Backend:
         on_word: Callable[[int, int], None],
         on_loss: Callable[[CaptureLoss], None] | None = None,
     ) -> None:
+        """Start the capture program; `on_word` gets each strobe's (tick, data).
+
+        THE CONTRACT WITH THE TASK PC. The program reads the data lines
+        DATA_SAMPLE_DELAY_US (1 us) after it sees the strobe, which is 1.0-1.5 us after
+        the strobe rises, so the code must be held that long. A strobe must be high for
+        at least 1 us and low for at least 1 us, and must rise at least 6 us after the
+        previous one; closer strobes merge (tests/test_rp1_program.py).
+        """
         lib = self._lib
         if strobe_pin != data_base + data_count:
             raise ValueError(

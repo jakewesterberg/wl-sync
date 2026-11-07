@@ -61,9 +61,6 @@ class _FakeShim:
         self.log.append("encode")
         return value if self.opened else 0xFFFF
 
-    def wlsync_encode_jmp(self, addr):
-        return self._encoded(program.encode_jmp(addr))
-
     def wlsync_encode_jmp_pin(self, addr):
         return self._encoded(program.encode_jmp_pin(addr))
 
@@ -1136,3 +1133,8 @@ def test_the_rp1_backend_declares_its_split_timebase():
     B and E ticks count CLOCK_MONOTONIC. Every header this backend writes says so, until
     the one-clock build changes the arrangement and the value with it."""
     assert Rp1Backend.timebase == "split"
+
+
+def test_the_data_lines_are_read_one_microsecond_after_the_strobe_is_seen():
+    """Coverage: the program's DATA_SAMPLE_CYCLES at the 2 MHz the divider sets."""
+    assert rp1.DATA_SAMPLE_DELAY_US == 1.0

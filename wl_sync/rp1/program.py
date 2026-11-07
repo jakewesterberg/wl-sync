@@ -34,10 +34,6 @@ _COND_X_DEC = 2  # jmp condition 010: decrement X, jump if it was non-zero
 _MOV_OP_INVERT = 1
 
 
-def encode_jmp(address: int) -> int:
-    return _JMP | (address & 0x1F)
-
-
 def encode_jmp_pin(address: int) -> int:
     """`jmp pin, addr` -- test the strobe WITHOUT stalling.
 
@@ -82,50 +78,35 @@ def encode_mov_x_not_null() -> int:
     return _MOV | (_X << 5) | (_MOV_OP_INVERT << 3) | _NULL
 
 
-# Instruction addresses, so the jump targets stay consistent with the listing.
-_IDLE = 0
-_CAPTURE = 2
-_HELD = 10
-
+# WHY THIS SHAPE. Execution starts at idle (offset + ENTRY), and every `jmp x--` names
+# the address it would fall through to. A `jmp x--` costs one cycle whether or not it
+# jumps, so X == 0 (the counter's wrap) changes nothing: the instruction falls through to
+# the address it names anyway, and no path can leave the program there. Every path costs
+# two cycles per decrement, entry and exit included; tests/test_rp1_program.py runs the
+# words in tests/piosim.py to show it.
 STROBE_CAPTURE: tuple[int, ...] = (
-    # idle: count, watching the strobe.                          2 cycles / tick
-    encode_jmp_pin(_CAPTURE),  # 0
-    encode_jmp_x_dec(_IDLE),  # 1
-    # capture: latch and push, still advancing the counter.      2 cycles / tick each
-    encode_in_pins(16),  # 2
-    encode_jmp_x_dec(4),  # 3
-    encode_push_noblock(),  # 4   word 1: data
-    encode_jmp_x_dec(6),  # 5
-    encode_mov_isr_x(),  # 6
-    encode_jmp_x_dec(8),  # 7
-    encode_push_noblock(),  # 8   word 2: raw counter
-    encode_jmp_x_dec(_HELD),  # 9
-    # held: count through a wide strobe rather than waiting on it.
-    encode_jmp_pin(12),  # 10
-    encode_jmp(_IDLE),  # 11  fallen -> re-arm
-    encode_jmp_x_dec(_HELD),  # 12
+    encode_jmp_x_dec(1),  # 0   entry: pairs with the taken jmp pin at 11
+    encode_in_pins(16),  # 1
+    encode_jmp_x_dec(3),  # 2
+    encode_push_noblock(),  # 3   word 1: data
+    encode_jmp_x_dec(5),  # 4
+    encode_mov_isr_x(),  # 5   the counter, 3 decrements after the jmp pin that saw the strobe
+    encode_jmp_x_dec(7),  # 6
+    encode_push_noblock(),  # 7   word 2: counter
+    encode_jmp_x_dec(9),  # 8   held: the decrement, falling into the test either way
+    encode_jmp_pin(8),  # 9   held while high
+    encode_jmp_x_dec(11),  # 10  exit: pairs with the untaken test, falling into idle either way
+    encode_jmp_pin(0),  # 11  idle (ENTRY, WRAP_TARGET)
+    encode_jmp_x_dec(11),  # 12  idle (WRAP)
 )
 
-# Where the state machine starts, relative to where pio_add_program put the program. The
-# first instruction today; wlsync_start_capture adds it to the load offset.
-ENTRY = 0
-WRAP_TARGET = _IDLE
-WRAP = 1  # the idle loop auto-wraps; every other path jumps explicitly
+# Where the state machine starts, relative to where pio_add_program put the program: idle.
+# Starting at offset + 0 would run one capture at once and push a pair no strobe made.
+ENTRY = 11
+WRAP_TARGET = 11
+WRAP = 12
 
-
-def cycles_per_decrement_by_path() -> dict[str, tuple[int, int]]:
-    """(cycles, decrements) for each path, so the timing claim is testable.
-
-    THE WHOLE +/-100 us ARGUMENT IS THAT THESE STAY IN A 2:1 RATIO. A program that
-    counts only while idle loses the capture path and the strobe-high period from the
-    counter -- roughly 2 us per event, 1.2 ms over a 600-event run, which fails Step 3
-    before any hardware effect is considered.
-
-    Every instruction is one cycle here; none carries a delay slot, and none can stall,
-    because `wait` and blocking `push` are both deliberately absent.
-    """
-    return {
-        "idle": (2, 1),  # jmp pin + jmp x--
-        "capture": (8, 4),  # four (instruction + jmp x--) pairs
-        "held": (2, 1),  # jmp pin + jmp x--
-    }
+# `in pins` runs this many cycles after the `jmp pin` that saw the strobe (the taken jump
+# at 11, then the jmp x-- at 0, then `in pins` at 1), so the data lines are read this
+# long after the strobe was seen. The task PC must hold the code that long.
+DATA_SAMPLE_CYCLES = 2

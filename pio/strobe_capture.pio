@@ -41,13 +41,19 @@
 ; cumulative: at ~600 events in a 10-minute run even a 2 µs slip per event is
 ; 1.2 ms, which fails the ±100 µs gate on its own. So the capture path pads with
 ; `jmp x--` so that it too advances the counter once per two cycles, and the
-; strobe-high wait is a counting loop rather than a `wait` instruction.
+; strobe-high wait is a counting loop rather than a `wait` instruction. Entry and
+; exit are paired the same way: the taken `jmp pin` at idle pairs with the
+; `jmp x--` at the entry, and the untaken test in the held loop pairs with the
+; `jmp x--` at the exit. Every `jmp x--` names the address it would fall through
+; to, so X = 0 (the counter's wrap) costs no path anything.
 ;
 ; `wait 0 pin` is deliberately NOT used anywhere: it stalls the state machine,
 ; and a stalled state machine is a stopped clock.
 ;
 ; ---------------------------------------------------------------------------
 ; CONFIGURATION REQUIRED OF THE HOST
+;   entry        = offset + 11 (idle). pio_sm_init at offset + 0 would run one
+;                  capture at once and push a pair no strobe made.
 ;   in_base      = CODE_DATA_BASE (GPIO0), 16 contiguous lines — wl_sync.pins
 ;   jmp_pin      = CODE_STROBE_PIN (GPIO16)
 ;   in_shiftdir  = LEFT, so `in pins, 16` lands the lines in ISR bits 0..15 and
@@ -61,48 +67,51 @@
 
 .program strobe_capture
 
-.wrap_target
-idle:
-    jmp pin, capture            ; [1] strobe high → event
-    jmp x--, idle               ; [1] tick, and keep waiting     = 2 cycles / tick
-.wrap
-
-capture:
+; Addresses 0-10 are reached only by the taken `jmp pin` at 11.
+entry_capture:                  ; = offset + 0
+    jmp x--, c_in               ; [1] entry: pairs with the taken jmp pin at idle
+c_in:
     in pins, 16                 ; [1] latch the code word
-    jmp x--, c_push_data        ; [1]                            = 2 cycles / tick
+    jmp x--, c_push_data        ; [1]
 c_push_data:
     push noblock                ; [1] word 1: data
-    jmp x--, c_load_counter     ; [1]                            = 2 cycles / tick
+    jmp x--, c_load_counter     ; [1]
 c_load_counter:
-    mov isr, x                  ; [1] snapshot the counter
-    jmp x--, c_push_counter     ; [1]                            = 2 cycles / tick
+    mov isr, x                  ; [1] the counter, 3 decrements after the jmp pin
+    jmp x--, c_push_counter     ; [1] that saw the strobe
 c_push_counter:
-    push noblock                ; [1] word 2: raw counter
-    jmp x--, held               ; [1]                            = 2 cycles / tick
-
-; The strobe is still high. Count through it rather than waiting on it, so a wide
-; strobe costs precision nothing. Re-arming only once it falls is what makes one
-; strobe produce one capture.
+    push noblock                ; [1] word 2: counter
+    jmp x--, held               ; [1] the decrement, falling into the test either way
 held:
-    jmp pin, held_tick          ; [1] still high?
-    jmp idle                    ; [1] fallen → re-arm
-held_tick:
-    jmp x--, held               ; [1] tick while it stays high   = 2 cycles / tick
+    jmp pin, held               ; [1] held while high
+    jmp x--, idle               ; [1] exit: pairs with the untaken test, falling into idle
 
-; 11 instructions of the 32-instruction memory, leaving 21 for edge capture.
+.wrap_target
+idle:                           ; ENTRY = offset + 11
+    jmp pin, entry_capture      ; [1] strobe high -> event
+    jmp x--, idle               ; [1] tick, and keep waiting     (offset + 12)
+.wrap
+
+; 13 instructions of the 32-instruction memory, leaving 19 for edge capture.
 ;
 ; ---------------------------------------------------------------------------
-; KNOWN, CONSTANT BIAS: `mov isr, x` runs 5 cycles after the strobe was observed,
-; so every timestamp is ~2.5 µs late by a FIXED amount. Constant is the important
-; word — it is identical for every event, so it is a host-side subtraction, not a
-; jitter term. It must be measured on the bench rather than trusted from this
-; comment, because it depends on the assembler's final instruction placement.
+; THE TIMESTAMP. `mov isr, x` runs 6 cycles after the `jmp pin` that saw the
+; strobe, and the count is 3 decrements after it, so the constant lags the strobe
+; by 3.0-3.5 µs (the half is the strobe being sampled every 2 cycles). It is
+; identical for every event, so it is a host-side subtraction, not a jitter term.
+;
+; THE DATA HOLD. `in pins` runs 2 cycles after that `jmp pin`: the data lines are
+; read 1.0 µs after the strobe is seen, 1.0-1.5 µs after it rises, and the task PC
+; must hold the code word that long (rp1.backend.DATA_SAMPLE_DELAY_US).
+;
+; STROBE LIMITS. High for at least 1 µs (two cycles) and low for at least 1 µs,
+; and rising at least 6 µs after the previous strobe; closer strobes merge.
+; tests/test_rp1_program.py pins each of these.
 ;
 ; UNVERIFIED — check these first on bench day, in this order:
-;   1. `jmp x--` semantics at X = 0: this assumes it decrements to 0xFFFFFFFF and
-;      falls through, and that `.wrap` then returns to `idle` with no lost cycle.
-;      If it costs a cycle, the counter gains 0.5 µs once per 71.6 min — harmless,
-;      but confirm rather than assume.
+;   1. Each instruction is one cycle whether or not it jumps; at X = 0 every
+;      `jmp x--` falls through to the address it names, so the wrap costs no path
+;      anything (tests/test_rp1_program.py simulates it; P0 confirms it on silicon).
 ;   2. That `jmp x--, <next instruction>` is a legal way to spend a decrement, and
 ;      that it is one cycle. The entire ±100 µs argument rests on it.
 ;   3. `mov isr, x` ignoring in_shiftdir and copying all 32 bits straight.

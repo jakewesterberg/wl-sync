@@ -85,8 +85,9 @@ class WordsDroppedError(RuntimeError):
 
 # How long after a strobe edge both of its words are in the RX FIFO, with room to spare.
 # The program (wl_sync.rp1.program) runs at 2 MHz, 0.5 us a cycle. The idle loop tests
-# the strobe every 2 cycles, and the capture path pushes its second word 7 cycles after
-# leaving the loop, so the pair is in within 10 cycles, 5 us. Doubled.
+# the strobe every 2 cycles, and the second word is pushed 8 cycles after the `jmp pin`
+# that saw the strobe, so the pair is in within 9 cycles of the edge, 4.5 us. Doubled and
+# rounded up, 10.
 WORDS_LAG_US = 10
 
 

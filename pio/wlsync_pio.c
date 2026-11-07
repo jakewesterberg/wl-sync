@@ -57,7 +57,6 @@ void wlsync_pio_close(void)
 /* One encoder per instruction the strobe-capture program uses, matching
  * wl_sync/rp1/program.py name for name, so the backend can check its own encodings
  * against piolib's at startup. */
-unsigned wlsync_encode_jmp(unsigned addr) { return pio_encode_jmp(addr); }
 unsigned wlsync_encode_jmp_pin(unsigned addr) { return pio_encode_jmp_pin(addr); }
 unsigned wlsync_encode_jmp_x_dec(unsigned addr) { return pio_encode_jmp_x_dec(addr); }
 unsigned wlsync_encode_in_pins(unsigned count) { return pio_encode_in(pio_pins, count); }
@@ -72,7 +71,7 @@ uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
 /* Bump whenever an exported signature changes: ctypes cannot see one, so the backend
  * (wl_sync/rp1/backend.py, _SHIM_VERSION) reads this and refuses a shim of another
  * version rather than call it with the wrong arguments. 1 was the unversioned original;
- * 2 adds `entry` to wlsync_start_capture. */
+ * 2: `entry` added to wlsync_start_capture, `wlsync_encode_jmp` removed. */
 #define WLSYNC_SHIM_VERSION 2
 int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
 

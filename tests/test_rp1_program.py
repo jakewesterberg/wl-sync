@@ -9,20 +9,20 @@ cross-checked against the C `pio_encode_*` functions on the bench -- see
 
 import pytest
 
+from tests.piosim import M32, high_during, run, strobe_train
 from wl_sync.rp1.program import (
+    DATA_SAMPLE_CYCLES,
+    ENTRY,
     STROBE_CAPTURE,
+    WRAP,
+    WRAP_TARGET,
     encode_in_pins,
-    encode_jmp,
     encode_jmp_pin,
     encode_jmp_x_dec,
     encode_mov_isr_x,
     encode_mov_x_not_null,
     encode_push_noblock,
 )
-
-
-def test_jmp_always():
-    assert encode_jmp(5) == 0x0005
 
 
 def test_jmp_on_the_jmp_pin():
@@ -66,19 +66,91 @@ def test_the_program_fits_well_inside_the_instruction_memory():
     assert len(STROBE_CAPTURE) <= 16, f"{len(STROBE_CAPTURE)} instructions is too many"
 
 
-def test_every_path_costs_two_cycles_per_decrement():
-    """THE +/-100 us ARGUMENT, asserted rather than trusted to a comment.
+JMP_X_DEC = {a for a, w in enumerate(STROBE_CAPTURE) if w >> 13 == 0 and (w >> 5) & 7 == 2}
 
-    A version that decrements only while idle loses the whole capture path and the
-    whole strobe-high period from the counter -- about 2 us per event, which is 1.2 ms
-    over 600 events and fails Task 5b Step 3 on arithmetic alone. So every path through
-    the program must advance the counter once per two instructions.
-    """
-    from wl_sync.rp1.program import cycles_per_decrement_by_path
 
-    for path, (cycles, decrements) in cycles_per_decrement_by_path().items():
-        assert decrements > 0, f"path {path!r} never advances the counter"
-        assert cycles == 2 * decrements, (
-            f"path {path!r} costs {cycles} cycles for {decrements} decrements; "
-            f"time is lost at {cycles - 2 * decrements} cycles per pass"
-        )
+def _capture(train, *, x=M32, data=lambda c: 0, entry=ENTRY, cycles=None):
+    end = cycles if cycles is not None else train[-1][1] + 50
+    return run(STROBE_CAPTURE, entry=entry, wrap_target=WRAP_TARGET, wrap=WRAP, cycles=end,
+               strobe=high_during(train), data=data, x=x), end
+
+
+@pytest.mark.parametrize("widths", [(2, 2), (3, 3), (8, 9), (16, 17), (2, 300)])
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_every_decrement_falls_on_an_odd_cycle_whatever_the_strobes_do(widths, seed):
+    """2 cycles per decrement on EVERY path, entry and exit included, derived from the
+    program itself (spec §2.1 Part 0). A path that does not decrement loses 1.2 ms
+    over 600 events, which fails the +/-100 us gate on arithmetic alone. Odd cycles only means no path ever shifts the
+    phase; every address visited means no path went unexercised."""
+    train = strobe_train(seed, 100, widths=widths)
+    result, end = _capture(train)
+    assert all(cycle % 2 == 1 for cycle in result.decrement_cycles)
+    assert result.decrements == end // 2
+    assert result.visited == set(range(len(STROBE_CAPTURE)))
+    assert len(result.pushes) == 2 * len(train)
+
+
+def test_four_hundred_strobes_lose_no_tick():
+    """The old listing lost 600 on this train (tests/test_piosim.py)."""
+    result, end = _capture(strobe_train(seed=1, count=400))
+    assert end // 2 - result.decrements == 0
+
+
+def test_x_reaching_zero_at_every_jmp_x_dec_stays_in_the_program():
+    zero_at = set()
+    for seed in range(20):
+        for x in range(64):
+            train = strobe_train(seed, 6, widths=(2, 30), lows=(2, 30))
+            result, end = _capture(train, x=x)  # LeftProgram fails the test
+            assert result.decrements == end // 2
+            zero_at.update(result.zero_at)
+    assert zero_at == JMP_X_DEC  # X == 0 was met at every one of them
+
+
+def test_the_count_runs_on_across_the_counters_wrap():
+    train = strobe_train(seed=2, count=50)
+    result, end = _capture(train, x=40)
+    counters = [word for i, (_, word) in enumerate(result.pushes) if i % 2]
+    for (rise, _), counter in zip(train, counters, strict=True):
+        assert (40 - counter) & M32 == (rise + 1) // 2 + 3
+    assert result.decrements == end // 2 and result.x > 40  # it did wrap
+
+
+def test_each_strobe_pushes_its_data_then_its_count():
+    """The data is read 1.0-1.5 us after the strobe rises, and the count is latched
+    3.0-3.5 ticks after it: the half is the strobe being sampled every 2 cycles."""
+    train = strobe_train(seed=3, count=100)
+    result, _ = _capture(train, data=lambda cycle: cycle & 0xFFFF)
+    data = [word for i, (_, word) in enumerate(result.pushes) if i % 2 == 0]
+    counts = [~word & M32 for i, (_, word) in enumerate(result.pushes) if i % 2]
+    for (rise, _), word, tick in zip(train, data, counts, strict=True):
+        seen = 2 * ((rise + 1) // 2)  # the even cycle whose jmp pin saw it
+        assert word == (seen + DATA_SAMPLE_CYCLES) & 0xFFFF
+        assert tick == (rise + 1) // 2 + 3
+
+
+@pytest.mark.parametrize("width", [2, 4])
+@pytest.mark.parametrize("phase", [0, 1])
+def test_a_burst_six_microseconds_apart_is_captured_whole(width, phase):
+    train = [(10 + phase + 12 * i, 10 + phase + 12 * i + width) for i in range(30)]
+    result, end = _capture(train)
+    assert len(result.pushes) == 60 and result.decrements == end // 2
+
+
+def test_strobes_closer_than_six_microseconds_are_merged():
+    """Pins the program's limit (today's needed 5.5 us), so a task PC that strobes
+    faster is a known failure rather than a silent one."""
+    train = [(10 + 11 * i, 12 + 11 * i) for i in range(30)]
+    result, _ = _capture(train)
+    assert len(result.pushes) // 2 < 30
+
+
+def test_a_one_cycle_strobe_is_seen_only_on_a_sampling_cycle():
+    assert len(_capture([(100, 101)], cycles=200)[0].pushes) == 2
+    assert len(_capture([(101, 102)], cycles=200)[0].pushes) == 0
+
+
+def test_entering_anywhere_but_the_entry_pushes_a_pair_no_strobe_made():
+    """Why the shim passes ENTRY: pio_sm_init at offset + 0 runs one capture at once."""
+    assert len(_capture([], entry=0, cycles=100)[0].pushes) == 2
+    assert len(_capture([], cycles=100)[0].pushes) == 0
