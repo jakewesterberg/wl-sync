@@ -46,8 +46,10 @@ from typing import NamedTuple
 from wl_sync.backend import (
     STAMP_NOT_SEEN, CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
 )
+from wl_sync.calibration import Calibration
 from wl_sync.clockmap import (
-    LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP, match_lead_stamp, unwrap_near,
+    LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP, TickScale, match_lead_stamp,
+    unwrap_near,
 )
 from wl_sync.pins import BARCODE_PIN, GPIO_MAP, SPARE_PINS
 from wl_sync.rp1 import program
@@ -318,6 +320,8 @@ class Rp1Backend:
     # W counts RP1's PIO counter, joined to CLOCK_MONOTONIC once in
     # start_strobed_capture; B and E count CLOCK_MONOTONIC (SyncBoxLogHeader.timebase).
     timebase = "split"
+    # None: the run loop uses --barcode-delay-us. This backend cannot know the delay yet.
+    barcode_delay_us = None
 
     def __init__(
         self,
@@ -744,8 +748,8 @@ class Rp1Backend:
         piolib has one caller, the pump's.
 
         In this half the stamp is only returned. The run loop still records `B` from the
-        clock read before the frame (wl_sync/cli.py:787-790), and
-        `BarcodeGenerator.emit_frame` drops what this returns (wl_sync/service.py:67-68).
+        clock read before the frame (wl_sync/cli.py:787-790), and the loop ignores what
+        `BarcodeGenerator.emit_frame` hands back (wl_sync/service.py:67-68).
         """
         import gpiod
         from gpiod.line import Direction, Value
@@ -864,6 +868,10 @@ class Rp1Backend:
             return False
         thread = self._word_thread
         return self._stamp_pump.stopped or thread is None or not thread.is_alive()
+
+    def apply_calibration(self, calibration: Calibration | None) -> TickScale | None:
+        """Transitional, until Task 1.10's second half: no PIO count is scaled yet."""
+        return None
 
     def take_pairs(self) -> list[ClockPair]:
         """The lead-edge pairs since the last call, oldest first. Wide ones too: each

@@ -279,8 +279,9 @@ def test_the_barcode_tick_is_read_before_the_frame_is_emitted(tmp_path):
 
     class _FrameAdvancesTheCounter(FakeBackend):
         def emit_pulses(self, pin, pulses):
-            super().emit_pulses(pin, pulses)
+            stamp = super().emit_pulses(pin, pulses)
             self._tick += FRAME_US
+            return stamp
 
     day = run(
         out=tmp_path,
@@ -565,10 +566,11 @@ class _CrashOnTheWire(FakeBackend):
         self._frames = 0
 
     def emit_pulses(self, pin, pulses):
-        super().emit_pulses(pin, pulses)
+        stamp = super().emit_pulses(pin, pulses)
         self._frames += 1
         if self._frames >= self._crash_on:
             raise _Crash
+        return stamp
 
 
 def test_a_frame_on_the_wire_is_never_re_issued_after_a_crash(tmp_path):
@@ -1214,11 +1216,12 @@ class _FramesTakeRealTime(FakeBackend):
         self.frame_ends: list[float] = []
 
     def emit_pulses(self, pin, pulses):
-        super().emit_pulses(pin, pulses)
+        stamp = super().emit_pulses(pin, pulses)
         self.frame_starts.append(self._clock.now)
         index = len(self.frame_starts) - 1
         self._clock.now += self._fixed_s if self._frame_s is None else self._frame_s[index]
         self.frame_ends.append(self._clock.now)
+        return stamp
 
 
 def _paced(tmp_path, clock, backend, frames):
@@ -1709,10 +1712,11 @@ class _StepsTheWallDuringAFrame(FakeBackend):
         self._frames = 0
 
     def emit_pulses(self, pin, pulses):
-        super().emit_pulses(pin, pulses)
+        stamp = super().emit_pulses(pin, pulses)
         self._frames += 1
         if self._frames == self._frame:
             self._wall.step(self._seconds)
+        return stamp
 
 
 def _ntp_answers(monkeypatch, synced):
@@ -2598,10 +2602,11 @@ class _ReadsTheWall(_FramesTakeRealTime):
 
     def emit_pulses(self, pin, pulses):
         self.walls.append(self._clock.wall())
-        super().emit_pulses(pin, pulses)
+        stamp = super().emit_pulses(pin, pulses)
         step = self._steps.get(len(self.walls))
         if step is not None:
             self._clock.step_wall(step)
+        return stamp
 
 
 def _record_reading_the_wall(tmp_path, clock, frames, steps=None, frame_s=FRAME_US / 1e6):

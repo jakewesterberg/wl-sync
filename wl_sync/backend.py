@@ -17,9 +17,16 @@ hardware/breakout/camera-sync-change.md and frame-time-inputs.md.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    # Annotations only (this module has `from __future__ import annotations`), so
+    # backend.py imports neither at runtime and calibration.py / clockmap.py are free to
+    # import from it later without a cycle.
+    from wl_sync.calibration import Calibration
+    from wl_sync.clockmap import ClockPair, TickScale
 
 
 class CaptureDegraded(RuntimeError):
@@ -112,10 +119,16 @@ class FrameStamp:
 class SyncBackend(Protocol):
     timebase: str
     """Which clocks this backend's ticks count, written into every segment header
-    (`wl_sync.log.SyncBoxLogHeader.timebase` defines the values)."""
+    (`wl_sync.log.SyncBoxLogHeader.timebase` defines the values). A backend may set it
+    per instance, once it knows which clocks it is counting."""
 
-    def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
-        """Drive pin through (level, duration_us). Timing need not be precise."""
+    barcode_delay_us: int | None
+    """How long after a frame's lead edge is stamped the edge reaches the wire, in us.
+    None means the backend cannot know, and the run loop uses `--barcode-delay-us`."""
+
+    def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> FrameStamp:
+        """Drive pin through (level, duration_us). Timing need not be precise. Returns what
+        the frame's lead edge was stamped, or why it was not (`FrameStamp`)."""
 
     def start_strobed_capture(
         self,
@@ -142,7 +155,15 @@ class SyncBackend(Protocol):
         and on_loss(CaptureLoss) for edges it lost, from the same thread."""
 
     def now_us(self) -> int:
-        """Current value of the hardware tick counter."""
+        """The raw count that W and B are stamped in, as estimated for now."""
+
+    def apply_calibration(self, calibration: Calibration | None) -> TickScale | None:
+        """Take the calibration, or None when there is none, and return the `TickScale` the
+        backend counts by. None for a backend with no PIO count to scale."""
+
+    def take_pairs(self) -> list[ClockPair]:
+        """The clock pairs gathered since the last call, oldest first. Empty for a backend
+        with none."""
 
     def delivered_through(self) -> dict[str, int | None]:
         """How far each capture path has delivered, which a roll waits on.
@@ -186,9 +207,11 @@ class FakeBackend:
     """Records outputs and dispatches injected inputs. Test double only."""
 
     timebase = "fake"
+    barcode_delay_us = None  # no wire between the fake's stamp and its edge
 
     def __init__(self) -> None:
         self.emitted: list[tuple[int, list[tuple[int, int]]]] = []
+        self._missed: dict[int, str] = {}  # 1-based emit_pulses call -> its cause
         self._on_word: Callable[[int, int], None] | None = None
         self._word_loss: Callable[[CaptureLoss], None] | None = None
         self._edge_pins: list[int] = []
@@ -196,8 +219,25 @@ class FakeBackend:
         self._edge_loss: Callable[[CaptureLoss], None] | None = None
         self._tick = 0
 
-    def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> None:
+    def emit_pulses(self, pin: int, pulses: Sequence[tuple[int, int]]) -> FrameStamp:
         self.emitted.append((pin, list(pulses)))
+        cause = self._missed.get(len(self.emitted))
+        if cause is not None:
+            return FrameStamp(None, cause)
+        return FrameStamp(self._tick)
+
+    def miss_stamps(self, frames: Iterable[int], cause: str = STAMP_NOT_SEEN) -> None:
+        """Make these frames come back unstamped, with `cause`. Frames are 1-based and
+        counted over `emit_pulses` calls. A later call adds its frames to the earlier
+        ones', and each frame keeps the cause it was given."""
+        for frame in frames:
+            self._missed[frame] = cause
+
+    def apply_calibration(self, calibration: Calibration | None) -> TickScale | None:
+        return None  # one clock: nothing here counts a PIO crystal to scale
+
+    def take_pairs(self) -> list[ClockPair]:
+        return []  # no stamp machine, so no lead-edge pairs
 
     def start_strobed_capture(
         self,

@@ -19,7 +19,7 @@ import threading
 from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
-from wl_sync.backend import CaptureDegraded, CaptureLoss, SyncBackend
+from wl_sync.backend import CaptureDegraded, CaptureLoss, FrameStamp, SyncBackend
 from wl_sync.barcode import encode
 from wl_sync.clockmap import IDENTITY, TickScale
 from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord, Edge, Loss, Record
@@ -64,8 +64,8 @@ class BarcodeGenerator:
         self._backend = backend
         self._pin = pin
 
-    def emit_frame(self, value: int) -> None:
-        self._backend.emit_pulses(self._pin, encode(value))
+    def emit_frame(self, value: int) -> FrameStamp:
+        return self._backend.emit_pulses(self._pin, encode(value))
 
 
 class _BoxClock:

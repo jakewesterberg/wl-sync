@@ -1,7 +1,7 @@
 import pytest
 
-from wl_sync.backend import CaptureLoss, FakeBackend
-from wl_sync.barcode import IDLE_MIN_US, decode_edges
+from wl_sync.backend import STAMP_NOT_SEEN, CaptureLoss, FakeBackend, FrameStamp
+from wl_sync.barcode import IDLE_MIN_US, decode_edges, encode
 from wl_sync.clockmap import TickScale
 from wl_sync.log import BarcodeEmitted, CodeWord, Edge, Loss, TICK_WRAP_US
 from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
@@ -29,6 +29,47 @@ def pulses_to_edges(pulses, start_us):
         tick += duration
     edges.append((tick, 0))
     return edges
+
+
+def test_the_fake_stamps_each_frame_at_its_clock():
+    backend = FakeBackend()
+    backend.set_now_us(1_000)
+    first = backend.emit_pulses(BARCODE_PIN, encode(1))
+    backend.set_now_us(250_000)
+    second = backend.emit_pulses(BARCODE_PIN, encode(2))
+    assert first == FrameStamp(1_000)
+    assert second == FrameStamp(250_000)
+
+
+def test_the_fake_misses_the_stamps_a_test_asks_it_to():
+    backend = FakeBackend()
+    backend.miss_stamps({2}, "x")
+    stamps = [backend.emit_pulses(BARCODE_PIN, encode(v)) for v in (1, 2, 3)]
+    assert stamps == [FrameStamp(0), FrameStamp(None, "x"), FrameStamp(0)]
+
+
+def test_a_later_miss_stamps_call_adds_frames_and_each_keeps_its_cause():
+    backend = FakeBackend()
+    backend.miss_stamps({1})
+    backend.miss_stamps({3}, "y")
+    stamps = [backend.emit_pulses(BARCODE_PIN, encode(v)) for v in (1, 2, 3)]
+    assert stamps == [FrameStamp(None, STAMP_NOT_SEEN), FrameStamp(0), FrameStamp(None, "y")]
+
+
+def test_the_generator_hands_back_what_the_backend_stamped():
+    backend = FakeBackend()
+    backend.set_now_us(777)
+    backend.miss_stamps({2}, "x")
+    generator = BarcodeGenerator(backend, pin=BARCODE_PIN)
+    assert generator.emit_frame(5) == FrameStamp(777)
+    assert generator.emit_frame(6) == FrameStamp(None, "x")
+
+
+def test_the_fake_has_no_pio_count_to_calibrate():
+    backend = FakeBackend()
+    assert backend.apply_calibration(None) is None
+    assert backend.take_pairs() == []
+    assert backend.barcode_delay_us is None
 
 
 def test_generator_emits_a_decodable_frame():
