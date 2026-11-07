@@ -12,7 +12,9 @@ from wl_sync.clockmap import (
     LeadStamp,
     MappedTimebase,
     MonoRawTable,
+    IDENTITY,
     RawToP,
+    TickScale,
     match_lead_stamp,
     unwrap_near,
 )
@@ -297,3 +299,25 @@ def test_a_stamp_after_the_end_is_not_nearest():
 def test_a_raw_count_is_unwrapped_to_the_one_nearest():
     assert unwrap_near(5, 2**32 - 3) == 2**32 + 5
     assert unwrap_near(2**32 - 3, 2**32 + 5) == 2**32 - 3
+
+
+def test_a_scale_of_zero_ppb_leaves_counts_as_they_are():
+    assert IDENTITY == TickScale(0)
+    for n in (0, 1, 2**32 + 5, 10**12):
+        assert TickScale(0).tick(n) == n
+
+
+def test_a_fast_crystal_is_scaled_down_to_si_microseconds():
+    assert TickScale(100_000).tick(1_000_100) == 1_000_000
+    assert TickScale(-50_000).tick(999_950) == 1_000_000
+
+
+def test_scaling_rounds_to_the_nearest_microsecond_and_never_reorders():
+    for ppb in (-200_000, 37, 200_000):
+        scale = TickScale(ppb)
+        previous = -1
+        for p in range(0, 5_000_000, 997):
+            tick = scale.tick(p)
+            assert tick >= previous
+            previous = tick
+            assert abs(tick - p / (1 + ppb / 1e9)) <= 0.5

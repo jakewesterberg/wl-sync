@@ -2,6 +2,7 @@ import pytest
 
 from wl_sync.backend import CaptureLoss, FakeBackend
 from wl_sync.barcode import IDLE_MIN_US, decode_edges
+from wl_sync.clockmap import TickScale
 from wl_sync.log import BarcodeEmitted, CodeWord, Edge, Loss, TICK_WRAP_US
 from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
 
@@ -592,3 +593,60 @@ def test_no_loss_reported_means_no_loss_record():
     backend.inject_edge(REWARD_PIN, 1, 2_000)
     recorder.record_barcode(3_000, 500)
     assert _losses(sink) == []
+
+
+SCALE = TickScale(100_000)
+
+
+def _scaled_recorder(now_us=2_000_200):
+    backend = FakeBackend()
+    backend.set_now_us(now_us)
+    return backend, Recorder(backend, scale=SCALE)
+
+
+def test_every_record_and_the_clock_are_scaled_by_one_rate():
+    backend, recorder = _scaled_recorder()
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    recorder.capture_edges([REWARD_PIN])
+    backend.inject_word(1_000_100, 7)
+    backend.inject_edge(REWARD_PIN, 1, 1_500_150)
+    recorder.record_barcode(2_000_200, 9)
+    records = recorder.records()
+    assert [r.tick_us for r in records if isinstance(r, CodeWord)] == [1_000_000]
+    assert [r.tick_us for r in records if isinstance(r, Edge)] == [1_500_000]
+    assert [r.tick_us for r in records if isinstance(r, BarcodeEmitted)] == [2_000_000]
+    assert recorder.now() == 2_000_000
+
+
+def test_a_delivery_mark_is_scaled_like_the_ticks_it_is_compared_with():
+    backend, recorder = _scaled_recorder()
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    assert recorder.delivered_through()["event-code capture"] == 2_000_000
+
+
+def test_a_loss_window_is_measured_in_counts_and_then_scaled():
+    backend, recorder = _scaled_recorder()
+    recorder.capture_edges([REWARD_PIN])
+    backend.inject_edge_loss(
+        CaptureLoss(
+            "buffer_overflow", 2, "exact", gpio=REWARD_PIN, after=2_000_200, span_us=1_000_100
+        )
+    )
+    (loss,) = [r for r in recorder.records() if isinstance(r, Loss)]
+    assert loss.after_us == 2_000_000
+    assert loss.before_us == 1_000_000
+
+
+def test_the_scale_applies_after_unwrapping_not_to_the_raw_count():
+    backend = FakeBackend()
+    recorder = Recorder(backend, scale=SCALE)
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    half = TICK_WRAP_US // 2
+    for now in (1_000, half, TICK_WRAP_US - 1_000):
+        backend.set_now_us(now)
+        backend.inject_word(now, 0x0001)
+    backend.set_now_us(TICK_WRAP_US + 1_000)
+    backend.inject_word(1_000, 0x0002)
+    last = max(recorder.records(), key=lambda r: r.tick_us)
+    assert last.tick_us == SCALE.tick(TICK_WRAP_US + 1_000)
+    assert last.tick_us != 1_000

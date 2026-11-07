@@ -21,6 +21,7 @@ from typing import Protocol
 
 from wl_sync.backend import CaptureDegraded, CaptureLoss, SyncBackend
 from wl_sync.barcode import encode
+from wl_sync.clockmap import IDENTITY, TickScale
 from wl_sync.log import TICK_WRAP_US, BarcodeEmitted, CodeWord, Edge, Loss, Record
 from wl_sync.pins import FRAME_TIME_GPIO
 
@@ -68,7 +69,7 @@ class BarcodeGenerator:
 
 
 class _BoxClock:
-    """The box's one clock: unwraps 32-bit ticks from every delivery path against
+    """The box's one clock, in P: unwraps 32-bit ticks from every delivery path against
     `now_us()`, rather than against each path's own previous tick.
 
     All three paths -- strobed words, edges and this box's barcodes -- and `now_us()`
@@ -108,6 +109,9 @@ class _BoxClock:
 
     A run that never misses a wrap gets exactly the values the per-path unwrappers
     gave, on both backends: the same origin, with the offset starting at 0.
+
+    P, NOT SI. Everything here is a PIO count. `Recorder` applies `TickScale` to what this
+    returns, once, so no value is scaled before it is unwrapped (spec §2.2).
 
     THE LOCK. Capture threads call `unwrap` concurrently on the RP1 backend. It covers
     only `now_us()` and integer arithmetic -- no I/O and nothing that blocks -- so it
@@ -217,8 +221,16 @@ class Recorder:
     direct call, so the fake path is unchanged.
     """
 
-    def __init__(self, backend: SyncBackend, sink: RecordSink | None = None) -> None:
+    def __init__(
+        self,
+        backend: SyncBackend,
+        sink: RecordSink | None = None,
+        scale: TickScale = IDENTITY,
+    ) -> None:
         self._backend = backend
+        # One rate for the process, applied to an UNWRAPPED count wherever a tick becomes
+        # a record or a clock reading, and nowhere else (clockmap.TickScale).
+        self._scale = scale
         # One ternary, not two on the same condition: the pair could be edited apart,
         # and `_memory` set with `_sink` pointing elsewhere is a Recorder that silently
         # records into a sink `records()` will never return.
@@ -228,6 +240,7 @@ class Recorder:
         self._clock = _BoxClock(backend.now_us)
         # The highest tick each capture path has written: where an L record that is not
         # written just before a record of its path sits (wl_sync.log.Loss, ORDER).
+        # (Scaled ticks, like every record's.)
         self._highest: dict[str, int | None] = {"W": None, "E": None}
         # L records refused since check_health() last looked: path -> (how many, the
         # last). Written by the capture threads, taken by the run loop's, so both sides
@@ -251,12 +264,12 @@ class Recorder:
             self._highest[path] = tick_us
 
     def _on_word(self, tick: int, word: int) -> None:
-        tick_us = self._clock.unwrap(tick)
+        tick_us = self._scale.tick(self._clock.unwrap(tick))
         self._sink.write(CodeWord(tick_us=tick_us, word=word))
         self._wrote("W", tick_us)
 
     def _on_edge(self, gpio: int, level: int, tick: int) -> None:
-        tick_us = self._clock.unwrap(tick)
+        tick_us = self._scale.tick(self._clock.unwrap(tick))
         self._sink.write(Edge(tick_us=tick_us, gpio=gpio, level=level))
         self._wrote("E", tick_us)
 
@@ -287,11 +300,21 @@ class Recorder:
         highest = self._highest[path]
         if loss.after is None:
             before, after = highest, None
-            tick_us = highest if highest is not None else self._clock.now()
+            tick_us = (
+                highest
+                if highest is not None
+                else self._scale.tick(self._clock.now())
+            )
         else:
-            after = self._clock.unwrap(loss.after)
-            # Never below the origin, where nothing of the path can precede the loss.
-            before = None if loss.span_us is None else max(0, after - loss.span_us)
+            after_counts = self._clock.unwrap(loss.after)
+            # The window is a span of counts: measured in counts, never below the origin
+            # (where nothing of the path can precede the loss), and only then scaled.
+            before = (
+                None
+                if loss.span_us is None
+                else self._scale.tick(max(0, after_counts - loss.span_us))
+            )
+            after = self._scale.tick(after_counts)
             if loss.ahead or highest is None:
                 tick_us = after
             else:
@@ -353,13 +376,13 @@ class Recorder:
         itself, so `B` ticks land on the same unwrapped timebase as `E` and `W`.
         """
         self._sink.write(
-            BarcodeEmitted(tick_us=self._clock.unwrap(tick), value=value)
+            BarcodeEmitted(tick_us=self._scale.tick(self._clock.unwrap(tick)), value=value)
         )
 
     def now(self) -> int:
         """The box clock now, unwrapped: the timebase every record lands on. A roll takes
         its boundary from here (wl_sync.cli)."""
-        return self._clock.now()
+        return self._scale.tick(self._clock.now())
 
     def delivered_through(self) -> dict[str, int | None]:
         """`backend.delivered_through()` on the box clock: for each capture path started, an
@@ -373,7 +396,7 @@ class Recorder:
         is behind.
         """
         return {
-            path: None if raw is None else self._clock.unwrap_reading(raw)
+            path: None if raw is None else self._scale.tick(self._clock.unwrap_reading(raw))
             for path, raw in self._backend.delivered_through().items()
         }
 

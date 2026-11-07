@@ -17,6 +17,12 @@ All the arithmetic is exact `Fraction`/int. A fit over nanosecond RAW values and
 counts near 2**32 loses bits in a float. The fit is centred on the window's first pair
 so the sums are of small ints and stay cheap; with exact arithmetic that does not
 affect exactness, only cost.
+
+P becomes SI microseconds once, where a tick becomes a record (spec §2.2): `TickScale`
+divides the unwrapped count by one rate r, fixed for the process. One affine map adds no
+curvature to the box's clock, so every interval keeps its P ratios and only the unit
+changes; a second conversion, or a rate that moved mid-run, would bend the clock between
+the records it separates. The identity until a calibration supplies r.
 """
 
 from __future__ import annotations
@@ -300,3 +306,22 @@ def match_lead_stamp(
         leftover=tuple(leftover),
         nearest=None if p is not None else nearest,
     )
+
+
+@dataclass(frozen=True)
+class TickScale:
+    """P counts -> SI microseconds, as integer arithmetic.
+
+    `rate_ppb` is r - 1 in parts per billion, where r is the PIO counts per SI us. Written
+    ticks are integers (plan Global Constraints), so `tick` rounds `counts / r` half up
+    with no float: `d = 10**9 + rate_ppb`, and (2 * counts * 10**9 + d) // (2 * d). It is
+    monotone, so it cannot reorder records."""
+
+    rate_ppb: int = 0
+
+    def tick(self, counts: int) -> int:
+        d = 10**9 + self.rate_ppb
+        return (2 * counts * 10**9 + d) // (2 * d)
+
+
+IDENTITY = TickScale(0)

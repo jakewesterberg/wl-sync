@@ -432,7 +432,7 @@ class Rp1Backend:
         )
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
         # capture machine, and raising here would: nothing above catches it
-        # (wl_sync/service.py:239, wl_sync/cli.py:504 and :1333-1343), so run() would
+        # (wl_sync/service.py:252, wl_sync/cli.py:504 and :1333-1343), so run() would
         # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
         # Recording without stamps is today's split behaviour; the log line is the
         # record that this run has none.
@@ -740,7 +740,7 @@ class Rp1Backend:
 
         In this half the stamp is only returned. The run loop still records `B` from the
         clock read before the frame (wl_sync/cli.py:787-790), and
-        `BarcodeGenerator.emit_frame` drops what this returns (wl_sync/service.py:66-67).
+        `BarcodeGenerator.emit_frame` drops what this returns (wl_sync/service.py:67-68).
         """
         import gpiod
         from gpiod.line import Direction, Value
