@@ -6,6 +6,7 @@ from wl_sync.pins import (
     EDGE_PINS,
     FRAME_TIME_GPIO,
     GPIO_MAP,
+    SPARE_PINS,
 )
 
 
@@ -36,7 +37,6 @@ def test_gpio_map_pins_every_name_to_its_exact_pin():
         **{f"evt_d{i}": i for i in range(16)},
         "evt_strobe": 16,
         "barcode_out": 17,
-        "barcode_loop": 19,
         "pd1_comp": 20,
         "pd2_comp": 21,
         "rwd_cmd": 22,
@@ -50,3 +50,8 @@ def test_gpio_map_pins_every_name_to_its_exact_pin():
 
 def test_gpio_map_has_no_duplicate_pins():
     assert len(set(GPIO_MAP.values())) == len(GPIO_MAP)
+
+
+def test_the_spare_pins_are_those_the_map_leaves_free():
+    assert SPARE_PINS == (18, 19)
+    assert set(SPARE_PINS).isdisjoint(GPIO_MAP.values())

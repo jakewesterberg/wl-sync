@@ -173,7 +173,7 @@ class _FakeShim:
 def lib(monkeypatch, gpiod):
     fake = _FakeShim()
     monkeypatch.setattr(rp1, "_load_shim", lambda: fake)
-    gpiod.shim = fake  # where the loopback's stamps land
+    gpiod.shim = fake  # where the stamp machine's stamps land
     return fake
 
 
@@ -237,36 +237,41 @@ def test_both_machines_start_disabled_and_are_enabled_together_after_the_origin(
         backend.close()
 
 
-def test_the_stamp_machine_takes_its_jmp_pin_from_gpio19_and_starts_at_the_entry(lib):
+def test_the_stamp_machine_reads_gpio17_itself_by_default_and_starts_at_the_entry(lib):
     backend = _started(lib, lambda tick, word: None)
     try:
-        assert lib.stamp_started_with["jmp_pin"] == 19
-        assert lib.stamp_started_with["claim_jmp_pin"] == 1
+        assert lib.stamp_started_with["jmp_pin"] == 17
+        assert lib.stamp_started_with["claim_jmp_pin"] == 0
         assert lib.stamp_started_with["entry"] == program.ENTRY
         assert lib.stamp_started_with["data_base"] == 0
     finally:
         backend.close()
 
 
-def test_a_stamp_machine_on_gpio17_leaves_the_pin_to_libgpiod(lib):
-    backend = Rp1Backend(stamp_pin=17)
+def test_a_spare_pin_is_claimed_for_the_bench_controls(lib):
+    backend = Rp1Backend(stamp_pin=19)
     backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
     try:
-        assert lib.stamp_started_with["jmp_pin"] == 17
-        assert lib.stamp_started_with["claim_jmp_pin"] == 0
+        assert lib.stamp_started_with["jmp_pin"] == 19
+        assert lib.stamp_started_with["claim_jmp_pin"] == 1
     finally:
         backend.close()
 
 
 def test_a_stamp_pin_that_is_not_an_int_is_refused(lib):
-    """19.0 == 19 would pass a membership test and fail later inside ctypes."""
+    """17.0 == 17 would pass a membership test and fail later inside ctypes."""
     with pytest.raises(ValueError):
-        Rp1Backend(stamp_pin=19.0)
+        Rp1Backend(stamp_pin=17.0)
 
 
-def test_a_stamp_pin_that_is_neither_the_loopback_nor_the_barcode_is_refused(lib):
-    with pytest.raises(ValueError):
-        Rp1Backend(stamp_pin=18)
+@pytest.mark.parametrize("pin", [16, 20])
+def test_a_pin_the_board_allocates_is_refused_as_a_stamp_pin(lib, pin):
+    """Claiming it would take it from its owner: the strobe, or an edge input."""
+    with pytest.raises(ValueError, match=(
+        rf"the stamp machine reads GPIO17 itself, or a spare pin \(GPIO18, GPIO19\) "
+        rf"for the bench controls, not GPIO{pin}"
+    )):
+        Rp1Backend(stamp_pin=pin)
 
 
 def test_a_stamp_machine_that_cannot_start_is_logged_and_capture_records_on(lib, caplog):
@@ -562,12 +567,15 @@ def crystals(monkeypatch, gpiod):
 def gpiod(monkeypatch):
     """A stand-in for the libgpiod v2 bindings that records every level set.
 
-    THE LOOPBACK. A rise on GPIO17 is stamped into the stamp machine's FIFO at the PIO
-    count, `clock.p_now()`, while `loopback` is True: a pair of a data word 0 and the
-    inverted count, as the program pushes it. `stamp_late_us` moves the stamp later than
-    the edge, and `stamped` lists each count pushed. `loopback` defaults to True; a test
-    that cuts the wire sets it False AFTER building the backend, because from Task 1.10a
-    on, construction tests the loopback. `set_cost_ns` makes each `set_value` take that
+    THE STAMP MACHINE'S VIEW. A rise on GPIO17 is stamped into the stamp machine's FIFO at
+    the PIO count, `clock.p_now()`, while `pio_sees_barcode` is True and the stamp machine's
+    jmp pin is 17 (`lib.stamp_started_with["jmp_pin"]`): a pair of a data word 0 and the
+    inverted count, as the program pushes it. The PIO reads the pin libgpiod drives, with
+    no wire (the box's c-direct, 300/300 lead edges stamped). `stamp_late_us` moves the
+    stamp later than the edge, and `stamped` lists each count pushed. A test that blinds
+    the machine sets `pio_sees_barcode` False AFTER building the backend, because from
+    Task 1.10a on, construction tests that the PIO sees GPIO17. `set_cost_ns` makes each
+    `set_value` take that
     long, with the edge at its middle."""
     import sys
     import types
@@ -591,7 +599,8 @@ def gpiod(monkeypatch):
                 module.clock.advance(half)
             rising = value == line.Value.ACTIVE and module.levels.get(pin) != value
             module.levels[pin] = value
-            if rising and pin == 17 and module.loopback and module.shim is not None:
+            if (rising and pin == 17 and module.pio_sees_barcode and module.shim is not None
+                    and (module.shim.stamp_started_with or {}).get("jmp_pin") == 17):
                 p = (module.clock.p_now() + module.stamp_late_us) & 0xFFFF_FFFF
                 module.stamped.append(p)
                 module.shim.push_stamps([0, (~p) & 0xFFFF_FFFF])
@@ -648,7 +657,7 @@ def gpiod(monkeypatch):
     module.Chip = Chip
     module.clock = _FakeTime()
     module.shim = None
-    module.loopback = True
+    module.pio_sees_barcode = True
     module.stamp_late_us = 0
     module.set_cost_ns = 0
     module.stamped = []
@@ -1464,7 +1473,7 @@ def test_the_data_lines_are_read_one_microsecond_after_the_strobe_is_seen():
 # The pump thread drains the stamp machine after the word machine, on every pass, so
 # piolib keeps one caller while capture runs. emit_pulses brackets each frame's lead edge
 # with clock reads, waits for the drain to pass the frame's end, and takes the stamp in
-# the bracket. These run on `_TwoCrystalClock`, with the gpiod fake's loopback stamping
+# the bracket. These run on `_TwoCrystalClock`, with the gpiod fake's PIO stamping
 # every rise on GPIO17 into SM 1's FIFO.
 
 
@@ -1501,7 +1510,7 @@ def test_the_b_of_a_frame_is_its_lead_edges_stamp(lib, gpiod, crystals):
         stamp = backend.emit_pulses(17, encode(214_507_817))
     finally:
         backend.close()
-    assert gpiod.stamped, "the loopback stamped nothing"
+    assert gpiod.stamped, "the stamp machine stamped nothing"
     assert stamp == FrameStamp(gpiod.stamped[0])
 
 
@@ -1511,7 +1520,7 @@ def test_a_frame_with_no_stamp_is_missed_as_not_stamped(lib, gpiod, crystals):
 
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
-    gpiod.loopback = False  # after construction: from Task 1.10a on, that tests the wire
+    gpiod.pio_sees_barcode = False  # after construction: from Task 1.10a on, that tests the PIO sees GPIO17
     try:
         began = clock.ns
         stamp = backend.emit_pulses(17, encode(1000))
@@ -1825,7 +1834,7 @@ def test_every_frame_leaves_its_bracket_width_stamped_or_not(lib, gpiod, crystal
     try:
         backend.emit_pulses(17, encode(1000))
         stamped = backend.last_frame
-        gpiod.loopback = False
+        gpiod.pio_sees_barcode = False
         clock.sleep(0.8)
         backend.emit_pulses(17, encode(1001))
         unstamped = backend.last_frame

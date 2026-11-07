@@ -72,7 +72,7 @@ found by the wl-phantom design's builder check)*. wl-preproc's `timebase/_syncbo
 finds the box's barcodes by decoding `Edge` records on `gpio_map["barcode_out"]`, which is the
 shape its `synth/syncbox.py:36-41` writes. The real box never captures that line:
 
-- GPIO17 is its own output, and its edge inputs are GPIO20–27 (`wl_sync/pins.py:44`).
+- GPIO17 is its own output, and its edge inputs are GPIO20–27 (`wl_sync/pins.py:40`).
 - It records each barcode it emits as a `B` record instead (`wl_sync/log.py:17-19`).
 
 So a real box log yields no barcodes through that function. The ask, in full: read the box's own

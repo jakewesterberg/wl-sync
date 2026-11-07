@@ -1,7 +1,7 @@
 """Bench checks. Not part of the recording path.
 
     python -m wl_sync.bench loopback <segment or day directory> [--gpio 20]
-    python -m wl_sync.bench stamps [--stamp-pin {17,19}] [--frames N] [--gpiochip PATH]
+    python -m wl_sync.bench stamps [--stamp-pin {17,18,19}] [--frames N] [--gpiochip PATH]
 
 THE LOOPBACK. With the barcode output jumpered to an edge input, every frame the box
 emits lands in its own segment twice: as the `B` record it logged, and as the edges it
@@ -38,13 +38,13 @@ from wl_sync.barcode import INTERVAL_US, decode_edges, encode
 from wl_sync.clockmap import LEAD_STAMP_TOLERANCE
 from wl_sync.log import BarcodeEmitted, Edge, read_log
 from wl_sync.pins import (
-    BARCODE_LOOP_PIN,
     BARCODE_PIN,
     CODE_DATA_BASE,
     CODE_DATA_COUNT,
     CODE_STROBE_PIN,
     EDGE_PINS,
     GPIO_MAP,
+    SPARE_PINS,
 )
 from wl_sync.segment import SEGMENT_PATTERN, segment_index_of
 
@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:831-839),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:836-844),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -356,10 +356,9 @@ def main(argv: list[str] | None = None) -> int:
         "stamps", help="the box's own barcode, stamped by its stamp machine, live"
     )
     stamps.add_argument(
-        "--stamp-pin", type=int, choices=(BARCODE_PIN, BARCODE_LOOP_PIN),
-        default=BARCODE_LOOP_PIN,
-        help=f"GPIO{BARCODE_LOOP_PIN}, the loopback, or GPIO{BARCODE_PIN} itself "
-             "(bench B4)",
+        "--stamp-pin", type=int, choices=(BARCODE_PIN, *SPARE_PINS), default=BARCODE_PIN,
+        help=f"GPIO{BARCODE_PIN} itself, or a spare pin, unwired, as a control "
+             "(an unwired pin must stamp nothing)",
     )
     stamps.add_argument("--frames", type=int, default=60, help="one a second")
     stamps.add_argument("--gpiochip", default="/dev/gpiochip0",

@@ -8,6 +8,8 @@ the barcode output that no fake can stand in for, because the pin is the thing t
 
 import datetime
 
+import pytest
+
 from wl_sync.barcode import encode
 from wl_sync.log import BarcodeEmitted, Edge, SyncBoxLogHeader, write_log
 from wl_sync.pins import GPIO_MAP
@@ -306,9 +308,18 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
 
     stamping = False
     assert bench.main(["stamps"]) == 1
-    assert built[1].kwargs == {"chip_path": "/dev/gpiochip0", "stamp_pin": 19}
+    assert built[1].kwargs == {"chip_path": "/dev/gpiochip0", "stamp_pin": 17}
     assert built[1].closed
     assert "FAIL" in capsys.readouterr().out
+
+    assert bench.main(["stamps", "--stamp-pin", "19", "--frames", "1"]) == 1
+    assert built[2].kwargs == {"chip_path": "/dev/gpiochip0", "stamp_pin": 19}
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as refused:
+        bench.main(["stamps", "--stamp-pin", "20"])
+    assert refused.value.code == 2
+    assert len(built) == 3
+    capsys.readouterr()
 
 
 def test_a_short_run_reports_no_tail_beyond_its_widest_bracket():

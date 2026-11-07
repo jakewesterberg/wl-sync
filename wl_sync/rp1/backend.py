@@ -49,7 +49,7 @@ from wl_sync.backend import (
 from wl_sync.clockmap import (
     LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP, match_lead_stamp, unwrap_near,
 )
-from wl_sync.pins import BARCODE_LOOP_PIN, BARCODE_PIN, GPIO_MAP
+from wl_sync.pins import BARCODE_PIN, GPIO_MAP, SPARE_PINS
 from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import StampPump, WordPump
@@ -323,14 +323,19 @@ class Rp1Backend:
         self,
         pio_index: int = 0,
         chip_path: str = "/dev/gpiochip0",
-        stamp_pin: int = BARCODE_LOOP_PIN,
+        stamp_pin: int = BARCODE_PIN,
     ) -> None:
-        # The stamp machine reads the barcode through the loopback, or, for bench B4's
-        # c-direct case, GPIO17 itself. Anything else would stamp nothing.
-        if type(stamp_pin) is not int or stamp_pin not in (BARCODE_LOOP_PIN, BARCODE_PIN):
+        # The stamp machine reads GPIO17 itself and leaves it to libgpiod, which drives
+        # it (c-direct). A spare pin, claimed, is for the bench controls: an unwired pin
+        # stamps nothing, so a miss is a miss on silicon. Any other pin is allocated, and
+        # claiming it would take it from its owner.
+        if type(stamp_pin) is not int or (
+            stamp_pin != BARCODE_PIN and stamp_pin not in SPARE_PINS
+        ):
             raise ValueError(
-                f"the stamp machine reads GPIO{BARCODE_LOOP_PIN} (the loopback) or "
-                f"GPIO{BARCODE_PIN} (the barcode itself), not GPIO{stamp_pin}"
+                f"the stamp machine reads GPIO{BARCODE_PIN} itself, or a spare pin "
+                f"({', '.join(f'GPIO{p}' for p in SPARE_PINS)}) for the bench controls, "
+                f"not GPIO{stamp_pin}"
             )
         self._stamp_pin = stamp_pin
         # Which chardev carries RP1's bank has moved between releases (gpiochip4 on a
