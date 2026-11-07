@@ -309,10 +309,10 @@ def match_lead_stamp(
     itself, so a frame that lost its lead would have a later edge taken for it.
 
     AN ALIGNMENT MORE THAN `reach` FROM THE BRACKET IS REFUSED (Ruling R28): IDLE_MIN_US,
-    0.4 s, which puts its lead nearer another frame's slot than its own, one a second
-    (wl_sync/barcode.py:35-37). It never competes, so a frame before's whole pattern,
-    drained late, cannot outrank this frame's own one rise short. Refused, it leaves no
-    lead, and only its distance in `nearest`.
+    0.4 s: a lead that far before its bracket lies nearer the frame before's slot than
+    its own, one a second (wl_sync/barcode.py:35-37). It never competes, so a frame
+    before's whole pattern, drained late, cannot outrank this frame's own one rise
+    short. Refused, it leaves no lead, and only its distance in `nearest`.
 
     WHY NOT THE WINDOW ALONE. Every rise after the lead comes at least 20 ms after it
     (wl_sync/barcode.py:5-7), so while the map is within the window, no later edge can
@@ -321,9 +321,12 @@ def match_lead_stamp(
     fit anchored there. Aligned, the lead is the stamp the whole frame vouches for: with
     no stray stamp among them, and none carried from the frame before (which the backend
     keeps out, Ruling R28), no other stamp can become B, or anchor the fit through R19's
-    restart. With strays, two faults together can still pass: a stray within 1 ms of a
-    lead that went unstamped, as any +-1 ms window allows, or one within the jitter of a
-    lead that was stamped.
+    restart. One fresh source remains: a frame before that a drain which gave up at
+    STAMP_DRAIN_WAIT_S delivers late. With the line 0.6-1 s behind, its pattern lies in
+    reach, and three such stalls in a row could restart the fit on it; on silicon the
+    4-stamp FIFO and its held full flag narrow that further. With strays, two faults
+    together can still pass: a stray within 1 ms of a lead that went unstamped, as any
+    +-1 ms window allows, or one within the jitter of a lead that was stamped.
 
     A LEAD OUTSIDE THE WINDOW leaves `p` None and its distance in `nearest`: the frame is
     shifted, and its B is dropped (wl_sync/rp1/backend.py, `_reacquire`). With no

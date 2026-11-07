@@ -868,7 +868,7 @@ def run(
                 # Stamps before the frame's lead, or before its window when its rises
                 # align on no lead (wl_sync/clockmap.py:270-272). A drain that gave up on
                 # the frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-                # (wl_sync/rp1/backend.py:1016-1023). A fit that has drifted leaves them
+                # (wl_sync/rp1/backend.py:1018-1025). A fit that has drifted leaves them
                 # too, the frame's own when its rises align on none. And GPIO17 is this
                 # process's own output (wl_sync/rp1/backend.py:359-360), so anything else
                 # is a fault on the line.

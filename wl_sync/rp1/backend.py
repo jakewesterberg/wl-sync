@@ -991,8 +991,10 @@ class Rp1Backend:
         THE STAMPS CARRIED FROM THE FRAME BEFORE ARE NEVER THIS FRAME'S (Ruling R28). The
         frame before's match took them, past its end, before this frame was driven. They
         are stamps between, and only the fresh ones are aligned. Aligned, a line more than
-        a frame behind P put every frame's whole stamp set into the next, whose rises
-        matched it: the fit restarted 0.8 s off, and every B after was a frame early.
+        a frame's length (200 ms) behind P put every frame's whole stamp set into the next,
+        whose rises matched it: the fit restarted 0.8 s off, and every B after was a frame
+        early. A frame before that a stalled drain delivers late still arrives fresh; that
+        residual is in match_lead_stamp's docstring (wl_sync/clockmap.py).
         """
         if bracket is None:  # no rise at all, so nothing for a stamp to be of
             self.last_frame = None
