@@ -101,10 +101,11 @@ idle:                           ; ENTRY = offset + 11
 ; that saw it, so the count is latched 3.0-4.0 ticks after the edge. The lag is
 ; not constant to the tick but is bounded, and its mean (3.5) is a host-side
 ; subtraction; the 1 µs spread is a jitter term inside the ±100 µs budget.
-; (tests/test_rp1_program.py:159, test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
+; (tests/test_rp1_program.py:159,
+; test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
 ;
 ; THE DATA HOLD. `in pins` runs 2 cycles after that `jmp pin`: the data lines are
-; read 1.0-2.0 µs after the strobe rises (wl_sync/rp1/backend.py:55,
+; read 1.0-2.0 µs after the strobe rises (wl_sync/rp1/backend.py:57,
 ; DATA_SAMPLE_DELAY_US), and the task PC must hold the code word at least 2.5 µs
 ; after raising the strobe. The read ends before 2.0 µs at the box's pins; the extra
 ; 0.5 µs covers skew between the strobe and data paths: the generator's channels, the
@@ -114,10 +115,10 @@ idle:                           ; ENTRY = offset + 11
 ;
 ; STROBE LIMITS. High for at least 1 µs (two cycles), so a test lands in it; low
 ; for at least 1 µs, so a test lands in it (a 1-cycle low between tests is
-; invisible and does not split a strobe; a 2-cycle low always does); and rising at least 6 µs after the
-; previous strobe, or the two merge. tests/test_rp1_program.py: the burst test :136,
-; the merge test :142, a low between samples :175, a low on a sample :182,
-; a 2-cycle low at either phase :187.
+; invisible and does not split a strobe; a 2-cycle low always does); and rising
+; at least 6 µs after the previous strobe, or the two merge.
+; tests/test_rp1_program.py: the burst test :136, the merge test :142, a low
+; between samples :176, a low on a sample :183, a 2-cycle low at either phase :191.
 ;
 ; UNVERIFIED — check these first on bench day, in this order:
 ;   1. Each instruction is one cycle whether or not it jumps; at X = 0 every

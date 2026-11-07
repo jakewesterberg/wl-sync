@@ -51,8 +51,9 @@ from wl_sync.rp1.pio_capture import WordPump
 _TICK_HZ = 1_000_000
 _CYCLES_PER_TICK = 2
 
-# How long after the program sees a strobe it reads the data lines. The task PC must hold
-# the code word that long (start_strobed_capture).
+# How long after the program sees a strobe it reads the data lines. What the task PC must
+# hold, and for how long after raising the strobe, is start_strobed_capture's contract
+# (wl_sync/rp1/backend.py:305).
 DATA_SAMPLE_DELAY_US = program.DATA_SAMPLE_CYCLES / _CYCLES_PER_TICK * 1_000_000 / _TICK_HZ
 
 # How long before a deadline to stop sleeping and spin. time.sleep overshoots by
@@ -309,7 +310,7 @@ class Rp1Backend:
         skew between the strobe and data paths (the generator's channels, the wiring, the
         input synchroniser). A strobe must be high for at least 1 us and low for at least
         1 us, and must rise at least 6 us after the previous one; closer strobes merge
-        (tests/test_rp1_program.py:136, :142, :175, :182 and :187).
+        (tests/test_rp1_program.py:136, :142, :176, :183 and :191).
         """
         lib = self._lib
         if strobe_pin != data_base + data_count:

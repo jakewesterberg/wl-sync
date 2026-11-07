@@ -157,9 +157,10 @@ def test_a_one_cycle_strobe_is_seen_only_on_a_sampling_cycle():
 @pytest.mark.parametrize("fraction", [0.1, 0.25, 0.5, 0.75, 0.99])
 @pytest.mark.parametrize("whole", [20, 21, 40, 41, 100])
 def test_an_edge_at_any_instant_is_timed_within_the_documented_bounds(whole, fraction):
-    """A real strobe rises at any instant but is tested every 2 cycles, so it is seen up
-    to 1 us late: the data is read 1.0-2.0 us after the rise, the count is latched
-    3.0-4.0 ticks after it, and the pair is in the FIFO within 11 cycles (5.5 us)."""
+    """Coverage: pins the program's timing for a rise at any instant. A real strobe is
+    tested every 2 cycles, so it is seen up to 1 us late: the data is read 1.0-2.0 us
+    after the rise, the count is latched 3.0-4.0 ticks after it, and the pair is in the
+    FIFO within 11 cycles (5.5 us)."""
     rise = whole + fraction
     result, _ = _capture([(rise, rise + 4)], data=lambda cycle: cycle & 0xFFFF, cycles=300)
     assert len(result.pushes) == 2
@@ -173,20 +174,23 @@ def test_an_edge_at_any_instant_is_timed_within_the_documented_bounds(whole, fra
 
 
 def test_a_low_between_samples_does_not_split_a_strobe():
-    """The strobe is tested every 2 cycles, so a 1-cycle (0.5 us) low that no test falls
-    in is invisible: one capture, not two."""
+    """Coverage: pins that the strobe is tested every 2 cycles, so a 1-cycle (0.5 us) low
+    that no test falls in is invisible: one capture, not two."""
     result, _ = _capture([(10, 21), (22, 30)], cycles=100)
     assert len(result.pushes) == 2
 
 
 def test_a_low_on_a_sampling_cycle_splits_a_strobe_in_two():
+    """Coverage: pins the counterpart: a 1-cycle low that a test falls in splits the
+    strobe, so each half is captured."""
     result, _ = _capture([(10, 20), (21, 30)], cycles=100)
     assert len(result.pushes) == 4
 
 
 @pytest.mark.parametrize("phase", [0, 1])
 def test_a_two_cycle_low_splits_a_strobe_in_two_at_either_phase(phase):
-    """Pins the limit "low at least 1 us": a 2-cycle low always holds a sampling cycle."""
+    """Coverage: pins the limit "low at least 1 us": a 2-cycle low always holds a
+    sampling cycle."""
     result, _ = _capture([(10, 20 + phase), (22 + phase, 32)], cycles=100)
     assert len(result.pushes) == 4
 
