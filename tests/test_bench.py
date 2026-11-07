@@ -10,7 +10,7 @@ import datetime
 
 import pytest
 
-from wl_sync.barcode import encode
+from wl_sync.barcode import encode, rises_us
 from wl_sync.log import BarcodeEmitted, Edge, SyncBoxLogHeader, write_log
 from wl_sync.pins import GPIO_MAP
 
@@ -119,17 +119,6 @@ def test_the_command_line_exits_nonzero_on_a_failed_loopback(tmp_path, capsys):
 # the match and bracket width it leaves in `last_frame`.
 
 
-def _rising_edges(pulses):
-    """The frame's rising edges on a line that starts LOW, as the stamp machine sees it:
-    consecutive set bits are one HIGH, so one edge."""
-    edges, level = 0, 0
-    for pulse_level, _ in pulses:
-        if pulse_level and not level:
-            edges += 1
-        level = pulse_level
-    return edges
-
-
 class _ScriptedBackend:
     """`emit_pulses`, `last_frame` and `take_pairs`, as Rp1Backend has them, scripted."""
 
@@ -156,7 +145,7 @@ def _whole(value, k, width_ns=30_000, between=0, short=0):
     from wl_sync.rp1.backend import FrameTrace
 
     p = 1_000_000 * (k + 1)
-    consumed = _rising_edges(encode(value)) - 1 - short
+    consumed = len(rises_us(encode(value))) - 1 - short
     lead = LeadStamp(p=p, between=between, consumed=consumed, leftover=(), nearest=None)
     return FrameStamp(p, between=between), FrameTrace(lead, width_ns)
 
@@ -184,7 +173,7 @@ def test_a_stamp_run_counts_lead_edges_later_edges_and_widths():
     assert report.passed, report.summary()
     assert report.frames == 3 and report.stamped == 3
     assert report.missed == {} and report.edges_short == 0 and report.between == 0
-    assert report.stamps_seen == sum(_rising_edges(encode(v)) for v in values)
+    assert report.stamps_seen == sum(len(rises_us(encode(v))) for v in values)
     assert report.widths_ns == [30_000, 31_000, 32_000]
     assert "p99.9" in report.summary()
     assert backend.emitted == [(BARCODE_PIN, encode(v)) for v in values]
@@ -229,7 +218,7 @@ def test_stamps_between_frames_fail_the_run():
 
     assert report.stamped == 3 and report.edges_short == 0
     assert report.between == 2
-    assert report.stamps_seen == sum(_rising_edges(encode(v)) for v in values) + 2
+    assert report.stamps_seen == sum(len(rises_us(encode(v))) for v in values) + 2
     assert not report.passed
 
 
@@ -276,7 +265,7 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
                 stamp, self.last_frame = _unstamped()
                 return stamp
             p = 1_000_000 * len(self.emitted)
-            lead = LeadStamp(p, 0, _rising_edges(pulses) - 1, (), None)
+            lead = LeadStamp(p, 0, len(rises_us(pulses)) - 1, (), None)
             self.last_frame = FrameTrace(lead, 30_000)
             return FrameStamp(p)
 
@@ -401,7 +390,7 @@ def test_a_sigterm_ends_the_stamps_command_closed_and_summarised(monkeypatch, ca
             self.emitted += 1
             if self.emitted == 3:
                 signal.raise_signal(signal.SIGTERM)  # pkill, mid-frame
-            lead = LeadStamp(self.emitted, 0, _rising_edges(pulses) - 1, (), None)
+            lead = LeadStamp(self.emitted, 0, len(rises_us(pulses)) - 1, (), None)
             self.last_frame = FrameTrace(lead, 30_000)
             return FrameStamp(self.emitted)
 

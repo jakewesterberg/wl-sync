@@ -3959,7 +3959,7 @@ def test_the_rate_never_changes_within_a_process(tmp_path, monkeypatch):
 def test_the_pairs_are_taken_every_frame_where_no_keeper_runs(tmp_path):
     """A backend that scales nothing runs no keeper, but the loop still takes its pairs
     each frame: the RP1 backend holds every pair until it is taken
-    (wl_sync/rp1/backend.py:411-413), and left there they would pile up, one a second,
+    (wl_sync/rp1/backend.py:403-405), and left there they would pile up, one a second,
     for the life of the process."""
 
     class _CountsTakes(FakeBackend):

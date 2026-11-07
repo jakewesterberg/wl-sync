@@ -8,6 +8,7 @@ from wl_sync.barcode import (
     decode_edges,
     edges_from_samples,
     encode,
+    rises_us,
 )
 
 
@@ -26,6 +27,16 @@ def emit(values, first_start_us=INTERVAL_US):
     for index, value in enumerate(values):
         edges.extend(pulses_to_edges(encode(value), first_start_us + index * INTERVAL_US))
     return edges
+
+
+def test_a_frames_rises_are_where_its_high_runs_begin():
+    """One per run of HIGH, from a line LOW before the frame: the edges the stamp machine
+    stamps, at their places in the frame (LEAD, the data, TRAIL)."""
+    assert rises_us(encode(0)) == [0, 190_000]
+    assert rises_us(encode(0x8000_0001)) == [0, 20_000, 175_000, 190_000]
+    assert rises_us(encode(0xC000_0000)) == [0, 20_000, 190_000]  # two set bits, one rise
+    assert len(rises_us(encode(0x5555_5555))) == 18  # alternate bits: each its own
+    assert rises_us([(0, 5), (1, 3), (1, 2), (0, 1), (1, 1)]) == [5, 11]
 
 
 def test_frame_is_exactly_200_ms():

@@ -105,7 +105,7 @@ idle:                           ; ENTRY = offset + 11
 ; test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
 ;
 ; THE DATA HOLD. `in pins` runs 2 cycles after that `jmp pin`: the data lines are
-; read 1.0-2.0 µs after the strobe rises (wl_sync/rp1/backend.py:67,
+; read 1.0-2.0 µs after the strobe rises (wl_sync/rp1/backend.py:68,
 ; DATA_SAMPLE_DELAY_US), and the task PC must hold the code word at least 2.5 µs
 ; after raising the strobe. The read ends before 2.0 µs at the box's pins; the extra
 ; 0.5 µs covers skew between the strobe and data paths: the generator's channels, the

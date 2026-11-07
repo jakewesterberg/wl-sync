@@ -115,6 +115,23 @@ def test_a_failing_word_consumer_stops_the_pump_and_is_held():
     assert isinstance(pump.error, OSError)
 
 
+def test_a_word_pumps_held_error_is_taken_once_and_a_failure_is_held_over_it():
+    """`take_error` is check_health's, as the edge and stamp pumps' are: the error held,
+    cleared, so each is reported once. `fail` holds a failure over what was held, as
+    `handle` does for each of its own, and is how the backend holds a drain that raised."""
+    from wl_sync.rp1.pio_capture import WordPump, WordsDroppedError
+
+    pump = WordPump(on_word=lambda t, w: None, data_count=DATA)
+    assert pump.take_error() is None
+    assert pump.handle(stream((10, 1)), fifo_was_full=True) is True
+    assert isinstance(pump.take_error(), WordsDroppedError)
+    assert pump.take_error() is None
+    assert pump.handle(stream((10, 1)), fifo_was_full=True) is True
+    pump.fail(OSError("EIO"))
+    assert isinstance(pump.take_error(), OSError)
+    assert pump.error is None
+
+
 # --- The stamp machine's pump (Task 1.10) -------------------------------------------------
 #
 # The stamp machine runs the capture program with GPIO0-15 as its data window, so its

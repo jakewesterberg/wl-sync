@@ -95,9 +95,16 @@ class WordsDroppedError(RuntimeError):
 # and `polled_at` is now_us(), the RAW->P fit's estimate of P, so the lag must also cover
 # how far ahead of P the estimate runs. The spec widens it for the warm-up error, tens of
 # us before the first pairs, and finds 1 ms costs a roll nothing measurable (spec §2.4,
-# docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). 1 ms also covers the
-# estimate while lead edges still match, since a match needs the map within
-# LEAD_STAMP_TOLERANCE of the stamp (wl_sync/clockmap.py:47-51).
+# docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). It covers an estimate
+# up to a little under 1 ms ahead of P: the lag, less the 5.5 us above. Lead edges that
+# still match keep it there, since a match needs the map within LEAD_STAMP_TOLERANCE of
+# the stamp (wl_sync/clockmap.py:47-51).
+#
+# IT DOES NOT COVER LOST LEAD EDGES. While the fit has lost them, until R19's restart
+# finds them again (wl_sync/rp1/backend.py, `_reacquire`) or for good where it cannot,
+# the estimate can run further ahead of P than that. A mark can then claim words whose
+# ticks lie at or before it while they are still in the FIFO, so a roll can close a
+# segment ahead of them, and they land in the next.
 #
 # In a split process `polled_at` is MONO us since the origin, as it was at 10, and
 # "before" is on that clock (`WordPump.handle`). 1_000 is a larger lag than it needs
@@ -146,8 +153,23 @@ class WordPump:
         self._on_word = on_word
         self._on_loss = on_loss
         self._data_count = data_count
+        # The held error, written on the pump's thread and taken on the run loop's
+        # (`take_error`): both under `_held`, so a take cannot clear one held between its
+        # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:845-855).
+        self._held = threading.Lock()
         self.error: BaseException | None = None
         self.delivered_through: int | None = None
+
+    def fail(self, error: BaseException) -> None:
+        """Hold `error`, over anything held: the latest failure is the one to report."""
+        with self._held:
+            self.error = error
+
+    def take_error(self) -> BaseException | None:
+        """The error held, cleared: check_health reports each one once."""
+        with self._held:
+            error, self.error = self.error, None
+        return error
 
     def handle(
         self,
@@ -166,29 +188,31 @@ class WordPump:
         how long the shim takes to read the level.
 
         "Before" is on the box clock, where the reading is from, not by the words' own
-        ticks: those count the RP1 crystal, which drifts from the box clock over a run.
+        ticks, which count P. In a split process the box clock is MONO, which P drifts
+        from over a run; on one count it is the fit's estimate of P, which differs from P
+        by the estimate's error (WORDS_LAG_US says how much of that the lag covers).
         A batch that fails moves nothing.
         """
         if fifo_was_full:
-            self.error = WordsDroppedError(
+            self.fail(WordsDroppedError(
                 "the PIO RX FIFO was full when drained: event codes may have been lost"
-            )  # recorded, and we keep going
+            ))  # recorded, and we keep going
         try:
             events = pair_fifo(entries, self._data_count)
         except DesyncError as error:
-            self.error = error
+            self.fail(error)
             if self._on_loss is not None:
                 strobes = (len(entries) + 1) // 2
                 try:
                     self._on_loss(CaptureLoss("desync", strobes, "at_least"))
                 except BaseException as failure:  # noqa: BLE001 - check_health's
-                    self.error = failure  # a failing consumer, the desync its context
+                    self.fail(failure)  # a failing consumer, the desync its context
             return False
         for tick, word in events:
             try:
                 self._on_word(tick, word)
             except BaseException as error:  # noqa: BLE001 - surfaced by check_health
-                self.error = error
+                self.fail(error)
                 return False
         if polled_at is not None:
             self.delivered_through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF

@@ -47,6 +47,7 @@ from wl_sync.backend import (
     STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_STOPPED,
     CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
 )
+from wl_sync.barcode import rises_us
 from wl_sync.calibration import Calibration
 from wl_sync.clockmap import (
     BRACKET_WIDTH_MAX_NS, IDENTITY, LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp, RawToP,
@@ -315,17 +316,6 @@ class _Bracket(NamedTuple):
         return self.raw_after_ns - self.raw_before_ns
 
 
-def _rising_edges(pulses: Sequence[tuple[int, int]]) -> int:
-    """A frame's rising edges, on a line that starts LOW, as every frame leaves it
-    (`Rp1Backend._drive`): a run of set levels is one rise."""
-    rises, level = 0, 0
-    for pulse_level, _ in pulses:
-        if pulse_level and not level:
-            rises += 1
-        level = pulse_level
-    return rises
-
-
 class Rp1Backend:
     """`SyncBackend` on RP1 PIO. A state machine for strobed capture, and a second on the
     same program that stamps the barcode output.
@@ -403,6 +393,8 @@ class Rp1Backend:
         self._split = False
         self._split_reason: str | None = None
         self._started = False
+        # Set by `apply_calibration`: the scale it returned has left the backend.
+        self._calibrated = False
         # RAW -> P (wl_sync.clockmap.RawToP), made at the sync enable. None before it, so
         # no provisional fit exists to be captured by mistake.
         self._fit: RawToP | None = None
@@ -453,14 +445,24 @@ class Rp1Backend:
     def _fall_back_to_split(self, reason: str) -> None:
         """Put this process in split mode: the capture machine alone, B and now_us() on
         MONO since the origin, and no calibration (`apply_calibration`). Task 1.10a calls
-        it at construction, when the stamp machine fails its start-up test, so before the
-        run loop applies a calibration; it journals `reason` itself, and this logs
-        nothing. Refused once a capture path has started, because the mode is the whole
-        process's: a path started on one count already reads its clock."""
+        it at construction, when the stamp machine fails its start-up test; it journals
+        `reason` itself, and this logs nothing.
+
+        Refused once a capture path has started, because the mode is the whole process's:
+        a path started on one count already reads its clock. Refused too once
+        `apply_calibration` has run, because the run loop holds the scale it returned: it
+        keeps a rate keeper because there is one (wl_sync/cli.py:516-546) and scales
+        every record by it (:580), where a split process's is None. The backend cannot
+        take it back."""
         if self._started:
             raise RuntimeError(
                 "a process falls back to the split clock before capture starts, not after: "
                 "a capture path is already running on one count"
+            )
+        if self._calibrated:
+            raise RuntimeError(
+                "a process falls back to the split clock before a calibration is applied, "
+                "not after: the run loop already holds the scale it was given"
             )
         self._split = True
         self._split_reason = reason
@@ -673,13 +675,14 @@ class Rp1Backend:
         except BaseException as error:  # noqa: BLE001 - surfaced by check_health
             # Neither drain lets its failure out (`_pump_codes`, `_pump_stamps`), so this
             # is the loop's own. The thread ends, and both paths are reported stopped.
-            self._words.error = error
+            self._words.fail(error)
 
     def _pump_codes(self) -> None:
         """One word drain, unless it has stopped. A False return, a desync's or a failing
         consumer's, has already held its error in the word pump (`WordPump.handle`); a
         drain that raises is held here. Either way the word drain stops, and alone. The
-        error is held before the stop is set, so no check sees the stop without its cause.
+        error is held before the stop is set, and check_health reads the stop before it
+        takes the error, so no call reports the stop before its cause.
         """
         if self._word_drain_stopped.is_set():
             return
@@ -687,7 +690,7 @@ class Rp1Backend:
             if self.drain():
                 return
         except BaseException as error:  # noqa: BLE001 - surfaced by check_health
-            self._words.error = error
+            self._words.fail(error)
         self._word_drain_stopped.set()
 
     def _pump_stamps(self) -> None:
@@ -823,14 +826,27 @@ class Rp1Backend:
         # answered every later call, and the event codes behind it were never looked at
         # again. A held error is reported once and cleared; a dead thread stays dead and
         # is reported on every call, and the run loop collapses that into one episode.
+        #
+        # THE STOPS ARE READ BEFORE THE ERRORS ARE TAKEN. Every path holds its cause
+        # before it stops: the word drain (`_pump_codes`), the stamp pump with its stop
+        # (`StampPump.stop`), the edge thread before it ends (`EdgePump.fail`, `abandon`).
+        # So a stop read here has its cause held already, and a call never reports a stop
+        # whose cause comes a call later.
+        thread, stop = self._edge_thread, self._edge_stop
+        edges_stopped = thread is not None and not thread.is_alive() and not stop.is_set()
+        # The word drain stops alone (Ruling R16), so its thread may still be draining
+        # stamps.
+        stop = self._word_stop
+        running = stop is not None and not stop.is_set()
+        words_stopped = running and self._words_stopped()
+        stamps_stopped = running and self._stamps_stopped()
         problems: list[tuple[str, str]] = []
         held = []
         taken = []
         if self._pump is not None:  # under the pump's lock: see EdgePump
             taken.append(("edge capture", self._pump.take_error()))
-        if self._words is not None:
-            error, self._words.error = self._words.error, None
-            taken.append(("event-code capture", error))
+        if self._words is not None:  # under the word pump's lock: see WordPump
+            taken.append(("event-code capture", self._words.take_error()))
         # No stamp pump, no stamp path: a stamp machine that never started was logged
         # once by start_strobed_capture, and each frame's FrameStamp says so again.
         if self._stamp_pump is not None:  # under the stamp pump's lock: see StampPump
@@ -839,21 +855,18 @@ class Rp1Backend:
             if error is not None:
                 held.append(error)
                 problems.append((f"{path}: {type(error).__name__}", f"{path}: {error}"))
-        thread, stop = self._edge_thread, self._edge_stop
-        if thread is not None and not thread.is_alive() and not stop.is_set():
+        if edges_stopped:
             problems.append(
                 ("edge capture: stopped", "the edge capture thread stopped unexpectedly")
             )
-        # The word drain stops alone (Ruling R16), so its thread may still be draining
-        # stamps. The kind is the one a dead word thread had, so the run loop's episodes
-        # are as they were (wl_sync/cli.py:1217-1247).
-        stop = self._word_stop
-        if self._word_thread is not None and self._words_stopped() and not stop.is_set():
+        # The kind is the one a dead word thread had, so the run loop's episodes are as
+        # they were (wl_sync/cli.py:1217-1247).
+        if words_stopped:
             problems.append((
                 "event-code capture: stopped",
                 "event-code capture stopped: no later code word can be recorded",
             ))
-        if self._stamps_stopped() and stop is not None and not stop.is_set():
+        if stamps_stopped:
             problems.append((
                 "barcode stamping: stopped",
                 "barcode stamping stopped: no later frame's lead edge can be stamped",
@@ -894,7 +907,7 @@ class Rp1Backend:
             self._drive(pin, pulses, bracket_lead=False)
             return FrameStamp(tick)
         bracket, end_ns = self._drive(pin, pulses, bracket_lead=True)
-        return self._lead_stamp(bracket, end_ns, _rising_edges(pulses))
+        return self._lead_stamp(bracket, end_ns, rises_us(pulses))
 
     def _drive(
         self, pin: int, pulses: Sequence[tuple[int, int]], bracket_lead: bool
@@ -950,9 +963,11 @@ class Rp1Backend:
             realtime - mono_before, mono_before, raw_before, raw_after, mono_after
         )
 
-    def _lead_stamp(self, bracket: _Bracket | None, end_ns: int, rises: int) -> FrameStamp:
+    def _lead_stamp(
+        self, bracket: _Bracket | None, end_ns: int, rises: Sequence[int]
+    ) -> FrameStamp:
         """Spec §2.5 steps 1-5, for the frame just driven: `bracket` its lead edge's
-        readings, `end_ns` its end on MONO, `rises` its rising edges
+        readings, `end_ns` its end on MONO, `rises` where its rising edges begin
         (docs/superpowers/specs/2026-10-30-one-clock-design.md:386-393).
 
         The frame's end, read as RAW now, and the bracket are mapped to P through the
@@ -1022,7 +1037,7 @@ class Rp1Backend:
 
     def _reacquire(
         self, fit: RawToP, bracket: _Bracket, stamps: Sequence[int], found: LeadStamp,
-        end: int, rises: int,
+        end: int, rises: Sequence[int],
     ) -> None:
         """Ruling R19: restart the fit at the last of REACQUIRE_FRAMES shifted frames in a
         row, each offset within LEAD_STAMP_TOLERANCE of the one before (the plan's rule,
@@ -1036,20 +1051,31 @@ class Rp1Backend:
         fitted over 120, so the restart applies at any count.
 
         A SHIFTED FRAME has no stamp in its window, a narrow bracket, at least one stamp
-        up to its end, and exactly as many stamps up to its end as it has rising edges.
-        Its first stamp is then its lead edge: nothing else drives GPIO17 between frames
-        (spec §2.5 step 4, docs/superpowers/specs/2026-10-30-one-clock-design.md:398-399),
-        and under c-direct GPIO17 is this process's own output. Its offset is that stamp
-        less its bracket's midpoint, both on P.
+        up to its end, exactly as many stamps up to its end as it has rising edges, and
+        those stamps follow its own rises (Ruling R24): each lies within
+        LEAD_STAMP_TOLERANCE of its rise's place in `rises`, `wl_sync.barcode.rises_us`
+        of the frame's pulses, measured from the first stamp and the first rise. Its first
+        stamp is then its lead edge: nothing else drives GPIO17 between frames (spec §2.5
+        step 4, docs/superpowers/specs/2026-10-30-one-clock-design.md:398-399), and under
+        c-direct GPIO17 is this process's own output. Its offset is that stamp less its
+        bracket's midpoint, both on P.
 
         A FRAME WHOSE LEAD EDGE ALONE WENT UNSTAMPED IS NEVER SHIFTED. It has one stamp
         fewer than its rising edges, and its first is its second rise, at least 20 ms
         after the lead (wl_sync/barcode.py:5-7): taken for the lead, B would be that far
         off.
 
-        NOT RECOVERED: stamps more than about 10 ms after the line. TRAIL's rise, the
-        frame's last, is high for 10 ms before the end (wl_sync/barcode.py:3-9), so it
-        lands past the mapped end, and no frame is shifted by the count.
+        NOR IS A FRAME THAT BEGINS WITH THE FRAME BEFORE'S TRAIL, which the count alone
+        let through (Ruling R24). A line more than about 10 ms behind P puts each frame's
+        TRAIL rise, its last, past the frame's mapped end, since TRAIL rises 10 ms before
+        the end (wl_sync/barcode.py:3-9). That stamp is carried to the next frame, whose
+        own TRAIL is carried on in turn: one stamp in, one out, so the count matched.
+        Restarted there, the line lay some 0.8 s off, and every later B matched the frame
+        before's TRAIL. Measured from that carried stamp, the frame's own stamps lie some
+        0.8 s later than its rises put them, so its rises reject it.
+
+        NOT RECOVERED, THEN: a line more than about 10 ms behind P. Each frame is dropped,
+        with no B written for it, and the fit stays lost until something else moves it.
 
         The shifted frames' Bs stay dropped, and no pair is handed over for them: their
         lead edges are inferred, not matched. Run loop's thread only, as `_shifted` is.
@@ -1060,7 +1086,11 @@ class Rp1Backend:
             found.p is None
             and bracket.width_ns <= BRACKET_WIDTH_MAX_NS
             and len(up_to_end) >= 1
-            and found.between + found.consumed == rises
+            and found.between + found.consumed == len(rises)
+            and all(
+                abs((stamp - up_to_end[0]) - (rise - rises[0])) <= LEAD_STAMP_TOLERANCE
+                for stamp, rise in zip(up_to_end, rises)
+            )
         )
         if not shifted:
             self._shifted = []
@@ -1115,6 +1145,7 @@ class Rp1Backend:
                 "a PIO rate calibration is applied before capture starts, not after: this "
                 "process's ticks are already counted at the rate they had"
             )
+        self._calibrated = True
         if self._split:
             return None
         if calibration is None:

@@ -34,7 +34,7 @@ from pathlib import Path
 from statistics import median, quantiles
 
 from wl_sync.backend import CaptureDegraded
-from wl_sync.barcode import INTERVAL_US, decode_edges, encode
+from wl_sync.barcode import INTERVAL_US, decode_edges, encode, rises_us
 from wl_sync.clockmap import LEAD_STAMP_TOLERANCE
 from wl_sync.log import BarcodeEmitted, Edge, read_log
 from wl_sync.pins import (
@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:997-1006),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1012-1021),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -196,16 +196,6 @@ class StampRunReport:
         return "\n".join(lines)
 
 
-def _rises(pulses: Sequence[tuple[int, int]]) -> int:
-    """A frame's rising edges, on a line LOW before it: a run of set bits is one."""
-    rises, level = 0, 0
-    for pulse_level, _ in pulses:
-        if pulse_level and not level:
-            rises += 1
-        level = pulse_level
-    return rises
-
-
 def stamp_run(
     backend,
     values: Sequence[int],
@@ -233,7 +223,7 @@ def stamp_run(
         if stamp.tick is None:
             # Only a stamp too far leaves its distance in the match: `nearest` is set
             # when a stamp lay before the end and none in the window
-            # (wl_sync/clockmap.py:260-262).
+            # (wl_sync/clockmap.py:266-268).
             far = None if trace is None else trace.lead.nearest
             kind = stamp.missed if far is None else STAMP_TOO_FAR
             report.missed[kind] = report.missed.get(kind, 0) + 1
@@ -246,7 +236,7 @@ def stamp_run(
         lead = trace.lead
         report.widths_ns.append(trace.width_ns)
         report.stamps_seen += (lead.p is not None) + lead.consumed + lead.between
-        if stamp.tick is not None and lead.consumed != _rises(pulses) - 1:
+        if stamp.tick is not None and lead.consumed != len(rises_us(pulses)) - 1:
             report.edges_short += 1
     return report
 

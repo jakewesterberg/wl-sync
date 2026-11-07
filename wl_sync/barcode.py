@@ -58,6 +58,21 @@ def encode(value: int) -> list[tuple[int, int]]:
     return pulses
 
 
+def rises_us(pulses: Sequence[tuple[int, int]]) -> list[int]:
+    """Where each rising edge of a pulse train begins, in us from the train's start, on a
+    line LOW before it, as every frame leaves it: a run of HIGH pulses is one rise. Its
+    length is the frame's count of rising edges, each of which the box's stamp machine
+    stamps once."""
+    rises: list[int] = []
+    level, elapsed_us = 0, 0
+    for pulse_level, duration_us in pulses:
+        if pulse_level and not level:
+            rises.append(elapsed_us)
+        level = pulse_level
+        elapsed_us += duration_us
+    return rises
+
+
 def edges_from_samples(
     trace: Sequence[int], fs_hz: float, t0_us: int = 0
 ) -> list[tuple[int, int]]:

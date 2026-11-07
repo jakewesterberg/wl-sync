@@ -18,6 +18,7 @@ import unittest.mock
 
 import pytest
 
+from wl_sync.barcode import rises_us
 from wl_sync.rp1 import backend as rp1
 from wl_sync.rp1 import program
 from wl_sync.rp1.backend import Rp1Backend
@@ -502,7 +503,7 @@ class _TwoCrystalClock:
     their midpoint, as the fit assumes of a bracket; sampled at either end, every pair
     would carry half a read, 10 counts, into the fit.
 
-    True time starts at 0, so P's zero lies three reads, about 50 counts, before the
+    True time starts at 0, so P's zero lies four reads, about 70 counts, before the
     RAW origin, where on silicon it is one syscall after. The first pair takes up that
     offset, as it takes up the real one.
     """
@@ -1543,16 +1544,6 @@ def test_the_data_lines_are_read_one_microsecond_after_the_strobe_is_seen():
 # every rise on GPIO17 into SM 1's FIFO.
 
 
-def _rises(pulses):
-    """A frame's rising edges, on a line that starts LOW: a run of set bits is one."""
-    rises, level = 0, 0
-    for pulse_level, _ in pulses:
-        if pulse_level and not level:
-            rises += 1
-        level = pulse_level
-    return rises
-
-
 def _holding_the_pump():
     """An `on_word` that holds the pump thread inside it from the first word until
     released. A held pump drains nothing and moves no clock, so only the test's own
@@ -1634,7 +1625,7 @@ def test_a_stamp_far_from_the_lead_edge_is_missed_with_its_distance(lib, gpiod, 
     backend = _started(lib, lambda tick, word: None)
     try:
         # A first frame warms the map: until a pair moves it, the fake's P runs some
-        # 50 counts ahead of it (_TwoCrystalClock).
+        # 70 counts ahead of it (_TwoCrystalClock).
         assert backend.emit_pulses(17, encode(999)).tick is not None
         clock.sleep(0.8)
         gpiod.stamp_late_us = 5_000
@@ -1684,9 +1675,9 @@ def test_a_frames_later_rising_edges_are_consumed_silently(lib, gpiod, crystals)
         second = backend.emit_pulses(17, encode(value + 1))
     finally:
         backend.close()
-    assert _rises(encode(value)) == 18
-    assert consumed == _rises(encode(value)) - 1
-    assert backend.last_frame.lead.consumed == _rises(encode(value + 1)) - 1
+    assert len(rises_us(encode(value))) == 18
+    assert consumed == len(rises_us(encode(value))) - 1
+    assert backend.last_frame.lead.consumed == len(rises_us(encode(value + 1))) - 1
     assert first.between == 0 and second.between == 0
     assert second.tick is not None
 
@@ -1735,7 +1726,7 @@ def test_frames_across_the_wrap_are_matched_and_ticked_in_32_bits(lib, gpiod, cr
         backend.close()
     assert across.tick == gpiod.stamped[lead]
     assert after.tick is not None and 0 <= after.tick <= 0xFFFF_FFFF
-    assert after.tick == gpiod.stamped[-_rises(encode(3))]
+    assert after.tick == gpiod.stamped[-len(rises_us(encode(3)))]
     assert took_ns < FRAME_US * 1_000 + 10_000_000, took_ns
 
 
@@ -1841,7 +1832,7 @@ def test_the_bracket_the_fit_and_the_mark_follow_raw_not_mono(lib, gpiod, crysta
     backend = _started(lib, lambda tick, word: None)
     try:
         # The origin: before any pair, RAW maps through it. The fixture's P runs some
-        # 50 counts ahead of the origin (_TwoCrystalClock).
+        # 70 counts ahead of the origin (_TwoCrystalClock).
         before = clock.p_now()
         unpaired = backend._p_now() - (before + clock.p_now()) / 2
         stamps = []
@@ -2207,7 +2198,7 @@ def test_a_word_drain_that_raises_stops_alone(lib, gpiod, crystals):
 
 def test_a_failing_consumer_stops_the_word_drain_alone(lib, gpiod, crystals):
     """drain() returns False for a consumer that raises, as for a desync
-    (wl_sync/rp1/pio_capture.py:187-192): the records are not being kept. The word drain
+    (wl_sync/rp1/pio_capture.py:211-216): the records are not being kept. The word drain
     stops, and the stamp drain goes on."""
     from wl_sync.backend import FrameStamp
     from wl_sync.barcode import encode
@@ -2289,11 +2280,13 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
 
 
 def _frames(
-    backend, clock, gpiod, count, *, blind=(), wide=(), value_of=lambda k: 1000 + k
+    backend, clock, gpiod, count, *, blind=(), wide=(), pause=None,
+    value_of=lambda k: 1000 + k,
 ):
     """`count` frames, one a second, numbered from 1 as the gpiod fake numbers them, with
     the PIO blind to GPIO17 through the frames in `blind`, and every `set_value` of the
     frames in `wide` slow enough to widen the lead's bracket past BRACKET_WIDTH_MAX_NS.
+    `pause` maps a frame to the seconds of LOW after it, 0.8 when it does not name it.
     Each frame's stamp and trace."""
     from wl_sync.barcode import encode
     from wl_sync.clockmap import BRACKET_WIDTH_MAX_NS
@@ -2304,7 +2297,7 @@ def _frames(
         gpiod.set_cost_ns = 2 * BRACKET_WIDTH_MAX_NS if k in wide else 0
         stamps.append(backend.emit_pulses(17, encode(value_of(k))))
         traces.append(backend.last_frame)
-        clock.sleep(0.8)
+        clock.sleep((pause or {}).get(k, 0.8))
     assert gpiod.frame == count
     return stamps, traces
 
@@ -2400,7 +2393,8 @@ def test_a_frame_whose_lead_edge_alone_went_unstamped_is_not_taken_for_shifted(
     for k in (4, 5, 6):
         lead = traces[k - 1].lead
         assert stamps[k - 1].tick is None, k
-        assert (lead.between, lead.consumed) == (0, _rises(encode(value_of(k))) - 1), k
+        rises = len(rises_us(encode(value_of(k))))
+        assert (lead.between, lead.consumed) == (0, rises - 1), k
     assert [stamps[k - 1].tick for k in (7, 8)] == [gpiod.leads[7], gpiod.leads[8]]
     assert restarted == [] and _restarts(caplog) == []
 
@@ -2433,7 +2427,7 @@ def test_shifted_frames_whose_offsets_disagree_do_not_restart_the_fit(
     for k in (4, 5, 6):  # shifted: no stamp in the window, and every rise before the end
         lead = traces[k - 1].lead
         assert stamps[k - 1].tick is None, k
-        assert lead.between + lead.consumed == _rises(encode(1000 + k)), k
+        assert lead.between + lead.consumed == len(rises_us(encode(1000 + k))), k
         assert lead.leftover == (), k
     assert [stamps[k - 1].tick for k in (7, 8)] == [gpiod.leads[7], gpiod.leads[8]]
     assert restarted == [] and _restarts(caplog) == []
@@ -2468,6 +2462,154 @@ def test_shifted_frames_with_wide_brackets_do_not_restart_the_fit(
         assert stamps[k - 1].tick is None and traces[k - 1].width_ns > BRACKET_WIDTH_MAX_NS
     assert [stamps[k - 1].tick for k in (7, 8)] == [gpiod.leads[7], gpiod.leads[8]]
     assert restarted == [] and _restarts(caplog) == []
+
+
+# Ruling R24: a frame is shifted only if its stamps follow its own rises. With the line more
+# than 10 ms behind P, each frame's TRAIL stamp lands past its mapped end and is carried to
+# the next frame, whose count then matches: one stamp in, one out. Restarted at that TRAIL,
+# about 0.8 s off, the fit matched every later B to the frame before's TRAIL.
+
+
+def _restarted_at(monkeypatch):
+    """Every `RawToP.restart`, recorded, and made."""
+    from wl_sync.clockmap import RawToP
+
+    restarted, restart = [], RawToP.restart
+
+    def spy(fit, raw_ns, p):
+        restarted.append((raw_ns, p))
+        restart(fit, raw_ns, p)
+
+    monkeypatch.setattr(RawToP, "restart", spy)
+    return restarted
+
+
+def _restart_offsets(caplog):
+    return [int(re.search(r"stamped (-?\d+) us", message).group(1))
+            for message in _restarts(caplog)]
+
+
+def test_a_line_more_than_10_ms_behind_p_is_not_restarted_at_the_trail_before(
+    lib, gpiod, crystals, caplog, monkeypatch
+):
+    """Every stamp from frame 4 on lands 15 ms after the line, as a line 15 ms behind P
+    puts it: past TRAIL's 10 ms before the end (wl_sync/barcode.py:3-9). Each such frame
+    is dropped, and nothing restarts."""
+    import logging
+
+    restarted = _restarted_at(monkeypatch)
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.frame_stamp_offset_us.update({k: 15_000 for k in range(4, 13)})
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, traces = _frames(backend, clock, gpiod, 12)
+    finally:
+        backend.close()
+    wrong = [(k, stamp.tick - gpiod.leads[k]) for k, stamp in enumerate(stamps, 1)
+             if stamp.tick is not None and stamp.tick != gpiod.leads[k]]
+    assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
+    leads = [gpiod.leads[k] for k in (1, 2, 3)]
+    assert [stamp.tick for stamp in stamps] == leads + [None] * 9
+    assert restarted == [] and _restarts(caplog) == []
+    # The shape R24 is about: each frame from 5 on began with the TRAIL carried to it.
+    assert [traces[k - 1].lead.between for k in range(5, 13)] == [1] * 8
+
+
+def test_after_a_long_blind_run_a_line_10_ms_behind_is_not_restarted_at_a_trail(
+    lib, gpiod, crystals, caplog, monkeypatch
+):
+    """The plan's own residual, by drift: 100 ppm with seed 0, five frames stamped, then
+    110 s with none, which leaves the line about 11 ms behind P
+    (docs/superpowers/plans/2026-11-07-one-clock.md:1485). 110 s of LOW leaves the fit
+    where 110 blind frames would: only a matched pair moves it. No B is written for an
+    edge not its own, and no restart lands anywhere but a frame's own lead."""
+    import logging
+
+    _restarted_at(monkeypatch)
+    clock = crystals(cpu_ppm=0, rp1_ppm=100)
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, 17, pause={5: 110.0})
+    finally:
+        backend.close()
+    wrong = [(k, stamp.tick - gpiod.leads[k]) for k, stamp in enumerate(stamps, 1)
+             if stamp.tick is not None and stamp.tick != gpiod.leads[k]]
+    assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
+    assert [stamp.tick for stamp in stamps[:5]] == [gpiod.leads[k] for k in range(1, 6)]
+    assert [stamp.tick for stamp in stamps[5:8]] == [None] * 3
+    offsets = _restart_offsets(caplog)
+    assert all(0 < offset < 20_000 for offset in offsets), _restarts(caplog)
+
+
+# Ruling R25.
+
+
+@pytest.mark.parametrize("given", [False, True], ids=["none", "calibration"])
+def test_falling_back_after_a_calibration_was_applied_is_refused(lib, given):
+    """The run loop already holds the scale apply_calibration returned, IDENTITY without
+    a calibration: it keeps a rate keeper because there is one, and scales every record by
+    it (wl_sync/cli.py:516-546, :580). The backend cannot take it back."""
+    backend = Rp1Backend()
+    try:
+        backend.apply_calibration(_calibration(40_000, 40_000) if given else None)
+        with pytest.raises(RuntimeError, match="before a calibration is applied"):
+            backend._fall_back_to_split("x")
+        assert backend.timebase == ("rp1-pio-si" if given else "rp1-pio")
+        assert backend.barcode_delay_us == 0
+    finally:
+        backend.close()
+
+
+def test_check_health_reads_a_stopped_word_drain_before_it_takes_its_cause(lib):
+    """The pump holds the cause, then sets the stop (`_pump_codes`). check_health reads
+    the stop first and takes the cause second, so whatever the pump does between the two,
+    no call reports the stop before its cause. Here the pump does both just as the stop
+    is read: taken the other way round, the call saw the stop and not the cause."""
+    from wl_sync.backend import CaptureDegraded
+    from wl_sync.rp1.pio_capture import DesyncError
+
+    backend = _started(lib, lambda tick, word: None)
+    read = backend._words_stopped
+
+    def words_stopped():
+        if not backend._word_drain_stopped.is_set():
+            backend._words.error = DesyncError("the pairing has slipped")  # the pump's hold
+            backend._word_drain_stopped.set()  # and then its stop
+        return read()
+
+    backend._words_stopped = words_stopped
+    try:
+        with pytest.raises(CaptureDegraded) as raised:
+            backend.check_health()
+    finally:
+        backend.close()
+    stopped = {"event-code capture: DesyncError", "event-code capture: stopped"}
+    assert stopped <= raised.value.kinds, raised.value.kinds
+
+
+def test_check_health_takes_the_word_error_under_the_pumps_lock(lib, monkeypatch):
+    """As for the edge pump's (test_check_health_takes_the_edge_loss_under_the_pumps_lock):
+    the pump holds an error while check_health takes it, and a take that read the error
+    and then cleared it, unlocked, could clear one held in between."""
+    from wl_sync.backend import CaptureDegraded
+    from wl_sync.rp1.pio_capture import WordPump, WordsDroppedError
+
+    taken = []
+    take = WordPump.take_error
+    monkeypatch.setattr(
+        WordPump, "take_error", lambda pump: taken.append(pump) or take(pump)
+    )
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        backend._words.fail(WordsDroppedError("the PIO RX FIFO was full when drained"))
+        with pytest.raises(CaptureDegraded, match="FIFO was full"):
+            backend.check_health()
+        assert taken and set(taken) == {backend._words}
+        backend.check_health()  # taken once, and cleared
+    finally:
+        backend.close()
 
 
 # Rulings R12 and R15, on one count: a stamp machine that did not start leaves the process
