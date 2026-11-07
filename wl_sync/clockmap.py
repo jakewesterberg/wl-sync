@@ -217,10 +217,10 @@ def unwrap_near(raw: int, near: int) -> int:
     32-bit count; the bracket it is matched against is not wrapped. A tie (exactly half
     a wrap away) goes to the lower."""
     modulus = _TICK_MASK + 1
-    return raw + modulus * round_half_down(Fraction(near - raw, modulus))
+    return raw + modulus * _round_half_down(Fraction(near - raw, modulus))
 
 
-def round_half_down(value: Fraction) -> int:
+def _round_half_down(value: Fraction) -> int:
     # `round` goes to even on a tie, which would make `unwrap_near`'s tie depend on the
     # parity of the wrap count; the lower is the same answer everywhere.
     floor = value.__floor__()
