@@ -51,6 +51,7 @@ int wlsync_pio_open(unsigned index)
      * before any instruction is encoded. */
     pio_select(pio);
     g_pio = pio;
+    g_loaded = 0; /* a block just opened holds none of this shim's program yet */
     return 0;
 }
 
