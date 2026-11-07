@@ -175,6 +175,7 @@ def test_an_edge_before_p_zero_is_refused_not_wrapped():
 
 
 def test_thirty_pairs_at_one_raw_keep_the_seed_slope():
+    """Coverage: the sxx == 0 guard keeps the seed slope; it passed before Task 1.2's fix round."""
     fit = RawToP(0, 50_000)
     for k in range(30):
         fit.add(S, 1_000 + k)
@@ -182,6 +183,7 @@ def test_thirty_pairs_at_one_raw_keep_the_seed_slope():
 
 
 def test_the_slope_is_free_at_exactly_thirty_pairs_and_not_at_twenty_nine():
+    """Coverage: pins the 29/30 boundary of FIT_FREE_SLOPE_PAIRS; it passed before the fix round."""
     def fitted(n):
         fit = RawToP(0)
         for k in range(1, n + 1):
