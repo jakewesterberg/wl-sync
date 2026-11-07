@@ -653,6 +653,8 @@ def test_the_scale_applies_after_unwrapping_not_to_the_raw_count():
 
 
 def test_a_loss_with_nothing_written_and_no_after_sits_at_the_scaled_clock():
+    """Coverage: the _on_loss fallback's scale (Task 1.1's review); red only against a copy
+    with that scale dropped."""
     backend, recorder = _scaled_recorder()
     recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
     backend.inject_word_loss(CaptureLoss(cause="desync", count=1, bound="at_least"))

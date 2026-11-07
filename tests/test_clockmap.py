@@ -330,6 +330,8 @@ def test_a_divisor_that_is_zero_or_negative_is_refused():
 
 
 def test_scaling_is_exact_and_ordered_around_two_to_the_32_and_40():
+    """Coverage: pins the integer arithmetic beyond 2**32, where P is unwrapped; it passed
+    when written, because `tick` was already exact."""
     for ppb in (-200_000, 37, 200_000):
         scale = TickScale(ppb)
         r = 1 + Fraction(ppb, 10**9)
