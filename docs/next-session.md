@@ -312,21 +312,21 @@ left, so no further panel connector fits. One fix-up came with it:
     - **The header names its clocks now** (`timebase`, `c67599f`), so the build changes only the
       value.
     Nothing of it is built yet.
-- **After a power-up on a box whose RTC is dead, the NTP roll keeps a now-trusted segment in the
-  previous day's folder** *(found in the final review, 2026-10-30; **fixed**, in the commit "cli: the NTP roll moves to today's unassigned/ when the sync changed the day")*.
+- **After a power-up on a box whose RTC is dead, the NTP roll kept a now-trusted segment in the
+  previous day's folder** *(found in the final review, 2026-10-30; the user chose the fix; built,
+  not yet pushed or deployed: the box stays on `4f1739c`)*.
   - Between sessions the box resumes the checkpoint's `unassigned/<day>/` folder. If the clock
-    then reads 2000-01-01 and NTP syncs to the next day, the roll in place stays in that folder.
-  - The trusted segment then carries the earlier day's id and the new day's barcode values. It
-    stays there until the first session opens; there is no midnight roll between visits.
-  - wl-preproc never reads `unassigned/`, so the impact is low. But
-    `ls unassigned/$(date -u +%F)` finds nothing.
-  - **Options:** let the NTP roll move to today's `unassigned/` when the day differs, which is a
-    folder-changing roll that `process_uuid` already covers; or document the behaviour.
-  - **The user chose the fix (2026-10-30), and it is built.** With no session open, the roll at
-    NTP's first sync goes to `unassigned/<day>/` for the day the frame's value (read after the
-    step) names, with that day's stand-in id, when that differs from the folder it is in. The
-    reason, the judgement and `process_uuid` are unchanged, and `segment_index` is the one the
-    new folder gives. A session open keeps the roll in its folder.
+    then read 2000-01-01 and NTP synced to the next day, the roll in place stayed in that folder.
+  - The trusted segment then carried the earlier day's id and the new day's barcode values. It
+    stayed there until the first session opened; there is no midnight roll between visits.
+  - wl-preproc never reads `unassigned/`, so the impact was low. But
+    `ls unassigned/$(date -u +%F)` found nothing.
+  - **The fix:** with no session open, the roll at NTP's first sync goes to `unassigned/<day>/`
+    for the day the frame's value names, with that day's stand-in id, when that differs from the
+    folder it is in. The reason, the judgement and `process_uuid` are unchanged, and
+    `segment_index` is the one the new folder gives. A session open keeps the roll in its folder.
+  - **By design,** the frame read after the step is the one that names the new folder, and it is
+    the old segment's last. So the earlier day's folder ends with one value of the new day.
 - **After a power-up or reboot, every segment that day is flagged `ntp_unsynchronized`, even once
   NTP has synced.**
   - Trust is judged once, at process start (`cli.py:273`), and a roll reuses it (`cli.py:368`).

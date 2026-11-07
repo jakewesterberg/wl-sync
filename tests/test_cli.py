@@ -2535,25 +2535,33 @@ def test_a_session_open_when_ntp_syncs_across_midnight_is_not_split(tmp_path, mo
     assert not unassigned_dir(tmp_path, DAY).exists()
 
 
+@pytest.mark.parametrize("rtc", ["still dead", "now right"])
 def test_a_restart_after_the_day_changing_roll_resumes_in_todays_unassigned(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, rtc
 ):
-    """The state a restart resumes from agrees with where the roll left the recording:
-    the checkpoint holds today's values, so the next run begins in today's folder, one
-    segment after the roll's."""
+    """A restart agrees with where the roll left the recording, one segment after the
+    roll's. With the RTC still dead, _resume names the folder from the checkpoint's
+    value (today's); with a clock that now reads right, from the clock's own date."""
     clock = _dead_rtc_clock()
     _awaiting_ntp(
         tmp_path, monkeypatch, _ntp_steps_to_start(clock), frames=40, clock=clock
     )
 
-    restart = _SteppableMonotonic(wall_at_start=clock.wall())
+    dead = rtc == "still dead"
+    restart = _SteppableMonotonic(
+        wall_at_start=DEAD_RTC_AT_START if dead else clock.wall()
+    )
     monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda timeout_s=None: True)
     run(tmp_path, FakeBackend(), restart.wall, 3, restart.sleep, mono_fn=restart)
 
     folder = unassigned_dir(tmp_path, DAY)
     assert _segments(folder) == [segment_name(0), segment_name(1)]
     assert _segments(unassigned_dir(tmp_path, DEAD_RTC_DAY)) == [segment_name(0)]
-    assert _trust(folder / segment_name(1)) == (True, "")
+    header = read_log(folder / segment_name(1))[0]
+    assert header.session_id == str(unassigned_id(DAY))
+    assert _trust(folder / segment_name(1)) == (
+        (False, "clock_before_epoch") if dead else (True, "")
+    )
 
 
 # --- the frame grid after a wall-clock step (2026-10-30) -------------------------------

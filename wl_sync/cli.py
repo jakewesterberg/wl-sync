@@ -737,8 +737,9 @@ def run(
         #
         # PLACED HERE, AND AGAIN AFTER A STEP (2026-10-30). Until then it was placed only
         # here, so a step moved it until the next restart, and since 56a89f8 a step is
-        # expected: a box that powers up before NTP syncs rolls in place at the first
-        # sync, which steps a dead or drifted RTC. Frames then read the wall clock at
+        # expected: a box that powers up before NTP syncs rolls at the first sync, in
+        # place or into the new day's unassigned/ folder, which steps a dead or drifted
+        # RTC. Frames then read the wall clock at
         # whatever phase the step left, a wake a few ms late near an edge read one second
         # high, and the floor (_ValueSource, `last + 1`) carried that second: every value
         # one second ahead of the clock it is meant to BE, for the rest of the process.
@@ -814,19 +815,21 @@ def run(
                 if request.reply.set_running_or_notify_cancel():
                     carry_out(request, value)
 
-            # ONE ROLL IN PLACE, WHEN NTP FIRST SYNCS (the user's option 2, 2026-10-30).
+            # ONE ROLL, IN PLACE UNLESS THE DAY MOVED, WHEN NTP FIRST SYNCS (the user's
+            # option 2, 2026-10-30).
             # After a power-up the box starts before NTP syncs, so its first segment says
             # ntp_unsynchronized, and a roll at an open or close re-judges that only when
             # a session changes, which between visits can be hours away. So while the
             # run's last definite answer is no, the loop asks again every
-            # NTP_POLL_INTERVAL_S, and at the first yes it rolls once into a new segment IN
-            # THE SAME FOLDER, judged as any roll is (evaluate_roll). The new segment
-            # carries the same process_uuid and the next segment_index, which is how a
-            # reader tells this roll from a restart.
+            # NTP_POLL_INTERVAL_S, and at the first yes it rolls once into a new segment,
+            # normally IN THE SAME FOLDER, judged as any roll is (evaluate_roll). The new
+            # segment carries the same process_uuid and the next segment_index of its
+            # folder, which is how a reader tells this roll from a restart.
             #
-            # THE ONE EXCEPTION IS A SYNC THAT CHANGED THE DAY WITH NO SESSION OPEN. A box
-            # whose RTC is dead starts on 2000-01-01 and records into that day's
-            # unassigned/ folder; the sync steps the clock to today, and a roll that stayed
+            # THE ONE EXCEPTION IS A VALUE WHOSE DAY IS NOT THE FOLDER'S, WITH NO SESSION
+            # OPEN. The usual case is a sync that changed the day: a box whose RTC is dead
+            # starts on 2000-01-01 and records into that day's unassigned/ folder; the sync
+            # steps the clock to today, and a roll that stayed
             # put left a trusted segment under the old day's folder and stand-in id with
             # today's barcode values (D8, 2026-10-30). So that roll goes to today's
             # unassigned/ folder, as a close's roll does, named from this frame's value,
@@ -858,9 +861,10 @@ def run(
                 if rolls == rolls_before_requests:
                     roll_to, roll_id = folder, session_id
                     if folder.is_relative_to(out / "unassigned"):
-                        today = _barcode_day(value)
-                        if unassigned_dir(out, today) != folder:
-                            roll_to, roll_id = unassigned_dir(out, today), unassigned_id(today)
+                        value_day = _barcode_day(value)
+                        if unassigned_dir(out, value_day) != folder:
+                            roll_to = unassigned_dir(out, value_day)
+                            roll_id = unassigned_id(value_day)
                     roll(roll_to, roll_id, "NTP synchronized")
             if (
                 not ntp_synced
@@ -884,7 +888,7 @@ def run(
             # the next frame goes out a second later and one value is never emitted, as
             # after an overrun. That gap is honest: both values are the wall seconds their
             # frames read, and that much wall time passed between them. It can fall
-            # across a roll in place: NTP's first sync steps the clock, its roll follows
+            # across the roll at NTP's first sync: it steps the clock, its roll follows
             # the first frame read after the step, which is the frame that sees it, and
             # the grid is placed again only after the roll, so the new segment can begin
             # two values after the old one ends.

@@ -146,7 +146,7 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 - **A session folder can hold several segments.** The box closes one segment and starts the next
   at every open and close, and at every restart. Inside a folder, the header's `segment_index`
   orders them (it counts from 0 within that folder). *(2026-10-30: and once at NTP's first sync,
-  in the same folder. See note 4.)*
+  in the same folder, which holds for every session folder. See note 4.)*
 - **Between visits the box records into `<root>/unassigned/<YYYY-MM-DD>/syncbox/`,** with the
   header id `<date>_00`, which is never minted for a session. That folder never holds a
   `session_manifest.yaml`. wl-preproc's watcher takes a folder as a session only once its
@@ -206,6 +206,10 @@ The order was agreed with wl-preproc on 2026-10-30.
   starts the next one in the folder it is already in, one loop iteration later. If a session
   open or close rolls in that iteration, that roll asks NTP itself, and there is no roll in
   place. That is the third moment a segment starts, beside an open or close and a restart.
+  - **Between sessions only, the roll can change folders.** If the day the frame's value names
+    differs from the `unassigned/` folder it is in (a dead RTC's step), the roll goes to that
+    day's `unassigned/` folder. wl-preproc never reads `unassigned/`, so for it the roll is
+    always in place, in the session's folder.
 - **`process_uuid` tells that apart from a restart.** Every header now carries it.
   - It is one UUID4, made when the recording process starts.
   - It is the same in every segment that process writes, and new after every restart.

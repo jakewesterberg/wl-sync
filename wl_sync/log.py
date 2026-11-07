@@ -96,7 +96,9 @@ class SyncBoxLogHeader(BaseModel):
     process_uuid: str | None = None
     """Which recorder process wrote this segment. `wl-sync record` makes one UUID4 when
     the process starts and writes it, in canonical form, into every segment that process
-    writes, before and after every roll. Every new process makes a new one. None means
+    writes, before and after every roll, including the roll at NTP's first sync, which
+    between sessions goes to another day's `unassigned/` folder when the sync changed
+    the day. Every new process makes a new one. None means
     the segment was written before this field existed (2026-10-30). Every segment
     `wl-sync record` has written since carries one; a log built with `write_log`, such
     as a synthetic one, need not.

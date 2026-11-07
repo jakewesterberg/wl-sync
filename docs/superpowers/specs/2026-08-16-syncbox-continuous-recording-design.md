@@ -412,10 +412,12 @@ box where it means something.
 >   judged as at the start.
 > - A run whose last definite answer is "not synchronised" asks again every 10 s
 >   (`cli.NTP_POLL_INTERVAL_S`). At the first "synchronised" it rolls once into a new segment
->   in the same folder, judged as any roll is. The roll waits for the next frame, whose value is
+>   in the same folder (except between sessions when the day the frame's value names differs from
+  the folder's: then in that day's `unassigned/` folder, its `segment_index` the one that folder
+  gives; amended 2026-10-30), judged as any roll is. The roll waits for the next frame, whose value is
 >   read after any step the sync made, and is dropped if a session opened or closed in that
 >   iteration. The new segment has the same `process_uuid` (§3)
->   and the next `segment_index`. "Could not ask" never triggers it. Once NTP has said yes in
+>   and the next `segment_index` of its folder. "Could not ask" never triggers it. Once NTP has said yes in
 >   a run, at the start, at an open or close, or here, the run stops asking. So that a poll
 >   does not cost a frame, its probe times out after 0.3 s (`cli.NTP_POLL_TIMEOUT_S`), which fits
 >   in the ~0.75 s after a frame with ~0.45 s to spare. Each failed poll doubles the wait, up to

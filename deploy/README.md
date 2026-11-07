@@ -51,7 +51,8 @@ folder covers it: check the `<id>/syncbox/manifest.json` of each visit that day.
 
 **A 2 s gap between two segments with the same `process_uuid`** (added 2026-10-30) is almost
 certainly not an outage either; the journal's "NTP synchronized" roll line at that moment
-confirms it. After NTP's first sync the box rolls once in place, and if that sync
+confirms it. After NTP's first sync the box rolls once (in place, or between sessions into
+the new day's `unassigned/` folder if the sync changed the day), and if that sync
 stepped the clock by a fraction of a second, the frame grid is placed again and one barcode
 value may be skipped. The box was watching throughout.
 

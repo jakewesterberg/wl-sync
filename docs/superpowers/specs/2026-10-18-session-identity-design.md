@@ -135,8 +135,12 @@ Three repositories already depend on a rule this repository does not yet impleme
   boundary's far side; wl-preproc fits each segment separately anyway.~~ **Amended 2026-10-30:**
   every record captured before the roll's boundary lands in the closing segment (below).
 
-  > **Amended 2026-10-30.** One roll stays in its folder. A run that began before NTP synced
-  > rolls once when NTP first syncs (continuous-recording spec §7). A roll at an open or a
+  > **Amended 2026-10-30.** One roll stays in its folder, with one exception. A run that began before
+  > NTP synced rolls once when NTP first syncs (continuous-recording spec §7). With a session
+  > open it stays in the session's folder. Between sessions it stays in the `unassigned/`
+  > folder too, unless the day the frame's value names differs from that folder's, as after a
+  > dead RTC's step: then it goes to that day's `unassigned/` folder with that day's stand-in
+  > id, and its `segment_index` is the one that folder gives. A roll at an open or a
   > close still always changes folders. The header's `process_uuid` tells any roll from a
   > restart.
 
