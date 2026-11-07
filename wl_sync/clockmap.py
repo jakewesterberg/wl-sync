@@ -12,9 +12,9 @@ lead edges, because RAW and P are two free-running oscillators whose ratio is a
 property of this box and is only known by measuring it.
 
 All the arithmetic is exact `Fraction`/int. A fit over nanosecond RAW values and
-counts near 2**32 loses bits in a float, and the fit is centred on the window's first
-pair for the same reason: the products stay small enough to be exact in any case, and
-the answer does not depend on how long the box has been up.
+counts near 2**32 loses bits in a float. The fit is centred on the window's first pair
+so the sums are of small ints and stay cheap; with exact arithmetic that does not
+affect exactness, only cost.
 """
 
 from __future__ import annotations
@@ -65,19 +65,23 @@ def _round(value: Fraction) -> int:
 class MonoRawTable:
     """MONO readings paired with RAW readings, newest `keep` of them.
 
-    Called from one thread, the edge pump's, so it takes no lock.
+    Called from one thread, the edge pump's, so it takes no lock. That is load-bearing:
+    `add`'s pop-then-append and `raw_of`'s bisect over a deque that `add` mutates are not
+    safe across threads. `add` never raises, and ignores a reading whose MONO is below
+    the last (the caller may log it).
     """
 
     def __init__(self, keep: int = 256) -> None:
         self._readings: deque[tuple[int, int]] = deque(maxlen=keep)
 
     def add(self, mono_ns: int, raw_ns: int) -> None:
-        # Readings are taken in time order, so a MONO that goes back is a bug in the
-        # caller, and `raw_of`'s search would silently return nonsense.
+        # A MONO that goes back would break `raw_of`'s search, but this runs on the edge
+        # pump's thread and an exception there fails edge capture (wl_sync/rp1/gpio.py:803-805);
+        # the box records anyway, so the reading is dropped. The caller may log it.
         if self._readings:
             last_mono, _ = self._readings[-1]
             if mono_ns < last_mono:
-                raise ValueError(f"MONO reading {mono_ns} precedes the last, {last_mono}")
+                return
             if mono_ns == last_mono:
                 # Two readings at one MONO give no slope (a zero divisor below); the
                 # later one is the better reading of the pair.
@@ -123,7 +127,7 @@ class RawToP:
         self._pairs: deque[tuple[int, int]] = deque(maxlen=FIT_WINDOW_PAIRS)
         self._lock = threading.Lock()
         # (slope, anchor_raw, anchor_p), rebuilt only when a pair arrives: `p_of` runs
-        # for every edge and the fit sums over 120 Fractions.
+        # for every edge and the fit sums over up to 120 pairs.
         self._line: tuple[Fraction, int, Fraction] = (self._seed_slope, origin_raw_ns, Fraction(0))
 
     def add(self, raw_ns: int, p: int) -> None:
@@ -175,14 +179,24 @@ class MappedTimebase:
         Refuses an edge whose RAW precedes the origin, as `edge_tick_us` does
         (wl_sync/rp1/gpio.py:223-227): it would sort before every record in the segment.
         """
-        raw_ns = self._table.raw_of(timestamp_ns)
+        try:
+            raw_ns = self._table.raw_of(timestamp_ns)
+        except LookupError as error:
+            # One exception type for "this edge cannot be mapped": the edge witness
+            # skips on ValueError, and an empty table is the same kind of case.
+            raise ValueError(f"edge timestamp {timestamp_ns} cannot be mapped: {error}") from error
         if raw_ns < self._origin_raw_ns:
             raise ValueError(
                 f"edge timestamp {timestamp_ns} maps to RAW {raw_ns}, which precedes "
                 f"the timebase origin {self._origin_raw_ns}; "
                 "it would sort before every record in the segment"
             )
-        return self._fit.p_of(raw_ns) & _TICK_MASK
+        p = self._fit.p_of(raw_ns)
+        if p < 0:
+            # An edge before P's zero, like a pre-origin one; wrapped it would be about
+            # 4.29e9 and sort after every record in the segment.
+            raise ValueError(f"edge timestamp {timestamp_ns} maps to P {p}, before P's zero")
+        return p & _TICK_MASK
 
     def span(self, after_ns: int, before_ns: int) -> int:
         """P counts between two MONO stamps, at the fit's current ratio (spec §2.3:

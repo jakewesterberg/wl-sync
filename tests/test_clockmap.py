@@ -14,6 +14,7 @@ from wl_sync.clockmap import (
 )
 
 S = 10**9
+_PPB_50 = 10**9 + 50_000
 
 
 def table_of(*readings, keep=256):
@@ -70,10 +71,11 @@ def test_the_table_keeps_only_its_newest_readings():
     assert table_of(*readings).raw_of(10) == 10
 
 
-def test_a_reading_that_goes_back_in_mono_is_refused():
-    table = table_of((10, 10))
-    with pytest.raises(ValueError):
-        table.add(5, 5)
+def test_a_reading_that_goes_back_in_mono_is_ignored():
+    table = table_of((10, 10), (20, 25))
+    before = [table.raw_of(m) for m in (0, 5, 15, 30)]
+    table.add(5, 500)  # no exception: the edge pump's thread must survive it
+    assert [table.raw_of(m) for m in (0, 5, 15, 30)] == before
 
 
 def test_a_repeated_mono_reading_replaces_the_last():
@@ -152,3 +154,39 @@ def test_an_hours_span_is_converted_at_the_current_ratio():
 def test_a_span_that_runs_backwards_is_zero():
     timebase = MappedTimebase(MonoRawTable(), RawToP(0), 0)
     assert timebase.span(5, 10_000) == 0
+
+
+def test_an_edge_with_no_mono_raw_reading_is_refused_as_a_value_error():
+    timebase = MappedTimebase(MonoRawTable(), RawToP(0), 0)
+    with pytest.raises(ValueError):
+        timebase.tick(1)
+
+
+def test_an_edge_before_p_zero_is_refused_not_wrapped():
+    # one pair at RAW 20 s, P 5 000 000: at the seed slope the line is negative from
+    # RAW 15 s back, though RAW 10 s is past the origin (0)
+    fit = RawToP(0)
+    fit.add(20 * S, 5_000_000)
+    table = table_of((0, 0))
+    timebase = MappedTimebase(table, fit, 0)
+    assert fit.p_of(10 * S) < 0
+    with pytest.raises(ValueError):
+        timebase.tick(10 * S)
+
+
+def test_thirty_pairs_at_one_raw_keep_the_seed_slope():
+    fit = RawToP(0, 50_000)
+    for k in range(30):
+        fit.add(S, 1_000 + k)
+    assert fit.counts_per_ns() == Fraction(_PPB_50, 10**12)
+
+
+def test_the_slope_is_free_at_exactly_thirty_pairs_and_not_at_twenty_nine():
+    def fitted(n):
+        fit = RawToP(0)
+        for k in range(1, n + 1):
+            fit.add(k * S, 300 + k * 1_000_020)
+        return fit.counts_per_ns()
+
+    assert fitted(29) == Fraction(1, 1000)
+    assert fitted(30) == Fraction(1_000_020, 10**9)
