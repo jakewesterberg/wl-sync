@@ -7,7 +7,6 @@ here reads a clock or touches a file, except `probe_kernel_ntp`'s one adjtimex r
 """
 
 import ctypes
-import ctypes.util
 from dataclasses import dataclass
 from fractions import Fraction
 from math import sqrt
@@ -152,12 +151,14 @@ class RateEstimator:
     baseline; `raw_ratio()` every narrow pair, gated or not. Wide pairs reach neither."""
 
     def __init__(self) -> None:
+        # Not reset on a REALTIME step: a step does not move RAW (spec:477), and the
+        # P/RAW ratio is a live witness (spec:313-316), so its baseline stays valid.
+        self._all_raw = _Sums()
         self._reset()
 
     def _reset(self) -> None:
         self._gated_mono = _Sums()
         self._gated_raw = _Sums()
-        self._all_raw = _Sums()
         self._last_step: int | None = None
 
     def add(self, pair: ClockPair, gated: bool) -> None:

@@ -66,7 +66,10 @@ def test_a_step_in_realtime_restarts_the_baseline():
     got = est.si()
     assert got.rate_ppb == -10_000
     assert got.pairs == 50
-    assert est.raw_ratio()[0] == -10_000
+    # A REALTIME step does not move RAW, so the P/RAW witness keeps its whole baseline.
+    ppb, baseline_s = est.raw_ratio()
+    assert baseline_s == 99 * 60.0
+    assert -10_000 < ppb < 25_000
 
 
 def test_a_wide_bracket_is_not_a_pair():
@@ -76,6 +79,16 @@ def test_a_wide_bracket_is_not_a_pair():
     before = (est.si(), est.raw_ratio())
     est.add(pair(5, 999_999_999, width=BRACKET_WIDTH_MAX_NS + 1), True)
     assert (est.si(), est.raw_ratio()) == before
+
+
+def test_a_realtime_step_of_exactly_the_limit_does_not_restart_the_baseline():
+    """Coverage: the step limit is exclusive, so 1_000_000 ns stays in one baseline
+    and 1_000_001 ns starts another."""
+    for step, pairs in ((REALTIME_STEP_NS, 4), (REALTIME_STEP_NS + 1, 2)):
+        est = RateEstimator()
+        for k in range(4):
+            est.add(pair(k, k * 60 * 1_000_025, step=0 if k < 2 else step), True)
+        assert est.si().pairs == pairs
 
 
 def test_one_pair_gives_no_estimate():
@@ -105,6 +118,12 @@ def test_the_residual_is_the_rms_about_the_line():
 ])
 def test_the_gate_opens_only_on_a_synced_kernel_pll_with_a_small_offset(known, kernel, p, expected):
     assert si_gate(known, kernel, p) is expected
+
+
+def test_the_gate_is_open_at_exactly_the_offset_limit():
+    """Coverage: the offset limit is inclusive."""
+    kernel = dataclasses.replace(GOOD, offset_ns=KERNEL_OFFSET_MAX_NS)
+    assert si_gate(True, kernel, pair(0, 0)) is True
 
 
 def test_adjtimex_offset_is_nanoseconds_under_sta_nano_and_microseconds_otherwise():
