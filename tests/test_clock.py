@@ -1,4 +1,5 @@
 import datetime
+import errno
 import os
 
 import pytest
@@ -14,6 +15,7 @@ from wl_sync.clock import (
     read_checkpoint,
     value_from_clock,
     write_checkpoint,
+    write_durably,
 )
 
 UTC = datetime.timezone.utc
@@ -316,3 +318,32 @@ def test_the_checkpoint_and_its_directory_are_both_fsynced(tmp_path, monkeypatch
     assert read_checkpoint(path) == 209034005
     assert path.stat().st_ino in synced, "the checkpoint's bytes were never fsynced"
     assert tmp_path.stat().st_ino in synced, "the rename was never fsynced"
+
+
+@pytest.mark.parametrize("fails_at", ["fsync", "rename"])
+def test_a_durable_write_that_fails_leaves_no_temporary(tmp_path, monkeypatch, fails_at):
+    """The temporary is write_durably's own, so a failure after it was opened removes it
+    and raises: nothing is left beside the file, which is as it was. Two failures of the
+    kind a box meets: a full disk's fsync, and a rename the filesystem refuses (here onto
+    a directory, rename(2)'s EISDIR). The checkpoint and the PIO rate file both write
+    through it."""
+    path = tmp_path / ".wl-sync-barcode-checkpoint"
+    if fails_at == "rename":
+        path.mkdir()
+    else:
+        write_checkpoint(path, 1)
+
+        def full(_fd):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(os, "fsync", full)
+
+    with pytest.raises(OSError):
+        write_durably(path, "2\n")
+    monkeypatch.undo()
+
+    assert [p.name for p in tmp_path.iterdir()] == [path.name]
+    if fails_at == "rename":
+        assert path.is_dir()
+    else:
+        assert read_checkpoint(path) == 1

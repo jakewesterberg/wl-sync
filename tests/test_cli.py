@@ -3757,6 +3757,16 @@ _DELAY_NOT_USED = (
     "--barcode-delay-us {} is not used: this backend stamps the lead edge itself "
     "(barcode_delay_us {})"
 )
+# Fix round 1 (Ruling R23): the start's line for a board whose serial cannot be read, and
+# witness 2's for a box with no calibration applied, verbatim from the ruling.
+_NO_SERIAL = (
+    "this process's PIO rate cannot be kept for the next start: this board's serial "
+    "cannot be read"
+)
+_FIRST_MEASUREMENT = (
+    "this process measured RP1's rate at {} ppb against NTP over {} s; with no "
+    "calibration applied its ticks run at RP1's own rate until a later start reads it"
+)
 
 
 def _p_at(mono_ns, true_ppb):
@@ -3765,13 +3775,36 @@ def _p_at(mono_ns, true_ppb):
     return mono_ns * (10**9 + true_ppb) // 10**12
 
 
-def _pair_train(spacing_s, count, true_ppb=0):
-    """`count` narrow pairs `spacing_s` apart from MONO 0, with RAW = MONO."""
+def _pair_train(spacing_s, count, true_ppb=0, step_at_s=None):
+    """`count` narrow pairs `spacing_s` apart from MONO 0, with RAW = MONO. From
+    `step_at_s` on, REALTIME-MONO is 5 ms more, a step past the estimator's 1 ms
+    (calibration.REALTIME_STEP_NS)."""
     spacing_ns = round(spacing_s * 1e9)
     return [
-        ClockPair(_p_at(n * spacing_ns, true_ppb), n * spacing_ns, n * spacing_ns, 1_000, 0)
+        ClockPair(
+            _p_at(n * spacing_ns, true_ppb),
+            n * spacing_ns,
+            n * spacing_ns,
+            1_000,
+            0 if step_at_s is None or n * spacing_s < step_at_s else 5_000_000,
+        )
         for n in range(count)
     ]
+
+
+def _writes(path, keeper, pairs, after=None):
+    """Feed `pairs` to `keeper`, one a frame, and return each write as (process hour,
+    baseline hours). `after(n)` runs after frame n (0-based)."""
+    writes, last = [], None
+    for n, pair in enumerate(pairs):
+        keeper.frame([pair], True, SYNCED)
+        if after is not None:
+            after(n)
+        kept = read_calibration(path, "test-serial")[0] if path.is_file() else None
+        if kept is not None and kept != last:
+            writes.append((pair.mono_ns / 3.6e12, kept.baseline_s / 3600))
+            last = kept
+    return writes
 
 
 def _calibration(rate_ppb, p_per_raw_ppb=None, serial="test-serial"):
@@ -3999,22 +4032,30 @@ def test_no_calibration_is_written_before_ntp_has_synced(tmp_path):
     assert read_calibration(path, "test-serial")[0].pairs == 7
 
 
-def test_nothing_is_written_when_the_board_serial_cannot_be_read(tmp_path, monkeypatch):
+def test_nothing_is_written_when_the_board_serial_cannot_be_read(
+    tmp_path, monkeypatch, caplog
+):
     """A file is applied only on the board whose serial it names (spec §2.2), so one
     written without a serial could never be applied. The process records and measures as
-    ever, and writes no file, not even a temporary. The same run with this board's serial
-    is the control: it writes one."""
+    ever, and writes no file, not even a temporary. It says so once, at the start: such a
+    board would otherwise record uncalibrated at every start, with nothing in the journal
+    to say why no calibration ever comes. The same run with this board's serial is the
+    control: it writes one, and says nothing of the kind."""
     _ntp_and_kernel_synced(monkeypatch)
 
     def record(out, serial):
         monkeypatch.setattr(cli, "probe_board_serial", lambda: serial)
         backend = _PioClock(pair_spacing_s=600)
-        folder = run(out, backend, _clock_from(START), 8, lambda _s: None)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger=cli.log.name):
+            folder = run(out, backend, _clock_from(START), 8, lambda _s: None)
         assert len(_values(folder / segment_name(0))) == 8
-        return sorted(p.name for p in out.iterdir() if p.name.startswith(RATE_FILE_NAME))
+        files = sorted(p.name for p in out.iterdir() if p.name.startswith(RATE_FILE_NAME))
+        return files, [r.getMessage() for r in caplog.records]
 
-    assert record(tmp_path / "unknown", None) == []
-    assert record(tmp_path / "known", "test-serial") == [RATE_FILE_NAME]
+    no_file = _NO_CALIBRATION.format("no calibration file")
+    assert record(tmp_path / "unknown", None) == ([], [no_file, _NO_SERIAL])
+    assert record(tmp_path / "known", "test-serial") == ([RATE_FILE_NAME], [no_file])
 
 
 @pytest.mark.parametrize(
@@ -4076,9 +4117,56 @@ def test_this_processs_estimate_far_from_the_applied_rate_warns_once(
         assert warnings == []
         return
     [warning] = warnings
-    assert f"{apart_ppb:+d} ppb" in warning, warning
+    if applied is None:
+        # A first measurement, not a fault (Ruling R23): its own wording.
+        assert warning == _FIRST_MEASUREMENT.format(f"{true_ppb:+d}", 3600), warning
+    else:
+        assert warning.startswith("this process measures the PIO rate at"), warning
+        assert f"{apart_ppb:+d} ppb" in warning, warning
     # At the 7th pair, 600 s apart, where the baseline first spans an hour.
     assert seen.index(1) == 6
+
+
+@pytest.mark.parametrize(
+    "apart_ppb, warned", [(5_000, 0), (5_001, 1), (-5_000, 0), (-5_001, 1)]
+)
+def test_the_raw_ratio_witness_warns_only_above_5_ppm(tmp_path, caplog, apart_ppb, warned):
+    """"A difference above 5 ppm" (spec §2.2): exactly 5 ppm is silent. Pairs 1000 s
+    apart make every P exact, so the ratio is exactly the crystal's."""
+    applied = _calibration(rate_ppb=100_000, p_per_raw_ppb=100_000)
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", applied, "")
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in _pair_train(1000, 3, true_ppb=100_000 + apart_ppb):
+            keeper.frame([pair], None, None)
+    assert len(caplog.records) == warned
+
+
+@pytest.mark.parametrize(
+    "apart_ppb, warned", [(1_000, 0), (1_001, 1), (-1_000, 0), (-1_001, 1)]
+)
+def test_the_rate_witness_warns_only_above_1_ppm(tmp_path, caplog, apart_ppb, warned):
+    """"A difference above 1 ppm" (spec §2.2): exactly 1 ppm is silent. Pairs 1000 s
+    apart make every P exact, and five of them span 4000 s."""
+    applied = _calibration(rate_ppb=100_000, p_per_raw_ppb=100_000 + apart_ppb)
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", applied, "")
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in _pair_train(1000, 5, true_ppb=100_000 + apart_ppb):
+            keeper.frame([pair], True, SYNCED)
+    assert len(caplog.records) == warned
+
+
+def test_the_witness_texts_quote_the_thresholds_they_test(tmp_path, monkeypatch, caplog):
+    """Each text says the threshold its constant holds, so the two cannot drift apart."""
+    monkeypatch.setattr(cli, "RAW_RATIO_WITNESS_PPB", 2_000)
+    monkeypatch.setattr(cli, "RATE_WITNESS_PPB", 500)
+    applied = _calibration(rate_ppb=100_000, p_per_raw_ppb=100_000)
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", applied, "")
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in _pair_train(1000, 5, true_ppb=103_000):
+            keeper.frame([pair], True, SYNCED)
+    ratio, rate = [r.getMessage() for r in caplog.records]
+    assert "more than 2 ppm" in ratio, ratio
+    assert "more than 0.5 ppm" in rate, rate
 
 
 def test_a_calibration_that_cannot_be_written_is_an_error_and_recording_goes_on(
@@ -4086,7 +4174,7 @@ def test_a_calibration_that_cannot_be_written_is_an_error_and_recording_goes_on(
 ):
     """A full disk or a read-only root (the plan's review focus 4). Here a directory
     stands where the file goes, so write_durably's rename refuses it after the temporary
-    is written (wl_sync/clock.py:119-124). One ERROR, recording goes on, nothing is left
+    is written (wl_sync/clock.py:126-132). One ERROR, recording goes on, nothing is left
     beside the file, and the next hour's write succeeds."""
     path = tmp_path / RATE_FILE_NAME
     path.mkdir()
@@ -4137,6 +4225,68 @@ def test_a_write_that_keeps_failing_is_one_error_until_one_succeeds(tmp_path, ca
         path.mkdir()
         hours(1)  # 14400 s: fails, a new episode
     assert len(_errors(caplog)) == 2
+
+
+def test_a_baseline_a_realtime_step_restarts_never_overwrites_a_longer_one(tmp_path):
+    """A REALTIME step restarts the estimator's baseline (wl_sync/calibration.py:170-176).
+    The step moves MONO's phase, not RP1's rate, so the estimate from before it stays the
+    better one (Ruling R23), and the file is rewritten only once the new baseline is an
+    hour longer than the last one tried. Pairs 600 s apart, a step at 3.5 h: writes at 1,
+    2 and 3 h of process, then none until 7.5 h, on a 4 h baseline, and hourly again."""
+    path = tmp_path / RATE_FILE_NAME
+    keeper = cli._RateKeeper(path, "test-serial", None, "")
+    pairs = _pair_train(600, 55, true_ppb=7_000, step_at_s=12_600)
+    assert _writes(path, keeper, pairs) == [
+        (1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (7.5, 4.0), (8.5, 5.0),
+    ]
+
+
+def test_after_a_failed_write_and_a_realtime_step_the_next_waits_an_hour_past_the_attempt(
+    tmp_path, caplog
+):
+    """The mark is the last attempt, failed or not, so the rule holds after a failure, and
+    costs a delay there: the file holds nothing longer than the new baseline. The attempt
+    at 1 h fails (a directory where the file goes), a step at 1.5 h restarts the
+    baseline, and the first write lands at 3.5 h, on a 2 h baseline, an hour past the
+    failed attempt's; then hourly."""
+    path = tmp_path / RATE_FILE_NAME
+    path.mkdir()
+    keeper = cli._RateKeeper(path, "test-serial", None, "")
+    pairs = _pair_train(600, 28, true_ppb=7_000, step_at_s=5_400)
+
+    def after(n):
+        if n == 6:  # the attempt at 1 h has failed
+            path.rmdir()
+
+    with caplog.at_level(logging.ERROR, logger=cli.log.name):
+        assert _writes(path, keeper, pairs, after) == [(3.5, 2.0), (4.5, 3.0)]
+    assert len(_errors(caplog)) == 1
+
+
+def test_a_keeper_that_fails_is_dropped_with_one_error_and_the_box_records_on(
+    tmp_path, monkeypatch, caplog
+):
+    """The keeper's file is for the next start, and nothing it does may stop this one (the
+    plan's Global Constraints: "The box records anyway"). A failure is one ERROR naming
+    it; the keeper is dropped for the rest of the process, its pairs still taken; and
+    recording goes on, as roll() does when a manifest rebuild fails."""
+    calls = []
+
+    def broken(self, pairs, ntp_known, kernel):
+        calls.append(len(pairs))
+        raise RuntimeError("an estimator fault")
+
+    monkeypatch.setattr(cli._RateKeeper, "frame", broken)
+    backend = _PioClock()
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        folder = run(tmp_path, backend, _clock_from(START), 4, lambda _s: None)
+
+    [error] = _errors(caplog)
+    assert "RuntimeError" in error and "an estimator fault" in error, error
+    assert calls == [1]
+    assert backend.take_pairs() == []
+    assert len(_values(folder / segment_name(0))) == 4
+    assert _has_trailer(folder / segment_name(0))
 
 
 def test_a_measured_barcode_delay_is_not_used_where_the_backend_stamps_the_edge(

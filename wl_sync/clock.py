@@ -16,6 +16,7 @@ cannot fit is treated as corruption and degraded rather than propagated.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
 from dataclasses import dataclass
@@ -115,13 +116,24 @@ def write_durably(path: Path, text: str) -> None:
     THE SECOND FSYNC IS THE DIRECTORY, and it is not optional: making the file's
     contents durable says nothing about whether the rename that gave the file its name
     reached the disk.
+
+    A FAILURE TAKES ITS TEMPORARY WITH IT. Up to the rename the temporary is this
+    function's own, so whatever stops it there (a full disk's fsync, a rename refused)
+    removes it before raising: nothing is left beside the file, which is as it was.
+    After the rename there is no temporary, and a failure of the directory's fsync
+    leaves the new file in place, perhaps not yet durable.
     """
     temporary = path.with_suffix(path.suffix + ".tmp")
-    with open(temporary, "w") as handle:
-        handle.write(text)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temporary.replace(path)
+    try:
+        with open(temporary, "w") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            temporary.unlink(missing_ok=True)
+        raise
     directory = os.open(path.parent, os.O_RDONLY)
     try:
         os.fsync(directory)

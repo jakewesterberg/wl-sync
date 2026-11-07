@@ -536,6 +536,13 @@ def run(
                 calibration.pairs,
                 backend.timebase,
             )
+        if serial is None:
+            # The keeper writes nothing without it (_RateKeeper), so without this line
+            # such a board records uncalibrated at every start and never says why.
+            log.warning(
+                "this process's PIO rate cannot be kept for the next start: this board's "
+                "serial cannot be read"
+            )
         keeper = _RateKeeper(rate_path, serial, calibration, probe_boot_id())
 
     # A BACKEND THAT STAMPS THE LEAD EDGE ITSELF DECLARES ITS DELAY, and every header
@@ -906,7 +913,18 @@ def run(
             # NTP_POLL_TIMEOUT_S).
             pairs = backend.take_pairs()
             if keeper is not None:
-                keeper.frame(pairs, ntp_known, probe_kernel_ntp())
+                try:
+                    keeper.frame(pairs, ntp_known, probe_kernel_ntp())
+                except Exception as error:  # noqa: BLE001 - recording matters more
+                    # The keeper's file is for the next start, and nothing it does may
+                    # stop this one. Dropped, not retried: whatever broke it would break
+                    # it every frame. The pairs are still taken, above.
+                    log.error(
+                        "the PIO rate keeper failed, and this process keeps no rate for "
+                        "the next start; still recording: %r",
+                        error,
+                    )
+                    keeper = None
 
             # AFTER THE FRAME IS ON DISK AND BEFORE PACING: the frame just emitted belongs
             # to the session that was open when it was emitted, and the next one to the
@@ -1415,9 +1433,14 @@ class _RateKeeper:
 
     THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),
     restarted by a REALTIME step (:170-176). The file is first written when it reaches an
-    hour, and again each time it has grown an hour past the last attempt. A restarted
-    baseline is therefore not written until it is an hour longer than the one last tried,
-    so within a process the file never trades an estimate for a shorter one.
+    hour, and again each time it has grown an hour past the last attempt.
+
+    A RESTARTED BASELINE IS NOT WRITTEN UNTIL IT IS AN HOUR LONGER THAN THE ONE LAST
+    TRIED, so within a process the file never trades an estimate for a shorter one
+    (Ruling R23). A REALTIME step moves MONO's phase against UTC, not RP1's rate, so the
+    estimate from before the step stays the better one. The mark is the last attempt,
+    failed or not: after a failed attempt and a step, the next write waits for a baseline
+    an hour longer than the failed one, though the file holds nothing that long.
 
     NOTHING IS WRITTEN WITHOUT THE BOARD'S SERIAL. A file is applied only on the board it
     names (wl_sync/calibration.py:241-245), so one written without it could never be used.
@@ -1478,31 +1501,45 @@ class _RateKeeper:
             self._raw_ratio_warned = True
             log.warning(
                 "the PIO counter runs %+d ppb against CLOCK_MONOTONIC_RAW over %.0f s, "
-                "and the calibration applied says %+d ppb: %+d ppb apart, more than 5 ppm. "
-                "It most likely came from other hardware, though it names this board's "
-                "serial; this process keeps its rate",
+                "and the calibration applied says %+d ppb: %+d ppb apart, more than %g "
+                "ppm. It most likely came from other hardware, though it names this "
+                "board's serial; this process keeps its rate",
                 ppb,
                 span_s,
                 self._applied.p_per_raw_ppb,
                 apart,
+                RAW_RATIO_WITNESS_PPB / 1_000,
             )
 
     def _witness_rate(self, estimate: RateEstimate) -> None:
         if self._rate_warned or estimate.baseline_s < RATE_WITNESS_BASELINE_S:
             return
         apart = estimate.rate_ppb - self._applied_ppb
-        if abs(apart) > RATE_WITNESS_PPB:
-            self._rate_warned = True
+        if abs(apart) <= RATE_WITNESS_PPB:
+            return
+        self._rate_warned = True
+        if self._applied is None:
+            # No calibration was applied, so this is the crystal's first measurement,
+            # not a fault in one (Ruling R23).
             log.warning(
-                "this process measures the PIO rate at %+d ppb against NTP-disciplined "
-                "CLOCK_MONOTONIC, over %.0f s and %d pairs: %+d ppb from the %+d ppb it "
-                "applies, more than 1 ppm. This process keeps the rate it applied",
+                "this process measured RP1's rate at %+d ppb against NTP over %.0f s; "
+                "with no calibration applied its ticks run at RP1's own rate until a "
+                "later start reads it",
                 estimate.rate_ppb,
                 estimate.baseline_s,
-                estimate.pairs,
-                apart,
-                self._applied_ppb,
             )
+            return
+        log.warning(
+            "this process measures the PIO rate at %+d ppb against NTP-disciplined "
+            "CLOCK_MONOTONIC, over %.0f s and %d pairs: %+d ppb from the %+d ppb it "
+            "applies, more than %g ppm. This process keeps the rate it applied",
+            estimate.rate_ppb,
+            estimate.baseline_s,
+            estimate.pairs,
+            apart,
+            self._applied_ppb,
+            RATE_WITNESS_PPB / 1_000,
+        )
 
     def _keep(self, estimate: RateEstimate) -> None:
         if self._serial is None or estimate.baseline_s < CALIBRATION_WRITE_EVERY_S:
@@ -1526,17 +1563,17 @@ class _RateKeeper:
             written_at=datetime.datetime.now(datetime.timezone.utc),
         )
         try:
+            # A failure leaves no temporary beside the file: write_durably removes its
+            # own (wl_sync/clock.py:126-136).
             write_calibration(self._path, calibration)
         except OSError as error:
-            # write_durably's temporary (wl_sync/clock.py:119), which a failure after its
-            # open leaves: it would sit beside the rate file until the next attempt.
-            with contextlib.suppress(OSError):
-                self._path.with_suffix(self._path.suffix + ".tmp").unlink(missing_ok=True)
             if not self._write_failing:
+                # Only that the write did not complete durably is known: a failure of the
+                # directory's fsync comes after the rename has put this estimate in place.
                 log.error(
-                    "could not write the PIO rate calibration %s (%s); still recording. "
-                    "The file keeps what it held, and the write is tried again after "
-                    "another hour of baseline",
+                    "could not write the PIO rate calibration %s durably (%s); still "
+                    "recording, and the write is tried again after another hour of "
+                    "baseline",
                     self._path,
                     error,
                 )

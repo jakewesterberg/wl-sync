@@ -313,7 +313,7 @@ left, so no further panel connector fits. One fix-up came with it:
   - That uses up the ±100 µs budget about 15 s after capture starts, and reaches about 4 ms
     after 10 minutes.
   - **Two corrections (2026-10-30), from the draft design below:**
-    - The error grows from when capture starts, which is once per process (`cli.py:574`). A
+    - The error grows from when capture starts, which is once per process (`cli.py:581`). A
       roll does not restart it. So a session opened 2 h into a process starts about 47 ms off
       at 6.5 ppm, not at zero.
     - The rate is probably not 6.5 ppm. That figure holds only if RP1 and the CPU share an
