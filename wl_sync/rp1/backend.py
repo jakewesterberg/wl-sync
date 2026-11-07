@@ -44,8 +44,8 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from wl_sync.backend import (
-    STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_STOPPED,
-    CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
+    STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_OFF_RISES,
+    STAMPS_STOPPED, CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
 )
 from wl_sync.barcode import rises_us
 from wl_sync.calibration import Calibration
@@ -92,9 +92,12 @@ _STAMP_WAIT_POLL_S = 0.001
 # Shifted frames in a row, each offset within LEAD_STAMP_TOLERANCE of the one before, that
 # restart the RAW->P fit (Ruling R19; the rule is the plan's,
 # docs/superpowers/plans/2026-11-07-one-clock.md:1468-1485, and `_reacquire` applies it).
-# More than one, because one frame can pass for shifted by accident: a stray stamp before
-# a lead edge that went unstamped keeps its count right. Each shifted frame still costs
-# its B; without the restart, a lost fit cost every B after it.
+# More than one, because one frame's alignment can be wrong (`clockmap.match_lead_stamp`):
+# a frame that lost its lead aligns its rises on a later edge where they repeat at that
+# distance, as value 0x0001_0000's rises at 0, 95 and 190 ms do. No other value's rises
+# do, and the next frame's value differs, so wrong alignments do not make three in a row.
+# Each shifted frame still costs its B; without the restart, a lost fit cost every B
+# after it.
 REACQUIRE_FRAMES = 3
 
 # The edge request's event_buffer_size: the kernel's buffer, and the one libgpiod reads
@@ -576,7 +579,7 @@ class Rp1Backend:
             )
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
-        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:127-133).
+        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:129-135).
         # Read after MONO, so RAW is the reading nearer the enable.
         self._fit = RawToP(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), self._seed_ppb)
         mask = 1 << self._sm
@@ -973,9 +976,12 @@ class Rp1Backend:
         The frame's end, read as RAW now, and the bracket are mapped to P through the
         fit. This waits, in 1 ms sleeps, until the stamp drain's mark has passed the end,
         or until STAMP_DRAIN_WAIT_S past it, and then matches the stamps queued since the
-        last frame (`clockmap.match_lead_stamp`). A stamp makes a `ClockPair`; a narrow
-        one moves the fit, and every one is kept for `take_pairs`. A frame with none may
-        be shifted, and three of those in a row restart the fit (`_reacquire`).
+        last frame (`clockmap.match_lead_stamp`) to the frame's own rises: the lead is
+        the stamp they align on, and its B when it lies in the window (Ruling R26). That
+        stamp makes a `ClockPair`; a narrow one moves the fit, and every one is kept for
+        `take_pairs`. A lead outside the window makes the frame shifted, and three of those
+        in a row restart the fit (`_reacquire`). Stamps the rises align on no lead with
+        drop the frame's B as STAMPS_OFF_RISES.
         """
         if bracket is None:  # no rise at all, so nothing for a stamp to be of
             self.last_frame = None
@@ -1006,19 +1012,21 @@ class Rp1Backend:
             time.sleep(_STAMP_WAIT_POLL_S)
         # Ascending, as match_lead_stamp takes them: the leftovers were queued first.
         stamps = [*self._leftover, *(unwrap_near(stamp, low) for stamp in pump.take())]
-        found = match_lead_stamp(stamps, (low, high), end)
+        found = match_lead_stamp(stamps, (low, high), end, rises=rises)
         self._leftover = found.leftover
         self.last_frame = FrameTrace(found, bracket.width_ns)
         if found.p is None:
-            self._reacquire(fit, bracket, stamps, found, end, rises)
-            if found.nearest is None:
-                return FrameStamp(None, STAMP_NOT_SEEN, found.between)
-            return FrameStamp(
-                None,
-                f"{STAMP_TOO_FAR_PREFIX}{found.nearest} us from the frame's lead edge "
-                f"as the CPU bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)",
-                found.between,
-            )
+            self._reacquire(fit, bracket, found)
+            if found.lead is not None:
+                return FrameStamp(
+                    None,
+                    f"{STAMP_TOO_FAR_PREFIX}{found.nearest} us from the frame's lead edge "
+                    f"as the CPU bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)",
+                    found.between,
+                )
+            if found.between + found.consumed:
+                return FrameStamp(None, STAMPS_OFF_RISES, found.between)
+            return FrameStamp(None, STAMP_NOT_SEEN, found.between)
         pair = ClockPair(
             p=found.p,
             mono_ns=(bracket.mono_before_ns + bracket.mono_after_ns) // 2,
@@ -1035,74 +1043,49 @@ class Rp1Backend:
         # backend hands over is raw.
         return FrameStamp(found.p & 0xFFFF_FFFF, between=found.between)
 
-    def _reacquire(
-        self, fit: RawToP, bracket: _Bracket, stamps: Sequence[int], found: LeadStamp,
-        end: int, rises: Sequence[int],
-    ) -> None:
-        """Ruling R19: restart the fit at the last of REACQUIRE_FRAMES shifted frames in a
-        row, each offset within LEAD_STAMP_TOLERANCE of the one before (the plan's rule,
-        docs/superpowers/plans/2026-11-07-one-clock.md:1468-1485).
+    def _reacquire(self, fit: RawToP, bracket: _Bracket, found: LeadStamp) -> None:
+        """Ruling R19: restart the fit at the lead of the last of REACQUIRE_FRAMES shifted
+        frames in a row, each offset within LEAD_STAMP_TOLERANCE of the one before (the
+        plan's rule, docs/superpowers/plans/2026-11-07-one-clock.md:1468-1485, as Rulings
+        R24 and R26 amend it).
 
         WHY. Below FIT_FREE_SLOPE_PAIRS the line runs through the newest pair at the seed
-        slope, and only a matched pair moves it (wl_sync/clockmap.py:124-133). A wrong
+        slope, and only a matched pair moves it (wl_sync/clockmap.py:126-135). A wrong
         stamp that became the anchor, or misses for longer than LEAD_STAMP_TOLERANCE over
         the slope's error, leave every later lead edge outside its window, and no pair
         comes to correct the line. Past the 30th pair one far pair barely moves a line
         fitted over 120, so the restart applies at any count.
 
-        A SHIFTED FRAME has no stamp in its window, a narrow bracket, at least one stamp
-        up to its end, exactly as many stamps up to its end as it has rising edges, and
-        those stamps follow its own rises (Ruling R24): each lies within
-        LEAD_STAMP_TOLERANCE of its rise's place in `rises`, `wl_sync.barcode.rises_us`
-        of the frame's pulses, measured from the first stamp and the first rise. Its first
-        stamp is then its lead edge: nothing else drives GPIO17 between frames (spec §2.5
-        step 4, docs/superpowers/specs/2026-10-30-one-clock-design.md:398-399), and under
-        c-direct GPIO17 is this process's own output. Its offset is that stamp less its
-        bracket's midpoint, both on P.
+        A SHIFTED FRAME has a narrow bracket and a lead outside its window: the stamp its
+        own rises align on (`clockmap.match_lead_stamp`, Ruling R26), which subsumes R24's
+        count and pattern. Its offset is that lead less its bracket's midpoint, both on P.
+        A frame whose lead alone went unstamped aligns no lead, since its rises would need
+        a later edge to align as one; nor does the TRAIL that a line more than 10 ms
+        behind P carries into the next frame (R24), which once restarted the fit 0.8 s
+        off. That frame's rises align on its own lead with only its TRAIL short, so such a
+        line is recovered.
 
-        A FRAME WHOSE LEAD EDGE ALONE WENT UNSTAMPED IS NEVER SHIFTED. It has one stamp
-        fewer than its rising edges, and its first is its second rise, at least 20 ms
-        after the lead (wl_sync/barcode.py:5-7): taken for the lead, B would be that far
-        off.
-
-        NOR IS A FRAME THAT BEGINS WITH THE FRAME BEFORE'S TRAIL, which the count alone
-        let through (Ruling R24). A line more than about 10 ms behind P puts each frame's
-        TRAIL rise, its last, past the frame's mapped end, since TRAIL rises 10 ms before
-        the end (wl_sync/barcode.py:3-9). That stamp is carried to the next frame, whose
-        own TRAIL is carried on in turn: one stamp in, one out, so the count matched.
-        Restarted there, the line lay some 0.8 s off, and every later B matched the frame
-        before's TRAIL. Measured from that carried stamp, the frame's own stamps lie some
-        0.8 s later than its rises put them, so its rises reject it.
-
-        NOT RECOVERED, THEN: a line more than about 10 ms behind P. Each frame is dropped,
-        with no B written for it, and the fit stays lost until something else moves it.
+        NOT RECOVERED: a frame with two rises past its mapped end, the line behind P by
+        more than 200 ms less its last rise before TRAIL, 25 ms at the least
+        (wl_sync/barcode.py:3-9), or a frame of two rises, value 0, with its TRAIL past it.
+        Those frames align no lead, and are dropped with no B written for them.
 
         The shifted frames' Bs stay dropped, and no pair is handed over for them: their
-        lead edges are inferred, not matched. Run loop's thread only, as `_shifted` is.
+        lead edges are not where the fit put them. Run loop's thread only, as `_shifted`
+        is.
         """
-        up_to_end = [stamp for stamp in stamps if stamp <= end]  # ascending, as queued
-        raw_ns = (bracket.raw_before_ns + bracket.raw_after_ns) // 2
-        shifted = (
-            found.p is None
-            and bracket.width_ns <= BRACKET_WIDTH_MAX_NS
-            and len(up_to_end) >= 1
-            and found.between + found.consumed == len(rises)
-            and all(
-                abs((stamp - up_to_end[0]) - (rise - rises[0])) <= LEAD_STAMP_TOLERANCE
-                for stamp, rise in zip(up_to_end, rises)
-            )
-        )
-        if not shifted:
+        narrow = bracket.width_ns <= BRACKET_WIDTH_MAX_NS
+        if found.p is not None or found.lead is None or not narrow:
             self._shifted = []
             return
-        lead = up_to_end[0]
-        offset = lead - fit.p_of(raw_ns)
+        raw_ns = (bracket.raw_before_ns + bracket.raw_after_ns) // 2
+        offset = found.lead - fit.p_of(raw_ns)
         if self._shifted and abs(offset - self._shifted[-1]) > LEAD_STAMP_TOLERANCE:
             self._shifted = []  # this frame begins a new run
         self._shifted.append(offset)
         if len(self._shifted) < REACQUIRE_FRAMES:
             return
-        fit.restart(raw_ns, lead)
+        fit.restart(raw_ns, found.lead)
         log.warning(
             "the RAW->P fit lost the lead edges (%d frames in a row stamped %d us from "
             "their brackets) and restarts at the last of them",

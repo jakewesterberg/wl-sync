@@ -587,9 +587,10 @@ def gpiod(monkeypatch):
 
     FRAMES ARE COUNTED AS THE DECODER FINDS THEM: a rise on GPIO17 after IDLE_MIN_US of LOW,
     or its first rise, begins one, numbered from 1 in `frame` (wl_sync/barcode.py:11-13).
-    `frame_stamp_offset_us` moves every stamp of the frames a test names by that many us,
-    `unstamped_leads` names frames whose first rise goes unstamped, and `leads` gives each
-    frame's lead-edge stamp as pushed."""
+    `frame_stamp_offset_us` moves every stamp of the frames a test names by that many us.
+    `unstamped_rises` maps a frame to the rises, numbered from 0 for its lead, that go
+    unstamped. `stray_before_lead_us` maps a frame to a stray stamp pushed that many us
+    before its lead's. `leads` gives each frame's lead-edge stamp as pushed."""
     import sys
     import types
 
@@ -621,13 +622,19 @@ def gpiod(monkeypatch):
                 fell = module.fell_ns
                 lead = fell is None or module.clock.ns - fell >= IDLE_MIN_US * 1_000
                 module.frame += lead
+                module.rise = 0 if lead else module.rise + 1
             if pin == 17 and falling:
                 module.fell_ns = module.clock.ns
             if (rising and pin == 17 and module.pio_sees_barcode and module.shim is not None
                     and (module.shim.stamp_started_with or {}).get("jmp_pin") == 17
-                    and not (lead and module.frame in module.unstamped_leads)):
+                    and module.rise not in module.unstamped_rises.get(module.frame, ())):
                 p = (module.clock.p_now() + module.stamp_late_us
                      + module.frame_stamp_offset_us.get(module.frame, 0)) & 0xFFFF_FFFF
+                stray = module.stray_before_lead_us.get(module.frame) if lead else None
+                if stray is not None:  # pushed first: the FIFO is in time order
+                    q = (p - stray) & 0xFFFF_FFFF
+                    module.stamped.append(q)
+                    module.shim.push_stamps([0, (~q) & 0xFFFF_FFFF])
                 module.stamped.append(p)
                 if lead:
                     module.leads[module.frame] = p
@@ -692,7 +699,9 @@ def gpiod(monkeypatch):
     module.frame = 0
     module.fell_ns = None
     module.frame_stamp_offset_us = {}
-    module.unstamped_leads = set()
+    module.rise = 0
+    module.unstamped_rises = {}
+    module.stray_before_lead_us = {}
     module.leads = {}
     module.levels = {}
     module.edge_failure = None
@@ -2274,7 +2283,7 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
 
 
 # Ruling R19: the fit finds the lead edges again. Below FIT_FREE_SLOPE_PAIRS only a matched
-# pair moves the fit (wl_sync/clockmap.py:124-133), so a fit that has lost the lead edges
+# pair moves the fit (wl_sync/clockmap.py:126-135), so a fit that has lost the lead edges
 # gets no pair to correct it. Three shifted frames in a row, their offsets agreeing,
 # restart it.
 
@@ -2365,11 +2374,12 @@ def test_a_frame_whose_lead_edge_alone_went_unstamped_is_not_taken_for_shifted(
     """It has one stamp fewer than its rising edges, and its first is its second rise,
     20 ms after the lead (wl_sync/barcode.py:5-7): taken for the lead, B would be 20 ms
     off. Three such frames in a row, each with its top bit set, so their first stamps
-    agree: a rule without the count would restart the fit here, and the next frame's own
-    second rise would then match.
+    agree: a rule that took the first stamp for the lead would restart the fit here, and
+    the next frame's own second rise would then match. The frame's rises align on none
+    of its stamps (Ruling R26), so nothing is shifted.
 
     Coverage: passes on the sources before, which never restart the fit. It pins the
-    count condition against the new rule."""
+    rule that the lead be the stamp the rises align on against the new rule."""
     import logging
 
     from wl_sync.barcode import encode
@@ -2380,7 +2390,7 @@ def test_a_frame_whose_lead_edge_alone_went_unstamped_is_not_taken_for_shifted(
                         raising=False)
     clock = crystals(cpu_ppm=0, rp1_ppm=100)
     backend = _started(lib, lambda tick, word: None)
-    gpiod.unstamped_leads.update({4, 5, 6})
+    gpiod.unstamped_rises.update({k: {0} for k in (4, 5, 6)})
 
     def value_of(k):
         return 0x8000_0000 | k
@@ -2424,10 +2434,11 @@ def test_shifted_frames_whose_offsets_disagree_do_not_restart_the_fit(
             stamps, traces = _frames(backend, clock, gpiod, 8)
     finally:
         backend.close()
-    for k in (4, 5, 6):  # shifted: no stamp in the window, and every rise before the end
+    for k in (4, 5, 6):  # shifted: the rises align on the frame's own lead, outside
         lead = traces[k - 1].lead
         assert stamps[k - 1].tick is None, k
-        assert lead.between + lead.consumed == len(rises_us(encode(1000 + k))), k
+        assert lead.lead == gpiod.leads[k], k
+        assert lead.between + lead.consumed == len(rises_us(encode(1000 + k))) - 1, k
         assert lead.leftover == (), k
     assert [stamps[k - 1].tick for k in (7, 8)] == [gpiod.leads[7], gpiod.leads[8]]
     assert restarted == [] and _restarts(caplog) == []
@@ -2470,6 +2481,12 @@ def test_shifted_frames_with_wide_brackets_do_not_restart_the_fit(
 # about 0.8 s off, the fit matched every later B to the frame before's TRAIL.
 
 
+def _wrong(stamps, gpiod):
+    """(frame, us off) for every B written for an edge other than its frame's lead."""
+    return [(k, stamp.tick - gpiod.leads[k]) for k, stamp in enumerate(stamps, 1)
+            if stamp.tick is not None and stamp.tick != gpiod.leads[k]]
+
+
 def _restarted_at(monkeypatch):
     """Every `RawToP.restart`, recorded, and made."""
     from wl_sync.clockmap import RawToP
@@ -2493,8 +2510,11 @@ def test_a_line_more_than_10_ms_behind_p_is_not_restarted_at_the_trail_before(
     lib, gpiod, crystals, caplog, monkeypatch
 ):
     """Every stamp from frame 4 on lands 15 ms after the line, as a line 15 ms behind P
-    puts it: past TRAIL's 10 ms before the end (wl_sync/barcode.py:3-9). Each such frame
-    is dropped, and nothing restarts."""
+    puts it: past TRAIL's 10 ms before the end (wl_sync/barcode.py:3-9), so each frame's
+    TRAIL is carried into the next. By the count alone the fit restarted at that carried
+    TRAIL, 0.8 s off (Ruling R24). The frame's own rises align on its own lead, all but
+    its TRAIL (Ruling R26): three such frames restart the fit at the third's lead, and
+    every B after it is its own."""
     import logging
 
     restarted = _restarted_at(monkeypatch)
@@ -2506,14 +2526,17 @@ def test_a_line_more_than_10_ms_behind_p_is_not_restarted_at_the_trail_before(
             stamps, traces = _frames(backend, clock, gpiod, 12)
     finally:
         backend.close()
-    wrong = [(k, stamp.tick - gpiod.leads[k]) for k, stamp in enumerate(stamps, 1)
-             if stamp.tick is not None and stamp.tick != gpiod.leads[k]]
+    wrong = _wrong(stamps, gpiod)
     assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
-    leads = [gpiod.leads[k] for k in (1, 2, 3)]
-    assert [stamp.tick for stamp in stamps] == leads + [None] * 9
-    assert restarted == [] and _restarts(caplog) == []
-    # The shape R24 is about: each frame from 5 on began with the TRAIL carried to it.
-    assert [traces[k - 1].lead.between for k in range(5, 13)] == [1] * 8
+    leads = [gpiod.leads[k] for k in range(1, 13)]
+    assert [stamp.tick for stamp in stamps] == leads[:3] + [None] * 3 + leads[6:]
+    [offset] = _restart_offsets(caplog)
+    assert abs(offset - 15_000) <= 1_000, offset
+    assert [p for _, p in restarted] == [gpiod.leads[6]]
+    # The shape R24 is about: frames 5 and 6 began with the TRAIL carried to them, and
+    # their own lead was the one aligned.
+    assert [traces[k - 1].lead.between for k in (5, 6)] == [1, 1]
+    assert [traces[k - 1].lead.lead for k in (4, 5, 6)] == leads[3:6]
 
 
 def test_after_a_long_blind_run_a_line_10_ms_behind_is_not_restarted_at_a_trail(
@@ -2541,6 +2564,113 @@ def test_after_a_long_blind_run_a_line_10_ms_behind_is_not_restarted_at_a_trail(
     assert [stamp.tick for stamp in stamps[5:8]] == [None] * 3
     offsets = _restart_offsets(caplog)
     assert all(0 < offset < 20_000 for offset in offsets), _restarts(caplog)
+
+
+# Ruling R26: a frame's stamps are matched to its own rises as a whole. Its lead is the
+# stamp its rises align on (wl_sync/clockmap.py, `match_lead_stamp`), so no other stamp can
+# become B or anchor the fit.
+
+
+def test_a_line_20_ms_ahead_of_p_does_not_take_the_second_rise_for_the_lead(
+    lib, gpiod, crystals, caplog, monkeypatch
+):
+    """Every stamp from frame 4 on lands 20 ms before the line, as a line 20 ms ahead of P
+    puts it. Each frame's top bit is set, so its second rise comes 20 ms after its lead
+    (wl_sync/barcode.py:5-7) and its stamp lands in the lead's window: taken for the lead,
+    every B was 20 ms off, and the fit anchored there. The rises align on the frame's own
+    lead, outside the window, so three such frames restart the fit at it, and every later
+    B is its own lead."""
+    import logging
+
+    restarted = _restarted_at(monkeypatch)
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.frame_stamp_offset_us.update({k: -20_000 for k in range(4, 13)})
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(
+                backend, clock, gpiod, 12, value_of=lambda k: 0x8000_0000 | k
+            )
+    finally:
+        backend.close()
+    wrong = _wrong(stamps, gpiod)
+    assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
+    assert [stamp.tick for stamp in stamps[3:6]] == [None] * 3
+    assert [stamp.tick for stamp in stamps[6:]] == [gpiod.leads[k] for k in range(7, 13)]
+    [offset] = _restart_offsets(caplog)
+    assert abs(offset + 20_000) <= 1_000, offset
+    assert [p for _, p in restarted] == [gpiod.leads[6]]
+
+
+def test_a_frame_missing_one_later_rise_is_still_matched_to_its_own_lead(
+    lib, gpiod, crystals
+):
+    """A later edge the stamp machine missed costs the frame nothing: its lead and its
+    other rises align, and the minimum is all the rises but one.
+
+    Coverage: passes on the sources before, which looked at the lead's window alone. It
+    pins the minimum against the alignment."""
+    from wl_sync.barcode import encode
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.unstamped_rises[3] = {2}
+    try:
+        stamps, traces = _frames(backend, clock, gpiod, 4)
+    finally:
+        backend.close()
+    assert [stamp.tick for stamp in stamps] == [gpiod.leads[k] for k in range(1, 5)]
+    assert traces[2].lead.consumed == len(rises_us(encode(1003))) - 2
+
+
+def test_a_frame_missing_two_later_rises_is_dropped_as_off_its_rises(
+    lib, gpiod, crystals, caplog
+):
+    """Two later edges missing leave too few stamps on the frame's rises, though its lead's
+    stamp lies in its window, which alone was enough before: its B is dropped, with a
+    cause of its own, and nothing restarts."""
+    import logging
+
+    from wl_sync.barcode import encode
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.unstamped_rises[3] = {1, 2}
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, traces = _frames(backend, clock, gpiod, 4)
+    finally:
+        backend.close()
+    assert len(rises_us(encode(1003))) == 5  # so two missing leave three, under four
+    assert stamps[2].tick is None
+    from wl_sync.backend import STAMPS_OFF_RISES
+
+    assert stamps[2].missed == STAMPS_OFF_RISES
+    assert (traces[2].lead.lead, traces[2].lead.nearest) == (None, None)
+    assert [stamps[k - 1].tick for k in (1, 2, 4)] == [gpiod.leads[k] for k in (1, 2, 4)]
+    assert _restarts(caplog) == []
+
+
+@pytest.mark.parametrize(
+    ("late", "stray"), [(0, 600), (500, 1_200)], ids=["on-the-rises", "off-the-rises"]
+)
+def test_a_stray_stamp_in_the_window_is_not_taken_for_the_lead(
+    lib, gpiod, crystals, late, stray
+):
+    """A stray stamp before frame 3's lead, inside its window. 600 us before a lead the map
+    puts at its bracket, the frame's rises align on the stray too, but less closely than on
+    the lead; 1.2 ms before a lead stamped 0.5 ms late, they do not align on it at all.
+    The first stamp in the window was the lead before."""
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gpiod.frame_stamp_offset_us[3] = late
+    gpiod.stray_before_lead_us[3] = stray
+    try:
+        stamps, traces = _frames(backend, clock, gpiod, 4)
+    finally:
+        backend.close()
+    assert [stamp.tick for stamp in stamps] == [gpiod.leads[k] for k in range(1, 5)]
+    assert traces[2].lead.between == 1  # the stray, a stamp between frames
 
 
 # Ruling R25.

@@ -101,16 +101,20 @@ class StampLag:
 # episode of drops ends (wl_sync/cli.py:1312-1342), and imports the RP1 backend only to
 # build it (wl_sync/cli.py:1592-1597).
 #
-# The lead edge has no stamp at all.
+# No stamp at all up to the frame's end.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
-# The start of the cause for a stamp outside the lead edge's window. The rest gives the
-# distance (wl_sync/rp1/backend.py:1016-1021), which differs frame to frame, so the run
-# loop tells the kind by this.
+# The start of the cause for a lead the frame's rises align on, outside the lead edge's
+# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1021-1026),
+# which differs frame to frame, so the run loop tells the kind by this.
 STAMP_TOO_FAR_PREFIX = "the stamp lies "
 # No frame can be matched, because the stamp machine never started (Ruling R15) or its
-# drain has stopped (Ruling R16) (wl_sync/rp1/backend.py:988-995).
+# drain has stopped (Ruling R16) (wl_sync/rp1/backend.py:994-1001).
 STAMPS_NOT_STARTED = "the stamp machine did not start"
 STAMPS_STOPPED = "the stamp drain stopped"
+# The frame's stamps align on no lead: too few of them lie on the frame's own rises
+# (Ruling R26, wl_sync/clockmap.py `match_lead_stamp`), so no stamp is known to be its
+# lead edge's.
+STAMPS_OFF_RISES = "the stamps did not match the frame's rises"
 
 
 @dataclass(frozen=True)

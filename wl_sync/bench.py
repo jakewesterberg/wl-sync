@@ -130,7 +130,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1012-1021),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1018-1026),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -222,8 +222,8 @@ def stamp_run(
         report.between += stamp.between
         if stamp.tick is None:
             # Only a stamp too far leaves its distance in the match: `nearest` is set
-            # when a stamp lay before the end and none in the window
-            # (wl_sync/clockmap.py:266-268).
+            # only for a lead the frame's rises align on outside its window
+            # (wl_sync/clockmap.py:273-274).
             far = None if trace is None else trace.lead.nearest
             kind = stamp.missed if far is None else STAMP_TOO_FAR
             report.missed[kind] = report.missed.get(kind, 0) + 1
@@ -235,7 +235,10 @@ def stamp_run(
             continue
         lead = trace.lead
         report.widths_ns.append(trace.width_ns)
-        report.stamps_seen += (lead.p is not None) + lead.consumed + lead.between
+        # The lead the rises aligned on is the match's `lead` whether or not it lay in
+        # the window, and is in neither `between` nor `consumed` (Ruling R26).
+        has_lead = lead.p is not None or lead.lead is not None
+        report.stamps_seen += has_lead + lead.consumed + lead.between
         if stamp.tick is not None and lead.consumed != len(rises_us(pulses)) - 1:
             report.edges_short += 1
     return report

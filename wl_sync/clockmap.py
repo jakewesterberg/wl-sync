@@ -46,8 +46,10 @@ FIT_FREE_SLOPE_PAIRS = 30
 
 # Spec §2.5 step 2: the lead edge's stamp may lie this far outside its mapped CPU bracket
 # ("±1 ms"), in P counts (1 count = 1 us at 1 MHz). The map is good to far less once warm;
-# the frame's own later edges are >= 20 ms after the lead (spec §2.5 step 2), so a window
-# this narrow cannot take one for it.
+# the frame's own later edges are >= 20 ms after the lead (spec §2.5 step 2), so while the
+# map holds, a window this narrow cannot take one for it. Off by a rise's distance it
+# could, which is why the lead is the stamp the frame's rises align on, each within this
+# too (`match_lead_stamp`, Ruling R26).
 LEAD_STAMP_TOLERANCE = 1_000
 
 _NS_PER_US = 1_000
@@ -260,62 +262,97 @@ def _round_half_down(value: Fraction) -> int:
 
 @dataclass(frozen=True)
 class LeadStamp:
-    """What one frame made of the stamps queued since the last. `p` is the lead edge's
-    stamp, or None if none lay in the window. `between` counts stamps before the window
-    (spec §2.5 step 4), `consumed` the frame's own later edges (step 3), `leftover` the
-    stamps after the frame's end, which belong to the next. `nearest` is set only when
-    `p` is None: the distance from the bracket's nearer end to the closest stamp at or
-    before the frame's end, for the journal's "the stamp lies %d us from" cause."""
+    """What one frame made of the stamps queued since the last (spec §2.5; Ruling R26).
+
+    `lead` is the stamp the frame's own rises align on (`match_lead_stamp`), or None when
+    no alignment reached the minimum. `p` is that lead when it lies in the window: the lead
+    edge's stamp, and the frame's B. None otherwise. `between` counts the stamps up to the
+    frame's end that came before the lead, or, with no lead, before the window (spec §2.5
+    step 4). `consumed` counts the rest up to the end: the frame's own later edges, and
+    any stray among them (step 3). `leftover` holds the stamps after the frame's end,
+    which belong to the next. `nearest` is set only for a lead outside the window: its
+    distance from the bracket's nearer end, for the journal's "the stamp lies %d us from"
+    cause."""
 
     p: int | None
     between: int
     consumed: int
     leftover: tuple[int, ...]
     nearest: int | None
+    lead: int | None = None
 
 
 def match_lead_stamp(
     stamps: Sequence[int],
     bracket: tuple[int, int],
     end: int,
+    *,
+    rises: Sequence[int],
     tolerance: int = LEAD_STAMP_TOLERANCE,
 ) -> LeadStamp:
-    """Spec §2.5 steps 2-5. `stamps` are unwrapped and ascending, as the stamp drain
-    queues them; nothing here sorts them, and `p` is the first in-window stamp in list
-    order. `bracket` is the lead edge's CPU bracket mapped to P and `end` the frame's
-    end mapped to P."""
+    """Spec §2.5 steps 2-5, by the frame's own rises (Ruling R26). `stamps` are unwrapped
+    and ascending, as the stamp drain queues them; nothing here sorts them. `bracket` is
+    the lead edge's CPU bracket mapped to P, `end` the frame's end mapped to P, and
+    `rises` where the frame's rising edges begin, in us from its start
+    (`wl_sync.barcode.rises_us`).
+
+    THE STAMPS ARE ALIGNED TO THE RISES AS A WHOLE. Each stamp up to the end is tried as
+    the lead: the rises are laid out from it, and a rise is aligned when a stamp lies
+    within `tolerance` of its place. The lead is the stamp of the alignment with the most
+    rises aligned. Ties go to the one whose stamps lie closest to their places, then to a
+    lead in the window, then to the lead nearer the bracket. An alignment counts only
+    with every rise aligned but one, and never fewer than two: one stamp alone aligns on
+    itself, so a frame that lost its lead would have a later edge taken for it.
+
+    WHY NOT THE WINDOW ALONE. Every rise after the lead comes at least 20 ms after it
+    (wl_sync/barcode.py:5-7), so while the map is within the window, no later edge can
+    pass for the lead. With the map off by a rise's distance, one did: a line 20 ms ahead
+    of P put the second rise's stamp in the window, its B was written 20 ms off, and the
+    fit anchored there. Aligned, the lead is the stamp the whole frame vouches for, so no
+    other stamp can become B, or anchor the fit through R19's restart.
+
+    A LEAD OUTSIDE THE WINDOW leaves `p` None and its distance in `nearest`: the frame is
+    shifted, and its B is dropped (wl_sync/rp1/backend.py, `_reacquire`). With no
+    alignment, `between` and `consumed` count by the window, as they did before it.
+    """
     low, high = bracket[0] - tolerance, bracket[1] + tolerance
-    # The window is tested before `end`, so a window stamp past `end` would be taken as
-    # `p`. No real frame allows it: its later edges come >= 20 ms after the lead
-    # (wl_sync/barcode.py:5-7), so `end` lies far beyond `high`.
-    p: int | None = None
-    between = consumed = 0
-    leftover: list[int] = []
-    nearest: int | None = None
-    for stamp in stamps:
-        if p is None and low <= stamp <= high:
-            p = stamp
-        elif stamp > end:
-            leftover.append(stamp)
-        else:
-            # Past the end is the next frame's, so it is never the nearest (§2.5 step 2
-            # takes stamps "queued since the previous frame ended"). Distance is to the
-            # bracket's nearer end; inside the bracket it is zero, though a stamp there
-            # would have been `p`.
-            gap = max(bracket[0] - stamp, stamp - bracket[1], 0)
-            nearest = gap if nearest is None else min(nearest, gap)
-            if stamp < low:
-                between += 1
-            else:
-                # The frame's own later edges are consumed whether or not the lead was
-                # found (spec §2.5 step 3, "every other stamp ... to the frame's end").
-                consumed += 1
+    frame = [stamp for stamp in stamps if stamp <= end]  # ascending, so a prefix
+    leftover = tuple(stamp for stamp in stamps if stamp > end)
+    need = len(rises) if len(rises) < 2 else max(2, len(rises) - 1)
+    best: tuple[int, int, bool, int, int] | None = None
+    for index, candidate in enumerate(frame if rises else ()):
+        aligned, off = 1, 0
+        for rise in rises[1:]:
+            place = candidate + rise - rises[0]
+            at = bisect_left(frame, place)
+            gap = min(
+                (abs(frame[k] - place) for k in (at - 1, at) if 0 <= k < len(frame)),
+                default=tolerance + 1,
+            )
+            if gap <= tolerance:
+                aligned += 1
+                off += gap
+        if aligned < need:
+            continue
+        distance = max(bracket[0] - candidate, candidate - bracket[1], 0)
+        key = (-aligned, off, not low <= candidate <= high, distance, index)
+        best = key if best is None or key < best else best
+    if best is None:
+        between = sum(1 for stamp in frame if stamp < low)
+        return LeadStamp(
+            p=None, between=between, consumed=len(frame) - between, leftover=leftover,
+            nearest=None,
+        )
+    index = best[-1]
+    lead = frame[index]
+    inside = low <= lead <= high
     return LeadStamp(
-        p=p,
-        between=between,
-        consumed=consumed,
-        leftover=tuple(leftover),
-        nearest=None if p is not None else nearest,
+        p=lead if inside else None,
+        between=index,
+        consumed=len(frame) - index - 1,
+        leftover=leftover,
+        nearest=None if inside else max(bracket[0] - lead, lead - bracket[1], 0),
+        lead=lead,
     )
 
 

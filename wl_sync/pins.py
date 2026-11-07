@@ -41,7 +41,7 @@ EDGE_PINS: tuple[int, ...] = (20, 21, 22, 23, 24, 25, 26, 27)
 
 # What GPIO_MAP leaves free in GPIO0-27. The bench's stamp-machine controls claim one of
 # these: claiming an allocated pin would take it from its owner (the check at
-# wl_sync/rp1/backend.py:356-363).
+# wl_sync/rp1/backend.py:359-366).
 SPARE_PINS: tuple[int, ...] = tuple(
     pin for pin in range(28) if pin not in GPIO_MAP.values()
 )

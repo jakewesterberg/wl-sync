@@ -197,6 +197,27 @@ def test_a_stamp_run_with_no_stamp_fails_and_counts_by_cause():
     assert STAMP_NOT_SEEN in report.summary()
 
 
+def test_a_shifted_frames_aligned_lead_is_counted_among_the_stamps_seen():
+    """Ruling R26: a lead the frame's rises align on outside its window is the match's
+    `lead`, counted in neither `between` nor `consumed`. The stamps seen still count it,
+    and its distance goes to `far_us`."""
+    from wl_sync.backend import FrameStamp
+    from wl_sync.bench import STAMP_TOO_FAR, stamp_run
+    from wl_sync.clockmap import LeadStamp
+    from wl_sync.rp1.backend import FrameTrace
+
+    rises = len(rises_us(encode(FIRST)))
+    lead = LeadStamp(
+        p=None, between=1, consumed=rises - 1, leftover=(), nearest=15_000, lead=5_000_000
+    )
+    too_far = "the stamp lies 15000 us from the frame's lead edge"
+    shifted = FrameStamp(None, too_far, between=1), FrameTrace(lead, 30_000)
+    report = stamp_run(_ScriptedBackend([shifted]), [FIRST], lambda: None)
+
+    assert report.stamps_seen == rises + 1  # its lead, its later edges, and one between
+    assert report.missed == {STAMP_TOO_FAR: 1} and report.far_us == [15_000]
+
+
 def test_a_frame_missing_a_later_edge_is_short():
     from wl_sync.bench import stamp_run
 
