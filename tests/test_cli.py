@@ -3765,7 +3765,7 @@ _NO_SERIAL = (
 )
 _FIRST_MEASUREMENT = (
     "this process measured RP1's rate at {} ppb against NTP over {} s; with no "
-    "calibration applied its ticks run at RP1's own rate until a later start reads it"
+    "calibration applied its ticks run at RP1's own rate"
 )
 
 

@@ -1523,8 +1523,7 @@ class _RateKeeper:
             # not a fault in one (Ruling R23).
             log.warning(
                 "this process measured RP1's rate at %+d ppb against NTP over %.0f s; "
-                "with no calibration applied its ticks run at RP1's own rate until a "
-                "later start reads it",
+                "with no calibration applied its ticks run at RP1's own rate",
                 estimate.rate_ppb,
                 estimate.baseline_s,
             )
