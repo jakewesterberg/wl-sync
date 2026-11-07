@@ -111,7 +111,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 2** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1257`). The backend refuses an older shim
-(`deploy/README.md:334-335`).
+(`deploy/README.md:337-340`).
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
@@ -140,7 +140,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
-   shim; the backend refuses a shim that is not version 2 (`deploy/README.md:334-335`,
+   shim; the backend refuses a shim that is not version 2 (`deploy/README.md:337-340`,
    `wl_sync/rp1/backend.py:151`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.

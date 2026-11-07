@@ -64,7 +64,7 @@
 
 | Record | Where its tick comes from | Which oscillator |
 |---|---|---|
-| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz in the idle loop (`rp1/program.py:87-107`, `rp1/backend.py:50-52`, `:340`). Not across a captured event's entry and exit, which lose 1.5 ticks (§2.1, Part 0). | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
+| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz in the idle loop (`rp1/program.py:87-107`, `rp1/backend.py:50-52`, `:340`). Not across a captured event's entry and exit, which lose 1.5 ticks (§2.1, Part 0). *[Part 0, 2026-11-07: every path now counts 2:1 (`tests/test_rp1_program.py:80`).]* | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
 | `B` | `backend.now_us()` = `CLOCK_MONOTONIC − _origin_ns`, read immediately before the frame (`cli.py:787-790`, `rp1/backend.py:291-293`). | The CPU's system counter, plus NTP. |
 | `E` | The kernel's `ktime_get_ns()` in the hard IRQ (Linux `drivers/gpio/gpiolib-cdev.c`, `line_event_timestamp`), minus the same origin (`rp1/backend.py:435-446`, `rp1/gpio.py:210-228`). | The CPU's system counter, plus NTP. |
 
@@ -158,7 +158,7 @@
 **What the candidate changes for the builder:**
 - Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:127`), not offset + 0.
 - `in pins` samples the data 1 µs after the strobe is seen, against 0.5 µs today. Whether the task PC holds its code that long is **[unverified]**, a Task 5b check.
-  *[corrected 2026-11-07: the task PC holds its code ≥ 2.5 µs after raising the strobe (`wl_sync/rp1/backend.py:308-309`)]*
+  *[corrected 2026-11-07: the task PC must hold its code ≥ 2.5 µs after raising the strobe (`wl_sync/rp1/backend.py:308-309`); whether it does is still **[unverified]**, P0 item 5.]*
 - The ≈2.5 µs constant in `docs/next-session.md:170-179` becomes this listing's constant.
 
 **Part 0 stands alone [OC-R1].** It fixes today's W path whatever the answers in §8, and without it Task 5b Step 3 cannot pass. So it is built before the rest.
