@@ -306,8 +306,8 @@ above are struck through and replaced in place, dated.
    that backend has never run on silicon. So the unit keeps `--fake` until bench acceptance
    (`deploy/wl-sync.service`), and in fake mode nothing reaches the pins. Everything below describes
    the hardware mode.
-2. **What is recorded.** GPIO 23 (`rwd_dlvr`, `wl_sync/pins.py:32`) is one of the individually captured
-   edge lines (`pins.py:40`). Every transition, rising and falling, is an `E,<tick_us>,23,<level>` line.
+2. **What is recorded.** GPIO 23 (`rwd_dlvr`, `wl_sync/pins.py:36`) is one of the individually captured
+   edge lines (`pins.py:44`). Every transition, rising and falling, is an `E,<tick_us>,23,<level>` line.
    `tick_us` is this box's own microsecond counter, unwrapped within one segment. It is neither wall
    time nor the task PC's clock.
 3. **What "delivered" means.** `RWD_DLVR` is the reward-OR gate's output: the signal sent to the reward

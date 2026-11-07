@@ -42,7 +42,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from wl_sync.backend import CaptureDegraded, CaptureLoss, StampLag
-from wl_sync.pins import GPIO_MAP
+from wl_sync.pins import BARCODE_LOOP_PIN, BARCODE_PIN, GPIO_MAP
 from wl_sync.rp1 import program
 from wl_sync.rp1.gpio import EDGE_READ_MAX, EDGE_STAMP_LAG_US, EdgePump, pulse_deadlines
 from wl_sync.rp1.pio_capture import WordPump
@@ -53,7 +53,7 @@ _CYCLES_PER_TICK = 2
 
 # How long after the program sees a strobe it reads the data lines. What the task PC must
 # hold, and for how long after raising the strobe, is start_strobed_capture's contract
-# (wl_sync/rp1/backend.py:305).
+# (this method's docstring, below).
 DATA_SAMPLE_DELAY_US = program.DATA_SAMPLE_CYCLES / _CYCLES_PER_TICK * 1_000_000 / _TICK_HZ
 
 # How long before a deadline to stop sleeping and spin. time.sleep overshoots by
@@ -147,8 +147,8 @@ def _load_shim() -> ctypes.CDLL:
 # Bump with WLSYNC_SHIM_VERSION in pio/wlsync_pio.c whenever an exported signature
 # changes: ctypes cannot see a signature, so a stale .so would be called with the wrong
 # arguments without a sound. 1 is the unversioned original; 2: `entry` added,
-# `wlsync_encode_jmp` removed.
-_SHIM_VERSION = 2
+# `wlsync_encode_jmp` removed; 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added.
+_SHIM_VERSION = 3
 
 
 def _check_shim_version(lib: ctypes.CDLL) -> None:
@@ -201,6 +201,14 @@ def _declare(lib: ctypes.CDLL) -> None:
         ctypes.c_float, ctypes.c_uint,                    # clkdiv, seed instruction
     ]
     lib.wlsync_start_capture.restype = ctypes.c_int
+    lib.wlsync_start_stamp.argtypes = [
+        ctypes.c_uint, ctypes.c_uint, ctypes.c_uint,      # wrap_target, wrap, entry
+        ctypes.c_uint, ctypes.c_uint, ctypes.c_int,       # data_base, jmp_pin, claim_jmp_pin
+        ctypes.c_float, ctypes.c_uint,                    # clkdiv, seed instruction
+    ]
+    lib.wlsync_start_stamp.restype = ctypes.c_int
+    lib.wlsync_enable_in_sync.argtypes = [ctypes.c_uint]
+    lib.wlsync_enable_in_sync.restype = ctypes.c_int
     lib.wlsync_sm_set_enabled.argtypes = [ctypes.c_uint, ctypes.c_int]
     lib.wlsync_sm_set_enabled.restype = ctypes.c_int
     lib.wlsync_sm_rx_level.argtypes = [ctypes.c_uint]
@@ -255,13 +263,27 @@ def _assert_encoders_agree(lib: ctypes.CDLL) -> None:
 
 
 class Rp1Backend:
-    """`SyncBackend` on RP1 PIO. One state machine for strobed capture."""
+    """`SyncBackend` on RP1 PIO. A state machine for strobed capture, and a second on the
+    same program that stamps the barcode output."""
 
     # W counts RP1's PIO counter, joined to CLOCK_MONOTONIC once in
     # start_strobed_capture; B and E count CLOCK_MONOTONIC (SyncBoxLogHeader.timebase).
     timebase = "split"
 
-    def __init__(self, pio_index: int = 0, chip_path: str = "/dev/gpiochip0") -> None:
+    def __init__(
+        self,
+        pio_index: int = 0,
+        chip_path: str = "/dev/gpiochip0",
+        stamp_pin: int = BARCODE_LOOP_PIN,
+    ) -> None:
+        # The stamp machine reads the barcode through the loopback, or, for bench B4's
+        # c-direct case, GPIO17 itself. Anything else would stamp nothing.
+        if stamp_pin not in (BARCODE_LOOP_PIN, BARCODE_PIN):
+            raise ValueError(
+                f"the stamp machine reads GPIO{BARCODE_LOOP_PIN} (the loopback) or "
+                f"GPIO{BARCODE_PIN} (the barcode itself), not GPIO{stamp_pin}"
+            )
+        self._stamp_pin = stamp_pin
         # Which chardev carries RP1's bank has moved between releases (gpiochip4 on a
         # Pi 4), so it is a parameter. Confirmed by label on the CM5 2026-10-18:
         # gpiochip0 [pinctrl-rp1], 54 lines.
@@ -271,6 +293,8 @@ class Rp1Backend:
         # After the open, never before: piolib's encoders read the current block.
         _assert_encoders_agree(self._lib)
         self._sm: int | None = None
+        # None until the stamp machine starts, and None for good if it could not.
+        self._sm_stamps: int | None = None
         self._chip_path = chip_path
         self._edges = None
         self._out = None
@@ -342,8 +366,29 @@ class Rp1Backend:
             ),
             "starting strobed capture",
         )
+        # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
+        # capture machine, and raising here would: nothing above catches it, so run()
+        # would exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
+        # Recording without stamps is today's split behaviour; the log line is the
+        # record that this run has none.
+        stamps = lib.wlsync_start_stamp(
+            program.WRAP_TARGET, program.WRAP, program.ENTRY,
+            data_base, self._stamp_pin, int(self._stamp_pin != BARCODE_PIN),
+            system_hz / (_TICK_HZ * _CYCLES_PER_TICK),
+            program.encode_mov_x_not_null(),
+        )
+        if stamps < 0:
+            log.error(
+                "stamp machine did not start (errno %d): recording without barcode stamps",
+                -stamps,
+            )
+        else:
+            self._sm_stamps = stamps
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-        _check(lib.wlsync_sm_set_enabled(self._sm, 1), "enabling the state machine")
+        mask = 1 << self._sm
+        if self._sm_stamps is not None:
+            mask |= 1 << self._sm_stamps
+        _check(lib.wlsync_enable_in_sync(mask), "enabling the state machines")
 
         # NOTHING DRAINED THE FIFO until 2026-10-18. drain() existed and nothing called
         # it, so the first burst of more than four codes filled the FIFO and `push
@@ -597,6 +642,7 @@ class Rp1Backend:
         for request in (self._edges, self._out):
             if request is not None:
                 request.release()
-        if self._sm is not None:
-            self._lib.wlsync_sm_set_enabled(self._sm, 0)
+        for sm in (self._sm, self._sm_stamps):
+            if sm is not None:
+                self._lib.wlsync_sm_set_enabled(sm, 0)
         self._lib.wlsync_pio_close()

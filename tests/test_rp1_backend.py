@@ -51,6 +51,9 @@ class _FakeShim:
         self.clk_sys_hz = 200_000_000
         self.start_result = 0
         self.started_with: dict | None = None
+        # The stamp machine's start: its SM number, or a negative errno.
+        self.stamp_result = 1
+        self.stamp_started_with: dict | None = None
         self._lock = threading.Lock()
 
     def wlsync_pio_open(self, index):
@@ -88,6 +91,7 @@ class _FakeShim:
 
     def wlsync_start_capture(self, instructions, length, wrap_target, wrap,
                              entry, data_base, data_count, strobe_pin, clkdiv, seed):
+        self.log.append("start_capture")
         self.started_with = {
             "length": length, "wrap_target": wrap_target, "wrap": wrap,
             "entry": entry,
@@ -95,6 +99,20 @@ class _FakeShim:
             "clkdiv": clkdiv, "seed": seed,
         }
         return self.start_result
+
+    def wlsync_start_stamp(self, wrap_target, wrap, entry, data_base, jmp_pin,
+                           claim_jmp_pin, clkdiv, seed):
+        self.log.append("start_stamp")
+        self.stamp_started_with = {
+            "wrap_target": wrap_target, "wrap": wrap, "entry": entry,
+            "data_base": data_base, "jmp_pin": jmp_pin,
+            "claim_jmp_pin": claim_jmp_pin, "clkdiv": clkdiv, "seed": seed,
+        }
+        return self.stamp_result
+
+    def wlsync_enable_in_sync(self, mask):
+        self.log.append(f"sync={mask:#x}")
+        return 0
 
     def wlsync_sm_set_enabled(self, sm, enabled):
         self.log.append(f"enabled={bool(enabled)}")
@@ -159,6 +177,65 @@ def test_capture_starts_at_the_programs_entry(lib):
         backend.close()
 
 
+def test_both_machines_start_disabled_and_are_enabled_together_after_the_origin(lib):
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        started = [e for e in lib.log if e.startswith(("start_", "sync=", "enabled="))]
+        assert started == ["start_capture", "start_stamp", "sync=0x3"]
+        assert "enabled=True" not in lib.log
+    finally:
+        backend.close()
+
+
+def test_the_stamp_machine_takes_its_jmp_pin_from_gpio19_and_starts_at_the_entry(lib):
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert lib.stamp_started_with["jmp_pin"] == 19
+        assert lib.stamp_started_with["claim_jmp_pin"] == 1
+        assert lib.stamp_started_with["entry"] == program.ENTRY
+        assert lib.stamp_started_with["data_base"] == 0
+    finally:
+        backend.close()
+
+
+def test_a_stamp_machine_on_gpio17_leaves_the_pin_to_libgpiod(lib):
+    backend = Rp1Backend(stamp_pin=17)
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    try:
+        assert lib.stamp_started_with["jmp_pin"] == 17
+        assert lib.stamp_started_with["claim_jmp_pin"] == 0
+    finally:
+        backend.close()
+
+
+def test_a_stamp_pin_that_is_neither_the_loopback_nor_the_barcode_is_refused(lib):
+    with pytest.raises(ValueError):
+        Rp1Backend(stamp_pin=18)
+
+
+def test_a_stamp_machine_that_cannot_start_is_logged_and_capture_records_on(lib, caplog):
+    """The box records anyway: recording without stamps is today's split behaviour."""
+    import logging
+    lib.stamp_result = -16
+    backend = Rp1Backend()
+    with caplog.at_level(logging.ERROR, logger=rp1.log.name):
+        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    try:
+        assert "stamp machine did not start (errno 16): recording without barcode stamps" in caplog.text
+        assert "sync=0x1" in lib.log  # the capture SM's bit alone
+        assert "sync=0x3" not in lib.log
+        assert backend._sm_stamps is None
+    finally:
+        backend.close()
+    assert "close" in lib.log
+
+
+def test_close_disables_both_machines(lib):
+    backend = _started(lib, lambda tick, word: None)
+    backend.close()
+    assert lib.log.count("enabled=False") == 2
+
+
 def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch):
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: types.SimpleNamespace())
     with pytest.raises(rp1.PiolibError, match=r"pio/build-shim\.sh"):
@@ -168,7 +245,16 @@ def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch)
 def test_a_shim_of_another_version_is_refused(monkeypatch):
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 1)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 2"):
+    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 3"):
+        rp1._load_shim()
+
+
+def test_a_version_2_shim_is_refused(monkeypatch):
+    """Version 2 has no wlsync_start_stamp; calling through it would fail on a missing
+    symbol, not with the rebuild instruction."""
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
+    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 3"):
         rp1._load_shim()
 
 
@@ -176,7 +262,7 @@ def test_a_shim_of_the_current_version_is_accepted():
     """Coverage: pins the accepting side of the version check, which passed against the
     sources when it was added. Without it, a check that refused every shim, the current
     one included, would fail only on the box."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
     assert rp1._check_shim_version(shim) is None
 
 
@@ -207,23 +293,25 @@ def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature(
         f"wl_sync/rp1/backend.py says _SHIM_VERSION = {rp1._SHIM_VERSION}: bump both together"
     )
 
-    c_names = _c_prototype(text, "wlsync_start_capture")
     lib = unittest.mock.MagicMock()
     rp1._declare(lib)
-    argtypes = lib.wlsync_start_capture.argtypes
-    assert len(c_names) == len(argtypes), (
-        f"wlsync_start_capture takes {len(c_names)} parameters in C ({', '.join(c_names)}) "
-        f"but _declare sets {len(argtypes)} argtypes"
-    )
-    fake_names = list(inspect.signature(_FakeShim.wlsync_start_capture).parameters)[1:]
-    assert len(fake_names) == len(c_names), (
-        f"_FakeShim.wlsync_start_capture takes {len(fake_names)} parameters, the C "
-        f"{len(c_names)}"
-    )
-    for position, (c_name, fake_name) in enumerate(zip(c_names, fake_names)):
-        assert c_name.startswith(fake_name), (
-            f"parameter {position} is `{c_name}` in C and `{fake_name}` in _FakeShim"
+    for function in ("wlsync_start_capture", "wlsync_start_stamp"):
+        c_names = _c_prototype(text, function)
+        argtypes = getattr(lib, function).argtypes
+        assert len(c_names) == len(argtypes), (
+            f"{function} takes {len(c_names)} parameters in C ({', '.join(c_names)}) "
+            f"but _declare sets {len(argtypes)} argtypes"
         )
+        fake_names = list(inspect.signature(getattr(_FakeShim, function)).parameters)[1:]
+        assert len(fake_names) == len(c_names), (
+            f"_FakeShim.{function} takes {len(fake_names)} parameters, the C "
+            f"{len(c_names)}"
+        )
+        for position, (c_name, fake_name) in enumerate(zip(c_names, fake_names)):
+            assert c_name.startswith(fake_name), (
+                f"{function} parameter {position} is `{c_name}` in C and "
+                f"`{fake_name}` in _FakeShim"
+            )
 
 
 def _shape(word):

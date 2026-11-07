@@ -36,6 +36,7 @@ def test_gpio_map_pins_every_name_to_its_exact_pin():
         **{f"evt_d{i}": i for i in range(16)},
         "evt_strobe": 16,
         "barcode_out": 17,
+        "barcode_loop": 19,
         "pd1_comp": 20,
         "pd2_comp": 21,
         "rwd_cmd": 22,

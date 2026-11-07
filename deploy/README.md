@@ -242,7 +242,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 18. The strobe and code lines, which the task PC drives for the capture program: hold the code
     at least 2.5 µs after raising the strobe, keep the strobe high at least 1 µs and low at
     least 1 µs, and rise at least 6 µs after the previous rise (the contract in
-    `wl_sync/rp1/backend.py:305-312`).
+    `wl_sync/rp1/backend.py:329-336`).
 
 ## Setting up the OS, once per box
 
@@ -337,7 +337,8 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
    Rebuild and reinstall the shim whenever `pio/wlsync_pio.c` changes. The backend reads
    `wlsync_shim_version` at start and refuses a shim of another version, naming this
    step. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed. It starts the
-   program at its entry.
+   program at its entry. Version 3: `wlsync_start_stamp` and `wlsync_enable_in_sync`
+   added, so a second state machine can stamp the barcode output.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
    `gpio`. If it is `root:root`, piolib's README gives a udev rule.

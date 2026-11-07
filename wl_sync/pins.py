@@ -11,6 +11,9 @@ CODE_DATA_BASE = 0
 CODE_DATA_COUNT = 16
 CODE_STROBE_PIN = 16
 BARCODE_PIN = 17
+# The barcode output looped back to an input, so the stamp machine can watch it without
+# taking GPIO17 from libgpiod, which drives it (wl_sync/rp1/backend.py, emit_pulses).
+BARCODE_LOOP_PIN = 19
 
 # Camera frame-time inputs, one exposure strobe per camera group. These were spare
 # until 2026-08-16; the cameras free-run, so this box records when they exposed rather
@@ -21,6 +24,7 @@ GPIO_MAP: dict[str, int] = {
     **{f"evt_d{i}": CODE_DATA_BASE + i for i in range(CODE_DATA_COUNT)},
     "evt_strobe": CODE_STROBE_PIN,
     "barcode_out": BARCODE_PIN,
+    "barcode_loop": BARCODE_LOOP_PIN,
     # Spec Sec.4's table, rows 20-25. The netlist-checked primary source is
     # hardware/gen/gen_breakout_pi_interface.py's GPIO_PIN_SPEC, which carries these in
     # this order; the transposition risk here is silent (swapping pd1/pd2, rwd_cmd/
@@ -36,5 +40,5 @@ GPIO_MAP: dict[str, int] = {
 }
 
 # Individually-captured input transitions: everything above the contiguous capture
-# window. GPIO18/19 are spare.
+# window. GPIO18 is spare; GPIO19 is the barcode loopback.
 EDGE_PINS: tuple[int, ...] = (20, 21, 22, 23, 24, 25, 26, 27)

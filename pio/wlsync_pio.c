@@ -28,6 +28,9 @@
 #include "piolib.h"
 
 static PIO g_pio;
+/* Where wlsync_start_capture's pio_add_program put the program, kept so that
+ * wlsync_start_stamp starts a second machine on the SAME loaded copy. */
+static unsigned g_offset;
 
 int wlsync_pio_open(unsigned index)
 {
@@ -71,8 +74,9 @@ uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
 /* Bump whenever an exported signature changes: ctypes cannot see one, so the backend
  * (wl_sync/rp1/backend.py, _SHIM_VERSION) reads this and refuses a shim of another
  * version rather than call it with the wrong arguments. 1 was the unversioned original;
- * 2: `entry` added to wlsync_start_capture, `wlsync_encode_jmp` removed. */
-#define WLSYNC_SHIM_VERSION 2
+ * 2: `entry` added to wlsync_start_capture, `wlsync_encode_jmp` removed;
+ * 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added. */
+#define WLSYNC_SHIM_VERSION 3
 int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
 
 /*
@@ -106,6 +110,7 @@ int wlsync_start_capture(const uint16_t *instructions, unsigned length,
     unsigned offset = pio_add_program(g_pio, &program);
     if (pio_get_error(g_pio))
         return -ENOSPC;
+    g_offset = offset;
 
     int sm = pio_claim_unused_sm(g_pio, false);
     if (sm < 0)
@@ -131,6 +136,62 @@ int wlsync_start_capture(const uint16_t *instructions, unsigned length,
     if (pio_get_error(g_pio))
         return -EIO;
     return sm;
+}
+
+/*
+ * Configure a second state machine on the program wlsync_start_capture loaded: the
+ * "stamp machine", which watches the barcode output so each frame's edges are stamped on
+ * the capture machine's count. Left DISABLED, for wlsync_enable_in_sync. Returns the
+ * state machine's number, or a negative errno; -ENODEV when no program is loaded. Each
+ * call claims one more machine (the block has four, and the capture machine holds one).
+ *
+ * `claim_jmp_pin` nonzero hands the pin to the PIO (pio_gpio_init). Zero leaves its
+ * function alone: bench check B4's c-direct case reads GPIO17 itself, and GPIO17 must
+ * stay libgpiod's output (pio_gpio_init there takes the line from libgpiod).
+ * Only jmp_pin is claimed. The data pins are the capture machine's, already claimed.
+ */
+int wlsync_start_stamp(unsigned wrap_target, unsigned wrap, unsigned entry,
+                       unsigned data_base, unsigned jmp_pin, int claim_jmp_pin,
+                       float clkdiv, unsigned seed_instruction)
+{
+    if (g_pio == NULL)
+        return -ENODEV;
+    pio_clear_error(g_pio);
+
+    int sm = pio_claim_unused_sm(g_pio, false);
+    if (sm < 0)
+        return -EBUSY;
+
+    if (claim_jmp_pin != 0)
+        pio_gpio_init(g_pio, jmp_pin);
+
+    pio_sm_config config = pio_get_default_sm_config();
+    /* In pins from data_base, as the capture machine's, so the ISR's upper half stays
+     * clear and pio_capture.pair_fifo's check holds. */
+    sm_config_set_in_pins(&config, data_base);
+    sm_config_set_jmp_pin(&config, jmp_pin);
+    sm_config_set_in_shift(&config, false, false, 32);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+    sm_config_set_wrap(&config, g_offset + wrap_target, g_offset + wrap);
+    sm_config_set_clkdiv(&config, clkdiv);
+    pio_sm_init(g_pio, sm, g_offset + entry, &config);
+
+    pio_sm_exec(g_pio, sm, seed_instruction);
+    if (pio_get_error(g_pio))
+        return -EIO;
+    return sm;
+}
+
+/* Enable every state machine in `mask` on one sync, so both counters start on the same
+ * clock edge. It CANNOT report a refused enable: piolib sends PIO_IOC_SM_ENABLE_SYNC and
+ * discards the result (pio_rp1.c:514-520 at utils b57c48e). Today's
+ * wlsync_sm_set_enabled has the same blind spot; bench S.3b is the check. */
+int wlsync_enable_in_sync(unsigned mask)
+{
+    if (g_pio == NULL)
+        return -ENODEV;
+    pio_enable_sm_in_sync_mask(g_pio, mask);
+    return 0;
 }
 
 int wlsync_sm_set_enabled(unsigned sm, int enabled)
