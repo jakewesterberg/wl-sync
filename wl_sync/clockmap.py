@@ -1,0 +1,191 @@
+"""The edge map and the lead-stamp match (spec §2.3, §2.5). Pure -- no hardware.
+
+The box's one clock is RP1's PIO count, "P". An edge arrives stamped by the kernel on
+CLOCK_MONOTONIC ("MONO"), which is not P, so it is carried in two steps:
+
+    MONO --MonoRawTable--> CLOCK_MONOTONIC_RAW ("RAW") --RawToP--> P
+
+The first step is a table of paired readings, because MONO is slewed by NTP and RAW is
+not: the two differ by a slowly changing rate, and a table interpolates it rather than
+assuming it. The second is a least-squares fit of (RAW, P) pairs taken at the barcode's
+lead edges, because RAW and P are two free-running oscillators whose ratio is a
+property of this box and is only known by measuring it.
+
+All the arithmetic is exact `Fraction`/int. A fit over nanosecond RAW values and
+counts near 2**32 loses bits in a float, and the fit is centred on the window's first
+pair for the same reason: the products stay small enough to be exact in any case, and
+the answer does not depend on how long the box has been up.
+"""
+
+from __future__ import annotations
+
+import threading
+from bisect import bisect_left
+from collections import deque
+from dataclasses import dataclass
+from fractions import Fraction
+
+# Spec §2.2 and §2.3 reject brackets wider than this; the value itself is not in the
+# spec. Provisional until bench B5 measures what a bracket really costs.
+BRACKET_WIDTH_MAX_NS = 100_000
+
+# The newest pairs the fit uses, and how many it needs before it trusts its own slope.
+# Below FIT_FREE_SLOPE_PAIRS the slope would be set by a few seconds of quantisation
+# noise (spec §3), so the fit moves only its offset and keeps the seeded slope.
+FIT_WINDOW_PAIRS = 120
+FIT_FREE_SLOPE_PAIRS = 30
+
+_NS_PER_US = 1_000
+_PPB = 1_000_000_000
+_TICK_MASK = 0xFFFF_FFFF
+
+
+@dataclass(frozen=True)
+class ClockPair:
+    """One simultaneous reading of the clocks: the P count of a lead edge against the
+    MONO and RAW readings that bracket it. `mono_ns` and `raw_ns` are the bracket's
+    midpoints, `width_ns` its width, and `realtime_minus_mono_ns` carries CLOCK_REALTIME
+    along for the header."""
+
+    p: int
+    mono_ns: int
+    raw_ns: int
+    width_ns: int
+    realtime_minus_mono_ns: int
+
+    @property
+    def narrow(self) -> bool:
+        return self.width_ns <= BRACKET_WIDTH_MAX_NS
+
+
+def _round(value: Fraction) -> int:
+    return round(value)
+
+
+class MonoRawTable:
+    """MONO readings paired with RAW readings, newest `keep` of them.
+
+    Called from one thread, the edge pump's, so it takes no lock.
+    """
+
+    def __init__(self, keep: int = 256) -> None:
+        self._readings: deque[tuple[int, int]] = deque(maxlen=keep)
+
+    def add(self, mono_ns: int, raw_ns: int) -> None:
+        # Readings are taken in time order, so a MONO that goes back is a bug in the
+        # caller, and `raw_of`'s search would silently return nonsense.
+        if self._readings:
+            last_mono, _ = self._readings[-1]
+            if mono_ns < last_mono:
+                raise ValueError(f"MONO reading {mono_ns} precedes the last, {last_mono}")
+            if mono_ns == last_mono:
+                # Two readings at one MONO give no slope (a zero divisor below); the
+                # later one is the better reading of the pair.
+                self._readings.pop()
+        self._readings.append((mono_ns, raw_ns))
+
+    def raw_of(self, mono_ns: int) -> int:
+        """Interpolates between the readings either side. Outside the table it
+        extrapolates from the two nearest readings; with one it applies that reading's
+        offset only; with none it raises `LookupError`."""
+        readings = self._readings
+        if not readings:
+            raise LookupError("no MONO/RAW reading yet")
+        if len(readings) == 1:
+            mono0, raw0 = readings[0]
+            return raw0 + (mono_ns - mono0)
+        # The pair whose line is used: the bracketing one inside the table, the nearest
+        # two beyond either end.
+        i = bisect_left(readings, mono_ns, key=lambda reading: reading[0])
+        i = min(max(i, 1), len(readings) - 1)
+        (mono0, raw0), (mono1, raw1) = readings[i - 1], readings[i]
+        return raw0 + _round(Fraction((mono_ns - mono0) * (raw1 - raw0), mono1 - mono0))
+
+
+class RawToP:
+    """The line from RAW to P: seeded from the origin, then fitted to lead-edge pairs.
+
+    `seed_ppb` is the P counts per RAW microsecond, as parts per billion above 1. The rule:
+
+    - with no pair, the line runs through `(origin_raw_ns, 0)` at the seed slope;
+    - with fewer than `FIT_FREE_SLOPE_PAIRS` pairs in the window, it runs through the
+      pairs' centroid at the seed slope;
+    - with that many or more, it is the least-squares line over the newest
+      `FIT_WINDOW_PAIRS`.
+
+    A lock, because `add` runs on the run loop's thread and `p_of` on all three.
+    """
+
+    def __init__(self, origin_raw_ns: int, seed_ppb: int = 0) -> None:
+        self._origin_raw_ns = origin_raw_ns
+        # counts per ns: 1 count per RAW us at seed 0, so 1/1000 per ns.
+        self._seed_slope = Fraction(_PPB + seed_ppb, _PPB * _NS_PER_US)
+        self._pairs: deque[tuple[int, int]] = deque(maxlen=FIT_WINDOW_PAIRS)
+        self._lock = threading.Lock()
+        # (slope, anchor_raw, anchor_p), rebuilt only when a pair arrives: `p_of` runs
+        # for every edge and the fit sums over 120 Fractions.
+        self._line: tuple[Fraction, int, Fraction] = (self._seed_slope, origin_raw_ns, Fraction(0))
+
+    def add(self, raw_ns: int, p: int) -> None:
+        with self._lock:
+            self._pairs.append((raw_ns, p))
+            self._line = self._fit()
+
+    def p_of(self, raw_ns: int) -> int:
+        with self._lock:
+            slope, anchor_raw, anchor_p = self._line
+        return _round(anchor_p + slope * (raw_ns - anchor_raw))
+
+    def counts_per_ns(self) -> Fraction:
+        with self._lock:
+            return self._line[0]
+
+    def _fit(self) -> tuple[Fraction, int, Fraction]:
+        pairs = self._pairs
+        n = len(pairs)
+        # Centred on the first pair: the sums below are of small differences, so they
+        # stay exact and cheap however large the absolute RAW and P are.
+        raw0, p0 = pairs[0]
+        sum_x = sum(raw - raw0 for raw, _ in pairs)
+        sum_y = sum(p - p0 for _, p in pairs)
+        centroid_raw = raw0 + Fraction(sum_x, n)
+        centroid_p = p0 + Fraction(sum_y, n)
+        if n < FIT_FREE_SLOPE_PAIRS:
+            return self._seed_slope, centroid_raw, centroid_p
+        # Sxx and Sxy about the centroid, from the centred sums: Sxx = Σx² − (Σx)²/n.
+        sxx = sum((raw - raw0) ** 2 for raw, _ in pairs) - Fraction(sum_x**2, n)
+        sxy = sum((raw - raw0) * (p - p0) for raw, p in pairs) - Fraction(sum_x * sum_y, n)
+        if sxx == 0:
+            # Every pair at one RAW: no slope to read, so keep the seeded one.
+            return self._seed_slope, centroid_raw, centroid_p
+        return sxy / sxx, centroid_raw, centroid_p
+
+
+class MappedTimebase:
+    """Edges on P, from kernel MONO stamps through the table and the fit."""
+
+    def __init__(self, table: MonoRawTable, fit: RawToP, origin_raw_ns: int) -> None:
+        self._table = table
+        self._fit = fit
+        self._origin_raw_ns = origin_raw_ns
+
+    def tick(self, timestamp_ns: int) -> int:
+        """An edge's P count, wrapped to 32 bits like every tick in this package.
+
+        Refuses an edge whose RAW precedes the origin, as `edge_tick_us` does
+        (wl_sync/rp1/gpio.py:223-227): it would sort before every record in the segment.
+        """
+        raw_ns = self._table.raw_of(timestamp_ns)
+        if raw_ns < self._origin_raw_ns:
+            raise ValueError(
+                f"edge timestamp {timestamp_ns} maps to RAW {raw_ns}, which precedes "
+                f"the timebase origin {self._origin_raw_ns}; "
+                "it would sort before every record in the segment"
+            )
+        return self._fit.p_of(raw_ns) & _TICK_MASK
+
+    def span(self, after_ns: int, before_ns: int) -> int:
+        """P counts between two MONO stamps, at the fit's current ratio (spec §2.3:
+        "converted at the current P/RAW ratio"). Not a difference of two mapped ticks,
+        which would mix two interpolations: at 50 ppm an hour is 180 ms otherwise."""
+        return max(0, round((after_ns - before_ns) * self._fit.counts_per_ns()))
