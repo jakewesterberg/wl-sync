@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import random
+import signal
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -34,6 +35,7 @@ from statistics import median, quantiles
 
 from wl_sync.backend import CaptureDegraded
 from wl_sync.barcode import INTERVAL_US, decode_edges, encode
+from wl_sync.clockmap import LEAD_STAMP_TOLERANCE
 from wl_sync.log import BarcodeEmitted, Edge, read_log
 from wl_sync.pins import (
     BARCODE_LOOP_PIN,
@@ -128,20 +130,28 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:831-839),
+# under which `missed` counts them all: keyed by the text, a drifting map gave one
+# summary line per distance. The distances are kept in `far_us`.
+STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
+
 
 @dataclass
 class StampRunReport:
     """What the stamp machine made of a run of the box's own frames.
 
-    `edges_short` counts the stamped frames whose later rising edges were not all
-    consumed; a frame with no lead stamp is counted in `missed` alone. `stamps_seen` is
-    every stamp the frames accounted for: leads, plus consumed, plus between. `words`
+    `missed` counts the frames with no lead stamp by kind: each fixed cause by its text,
+    and every stamp too far from its lead edge under STAMP_TOO_FAR, with its distance in
+    `far_us`. `edges_short` counts the stamped frames whose later rising edges were not
+    all consumed; a frame with no lead stamp is counted in `missed` alone. `stamps_seen`
+    is every stamp the frames accounted for: leads, plus consumed, plus between. `words`
     and `edges` are the records capture delivered meanwhile.
     """
 
     frames: int = 0
     stamped: int = 0
     missed: dict[str, int] = field(default_factory=dict)
+    far_us: list[int] = field(default_factory=list)
     edges_short: int = 0
     between: int = 0
     stamps_seen: int = 0
@@ -160,17 +170,23 @@ class StampRunReport:
             f"barcode stamps: {'PASS' if self.passed else 'FAIL'}",
             f"  frames {self.frames}, stamped {self.stamped}",
         ]
-        lines.extend(
-            f"  missed {count}: {cause}" for cause, count in sorted(self.missed.items())
-        )
+        for kind, count in sorted(self.missed.items()):
+            if kind == STAMP_TOO_FAR and self.far_us:
+                low, high = min(self.far_us), max(self.far_us)
+                span = f"{low}" if low == high else f"{low}-{high}"
+                kind = (f"the stamp lies {span} us from the frame's lead edge as the CPU "
+                        f"bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)")
+            lines.append(f"  missed {count}: {kind}")
         lines.append(
             f"  edges_short {self.edges_short}, between {self.between}, "
             f"stamps_seen {self.stamps_seen}"
         )
         lines.append(f"  words {self.words}, edges {self.edges}")
         if len(self.widths_ns) >= 2:
-            # n=1000 gives the 999 cut points: index 989 is p99, 998 is p99.9.
-            cuts = quantiles(self.widths_ns, n=1000)
+            # n=1000 gives the 999 cut points: index 989 is p99, 998 is p99.9. Inclusive:
+            # the default, "exclusive", extrapolates past the widest bracket seen, which
+            # in a run of minutes is most of the tail.
+            cuts = quantiles(self.widths_ns, n=1000, method="inclusive")
             lines.append(
                 f"  bracket width over {len(self.widths_ns)} frames: "
                 f"median {median(self.widths_ns) / _NS_PER_US:.1f} us, "
@@ -190,15 +206,21 @@ def _rises(pulses: Sequence[tuple[int, int]]) -> int:
     return rises
 
 
-def stamp_run(backend, values: Sequence[int], pace: Callable[[], None]) -> StampRunReport:
+def stamp_run(
+    backend,
+    values: Sequence[int],
+    pace: Callable[[], None],
+    report: StampRunReport | None = None,
+) -> StampRunReport:
     """Emit each value's frame on the barcode pin, and count what the stamps made of it.
 
     `pace()` runs between frames, not before the first or after the last. After each
     frame, `last_frame` gives the match and the bracket width, and `take_pairs()` is
     drained: the backend keeps every pair until it is taken, and a run of 28,800 frames
-    would otherwise hold them all.
+    would otherwise hold them all. Counts go into `report` when one is given, so a run
+    cut short still has them.
     """
-    report = StampRunReport()
+    report = StampRunReport() if report is None else report
     for index, value in enumerate(values):
         if index:
             pace()
@@ -209,7 +231,14 @@ def stamp_run(backend, values: Sequence[int], pace: Callable[[], None]) -> Stamp
         report.frames += 1
         report.between += stamp.between
         if stamp.tick is None:
-            report.missed[stamp.missed] = report.missed.get(stamp.missed, 0) + 1
+            # Only a stamp too far leaves its distance in the match: `nearest` is set
+            # when a stamp lay before the end and none in the window
+            # (wl_sync/clockmap.py:249-251).
+            far = None if trace is None else trace.lead.nearest
+            kind = stamp.missed if far is None else STAMP_TOO_FAR
+            report.missed[kind] = report.missed.get(kind, 0) + 1
+            if far is not None:
+                report.far_us.append(far)
         else:
             report.stamped += 1
         if trace is None:
@@ -237,6 +266,16 @@ def _pacer(period_s: float) -> Callable[[], None]:
     return pace
 
 
+class _Terminated(SystemExit):
+    """What SIGTERM raises in `stamps`, which `pkill` sends to end S.5 early. The
+    default ends the process where it stands, with no close() and no summary of the
+    hours already run; raised, it unwinds through both."""
+
+
+def _terminate(signum: int, frame) -> None:
+    raise _Terminated(128 + signum)  # the status a SIGTERM'd process exits with
+
+
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
     # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1183-1188): building
@@ -255,23 +294,33 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
 
     rng = random.Random(frames)
     values = [rng.getrandbits(32) for _ in range(frames)]
+    report = StampRunReport()
+    stopped: _Terminated | None = None
     backend = Rp1Backend(chip_path=chip_path, stamp_pin=stamp_pin)
+    outer = signal.signal(signal.SIGTERM, _terminate)
     try:
         backend.start_strobed_capture(CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN,
                                       on_word)
         backend.start_edge_capture(EDGE_PINS, on_edge)
-        report = stamp_run(backend, values, _pacer(STAMP_RUN_PERIOD_S))
+        stamp_run(backend, values, _pacer(STAMP_RUN_PERIOD_S), report)
+    except _Terminated as terminated:
+        stopped = terminated
     finally:
         backend.close()
+        signal.signal(signal.SIGTERM, outer)
     # Read after close(), which has stopped both pumps, so neither count still moves.
     report.words, report.edges = words, edges
     print(report.summary())
+    if stopped is not None:
+        print(f"  stopped by SIGTERM after {report.frames} of {frames} frames")
     try:
         # What capture held at the end, which run() also asks for after close()
         # (wl_sync/cli.py:951-953): a full stamp FIFO would explain short frames.
         backend.check_health()
     except CaptureDegraded as degraded:
         print(f"  capture degraded: {degraded}")
+    if stopped is not None:
+        return stopped.code
     return 0 if report.passed else 1
 
 

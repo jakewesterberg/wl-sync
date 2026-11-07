@@ -309,3 +309,117 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
     assert built[1].kwargs == {"chip_path": "/dev/gpiochip0", "stamp_pin": 19}
     assert built[1].closed
     assert "FAIL" in capsys.readouterr().out
+
+
+def test_a_short_run_reports_no_tail_beyond_its_widest_bracket():
+    """`statistics.quantiles` defaults to "exclusive", which extrapolates past the
+    sample: 60 widths whose widest is 90 us gave a p99.9 of 90.9 us."""
+    import re
+
+    from wl_sync.bench import StampRunReport
+
+    widths = [31_000 + 1_000 * k for k in range(60)]
+    assert max(widths) == 90_000
+    report = StampRunReport(frames=60, stamped=60, widths_ns=widths)
+    found = re.search(r"p99 ([\d.]+) us, p99\.9 ([\d.]+) us", report.summary())
+    assert found, report.summary()
+    assert float(found.group(1)) <= 90.0 and float(found.group(2)) <= 90.0, found.group(0)
+
+
+def test_misses_are_counted_by_kind_with_their_distances_as_a_range():
+    """A miss's cause text carries its distance, so counted by text a drifting map gave
+    the summary one line per distance."""
+    from wl_sync.backend import STAMP_NOT_SEEN, FrameStamp
+    from wl_sync.bench import STAMP_TOO_FAR, stamp_run
+    from wl_sync.clockmap import LEAD_STAMP_TOLERANCE, LeadStamp
+    from wl_sync.rp1.backend import STAMPS_NOT_STARTED, STAMPS_STOPPED, FrameTrace
+
+    def far(us):
+        cause = (f"the stamp lies {us} us from the frame's lead edge as the CPU "
+                 f"bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)")
+        return FrameStamp(None, cause), FrameTrace(LeadStamp(None, 0, 3, (), us), 30_000)
+
+    def without_a_match(cause):
+        return FrameStamp(None, cause), FrameTrace(LeadStamp(None, 0, 0, (), None), 30_000)
+
+    frames = [far(5_010), _unstamped(), far(4_990), far(5_003),
+              without_a_match(STAMPS_STOPPED), without_a_match(STAMPS_NOT_STARTED)]
+    values = [FIRST + k for k in range(len(frames))]
+    report = stamp_run(_ScriptedBackend(frames), values, lambda: None)
+
+    assert report.missed == {
+        STAMP_TOO_FAR: 3, STAMP_NOT_SEEN: 1, STAMPS_STOPPED: 1, STAMPS_NOT_STARTED: 1,
+    }
+    summary = report.summary()
+    assert summary.count("from the frame's lead edge") == 1, summary
+    assert (
+        "missed 3: the stamp lies 4990-5010 us from the frame's lead edge as the CPU "
+        f"bracketed it ({LEAD_STAMP_TOLERANCE} us allowed)"
+    ) in summary, summary
+    assert f"missed 1: {STAMP_NOT_SEEN}" in summary
+
+
+def test_a_sigterm_ends_the_stamps_command_closed_and_summarised(monkeypatch, capsys):
+    """`pkill -f 'wl_sync.bench stamps'` is how the spike ends S.5 early. SIGTERM's
+    default ends the process where it stands: no close(), and no summary of the hours
+    already run. The command turns it into SystemExit, so both happen, and exits 143."""
+    import signal
+
+    from wl_sync import bench
+    from wl_sync.backend import FrameStamp
+    from wl_sync.clockmap import LeadStamp
+    from wl_sync.rp1 import backend as rp1
+    from wl_sync.rp1.backend import FrameTrace
+
+    built = []
+
+    class _Box:
+        def __init__(self, **kwargs):
+            built.append(self)
+            self.emitted = 0
+            self.last_frame = None
+            self.closed = False
+
+        def start_strobed_capture(self, *args, **kwargs):
+            pass
+
+        def start_edge_capture(self, *args, **kwargs):
+            pass
+
+        def emit_pulses(self, pin, pulses):
+            self.emitted += 1
+            if self.emitted == 3:
+                signal.raise_signal(signal.SIGTERM)  # pkill, mid-frame
+            lead = LeadStamp(self.emitted, 0, _rising_edges(pulses) - 1, (), None)
+            self.last_frame = FrameTrace(lead, 30_000)
+            return FrameStamp(self.emitted)
+
+        def take_pairs(self):
+            return []
+
+        def check_health(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    class _Unhandled(Exception):
+        """What this test's own handler raises: SIGTERM's default would end pytest."""
+
+    def unhandled(signum, frame):
+        raise _Unhandled(signum)
+
+    monkeypatch.setattr(rp1, "Rp1Backend", _Box)
+    monkeypatch.setattr(bench, "STAMP_RUN_PERIOD_S", 0)
+    outer = signal.signal(signal.SIGTERM, unhandled)
+    try:
+        status = bench.main(["stamps", "--frames", "5"])
+        assert signal.getsignal(signal.SIGTERM) is unhandled, "the handler was not put back"
+    finally:
+        signal.signal(signal.SIGTERM, outer)
+    [box] = built
+    assert box.closed
+    assert status == 128 + signal.SIGTERM
+    out = capsys.readouterr().out
+    assert "frames 2, stamped 2" in out, out
+    assert "stopped by SIGTERM after 2 of 5 frames" in out, out

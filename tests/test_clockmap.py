@@ -94,11 +94,45 @@ def test_before_any_pair_raw_maps_through_the_origin_at_the_seeded_ratio():
 
 
 def test_under_thirty_pairs_the_fit_moves_only_its_offset():
+    """Through the newest pair, at the seeded slope (Ruling R17; the centroid gave
+    300 + 5_500_110)."""
     fit = RawToP(0)
     for k in range(1, 11):
         fit.add(k * S, 300 + k * 1_000_020)
-    assert fit.p_of(5_500_000_000) == 300 + 5_500_110
+    assert fit.p_of(10 * S) == 300 + 10_000_200
+    assert fit.p_of(5_500_000_000) == 300 + 5_500_200
     assert fit.counts_per_ns() == Fraction(1, 1000)
+
+
+@pytest.mark.parametrize("ppm", [100, 300, -300])
+def test_an_uncalibrated_fit_matches_every_lead_edge_before_its_slope_is_freed(ppm):
+    """Seed 0 on a box whose crystals are `ppm` apart, one frame a second, as the run
+    loop and Task 1.10's emit_pulses drive it: bracket the lead edge, map it, match the
+    stamp, add the pair. Through the centroid at the seed slope, the map's error at
+    frame N+1 was the crystals' difference over (N+1)/2 s: past LEAD_STAMP_TOLERANCE
+    before FIT_FREE_SLOPE_PAIRS (from frame 20 at 100 ppm), and then no lead matched
+    again, so no pair came to correct it. Through the newest pair it is the difference
+    over one period."""
+    fit = RawToP(0)
+
+    def p_at(raw_ns):  # the PIO count, `ppm` fast of RAW, in whole counts
+        return raw_ns * (1_000_000 + ppm) // 1_000_000_000
+
+    unmatched = []
+    for frame in range(1, 61):
+        raw_before = frame * S
+        raw_after = raw_before + 20_000
+        lead = p_at(raw_before + 10_000)
+        found = match_lead_stamp(
+            [lead],
+            (fit.p_of(raw_before), fit.p_of(raw_after)),
+            fit.p_of(raw_before + 200_000_000),
+        )
+        if found.p is None:
+            unmatched.append(frame)
+            continue
+        fit.add((raw_before + raw_after) // 2, found.p)
+    assert unmatched == []
 
 
 def test_thirty_pairs_or_more_fit_their_own_slope():

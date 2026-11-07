@@ -482,9 +482,10 @@ class _TwoCrystalClock:
 
     True time advances 20 us per clock read, from any thread, and by each sleep. A sleep
     also sleeps for real, at most 1 ms, so the pump threads run as `_manual_clock`'s do;
-    the pump's own sleeps move true time too. MONO and RAW read
-    true x (1 + cpu_ppm 1e-6), REALTIME MONO plus an offset, and `p_now()`, the PIO
-    count, true x (1 + rp1_ppm 1e-6) in microseconds.
+    the pump's own sleeps move true time too. RAW reads true x (1 + cpu_ppm 1e-6), and
+    MONO reads the same unless a test slews it: RAW x (1 + mono_slew_ppm 1e-6) plus
+    mono_offset_ns, as NTP moves MONO and not RAW. REALTIME reads MONO plus an offset,
+    and `p_now()`, the PIO count, true x (1 + rp1_ppm 1e-6) in microseconds.
 
     A read samples at its middle, 10 us in. So an edge set between two reads lies at
     their midpoint, as the fit assumes of a bracket; sampled at either end, every pair
@@ -500,17 +501,25 @@ class _TwoCrystalClock:
     CLOCK_MONOTONIC_RAW = 4
     REALTIME_OFFSET_NS = 1_762_500_000 * 10**9
 
-    def __init__(self, cpu_ppm=0, rp1_ppm=0) -> None:
+    def __init__(self, cpu_ppm=0, rp1_ppm=0, mono_slew_ppm=0, mono_offset_ns=0) -> None:
         self._true_ns = 0
         self._cpu = 1 + cpu_ppm * 1e-6
         self._rp1 = 1 + rp1_ppm * 1e-6
+        self._slew = 1 + mono_slew_ppm * 1e-6
+        self._mono_offset_ns = mono_offset_ns
         self._lock = threading.Lock()
+
+    def _mono(self, raw_ns):
+        return round(raw_ns * self._slew) + self._mono_offset_ns
 
     def clock_gettime_ns(self, clock):
         with self._lock:
             self._true_ns += 10_000
-            mono = round(self._true_ns * self._cpu)
+            raw = round(self._true_ns * self._cpu)
             self._true_ns += 10_000
+        if clock == self.CLOCK_MONOTONIC_RAW:
+            return raw
+        mono = self._mono(raw)
         return mono + self.REALTIME_OFFSET_NS if clock == self.CLOCK_REALTIME else mono
 
     def sleep(self, seconds):
@@ -529,7 +538,7 @@ class _TwoCrystalClock:
     def ns(self):
         """MONO now, without the read moving it: what the gpiod fake records."""
         with self._lock:
-            return round(self._true_ns * self._cpu)
+            return self._mono(round(self._true_ns * self._cpu))
 
     def p_now(self):
         with self._lock:
@@ -540,8 +549,8 @@ class _TwoCrystalClock:
 def crystals(monkeypatch, gpiod):
     """Puts the backend and the gpiod fake on a `_TwoCrystalClock`."""
 
-    def make(cpu_ppm=0, rp1_ppm=0):
-        clock = _TwoCrystalClock(cpu_ppm, rp1_ppm)
+    def make(cpu_ppm=0, rp1_ppm=0, **mono):
+        clock = _TwoCrystalClock(cpu_ppm, rp1_ppm, **mono)
         monkeypatch.setattr(rp1, "time", clock)
         gpiod.clock = clock
         return clock
@@ -1607,6 +1616,54 @@ def test_a_frames_later_rising_edges_are_consumed_silently(lib, gpiod, crystals)
     assert second.tick is not None
 
 
+def test_a_stamp_past_a_frames_end_is_the_next_frames_between(lib, gpiod, crystals):
+    """A stamp after the frame's end is the next frame's to judge (spec §2.5 step 2),
+    so it is carried over: stamped 15 ms late, TRAIL's rise lands 5 ms past the end."""
+    from wl_sync.barcode import encode
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert backend.emit_pulses(17, encode(1)).tick is not None  # warms the map
+        clock.sleep(0.8)
+        gpiod.stamp_late_us = 15_000
+        late = backend.emit_pulses(17, encode(2))
+        carried = backend.last_frame.lead.leftover
+        gpiod.stamp_late_us = 0
+        clock.sleep(0.8)
+        after = backend.emit_pulses(17, encode(3))
+    finally:
+        backend.close()
+    assert late.tick is None and len(carried) == 1
+    assert after.tick is not None and after.between == 1
+
+
+def test_frames_across_the_wrap_are_matched_and_ticked_in_32_bits(lib, gpiod, crystals):
+    """P wraps at 2**32 us, 71.6 min. The frame that spans the wrap is matched, the
+    frame after it hands over a raw 32-bit tick, and the drain's raw mark is unwrapped
+    before it is held to the frame's end: compared raw, it never passed an end beyond
+    the wrap, and every frame from then on waited out STAMP_DRAIN_WAIT_S."""
+    from wl_sync.barcode import FRAME_US, encode
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert backend.emit_pulses(17, encode(1)).tick is not None
+        clock.advance((2**32 - 100_000 - clock.p_now()) * 1_000)  # 100 ms short of it
+        lead = len(gpiod.stamped)
+        across = backend.emit_pulses(17, encode(2))
+        clock.sleep(0.8)
+        began = clock.ns
+        after = backend.emit_pulses(17, encode(3))
+        took_ns = clock.ns - began
+    finally:
+        backend.close()
+    assert across.tick == gpiod.stamped[lead]
+    assert after.tick is not None and 0 <= after.tick <= 0xFFFF_FFFF
+    assert after.tick == gpiod.stamped[-_rises(encode(3))]
+    assert took_ns < FRAME_US * 1_000 + 10_000_000, took_ns
+
+
 def test_the_pump_drains_the_stamp_machine_on_its_own_thread(lib, gpiod, crystals):
     from wl_sync.barcode import encode
 
@@ -1692,6 +1749,43 @@ def test_the_fit_follows_the_pio_count_once_pairs_are_fitted(lib, gpiod, crystal
     truth = (before + clock.p_now()) / 2
     assert abs(mapped - truth) <= 2, (mapped, truth)
     assert abs(backend.now_us() - clock.p_now()) > 1_000
+
+
+def test_the_bracket_the_fit_and_the_mark_follow_raw_not_mono(lib, gpiod, crystals):
+    """NTP slews MONO and leaves RAW alone, which is why the fit is on RAW. Here MONO
+    runs 500 ppm fast of RAW, the kernel's limit (spec §2.2,
+    docs/superpowers/specs/2026-10-30-one-clock-design.md:222), and 10 s ahead. A MONO
+    read in the fit's origin, in the bracket's RAW, in `_p_now` or at the frame's end
+    puts those seconds, or milliseconds of slew, into P: the last as a frame that waits
+    out STAMP_DRAIN_WAIT_S for a mark 10 s short of its end. Less than half a wrap, so
+    the unwrap cannot hide the offset."""
+    from wl_sync.barcode import FRAME_US, encode
+
+    clock = crystals(mono_slew_ppm=500, mono_offset_ns=10 * 10**9)
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        # The origin: before any pair, RAW maps through it. The fixture's P runs some
+        # 50 counts ahead of the origin (_TwoCrystalClock).
+        before = clock.p_now()
+        unpaired = backend._p_now() - (before + clock.p_now()) / 2
+        stamps = []
+        for value in range(1000, 1006):
+            began = clock.ns
+            stamps.append(backend.emit_pulses(17, encode(value)))
+            took_ns = clock.ns - began
+            clock.sleep(0.8)
+        pairs = backend.take_pairs()
+    finally:
+        backend.close()
+    assert abs(unpaired) <= 100, unpaired
+    assert took_ns < FRAME_US * 1_000 * 1.0005 + 25_000_000, took_ns
+    assert [stamp.tick is not None for stamp in stamps] == [True] * 6
+    for pair in pairs:  # the bracket: RAW where RAW goes, MONO where MONO goes
+        assert abs(pair.raw_ns // 1_000 - pair.p) <= 1, pair
+        assert pair.mono_ns - pair.raw_ns > 10 * 10**9, pair
+    before = clock.p_now()  # the fit and the mark, carried on RAW alone
+    mapped = backend._p_now()
+    assert abs(mapped - (before + clock.p_now()) / 2) <= 2
 
 
 def test_a_wide_bracket_is_kept_out_of_the_fit_but_still_handed_over(lib, gpiod, crystals):

@@ -450,7 +450,7 @@ class Rp1Backend:
             )
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
-        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:119-125).
+        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:121-127).
         # Read after MONO, so RAW is the reading nearer the enable.
         self._fit = RawToP(time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW), self._seed_ppb)
         mask = 1 << self._sm

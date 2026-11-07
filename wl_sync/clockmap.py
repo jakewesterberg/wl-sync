@@ -9,7 +9,9 @@ The first step is a table of paired readings, because MONO is slewed by NTP and 
 not: the two differ by a slowly changing rate, and a table interpolates it rather than
 assuming it. The second is a least-squares fit of (RAW, P) pairs taken at the barcode's
 lead edges, because RAW and P are two free-running oscillators whose ratio is a
-property of this box and is only known by measuring it.
+property of this box and is only known by measuring it. Until it has pairs enough to
+trust its own slope, it keeps the seeded one through the NEWEST pair, so its error at
+the next frame is the seed's slope error over one frame period (see RawToP).
 
 All the arithmetic is exact `Fraction`/int. A fit over nanosecond RAW values and
 counts near 2**32 loses bits in a float. The fit is centred on the window's first pair
@@ -120,9 +122,19 @@ class RawToP:
 
     - with no pair, the line runs through `(origin_raw_ns, 0)` at the seed slope;
     - with fewer than `FIT_FREE_SLOPE_PAIRS` pairs in the window, it runs through the
-      pairs' centroid at the seed slope;
+      newest pair at the seed slope;
     - with that many or more, it is the least-squares line over the newest
       `FIT_WINDOW_PAIRS`.
+
+    THE NEWEST PAIR, NOT THE CENTROID (2026-11-07). The error at the next frame is
+    then the seed's slope error over one frame period. Through the centroid it was
+    that error over half the pairs' span, which grows with each pair until the slope is
+    freed: with seed 0 and crystals some 67 ppm apart, at one frame a second, it passed
+    LEAD_STAMP_TOLERANCE before the 30th pair. Then no lead edge matched again, so no
+    pair came to correct it. What the centroid bought was the offset's noise averaged:
+    a pair's own is 3-9 counts (spec §3,
+    docs/superpowers/specs/2026-10-30-one-clock-design.md:507), against a window of a
+    thousand either side.
 
     A lock, because `add` runs on the run loop's thread and `p_of` on all three.
     """
@@ -154,6 +166,10 @@ class RawToP:
     def _fit(self) -> tuple[Fraction, int, Fraction]:
         pairs = self._pairs
         n = len(pairs)
+        if n < FIT_FREE_SLOPE_PAIRS:
+            # Through the newest pair, not the centroid: see the class docstring.
+            newest_raw, newest_p = pairs[-1]
+            return self._seed_slope, newest_raw, Fraction(newest_p)
         # Centred on the first pair: the sums below are of small differences, so they
         # stay exact and cheap however large the absolute RAW and P are.
         raw0, p0 = pairs[0]
@@ -161,8 +177,6 @@ class RawToP:
         sum_y = sum(p - p0 for _, p in pairs)
         centroid_raw = raw0 + Fraction(sum_x, n)
         centroid_p = p0 + Fraction(sum_y, n)
-        if n < FIT_FREE_SLOPE_PAIRS:
-            return self._seed_slope, centroid_raw, centroid_p
         # Sxx and Sxy about the centroid, from the centred sums: Sxx = Σx² − (Σx)²/n.
         sxx = sum((raw - raw0) ** 2 for raw, _ in pairs) - Fraction(sum_x**2, n)
         sxy = sum((raw - raw0) * (p - p0) for raw, p in pairs) - Fraction(sum_x * sum_y, n)
