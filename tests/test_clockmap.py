@@ -321,3 +321,22 @@ def test_scaling_rounds_to_the_nearest_microsecond_and_never_reorders():
             assert tick >= previous
             previous = tick
             assert abs(tick - p / (1 + ppb / 1e9)) <= 0.5
+
+
+def test_a_divisor_that_is_zero_or_negative_is_refused():
+    for ppb in (-10**9, -10**9 - 1):
+        with pytest.raises(ValueError):
+            TickScale(ppb)
+
+
+def test_scaling_is_exact_and_ordered_around_two_to_the_32_and_40():
+    for ppb in (-200_000, 37, 200_000):
+        scale = TickScale(ppb)
+        r = 1 + Fraction(ppb, 10**9)
+        for centre in (2**32, 2**40):
+            previous = None
+            for p in range(centre - 2_000, centre + 2_000, 7):
+                tick = scale.tick(p)
+                assert abs(tick - Fraction(p) / r) <= Fraction(1, 2)
+                assert previous is None or tick >= previous
+                previous = tick

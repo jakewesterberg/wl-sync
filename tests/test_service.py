@@ -650,3 +650,11 @@ def test_the_scale_applies_after_unwrapping_not_to_the_raw_count():
     last = max(recorder.records(), key=lambda r: r.tick_us)
     assert last.tick_us == SCALE.tick(TICK_WRAP_US + 1_000)
     assert last.tick_us != 1_000
+
+
+def test_a_loss_with_nothing_written_and_no_after_sits_at_the_scaled_clock():
+    backend, recorder = _scaled_recorder()
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    backend.inject_word_loss(CaptureLoss(cause="desync", count=1, bound="at_least"))
+    (loss,) = [r for r in recorder.records() if isinstance(r, Loss)]
+    assert loss.tick_us == 2_000_000

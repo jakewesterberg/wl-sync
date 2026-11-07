@@ -319,6 +319,12 @@ class TickScale:
 
     rate_ppb: int = 0
 
+    def __post_init__(self) -> None:
+        # d = 10**9 + rate_ppb is the divisor: at or below zero, `tick` divides by zero
+        # or reverses the order of the records.
+        if self.rate_ppb <= -(10**9):
+            raise ValueError(f"rate_ppb {self.rate_ppb} leaves no positive divisor")
+
     def tick(self, counts: int) -> int:
         d = 10**9 + self.rate_ppb
         return (2 * counts * 10**9 + d) // (2 * d)
