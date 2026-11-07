@@ -249,9 +249,14 @@ def match_lead_stamp(
     end: int,
     tolerance: int = LEAD_STAMP_TOLERANCE,
 ) -> LeadStamp:
-    """Spec §2.5 steps 2-5. `stamps` are unwrapped and in order; `bracket` is the lead
-    edge's CPU bracket mapped to P and `end` the frame's end mapped to P."""
+    """Spec §2.5 steps 2-5. `stamps` are unwrapped and ascending, as the stamp drain
+    queues them; nothing here sorts them, and `p` is the first in-window stamp in list
+    order. `bracket` is the lead edge's CPU bracket mapped to P and `end` the frame's
+    end mapped to P."""
     low, high = bracket[0] - tolerance, bracket[1] + tolerance
+    # The window is tested before `end`, so a window stamp past `end` would be taken as
+    # `p`. No real frame allows it: its later edges come >= 20 ms after the lead
+    # (wl_sync/barcode.py:5-7), so `end` lies far beyond `high`.
     p: int | None = None
     between = consumed = 0
     leftover: list[int] = []
