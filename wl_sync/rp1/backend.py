@@ -53,7 +53,7 @@ _CYCLES_PER_TICK = 2
 
 # How long after the program sees a strobe it reads the data lines. What the task PC must
 # hold, and for how long after raising the strobe, is start_strobed_capture's contract
-# (this method's docstring, below).
+# (start_strobed_capture's docstring).
 DATA_SAMPLE_DELAY_US = program.DATA_SAMPLE_CYCLES / _CYCLES_PER_TICK * 1_000_000 / _TICK_HZ
 
 # How long before a deadline to stop sleeping and spin. time.sleep overshoots by
@@ -278,7 +278,7 @@ class Rp1Backend:
     ) -> None:
         # The stamp machine reads the barcode through the loopback, or, for bench B4's
         # c-direct case, GPIO17 itself. Anything else would stamp nothing.
-        if stamp_pin not in (BARCODE_LOOP_PIN, BARCODE_PIN):
+        if type(stamp_pin) is not int or stamp_pin not in (BARCODE_LOOP_PIN, BARCODE_PIN):
             raise ValueError(
                 f"the stamp machine reads GPIO{BARCODE_LOOP_PIN} (the loopback) or "
                 f"GPIO{BARCODE_PIN} (the barcode itself), not GPIO{stamp_pin}"
@@ -307,7 +307,7 @@ class Rp1Backend:
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
         # B ticks must share it or the three paths do not align. Captured as close to
-        # pio_sm_set_enabled as this can be; the residual offset is one syscall, and
+        # wlsync_enable_in_sync as this can be; the residual offset is one syscall, and
         # BENCH DAY MUST MEASURE IT rather than assume it is negligible -- it is spent
         # directly out of the +/-100 us budget.
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
@@ -367,8 +367,9 @@ class Rp1Backend:
             "starting strobed capture",
         )
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start must not stop the
-        # capture machine, and raising here would: nothing above catches it, so run()
-        # would exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
+        # capture machine, and raising here would: nothing above catches it
+        # (wl_sync/service.py:239, wl_sync/cli.py:504 and :1333-1343), so run() would
+        # exit and Restart=always (deploy/wl-sync.service:30) would loop on it.
         # Recording without stamps is today's split behaviour; the log line is the
         # record that this run has none.
         stamps = lib.wlsync_start_stamp(
@@ -377,13 +378,12 @@ class Rp1Backend:
             system_hz / (_TICK_HZ * _CYCLES_PER_TICK),
             program.encode_mov_x_not_null(),
         )
+        self._sm_stamps = stamps if stamps >= 0 else None
         if stamps < 0:
             log.error(
                 "stamp machine did not start (errno %d): recording without barcode stamps",
                 -stamps,
             )
-        else:
-            self._sm_stamps = stamps
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         mask = 1 << self._sm
         if self._sm_stamps is not None:
@@ -629,9 +629,9 @@ class Rp1Backend:
         """Stop everything this backend started, in the order that loses least.
 
         The capture threads first, because they call into the sink and the sink is
-        about to be closed by the caller; then the state machine; then the descriptors.
-        The word pump drains once more on its way out, so it stops before the state
-        machine does.
+        about to be closed by the caller; then the state machines (the capture machine
+        and, when it started, the stamp machine); then the descriptors. The word pump
+        drains once more on its way out, so it stops before the state machines do.
         """
         for stop in (self._edge_stop, self._word_stop):
             if stop is not None:

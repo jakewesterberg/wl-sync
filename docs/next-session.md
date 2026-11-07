@@ -145,7 +145,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
-   `pio_sm_set_enabled`. This is spent directly out of the ±100 µs budget and **must be
+   `wlsync_enable_in_sync`. This is spent directly out of the ±100 µs budget and **must be
    measured**, not assumed.
 4. **The word pump keeps up.** `_WORD_POLL_S` is 1 ms against a four-event FIFO, and it is
    a guess. The known way to miss it is `emit_pulses`, which spins holding the GIL for up

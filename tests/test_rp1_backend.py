@@ -54,6 +54,7 @@ class _FakeShim:
         # The stamp machine's start: its SM number, or a negative errno.
         self.stamp_result = 1
         self.stamp_started_with: dict | None = None
+        self.disabled: list[int] = []
         self._lock = threading.Lock()
 
     def wlsync_pio_open(self, index):
@@ -116,6 +117,8 @@ class _FakeShim:
 
     def wlsync_sm_set_enabled(self, sm, enabled):
         self.log.append(f"enabled={bool(enabled)}")
+        if not enabled:
+            self.disabled.append(sm)
         return 0
 
     def push(self, entries) -> None:
@@ -177,11 +180,24 @@ def test_capture_starts_at_the_programs_entry(lib):
         backend.close()
 
 
-def test_both_machines_start_disabled_and_are_enabled_together_after_the_origin(lib):
+def test_both_machines_start_disabled_and_are_enabled_together_after_the_origin(
+    lib, monkeypatch
+):
+    real = rp1.time.clock_gettime_ns
+
+    def clock(which):
+        # Only the origin read happens between the starts and the enable; the pump's
+        # reads come after the enable.
+        if "sync=0x3" not in lib.log and "start_stamp" in lib.log:
+            lib.log.append("origin")
+        return real(which)
+
+    monkeypatch.setattr(rp1.time, "clock_gettime_ns", clock)
     backend = _started(lib, lambda tick, word: None)
     try:
-        started = [e for e in lib.log if e.startswith(("start_", "sync=", "enabled="))]
-        assert started == ["start_capture", "start_stamp", "sync=0x3"]
+        started = [e for e in lib.log
+                   if e.startswith(("start_", "sync=", "enabled=")) or e == "origin"]
+        assert started == ["start_capture", "start_stamp", "origin", "sync=0x3"]
         assert "enabled=True" not in lib.log
     finally:
         backend.close()
@@ -208,6 +224,12 @@ def test_a_stamp_machine_on_gpio17_leaves_the_pin_to_libgpiod(lib):
         backend.close()
 
 
+def test_a_stamp_pin_that_is_not_an_int_is_refused(lib):
+    """19.0 == 19 would pass a membership test and fail later inside ctypes."""
+    with pytest.raises(ValueError):
+        Rp1Backend(stamp_pin=19.0)
+
+
 def test_a_stamp_pin_that_is_neither_the_loopback_nor_the_barcode_is_refused(lib):
     with pytest.raises(ValueError):
         Rp1Backend(stamp_pin=18)
@@ -228,12 +250,16 @@ def test_a_stamp_machine_that_cannot_start_is_logged_and_capture_records_on(lib,
     finally:
         backend.close()
     assert "close" in lib.log
+    assert lib.disabled == [0]
+    assert [r for r in caplog.records if r.levelno == logging.ERROR] != []
+    assert len([r for r in caplog.records if r.levelno >= logging.ERROR]) == 1
 
 
 def test_close_disables_both_machines(lib):
     backend = _started(lib, lambda tick, word: None)
     backend.close()
-    assert lib.log.count("enabled=False") == 2
+    assert set(lib.disabled) == {0, 1}
+    assert len(lib.disabled) == 2
 
 
 def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch):

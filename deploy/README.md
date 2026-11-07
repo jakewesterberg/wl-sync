@@ -337,7 +337,7 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
    Rebuild and reinstall the shim whenever `pio/wlsync_pio.c` changes. The backend reads
    `wlsync_shim_version` at start and refuses a shim of another version, naming this
    step. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed. It starts the
-   program at its entry. Version 3: `wlsync_start_stamp` and `wlsync_enable_in_sync`
+   program at its entry. Version 3 (2026-11-07): `wlsync_start_stamp` and `wlsync_enable_in_sync`
    added, so a second state machine can stamp the barcode output.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in

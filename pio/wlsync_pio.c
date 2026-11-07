@@ -28,9 +28,14 @@
 #include "piolib.h"
 
 static PIO g_pio;
-/* Where wlsync_start_capture's pio_add_program put the program, kept so that
- * wlsync_start_stamp starts a second machine on the SAME loaded copy. */
+/* Where wlsync_start_capture's pio_add_program put the program, and how long it is, kept
+ * so that wlsync_start_stamp starts a second machine on the SAME loaded copy. g_loaded is
+ * the state "a program is loaded": it is set only once pio_add_program has succeeded and
+ * cleared by wlsync_pio_close, so a stamp start after an open with no capture start, or
+ * after a close and a reopen, is -ENODEV rather than a machine at a stale offset. */
 static unsigned g_offset;
+static unsigned g_length;
+static int g_loaded;
 
 int wlsync_pio_open(unsigned index)
 {
@@ -54,6 +59,7 @@ void wlsync_pio_close(void)
     if (g_pio != NULL) {
         pio_close(g_pio);
         g_pio = NULL;
+        g_loaded = 0;
     }
 }
 
@@ -111,6 +117,8 @@ int wlsync_start_capture(const uint16_t *instructions, unsigned length,
     if (pio_get_error(g_pio))
         return -ENOSPC;
     g_offset = offset;
+    g_length = length;
+    g_loaded = 1;
 
     int sm = pio_claim_unused_sm(g_pio, false);
     if (sm < 0)
@@ -143,7 +151,9 @@ int wlsync_start_capture(const uint16_t *instructions, unsigned length,
  * "stamp machine", which watches the barcode output so each frame's edges are stamped on
  * the capture machine's count. Left DISABLED, for wlsync_enable_in_sync. Returns the
  * state machine's number, or a negative errno; -ENODEV when no program is loaded. Each
- * call claims one more machine (the block has four, and the capture machine holds one).
+ * call claims one more machine. The block has four (`MAX_PIO_SMS 4`, piolib.h; spec
+ * docs/superpowers/specs/2026-10-30-one-clock-design.md:188) and the capture machine
+ * holds one.
  *
  * `claim_jmp_pin` nonzero hands the pin to the PIO (pio_gpio_init). Zero leaves its
  * function alone: bench check B4's c-direct case reads GPIO17 itself, and GPIO17 must
@@ -154,16 +164,23 @@ int wlsync_start_stamp(unsigned wrap_target, unsigned wrap, unsigned entry,
                        unsigned data_base, unsigned jmp_pin, int claim_jmp_pin,
                        float clkdiv, unsigned seed_instruction)
 {
-    if (g_pio == NULL)
+    if (g_pio == NULL || !g_loaded)
         return -ENODEV;
+    /* The same checks as wlsync_start_capture's, against the loaded program's length. */
+    if (entry >= g_length || wrap >= g_length || wrap_target > wrap)
+        return -EINVAL;
     pio_clear_error(g_pio);
 
     int sm = pio_claim_unused_sm(g_pio, false);
     if (sm < 0)
         return -EBUSY;
 
-    if (claim_jmp_pin != 0)
+    if (claim_jmp_pin != 0) {
         pio_gpio_init(g_pio, jmp_pin);
+        /* An input, as wlsync_start_capture makes its pins (pio_sm_set_consecutive_pindirs,
+         * piolib.h:613 at utils b57c48e). */
+        pio_sm_set_consecutive_pindirs(g_pio, sm, jmp_pin, 1, false);
+    }
 
     pio_sm_config config = pio_get_default_sm_config();
     /* In pins from data_base, as the capture machine's, so the ISR's upper half stays
@@ -177,8 +194,12 @@ int wlsync_start_stamp(unsigned wrap_target, unsigned wrap, unsigned entry,
     pio_sm_init(g_pio, sm, g_offset + entry, &config);
 
     pio_sm_exec(g_pio, sm, seed_instruction);
-    if (pio_get_error(g_pio))
+    if (pio_get_error(g_pio)) {
+        /* Give the claim back, so a harness that retries keeps its machines
+         * (pio_sm_unclaim, piolib.h:535 at utils b57c48e). */
+        pio_sm_unclaim(g_pio, sm);
         return -EIO;
+    }
     return sm;
 }
 
