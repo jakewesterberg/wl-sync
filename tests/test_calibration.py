@@ -127,7 +127,8 @@ def test_the_gate_is_open_at_exactly_the_offset_limit():
 
 
 def test_adjtimex_offset_is_nanoseconds_under_sta_nano_and_microseconds_otherwise():
-    assert kernel_ntp_from(Timex(status=STA_PLL | STA_NANO, offset=250_000)) == KernelNtp(False, True, 250_000)
+    timex = Timex(status=STA_PLL | STA_NANO, offset=250_000)
+    assert kernel_ntp_from(timex) == KernelNtp(False, True, 250_000)
     assert kernel_ntp_from(Timex(status=STA_UNSYNC, offset=250)) == KernelNtp(True, False, 250_000)
 
 
@@ -223,6 +224,22 @@ def test_an_unknown_field_is_unreadable(tmp_path):
     import json
     data = json.loads(path.read_text())
     data["surprise"] = 1
+    path.write_text(json.dumps(data))
+    cal, reason = read_calibration(path, SERIAL)
+    assert cal is None and reason.startswith("the calibration file is unreadable (")
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("rate_ppb", True), ("pairs", True), ("baseline_s", "NaN"), ("residual_rms_us", "Infinity")],
+)
+def test_a_bool_where_an_int_belongs_or_a_non_finite_float_is_unreadable(tmp_path, field, value):
+    """A hand-edited file: lax pydantic would read true as 1 and "NaN" as a float."""
+    path = tmp_path / RATE_FILE_NAME
+    write_calibration(path, make_cal())
+    import json
+    data = json.loads(path.read_text())
+    data[field] = value
     path.write_text(json.dumps(data))
     cal, reason = read_calibration(path, SERIAL)
     assert cal is None and reason.startswith("the calibration file is unreadable (")

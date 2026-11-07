@@ -14,7 +14,7 @@ from math import sqrt
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, ValidationError
 
 from wl_sync.clock import write_durably
 from wl_sync.clockmap import ClockPair
@@ -214,11 +214,13 @@ class Calibration(BaseModel):
 
     format: Literal[1] = 1
     serial: str
-    rate_ppb: int
-    p_per_raw_ppb: int
-    baseline_s: float
-    pairs: int
-    residual_rms_us: float
+    # Strict ints and finite floats: lax pydantic reads a hand-edited `true` as 1 and
+    # "NaN" as a float, and either would be applied as if it were measured.
+    rate_ppb: StrictInt
+    p_per_raw_ppb: StrictInt
+    baseline_s: float = Field(allow_inf_nan=False)
+    pairs: StrictInt
+    residual_rms_us: float = Field(allow_inf_nan=False)
     boot_id: str
     written_at: AwareDatetime
 
