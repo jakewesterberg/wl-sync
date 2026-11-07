@@ -93,14 +93,14 @@ idle:                           ; ENTRY = offset + 11
     jmp x--, idle               ; [1] tick, and keep waiting     (offset + 12)
 .wrap
 
-; 13 instructions of the 32-instruction memory, leaving 19 for edge capture.
+; 13 instructions of the 32-instruction memory, leaving 19 free.
 ;
 ; ---------------------------------------------------------------------------
 ; THE TIMESTAMP. A strobe can rise at any instant but is tested every 2 cycles, so
 ; it is seen 0-1 µs after it rises. `mov isr, x` runs 6 cycles after the `jmp pin`
 ; that saw it, so the count is latched 3.0-4.0 ticks after the edge. The lag is
-; not constant to the tick but is bounded, and its mean (3.5) is a host-side
-; subtraction; the 1 µs spread is a jitter term inside the ±100 µs budget.
+; not constant to the tick but is bounded, and its mean (3.5) is not subtracted
+; anywhere today; the 1 µs spread is a jitter term inside the ±100 µs budget.
 ; (tests/test_rp1_program.py:159,
 ; test_an_edge_at_any_instant_is_timed_within_the_documented_bounds)
 ;
@@ -116,7 +116,7 @@ idle:                           ; ENTRY = offset + 11
 ; STROBE LIMITS. High for at least 1 µs (two cycles), so a test lands in it; low
 ; for at least 1 µs, so a test lands in it (a 1-cycle low between tests is
 ; invisible and does not split a strobe; a 2-cycle low always does); and rising
-; at least 6 µs after the previous strobe, or the two merge.
+; at least 6 µs after the previous strobe, or the two may merge.
 ; tests/test_rp1_program.py: the burst test :136, the merge test :142, a low
 ; between samples :176, a low on a sample :183, a 2-cycle low at either phase :191.
 ;

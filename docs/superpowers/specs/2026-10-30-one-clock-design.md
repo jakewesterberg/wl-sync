@@ -60,15 +60,15 @@
 
 ## 1. The fault (condensed from the draft; line numbers updated)
 
-### How each record is timed today (`timebase = "split"`, `rp1/backend.py:212-214`)
+### How each record is timed today (`timebase = "split"`, `rp1/backend.py:260-262`)
 
 | Record | Where its tick comes from | Which oscillator |
 |---|---|---|
-| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz in the idle loop (`rp1/program.py:90-107`, `rp1/backend.py:49-50`, `:280`). Not across a captured event's entry and exit, which lose 1.5 ticks (§2.1, Part 0). | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
-| `B` | `backend.now_us()` = `CLOCK_MONOTONIC − _origin_ns`, read immediately before the frame (`cli.py:787-790`, `rp1/backend.py:243-245`). | The CPU's system counter, plus NTP. |
-| `E` | The kernel's `ktime_get_ns()` in the hard IRQ (Linux `drivers/gpio/gpiolib-cdev.c`, `line_event_timestamp`), minus the same origin (`rp1/backend.py:375-386`, `rp1/gpio.py:210-228`). | The CPU's system counter, plus NTP. |
+| `W` | The PIO state machine's X register, decremented every 2 cycles at 2 MHz in the idle loop (`rp1/program.py:87-107`, `rp1/backend.py:50-52`, `:340`). Not across a captured event's entry and exit, which lose 1.5 ticks (§2.1, Part 0). | RP1's crystal. RP1 datasheet §2.5: *"The reference clock is a 50MHz crystal input"*. clk_sys comes from the integer Core PLL (§2.5.2). |
+| `B` | `backend.now_us()` = `CLOCK_MONOTONIC − _origin_ns`, read immediately before the frame (`cli.py:787-790`, `rp1/backend.py:291-293`). | The CPU's system counter, plus NTP. |
+| `E` | The kernel's `ktime_get_ns()` in the hard IRQ (Linux `drivers/gpio/gpiolib-cdev.c`, `line_event_timestamp`), minus the same origin (`rp1/backend.py:435-446`, `rp1/gpio.py:210-228`). | The CPU's system counter, plus NTP. |
 
-**The join happens once.** `_origin_ns` is read just before the state machine is enabled (`rp1/backend.py:285-286`).
+**The join happens once.** `_origin_ns` is read just before the state machine is enabled (`rp1/backend.py:345-346`).
 
 **clk_sys is a constant, not a measurement.** piolib's `rp1_clock_get_hz` returns a hard-coded `200 * MHZ` for clk_sys (`piolib/pio_rp1.c`).
 
@@ -105,23 +105,23 @@
 #### Part 0: the capture program, fixed first [OC-R1]
 
 **Entry and exit lose time.** This was verified in `rp1/program.py`, and by a cycle simulation of its listing [mine, 2026-11-07].
-- The idle loop costs 2 cycles per decrement: `jmp pin` at 0, then `jmp x--` at 1 (`program.py:91-93`).
+- The idle loop costs 2 cycles per decrement: `jmp pin` at 0, then `jmp x--` at 1 (`program.py:91-93` at c744189).
 - **Entering a capture** costs 3 cycles for one decrement: the taken `jmp pin` at 0, then 2 and 3.
-- **Leaving it** costs 4 cycles for one decrement: `jmp pin` at 10 not taken, then `jmp` to idle at 11 (`program.py:103-106`), then 0 and 1.
+- **Leaving it** costs 4 cycles for one decrement: `jmp pin` at 10 not taken, then `jmp` to idle at 11 (`program.py:103-106` at c744189), then 0 and 1.
 - So each captured event loses 1.5 ticks, for any strobe at least 2 cycles wide. The simulation lost 600 ticks over 400 events.
 
-**Why the tests missed it.** `cycles_per_decrement_by_path` (`program.py:113-128`) is a hand-written table that leaves out the entry and the exit. Its test (`tests/test_rp1_program.py:69-83`) checks the table, not the program.
+**Why the tests missed it.** `cycles_per_decrement_by_path` (`program.py:113-128` at c744189) is a hand-written table that leaves out the entry and the exit. Its test (`tests/test_rp1_program.py:69-83` at c744189) checks the table, not the program.
 
 **What it costs:**
-- **Today's W path** loses 1.5 µs per strobe. That is 900 µs over the 600-strobe run of Task 5b Step 3, the run `program.py:116-119` cites, so it fails that gate on arithmetic alone.
+- **Today's W path** loses 1.5 µs per strobe. That is 900 µs over the 600-strobe run of Task 5b Step 3, the run `program.py:116-119` at c744189 cites, so it fails that gate on arithmetic alone.
 - **An unfixed stamp machine** would lose 1.5 ticks per rising edge of the barcode.
   - This year's values have 5–13 rising edges per frame, mean 9.1 (computed with `barcode.encode`).
   - That is about 14 ppm of W–B drift, varying with the value and with the strobe rate.
   - The draft's B3, with both machines on GPIO16, feeds both machines one stream, so it cannot show this.
 
 **The wrap fault.**
-- If X reaches 0 at the held loop's `jmp x--` (`program.py:106`), it falls through to offset + 13, outside the program. What runs next depends on where `pio_add_program` placed the program.
-- Only instruction 1 is protected, by `WRAP = 1` (`program.py:109-110`).
+- If X reaches 0 at the held loop's `jmp x--` (`program.py:106` at c744189), it falls through to offset + 13, outside the program. What runs next depends on where `pio_add_program` placed the program.
+- Only instruction 1 is protected, by `WRAP = 1` (`program.py:109-110` at c744189).
 - The barcode is high about 10% of every second, so the stamp machine would hit this at about one wrap in 10, roughly once every 12 h. W would hit it rarely.
 - The simulation left the program in 60 of 1,200 runs started with X near 0.
 
@@ -156,9 +156,10 @@
   *[corrected 2026-11-07, plan 2026-11-07-one-clock: the simulation read X at the second `push`, but `mov isr, x` latches it one decrement earlier. And the strobe is tested every 2 cycles, so a real edge is seen 0–1 µs late. The word therefore holds the count 3.0–4.0 ticks after the edge (a mean of 3.5; the spread is a full tick, not a half), and the pair is in the FIFO within 5.5 µs of the edge (`tests/test_rp1_program.py:159`).]*
 
 **What the candidate changes for the builder:**
-- Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:118`), not offset + 0.
+- Execution starts at the idle entry, offset + 11, so the shim passes that to `pio_sm_init` (`wlsync_pio.c:127`), not offset + 0.
 - `in pins` samples the data 1 µs after the strobe is seen, against 0.5 µs today. Whether the task PC holds its code that long is **[unverified]**, a Task 5b check.
-- The ≈2.5 µs constant in `docs/next-session.md:170-176` becomes this listing's constant.
+  *[corrected 2026-11-07: the task PC holds its code ≥ 2.5 µs after raising the strobe (`wl_sync/rp1/backend.py:308-309`)]*
+- The ≈2.5 µs constant in `docs/next-session.md:170-179` becomes this listing's constant.
 
 **Part 0 stands alone [OC-R1].** It fixes today's W path whatever the answers in §8, and without it Task 5b Step 3 cannot pass. So it is built before the rest.
 
@@ -167,17 +168,17 @@
 **Mechanism (the draft's (c), kept, on Part 0's program):**
 - A second state machine runs the same program as the code-word machine: Part 0's, at the same offset in instruction memory, with the same divider.
   - Its jmp pin is GPIO19, wired to GPIO17, the barcode output.
-  - On the board this is a series resistor, before layout (`wl.yaml:33-40`). On the bench it is a jumper from header pin 11 to pin 35.
-- Both state machines are seeded by `pio_sm_exec`, as today (`pio/wlsync_pio.c:120-123`).
+  - On the board this is a series resistor, before layout (`wl.yaml:37-45`). On the bench it is a jumper from header pin 11 to pin 35.
+- Both state machines are seeded by `pio_sm_exec`, as today (`pio/wlsync_pio.c:129-132`).
 - They are enabled together through `pio_enable_sm_in_sync_mask` → `PIO_IOC_SM_ENABLE_SYNC` (`piolib.h`, `pio_rp1.c`). So they count one P.
 - The second machine's push at a frame's first rising edge **is** that frame's `B`: the edge on the wire, on the count `W` uses.
 - The same program gives the same pin-to-push latency on both: 4.0–4.5 ticks for the candidate. So the latency is shared by W and B, and cancels between them.
   *[corrected 2026-11-07: 3.0–4.0 ticks. Its mean is shared by W and B and cancels between them; each stamp keeps its own spread of up to 1 tick.]*
 
 **What the shim needs (`pio/wlsync_pio.c`).** `wlsync_start_capture` cannot simply be called twice:
-- It adds the program each time (`:95-99`). The second machine must reuse the first one's offset.
-- It requires the jmp pin directly above the data window (`:85`).
-- It calls `pio_gpio_init` on every pin from the window's base to the strobe (`:105-107`). For a second machine that would take GPIO17 away from libgpiod, which drives it.
+- It adds the program each time (`:104-108`). The second machine must reuse the first one's offset.
+- It requires the jmp pin directly above the data window (`:91`).
+- It calls `pio_gpio_init` on every pin from the window's base to the strobe (`:114-116`). For a second machine that would take GPIO17 away from libgpiod, which drives it.
 
 So the build adds a stamp-machine start:
 - It initialises only the jmp pin (GPIO19; `PIO[19]` is function a7, datasheet Table 4).
@@ -188,10 +189,10 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 
 **Who drains the stamp FIFO: the word pump's thread [mine; this changes the draft].**
 - The draft had the run loop drain it once after each frame.
-- That would call piolib from a second thread during capture. Today piolib is used from the pump's thread alone while capture runs (`rp1/backend.py:299-301`: *"Called from ONE thread, the pump's own"*).
-- The shim's calls share one handle (`wlsync_pio.c:20`, `:30`) and one per-block error flag (`:94`, `:98`, `:131-133`).
-- So the pump, which already polls every 1 ms (`rp1/backend.py:62`), also drains the stamp machine. It hands each stamp (a raw 32-bit P) to a small queue that `emit_pulses` reads after the frame.
-- At a 1 ms poll the 4-pair FIFO (`rp1/backend.py:115`) cannot overflow inside a frame: rising edges are at least 10 ms apart (`barcode.py:3-9`).
+- That would call piolib from a second thread during capture. Today piolib is used from the pump's thread alone while capture runs (`rp1/backend.py:359-361`: *"Called from ONE thread, the pump's own"*).
+- The shim's calls share one handle (`wlsync_pio.c:20`, `:30`) and one per-block error flag (`:103`, `:107`, `:140-142`).
+- So the pump, which already polls every 1 ms (`rp1/backend.py:69`), also drains the stamp machine. It hands each stamp (a raw 32-bit P) to a small queue that `emit_pulses` reads after the frame.
+- At a 1 ms poll the 4-pair FIFO (`rp1/backend.py:122`) cannot overflow inside a frame: rising edges are at least 10 ms apart (`barcode.py:3-9`).
 
 **`W` against `B`:**
 - No drift, given Part 0. With every path at 2 cycles per decrement, each machine's count is cycles / 2 whatever its events. Without Part 0 the stamp machine drifts about 14 ppm from W.
@@ -244,7 +245,7 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 **Why not RAW plus NTP's frequency word.** adjtimex's `freq` is the PLL's frequency state, *"ppm … with a 16-bit fractional part"* (adjtimex(2)). It excludes the phase slews that also carry part of NTP's correction. So it is right only at steady state. It is logged for comparison (B7) and not used.
 
 **Each frame gives one pair.**
-- `emit_pulses` reads MONO and RAW immediately before and after the lead edge's `set_value` (`rp1/backend.py:521`): the bracket.
+- `emit_pulses` reads MONO and RAW immediately before and after the lead edge's `set_value` (`rp1/backend.py:581`): the bracket.
 - It also reads REALTIME−MONO.
 - The stamp machine gives that edge's P.
 - So each frame gives (P, MONO midpoint, RAW midpoint, bracket width w, REALTIME−MONO). This is the draft's option (a) pair source, fed by (c)'s loopback. It serves three uses:
@@ -299,7 +300,7 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 - its serial matches this board's; and
 - |r − 1| ≤ 200 ppm.
 
-The bound is a sanity check, as `_CLK_SYS_SANE_HZ` is (`rp1/backend.py:116`). A clk_sys that is not really 200 MHz, or a broken reference, lands outside it. Where the board serial is read on a CM5 is **[unverified; B9]**.
+The bound is a sanity check, as `_CLK_SYS_SANE_HZ` is (`rp1/backend.py:123`). A clk_sys that is not really 200 MHz, or a broken reference, lands outside it. Where the board serial is read on a CM5 is **[unverified; B9]**.
 
 **Otherwise r = 1**, `timebase` is `"rp1-pio"`, and a WARNING says why: no file, unreadable, another board's, or out of bounds.
 
@@ -342,7 +343,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 **E stays on the kernel's MONO stamp.**
 - libgpiod offers MONOTONIC, REALTIME and HTE clocks (`include/gpiod.h`).
 - mainline's only HTE provider is Tegra194 (`drivers/hte/`).
-- The request uses MONOTONIC (`rp1/backend.py:375-379`).
+- The request uses MONOTONIC (`rp1/backend.py:435-439`).
 
 **The kernel stamp is mapped onto P in three steps, in the backend's edge pump:**
 1. **MONO → RAW.**
@@ -367,7 +368,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 **It is computed:**
 - RAW now → P through the §2.3 fit.
-- Before the first pair, through the origin join: RAW read just before the sync enable, as `_origin_ns` is read today (`rp1/backend.py:285`), at the calibration's ratio.
+- Before the first pair, through the origin join: RAW read just before the sync enable, as `_origin_ns` is read today (`rp1/backend.py:345`), at the calibration's ratio.
 
 **It serves the bookkeeping only:**
 - `_BoxClock`'s unwrap, which tolerates ±35.8 min (`service.py:81-85`);
@@ -377,12 +378,12 @@ What matters for the budget is that the map is affine, which it is by constructi
 **The improvement.**
 - Today's marks carry W's drift of ppm × run time (`cli.py:313-316`).
 - Under this design they carry the estimate's error: µs after the first pairs, tens of µs before.
-- `WORDS_LAG_US` (`rp1/pio_capture.py:86-90`, 10 µs) is widened to cover the warm-up error [mine]. 1 ms costs a roll nothing measurable.
+- `WORDS_LAG_US` (`rp1/pio_capture.py:86-91`, 10 µs) is widened to cover the warm-up error [mine]. 1 ms costs a roll nothing measurable.
 
 ### 2.5 A missed lead edge [user, 2026-10-30: drop its B with an ERROR]
 
 **Detection, in `emit_pulses` after the frame** (steps 1 and 3 are [OC-R1]; in `1fc21b6` they warned on every frame):
-1. `emit_pulses` waits until the pump has drained past **the frame's end**, not only the lead edge's bracket. It waits at most 50 ms past that end [mine]. The frame ends low (`rp1/backend.py:510-521`).
+1. `emit_pulses` waits until the pump has drained past **the frame's end**, not only the lead edge's bracket. It waits at most 50 ms past that end [mine]. The frame ends low (`rp1/backend.py:570-581`).
 2. Of the stamps queued since the previous frame ended, it takes the first that lies within the lead edge's bracket mapped to P, ±1 ms [mine].
    - 1 ms covers the warm-up map many times over.
    - This frame's later edges are ≥ 20 ms after the lead (`barcode.py:5-7`).
@@ -425,7 +426,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 
 **`timebase`.**
 - It is free text, *"NOT A CLOSED SET"* (`log.py:197-202`).
-- It is set per instance at start, from the calibration. Today it is a class attribute (`backend.py:91-94`, `rp1/backend.py:214`).
+- It is set per instance at start, from the calibration. Today it is a class attribute (`wl_sync/backend.py:91-94`, `rp1/backend.py:262`).
 - The two new values [mine; `"rp1-pio"` is already the example in `tests/test_log.py:282`]:
   - **`"rp1-pio-si"`:**
     - W and B count RP1's PIO counter. B is the barcode's lead edge, stamped by a second state machine.
@@ -463,9 +464,9 @@ What matters for the budget is that the map is affine, which it is by constructi
 | No calibration | exact, at RP1's rate (`"rp1-pio"`) | exact once paired | collected; used from the next start |
 | NTP roll | ticks run on, same r | same | unaffected |
 | Restart | a new process: new P origin, possibly a newer r | warm, seeded by the file | — |
-| P wrap (71.6 min) | both machines wrap together, given Part 0's wrap-safe `jmp x--` (today's held loop leaves the program, `program.py:106`); `_BoxClock` unchanged | mapped into P mod 2³² and unwrapped | unwrapped counts |
+| P wrap (71.6 min) | both machines wrap together, given Part 0's wrap-safe `jmp x--` (today's held loop leaves the program, `program.py:106` at c744189); `_BoxClock` unchanged | mapped into P mod 2³² and unwrapped | unwrapped counts |
 | Missed lead edge | that `B` dropped, ERROR (§2.5) | one pair fewer | one pair fewer |
-| Stamp FIFO dead (pump thread stopped) | every `B` dropped; health reports the stop (`rp1/backend.py:475-482`) | map extrapolates and degrades | stops |
+| Stamp FIFO dead (pump thread stopped) | every `B` dropped; health reports the stop (`rp1/backend.py:535-542`) | map extrapolates and degrades | stops |
 
 ### 2.8 Files and size
 
@@ -567,7 +568,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 - **c-direct** (GPIO17 as the jmp pin, no wire) is not rejected. B4 decides it.
   - Datasheet §3.1.1: *"If the same peripheral input is connected to multiple GPIOs, the peripheral sees the logical OR"*. That suggests inputs are routed by FUNCSEL, and so that c-direct will not work.
 - **c-gen** (PIO generates the barcode) is not in this build. It needs a new program (about 15–19 of the 19 free instructions **[unverified]**).
-  - It would remove `emit_pulses`' GIL spin (`rp1/backend.py:56-62`).
+  - It would remove `emit_pulses`' GIL spin (`rp1/backend.py:63-69`).
   - It is a separate decision.
 - **A map that tracks NTP continuously** (new in this rework) is rejected for the reason in §2.2.
 - **A header field for the applied rate** is rejected for the reason in §2.6.
@@ -627,4 +628,4 @@ What matters for the budget is that the map is affine, which it is by constructi
     - 11→35 for the loopback (B4, B3b, B6, B8, B10);
     - 11→38 for B6's edge input;
     - 12→36 if B3b's dense stream comes from GPIO18.
-  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:189`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
+  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:192`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").

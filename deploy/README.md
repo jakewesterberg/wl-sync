@@ -239,6 +239,10 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
     with that message, this is why. The box closes the connection with the chunked body
     unread, so the same cause might instead surface as a reset connection, which the
     function reports as unreachable even though `show` works.
+18. The strobe and code lines, which the task PC drives for the capture program: hold the code
+    at least 2.5 µs after raising the strobe, keep the strobe high at least 1 µs and low at
+    least 1 µs, and rise at least 6 µs after the previous rise (the contract in
+    `wl_sync/rp1/backend.py:305-312`).
 
 ## Setting up the OS, once per box
 

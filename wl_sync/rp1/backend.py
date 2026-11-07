@@ -309,7 +309,7 @@ class Rp1Backend:
         strobe: the read ends before 2.0 us at the box's pins, and the extra 0.5 us covers
         skew between the strobe and data paths (the generator's channels, the wiring, the
         input synchroniser). A strobe must be high for at least 1 us and low for at least
-        1 us, and must rise at least 6 us after the previous one; closer strobes merge
+        1 us, and must rise at least 6 us after the previous one; closer strobes may merge
         (tests/test_rp1_program.py:136, :142, :176, :183 and :191).
         """
         lib = self._lib

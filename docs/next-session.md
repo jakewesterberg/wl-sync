@@ -162,8 +162,8 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    strobe (`wl_sync/rp1/backend.py:305-310`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
-   the extra 0.5 µs covers skew between the strobe and data paths. The old program's docs said
-   1.0 µs, which assumed edges on cycle boundaries; for an edge at any instant it needed 1.5 µs.
+   the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
+   1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
    previous one (`wl_sync/rp1/backend.py:311-312`).
 
@@ -171,9 +171,12 @@ There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
-(`tests/test_rp1_program.py:159`). Its mean is a host-side subtraction; the spread is
-jitter. Measure it rather than trusting the comment, since it depends on final instruction
-placement.
+(`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
+latched count, inverted (`wl_sync/rp1/pio_capture.py:78`) and handed on as it is (`:173`).
+The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
+minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:345-346`),
+so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
 §4 and the plan's bench section (`docs/superpowers/plans/2026-11-07-one-clock.md`, P0 and B1–B10) list the measurements that decide how code words and barcodes get onto one clock.

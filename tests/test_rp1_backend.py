@@ -8,9 +8,13 @@ things start and stop in. What it cannot exercise is silicon -- the PIO program,
 FIFO timing, the chardev -- which is bench day's.
 """
 
+import inspect
+import pathlib
+import re
 import threading
 import time
 import types
+import unittest.mock
 
 import pytest
 
@@ -169,8 +173,57 @@ def test_a_shim_of_another_version_is_refused(monkeypatch):
 
 
 def test_a_shim_of_the_current_version_is_accepted():
+    """Coverage: pins the accepting side of the version check, which passed against the
+    sources when it was added. Without it, a check that refused every shim, the current
+    one included, would fail only on the box."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
     assert rp1._check_shim_version(shim) is None
+
+
+_C_SOURCE = pathlib.Path(__file__).resolve().parent.parent / "pio" / "wlsync_pio.c"
+
+
+def _c_prototype(text, name):
+    """The parameter names of C function `name`, in order, from its definition in `text`."""
+    match = re.search(rf"\b{name}\s*\(([^)]*)\)\s*\{{", text)
+    assert match, f"no definition of {name}(...) found in {_C_SOURCE}"
+    names = []
+    for parameter in match.group(1).split(","):
+        found = re.search(r"(\w+)\s*$", parameter.strip())
+        assert found, f"cannot read parameter {parameter.strip()!r} of {name}"
+        names.append(found.group(1))
+    return names
+
+
+def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature():
+    """Coverage: pins agreement that holds today. Part 1 bumps the shim version, and a
+    bump on one side only would refuse the box with a "rebuild" message that rebuilding
+    cannot fix. The same goes for a parameter added to the C and not to `_declare`."""
+    text = _C_SOURCE.read_text()
+    version = re.search(r"#define\s+WLSYNC_SHIM_VERSION\s+(\d+)", text)
+    assert version, f"no WLSYNC_SHIM_VERSION in {_C_SOURCE}"
+    assert int(version.group(1)) == rp1._SHIM_VERSION, (
+        f"{_C_SOURCE.name} says shim version {version.group(1)} but "
+        f"wl_sync/rp1/backend.py says _SHIM_VERSION = {rp1._SHIM_VERSION}: bump both together"
+    )
+
+    c_names = _c_prototype(text, "wlsync_start_capture")
+    lib = unittest.mock.MagicMock()
+    rp1._declare(lib)
+    argtypes = lib.wlsync_start_capture.argtypes
+    assert len(c_names) == len(argtypes), (
+        f"wlsync_start_capture takes {len(c_names)} parameters in C ({', '.join(c_names)}) "
+        f"but _declare sets {len(argtypes)} argtypes"
+    )
+    fake_names = list(inspect.signature(_FakeShim.wlsync_start_capture).parameters)[1:]
+    assert len(fake_names) == len(c_names), (
+        f"_FakeShim.wlsync_start_capture takes {len(fake_names)} parameters, the C "
+        f"{len(c_names)}"
+    )
+    for position, (c_name, fake_name) in enumerate(zip(c_names, fake_names)):
+        assert c_name.startswith(fake_name), (
+            f"parameter {position} is `{c_name}` in C and `{fake_name}` in _FakeShim"
+        )
 
 
 def _shape(word):
