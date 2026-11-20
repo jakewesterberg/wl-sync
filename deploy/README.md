@@ -725,5 +725,5 @@ whether timesyncd sets STA_PLL, is the check.
     `~/wl-sync-spike` beside the `--fake` service, in the order of `docs/next-session.md`,
     Step B. A run killed with SIGKILL between a pulse's two stores can leave the pin forced
     high under its override, which is harmless (GPIO18 and GPIO19 are no-connect) and which
-    `python -m wl_sync.bench override` shows; `override --pin 18 --clear` clears it with no
-    sudo.
+    `python -m wl_sync.bench override` shows, printing for each pin the command that
+    clears it with no sudo (`override --pin <pin> --clear`, the run's dense pin).

@@ -1227,3 +1227,87 @@ def test_a_close_that_fails_still_prints_the_runs_summary(board, monkeypatch, ca
     assert out.splitlines()[0] == "start skew (B3a): PASS", out
     assert "closing the rig failed: RuntimeError('pio_close')" in out
     assert board.gpiod.released == [{17: 0}]
+
+
+def test_a_close_that_fails_after_the_run_raised_is_noted_on_the_runs_error(
+    board, monkeypatch
+):
+    """Review N1: the run's own error propagates, and carries the close's as a note."""
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.shim.wlsync_sm_get
+    calls = []
+
+    def failing(sm):
+        calls.append(sm)
+        if len(calls) == 40:
+            raise RuntimeError("piolib")
+        return original(sm)
+
+    def failing_close():
+        raise RuntimeError("pio_close")
+
+    board.shim.wlsync_sm_get = failing
+    board.shim.wlsync_pio_close = failing_close
+    with pytest.raises(RuntimeError, match="piolib") as raised:
+        bench.main(["skew", "--edges", "100"])
+    assert any("pio_close" in note for note in getattr(raised.value, "__notes__", [])), (
+        raised.value)
+    assert board.gpiod.released == [{17: 0}]
+
+
+def test_a_sighup_nohup_ignores_stays_ignored_and_the_run_goes_on(
+    board, monkeypatch, capsys, run_fast
+):
+    """Review N2: under nohup SIGHUP is ignored, and the harness keeps it so, or the hour
+    it was launched to survive would end."""
+    import signal
+
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.bank.write32
+    writes = []
+
+    def hanging_up(offset, value):
+        original(offset, value)
+        writes.append(offset)
+        if len(writes) == 201 and offset == 0x2094:
+            signal.raise_signal(signal.SIGHUP)
+
+    board.bank.write32 = hanging_up
+    outer = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        status = bench.main(["streams", "--duration", "60", "--rate", "20"])
+        assert signal.getsignal(signal.SIGHUP) is signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, outer)
+    out = capsys.readouterr().out
+    assert status == 0, out
+    assert "stopped by" not in out and "run 60 s of the 60 s asked" in out
+
+
+def test_the_override_command_prints_each_pins_own_clear_command(board, monkeypatch, capsys):
+    """Review N4: the recovery is the command `override` prints for the pin it found."""
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.ctrl[19] |= 3 << 12
+    assert bench.main(["override"]) == 1
+    out = capsys.readouterr().out
+    assert "python -m wl_sync.bench override --pin 19 --clear" in out
+    assert "--pin 18 --clear" not in out
+
+
+def test_clearing_a_pin_with_nothing_set_exits_nonzero_and_says_so(
+    board, monkeypatch, capsys
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.ctrl[19] |= 3 << 12  # the run used GPIO19, and 18 is asked
+    assert bench.main(["override", "--pin", "18", "--clear"]) == 1
+    out = capsys.readouterr().out
+    assert "NOT CLEARED" in out and "no override set" in out
+    assert board.bank.writes == []

@@ -130,6 +130,11 @@ class WriterError(RuntimeError):
     """The register writer found the pin other than it left it."""
 
 
+class NothingToClear(WriterError):
+    """`clear_override` found no override on the pin it was asked to clear: nothing was
+    written, and nothing was cleared, so a run's stuck pin may be the other one."""
+
+
 class WriterRefused(WriterError):
     """The register writer would not write: the pin is not this harness's to drive, or
     the map is not the bank it was assumed to be. Nothing was written."""
@@ -638,7 +643,9 @@ class Event:
 
     `rise_before` is RAW before the rise's write. `rise_after` is RAW after libgpiod's
     call returned, after the rise was read back through the register map
-    (`rise_landed`), or, for a writer pulse (`writer`), after its SET store.
+    (`rise_landed`), or, for a writer pulse (`writer`), after its SET store was issued:
+    the posted store lands about 1 us later (RP1 Peripherals section 3.3.1, p.35), so the
+    bracket holds the rise's issue, as libgpiod's does, not its landing (review N6).
     `fall_before` and `fall_after` bracket the fall's write; for a writer pulse
     `fall_after` is RAW after the read that follows the fall (`PulseWriter.pulse`).
     `drained_at` is RAW when the FIFOs were read. Ticks and RAW are integers."""
@@ -932,9 +939,12 @@ def clear_override(
     THE WRITE: libgpiod toggles the line three times and STATUS.OUTFROMPERI, the funcsel's
     output before the override (Table 7, p.20-21), must follow it, with OEFROMPERI set.
     That works while OUTOVER still forces the pad, where `PulseWriter.verify`, which reads
-    the pad, would not. Any refusal writes nothing. Then ONE write, OUTOVER's two bits
-    through CTRL's CLEAR alias, and CTRL and STATUS are read back: OUTOVER 0, nothing else
-    changed, the pad low."""
+    the pad, would not. Any refusal writes nothing. ONLY OUTOVER 3, the one value the
+    writer sets, is cleared: 1 or 2 is someone else's override, refused with its value
+    named (review N3), and 0 raises NothingToClear, so that clearing the wrong pin never
+    reads as a success (N4). Then ONE write, OUTOVER's two bits through CTRL's CLEAR
+    alias, and CTRL and STATUS are read back: OUTOVER 0, nothing else changed, the pad
+    low."""
     _spare(pin)
     lines = Lines(chip_path, [pin])
     try:
@@ -952,6 +962,14 @@ def clear_override(
                 raise WriterRefused(f"GPIO{pin}'s output enable is overridden too (CTRL "
                                     f"{ctrl:#010x}), which this harness never sets: "
                                     "nothing written")
+            outover = (ctrl & OUTOVER_MASK) >> 12
+            if outover == 0:
+                raise NothingToClear(f"GPIO{pin} has no override set (CTRL {ctrl:#010x}): "
+                                     "nothing written. Is the run's dense pin the other one?")
+            if outover != 3:
+                raise WriterRefused(f"GPIO{pin} has OUTOVER {outover}, not the 3 this harness "
+                                    f"writes (CTRL {ctrl:#010x}): someone else's override, "
+                                    "nothing written")
             try:
                 for _ in range(VERIFY_TOGGLES):
                     for high in (True, False):
@@ -966,9 +984,6 @@ def clear_override(
                             )
             finally:
                 lines.set(pin, False)
-            outover = (ctrl & OUTOVER_MASK) >> 12
-            if not outover:
-                return f"GPIO{pin}: no override set (CTRL {ctrl:#010x}); nothing written"
             regs.write32(ctrl_offset(pin) + ALIAS_CLEAR, OUTOVER_MASK)
             now = regs.read32(ctrl_offset(pin))
             status = regs.read32(status_offset(pin))

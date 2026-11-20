@@ -418,6 +418,7 @@ def test_a_stall_before_the_set_store_does_not_shorten_the_high(bank):
         before, set_after, clear_before, after = writer.pulse(2_000)
     rise, fall = pads
     assert fall - rise >= 2_000
+    # The fake lands a store as it is issued; on RP1 it lands about 1 us later (N6).
     assert before <= rise <= set_after and clear_before <= fall <= after
     assert clear_before - set_after >= 2_000
 
@@ -1028,15 +1029,29 @@ def test_clearing_a_stuck_override_checks_the_map_and_writes_one_clear(board):
     assert board.gpiod.released == [{18: 0}]
 
 
-def test_clearing_writes_nothing_when_no_override_is_set(board):
-    said = _clear(board)
-    assert board.bank.writes == [] and "nothing" in said
+def test_clearing_a_pin_with_no_override_is_refused_as_nothing_to_clear(board):
+    """Review N4: a clear of the wrong pin must not read as a success."""
+    with pytest.raises(harness.NothingToClear, match="GPIO18 has no override set"):
+        _clear(board)
+    assert board.bank.writes == []
+
+
+@pytest.mark.parametrize("outover", [1, 2])
+def test_clearing_refuses_an_override_the_harness_never_writes(board, outover):
+    """Review N3: the writer only ever sets OUTOVER to 3, so any other value is someone
+    else's, and is refused with nothing written, naming the value found."""
+    board.bank.ctrl[18] |= outover << 12
+    with pytest.raises(harness.WriterRefused, match=f"OUTOVER {outover}"):
+        _clear(board)
+    assert board.bank.writes == [] and board.bank.closed
 
 
 @pytest.mark.parametrize("fault, said", [
     ("frozen", "does not follow"),
     ("pio", "PIO"),
     ("oeover", "output enable"),
+    ("function", "runs function 1, not SYS_RIO"),
+    ("no_oe", "does not follow"),
 ])
 def test_clearing_is_refused_with_nothing_written_unless_the_pin_is_provably_ours(
     board, fault, said
@@ -1050,6 +1065,10 @@ def test_clearing_is_refused_with_nothing_written_unless_the_pin_is_provably_our
             board.bank.frozen = True
         elif fault == "pio":
             board.bank.ctrl[18] = (board.bank.ctrl[18] & ~0x1F) | 7
+        elif fault == "function":
+            board.bank.ctrl[18] = (board.bank.ctrl[18] & ~0x1F) | 1
+        elif fault == "no_oe":  # the funcsel's output enable off: OEFROMPERI clear (N5)
+            board.bank.rio_oe[18] = 0
         else:
             board.bank.ctrl[18] |= 3 << 14
         return made

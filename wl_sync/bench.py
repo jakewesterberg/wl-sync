@@ -605,9 +605,9 @@ SHORT_EXIT_MAX_NS = 5_000
 HELD_MIN_NS = 6_000
 
 # The pass line (plan :2068) and what may judge it. The hour and the 10^5 events are the
-# plan's (:2067). THE USER'S RULINGS, 2026-11-20 (Task 1.21's review): "1 sigma <= 0.0033
-# ppm" on A - B, a third of the line, as the design proposed (section 2.7), and "25%
-# each": each path at least a quarter of A's fitted events, so that a cycle lost on one
+# plan's (:2067). THE USER'S RULINGS, 2026-11-20 (Task 1.21's review): "1σ ≤ 0.0033 ppm"
+# on A - B, a third of the line, as the design proposed (section 2.7), and "≥ 25% each":
+# each path at least a quarter of A's fitted events, so that a cycle lost on one
 # path in a few hundred events would show (0.5 us x 25 events a second / 400 = 0.03 ppm).
 # Short of either, the run is INCONCLUSIVE. That a FAIL needs |A - B| over the line AND
 # over 3 sigma is the harness's choice, which the review found needs no ruling: with
@@ -1136,8 +1136,12 @@ def _harnessed(title: str, open_rig: Callable, body: Callable, record: Path | No
     outer: dict[int, object] = {}
     try:
         # SIGHUP as SIGTERM (review I3): an ssh session that drops sends it, and its
-        # default would end the process between a writer pulse's two stores.
+        # default would end the process between a writer pulse's two stores. But a SIGHUP
+        # ignored already, as nohup leaves it, stays ignored, or the hour nohup was
+        # launched to keep would end (review N2).
         for signum in _ENDING_SIGNALS:
+            if signum == signal.SIGHUP and signal.getsignal(signum) == signal.SIG_IGN:
+                continue
             outer[signum] = signal.signal(signum, _terminate)
         try:
             rig = open_rig()
@@ -1150,6 +1154,9 @@ def _harnessed(title: str, open_rig: Callable, body: Callable, record: Path | No
     except _Terminated as terminated:
         stopped = terminated
     finally:
+        # The run's own error, if one is in flight: read first, since inside the
+        # `except` below sys.exc_info() is the close's (review N1).
+        in_flight = sys.exc_info()[1]
         # Nothing may cut close() short: a second signal, or a Ctrl-C.
         ignored = {signum: signal.signal(signum, signal.SIG_IGN)
                    for signum in (*outer, signal.SIGINT)}
@@ -1158,9 +1165,8 @@ def _harnessed(title: str, open_rig: Callable, body: Callable, record: Path | No
                 rig.close()
         except BaseException as error:  # noqa: BLE001 - reported after the summary (M2)
             closing = error
-            running = sys.exc_info()[1]
-            if running is not None and running is not error:
-                running.add_note(f"and closing the rig raised: {error!r}")
+            if in_flight is not None:
+                in_flight.add_note(f"and closing the rig raised: {error!r}")
         finally:
             if recorder is not None:
                 recorder.close()
@@ -1279,6 +1285,9 @@ def _override(pin: int | None, clear: bool, chip_path: str) -> int:
     if clear:
         try:
             print(harness.clear_override(pin, chip_path))
+        except harness.NothingToClear as error:
+            print(f"GPIO{pin}: NOT CLEARED: {error}")
+            return 1
         except (harness.HarnessError, harness.WriterError, OSError) as error:
             print(f"GPIO{pin}: not cleared: {error}")
             return 1
