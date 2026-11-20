@@ -881,3 +881,84 @@ note = """Confirms M5's clamp analysis. Digital inputs behind 100 ohm draw 186 m
 What the rating does NOT cover is the unpowered case: with the board off, a 12 V fault
 charges the dead +5 V rail through the clamp toward 11.6 V, past the AHCT541's 7 V VCC
 absolute maximum. The diode survives; the logic does not."""
+
+# ---------------------------------------------------------------------------
+# Sync module carriers (mechanical only -- floorplan task L3, plan Task 14 Step 1b)
+# ---------------------------------------------------------------------------
+
+[cm5_io_board]
+part = "Raspberry Pi Compute Module 5 IO Board (CM5IO), board revision R2 as drawn"
+document = "Raspberry Pi Compute Module 5 IO Board datasheet (Raspberry Pi Ltd)"
+revised = "2026-09-11"           # Appendix B, Documentation history, printed p.15
+retrieved = "2026-11-20"
+url = "https://datasheets.raspberrypi.com/cm5/cm5io-datasheet.pdf"
+sha256 = "4fd7f9edea384ccec4710943a886c5cd922dcdcd3b17f519325d3c70933f8f8e"
+pages = "printed p.4 (Section 1.3, Features); printed p.10 (Section 6.1, Figure 2). The PDF's own page index is one higher: 5 and 11 of 17."
+
+outline_mm = [160.0, 90.0]       # stated in text, Sections 1.3 and 6.1, and dimensioned on Figure 2
+# Figure 2 is a top view with the external connectors along the bottom 160 mm edge. The
+# values below are the dimension chain along that edge, in the figure's left-to-right
+# order, starting at the corner beside HDMI0. Each is printed on the figure.
+port_edge = "one 160 mm edge carries every external connector: HDMI0, HDMI1, Ethernet, USB3 (two Type-A, stacked), USB-C power in, microSD"
+port_edge_chain_mm = [3.50, 19.50, 25.00, 26.00, 19.00, 15.00, 13.25, 11.25]
+port_edge_chain_ends = ["mounting hole", "HDMI0 (J22)", "HDMI1 (J10)", "Ethernet (U3)", "USB3 (J12)", "USB-C power in (J11)", "microSD (J7)", "mounting hole"]
+# DERIVED here by summing the chain; the figure prints the links, not these sums.
+port_centre_from_hdmi_corner_mm = { hdmi0 = 23.00, hdmi1 = 48.00, ethernet = 74.00, usb3 = 93.00, usb_c_power = 108.00, microsd = 121.25 }
+ethernet_to_usb_c_centre_span_mm = 34.00   # derived: 19.00 + 15.00
+# Other dimensions printed on Figure 2, recorded as printed. Which feature each
+# vertical one ends on was read from the figure's extension lines.
+port_edge_other_mm = { hole_a_from_corner = 11.00, hole_b_from_corner = 61.50, hdmi_group = [22.70, 3.65] }
+from_port_edge_mm = [3.50, 8.00, 52.50, 67.5, 77.00, 90.00]
+opposite_edge_mm = [11.50, 18.0, 36.0]     # CAM/DISP 0, power button and CAM/DISP 1, from the HDMI-side corner
+m2 = "M.2 M key socket (J4) at the end of the port edge farthest from HDMI0; the card lies inside the board outline, running away from the port edge, with retention posts marked 2230, 2242, 2260 and 2280"
+m2_interface = "PCIe Gen 2 x1 by default"       # Section 4.1, printed p.7
+gpio_header = "40-pin HAT header (J8) on the HDMI half of the board; the figure dimensions the HAT mounting holes, not the header"
+psu = "5 V at 5 A by USB PD on the Type-C input J11; an external 5 V supply may instead be connected at J8"   # Section 2.1, printed p.5
+fan_connector = "four-pin JST-SH, PWM, powered from the 5 V rail"   # Sections 1.3 and 3.5
+note = """Recorded for the breakout floorplan (hardware/breakout/floorplan.md, section 6),
+which has to decide whether this board fits over the main board's digital region.
+
+WHAT THE DATASHEET DOES NOT GIVE, and the floorplan therefore cannot use:
+  - any height: component heights above the board, the tallest connector, the underside
+    protrusion, the PCB thickness, or a recommended standoff. Figure 2 is a plan view only.
+  - any connector's width, or how far a connector overhangs the port edge. The figure
+    marks a "PCB Edge" line at the USB-C connector and draws the connector outlines past
+    it, undimensioned.
+  - the mounting holes' diameter.
+  - the X extent of the M.2 socket and card.
+Section 6.1 points to "the CM5 design files" (KiCad) for more detail. Those were not
+fetched; take the missing figures from them or from a board in hand.
+
+The module itself is in a different document, the Compute Module 5 datasheet
+(https://datasheets.raspberrypi.com/cm5/cm5-datasheet.pdf, Section 4.1.1, printed p.16):
+55 mm x 40 mm, 4.6 mm deep bare, 4.94 mm or 7.44 mm total when mounted, depending on the
+carrier's connector. Which connector the IO Board fits is not stated there, and the
+active cooler's height is in neither document."""
+
+[raspberry_pi_5]
+part = "Raspberry Pi 5"
+document = "Raspberry Pi 5 mechanical drawing (Raspberry Pi Ltd), one sheet, scale 1:1 at A4"
+revised = "2023-10-09"           # the PDF's creation date; the sheet carries no revision
+retrieved = "2026-11-20"
+url = "https://datasheets.raspberrypi.com/rpi5/raspberry-pi-5-mechanical-drawing.pdf"
+sha256 = "5dd680d6c1f5e7aa9c7b020695e315d04aac862df82ff01d4e9041cd0668d7f2"
+
+outline_mm = [85.0, 56.0]
+mounting_hole_pattern_mm = [58.0, 49.0]
+mounting_hole_inset_mm = 3.5
+mounting_hole_dia_mm = 2.7
+long_edge_connector_centres_mm = [11.2, 25.8, 39.2]    # from the corner farthest from the short connector edge
+short_edge_connector_centres_mm = [10.2, 29.1, 47.0]   # from the long edge that carries the three above
+short_edge_overhang_mm = 3.0                           # connectors past the board edge, side view
+note = """The fallback the plan names if the CM5 IO Board cannot be placed (plan Task 14
+Step 1b). The sheet says its dimensions are "approximate and for reference purposes
+only" and "should not be used for producing production data".
+
+The drawing does not label its connectors. Reading 11.2 as the USB-C power input, 25.8
+and 39.2 as the two micro-HDMI, 10.2 as Ethernet and 29.1 and 47 as the two USB stacks
+is from the board's known arrangement, not from this sheet; confirm on a board. On that
+reading the power input is on the LONG edge and the Ethernet and USB connectors on the
+SHORT one, so the two do not face the same panel.
+
+Not on the sheet: any height, and anything about a PCIe-FPC NVMe adapter, which is a
+third-party part nobody has chosen."""
