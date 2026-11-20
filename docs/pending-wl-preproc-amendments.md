@@ -21,14 +21,14 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 2. ~~May wl-sync tighten `SessionId.parse`?~~ **Answered yes**, and done.
 3. A note, not an ask: what the session-identity change means for what wl-preproc reads.
 
-*Added 2026-10-30, not yet delivered:*
+*Added 2026-10-30, delivered 2026-11-20 (by message to the wl-preproc session):*
 
 - **wl-sync's answers to wl-preproc's 2026-10-22 items 3, 4, 5 and 6** (below).
 - **Note 4:** two header fields, and a third moment a segment starts.
 - **Note 5:** what a session's last records do now.
 - **Note 6:** an `L` record marks lost capture events in the segment.
 
-*Added 2026-11-19, not yet delivered:*
+*Added 2026-11-19, delivered 2026-11-20 (the same message):*
 
 - **Note 7:** the one-clock build: two new `timebase` values, `"split"` kept as a fallback,
   and dropped `B`s.
@@ -163,7 +163,7 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 
 ---
 
-# ANSWERS — wl-preproc's 2026-10-22 items 3, 4, 5 and 6 (2026-10-30, not yet delivered)
+# ANSWERS — wl-preproc's 2026-10-22 items 3, 4, 5 and 6 (2026-10-30, delivered 2026-11-20)
 
 - **Item 3, "Please confirm that two segments in one session folder never share a clock: that a
   roll at an open or a close always changes folders."**
@@ -414,9 +414,11 @@ The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
 
 # NOTE — 7. The one-clock build: two new `timebase` values, `"split"` as a fallback, and dropped `B`s (2026-11-19, not an ask)
 
-**Not yet delivered.** It is wl-sync's one-clock build, on its branch `one-clock-p1`, which is
-not yet merged, pushed or deployed; the box's unit still runs `--fake`. The claims about wl-sync
-were checked against that branch at the commit that adds this note. The three points below are
+**Delivered 2026-11-20**, with the answers and notes 4 to 6 below, by message to the
+wl-preproc session. It is wl-sync's one-clock build, merged to wl-sync `main` and pushed
+(`91efdf6`, 2026-11-20), but not deployed: the box's unit still runs `--fake`, at `a452599`. The
+claims about wl-sync were checked against the branch at the commit that added this note, and
+its status line again at `91efdf6`. The three points below are
 the one-clock spec's own list of consequences for wl-preproc (wl-sync
 `docs/superpowers/specs/2026-10-30-one-clock-design.md:618-624`). That spec read wl-preproc at
 `d48943c` (`:10-14`); nothing of wl-preproc was re-read for this note, so it says what wl-sync
