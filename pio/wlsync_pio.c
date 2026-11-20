@@ -117,14 +117,18 @@ unsigned wlsync_encode_mov_x_not_null(void) { return pio_encode_mov_not(pio_x, p
  * PIO_ORIGIN_ANY, which as a uint32_t is 4294967295. */
 uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
 
-/* Bump whenever an exported signature changes: ctypes cannot see one, so the backend
- * (wl_sync/rp1/backend.py, _SHIM_VERSION) reads this and refuses a shim of another
- * version rather than call it with the wrong arguments. 1 was the unversioned original;
+/* Bump whenever an exported signature changes, or what an export answers means something
+ * else: ctypes cannot see either, so the backend (wl_sync/rp1/backend.py, _SHIM_VERSION)
+ * reads this and refuses a shim of another version rather than call it with the wrong
+ * arguments, or read it wrongly. 1 was the unversioned original;
  * 2: `entry` added to wlsync_start_capture, `wlsync_encode_jmp` removed;
  * 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added;
  * 4: `wlsync_sm_rx_level` returns int, the level or a negative errno, and
- *    `wlsync_rx_fifo_depth` added (Task 1.20, Ruling R40). */
-#define WLSYNC_SHIM_VERSION 4
+ *    `wlsync_rx_fifo_depth` added (Task 1.20, Ruling R40);
+ * 5: `wlsync_sm_rx_level` reads a full FIFO as its depth, from RP1's level field, which
+ *    saturates at 15, and its full flag, where version 4 read 15 (wlsync_fifo_state.h;
+ *    Task 1.20 fix round 3, Ruling R42). */
+#define WLSYNC_SHIM_VERSION 5
 int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
 
 /*
@@ -289,16 +293,19 @@ int wlsync_sm_rx_level(unsigned sm)
         .sm = (uint16_t)sm, .tx = 0, .level = WLSYNC_LEVEL_SEED, .empty = WLSYNC_FLAG_SEED,
         .full = WLSYNC_FLAG_SEED,
     };
+    unsigned depth = pio_get_fifo_depth(g_pio) * 2;
     int result = ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args);
-    return wlsync_fifo_state_answer(result, errno, args.level, args.empty, args.full,
-                                    pio_get_fifo_depth(g_pio) * 2);
+    /* errno taken alone, after the ioctl and before any other call, so the order in which
+     * the arguments below are evaluated cannot change it. */
+    int error = errno;
+    return wlsync_fifo_state_answer(result, error, args.level, args.empty, args.full, depth);
 }
 
 /* The depth of the RX FIFO of every machine this shim configures: piolib's per-direction
  * depth for the block (piolib.h:300-303; RP1's is 8, pio_rp1.c:985 at utils b57c48e),
  * doubled, because both configure functions join the TX FIFO into the RX one (above,
  * sm_config_set_fifo_join). That the join took, and that the level reads the doubled
- * depth, is the backend's start-up check (backend.py, _check_fifo_depth). */
+ * depth, is the backend's start-up check (backend.py, _measure_fifo_depth). */
 int wlsync_rx_fifo_depth(void)
 {
     if (g_pio == NULL)

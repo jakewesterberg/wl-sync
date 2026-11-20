@@ -143,7 +143,7 @@ def pair_stamps(
 
 # The depth a WordPump counts on when not told one: 8, RP1's per-direction depth
 # (pio_rp1.c:985 at utils b57c48e), the least its RX FIFO holds whether or not the join
-# (pio/wlsync_pio.c:179) took. It once said "both 4-deep FIFOs joined", RP2040's numbers
+# (pio/wlsync_pio.c:183) took. It once said "both 4-deep FIFOs joined", RP2040's numbers
 # (review I1). The backend passes the depth it measured at start-up, 16 joined
 # (Rp1Backend._measure_fifo_depth). Told less than the FIFO holds, the pairing errs safe;
 # told more, it does not (tests/test_pio_capture.py, the told-deeper test).
@@ -202,7 +202,7 @@ class CodeWordPairer:
          (wl_sync/rp1/program.py:55-61): a data word pushed straight after a taken push
          has no bits above the window. The box's window is those 16 lines
          (wl_sync/pins.py:11), and capture refuses any other
-         (wl_sync/rp1/backend.py:1000-1008).
+         (wl_sync/rp1/backend.py:1002-1010).
 
     When the n-th word the FIFO ever took went in, it held n words less those popped. That
     word was not in the FIFO when the drain before the one that read it looked, so every
@@ -473,7 +473,7 @@ class WordPump:
         they were popped, which errs safe.
 
         `entries` is every word the FIFO held when the drain looked, and `level_after` the
-        level it read after popping them (wl_sync/rp1/backend.py:1116-1123): the counts
+        level it read after popping them (wl_sync/rp1/backend.py:1118-1125): the counts
         the pairing's proof is made of (`CodeWordPairer`).
 
         `polled_at` is `now_us()` read just before the drain that produced `entries`. Every
@@ -635,7 +635,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py:1130-1170), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:1132-1172), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

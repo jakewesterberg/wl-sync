@@ -541,7 +541,16 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(case_nam
     fail, 3% of them, at the look and after popping, each handed to the pump as the drain
     hands it (`level_error`). Fix round 3 adds levels read as the box's shim reads them,
     from a saturating field and a status register read at instants of their own
-    (`_through_the_fifo`'s `answer`): the lemma is checked against the pushes there too."""
+    (`_through_the_fifo`'s `answer`): the lemma is checked against the pushes there too.
+
+    WHAT THOSE CASES GUARD, AND WHAT NOT. They guard that the shim's rule, however the
+    firmware orders its register reads, never hands the pairing a level that is not the
+    FIFO's count at some instant of the read: no wrong W, and the lemma held. They do NOT
+    pin the saturation reading itself. A rule that read 15 with `full` as 15 passes them
+    too, since a one-word under-read only at a full FIFO is too rare here to show. That
+    reading is pinned by the case table (tests/test_rp1_backend.py,
+    test_the_shim_reads_the_boxs_answers_and_refuses_what_cannot_be_exact) and by
+    test_the_depth_check_passes_on_a_level_field_that_saturates_as_the_boxs_does."""
     import random
 
     from wl_sync.rp1.pio_capture import WordPump

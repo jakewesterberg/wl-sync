@@ -54,7 +54,7 @@ class _FakeShim:
     `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
     each sync enable, where the PIO's count starts (`crystals`), the last one winning.
     `refuse_sync` makes every sync enable a refused one (C-7): it returns 0, as the shim
-    does when piolib discards the refusal (pio/wlsync_pio.c:248-258), and runs nothing.
+    does when piolib discards the refusal (pio/wlsync_pio.c:252-262), and runs nothing.
     `sync_errno` and `open_result` are what the shim itself can return.
 
     EVERY FIFO IS RP1'S: `fifo_depth`, 8, a way (pio_rp1.c:985 at utils b57c48e), joined, so
@@ -70,17 +70,17 @@ class _FakeShim:
     (pio/wlsync_pio.c, `wlsync_sm_rx_level`).
 
     THE STAMP MACHINE'S FIFO: `stamp_depth` words, joined as
-    the shim configures it (pio/wlsync_pio.c:233). A word pushed to it
+    the shim configures it (pio/wlsync_pio.c:237). A word pushed to it
     full is dropped, as `push noblock` drops it, and counted in `stamp_dropped`, and
     `wlsync_sm_rx_full` reads it full, as `pio_sm_is_rx_fifo_full` reads FSTAT
-    (pio/wlsync_pio.c:309). Until Task 1.15 it was unbounded (final review M11), so the
+    (pio/wlsync_pio.c:316). Until Task 1.15 it was unbounded (final review M11), so the
     fault that desynced the stream could not be built here. `between_words`, when set, is
     called between the two words of every pair pushed to it, which is where a drain must
     pop for a word to be left alone; `stamp_gate`, an Event, holds the stamp drain at its
     first call until it is set, as a pump the GIL keeps from running.
 
     SM 0'S FIFO TOO since Task 1.20: `word_depth` words, joined as the shim
-    configures it (pio/wlsync_pio.c:179), a word pushed to it full dropped and counted in
+    configures it (pio/wlsync_pio.c:183), a word pushed to it full dropped and counted in
     `word_dropped`, and `wlsync_sm_rx_full` reading it full as it reads SM 1's, or when
     `full` is set. `word_gate`, an Event, holds the word drain at its first call until it
     is set, and `word_held` is set once a drain waits there. Together they make the fault
@@ -655,7 +655,7 @@ def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
     """A disable that fails after a pass fails the test too: the block refused a call the
     production machines need, and the test machine may still be running. Since Task 1.16
     the test machine is enabled through the sync enable, whose one errno is the shim's
-    own (pio/wlsync_pio.c:252-258); this test enabled it through wlsync_sm_set_enabled
+    own (pio/wlsync_pio.c:256-262); this test enabled it through wlsync_sm_set_enabled
     until then."""
     if on:
         lib.sync_errno[0x4] = 19
@@ -1028,7 +1028,7 @@ def test_machines_that_cannot_be_enabled_in_sync_record_on_without_w_or_b(
     lib, gpiod, caplog
 ):
     """On one count, at capture's start. The shim returns an errno here only with no block
-    open (pio/wlsync_pio.c:252-258), which a backend that opened one does not reach; if
+    open (pio/wlsync_pio.c:256-262), which a backend that opened one does not reach; if
     it did, the process records on: E through the fit, extrapolated, and every B dropped
     as not stamped, with W reported by the health check."""
     from wl_sync.backend import STAMPS_NOT_STARTED, CaptureDegraded, FrameStamp
@@ -1148,7 +1148,7 @@ def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch)
 def test_a_shim_of_another_version_is_refused(monkeypatch):
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 1)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 4"):
+    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 5"):
         rp1._load_shim()
 
 
@@ -1157,7 +1157,7 @@ def test_a_version_2_shim_is_refused(monkeypatch):
     symbol, not with the rebuild instruction."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 4"):
+    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 5"):
         rp1._load_shim()
 
 
@@ -1168,19 +1168,30 @@ def test_a_version_3_shim_is_refused(monkeypatch):
     is refused with the rebuild."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 3.*needs 4.*build-shim"):
+    with pytest.raises(rp1.PiolibError, match=r"version 3.*needs 5.*build-shim"):
         rp1._load_shim()
 
 
-def test_a_version_4_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
+def test_a_version_4_shim_is_refused(monkeypatch):
+    """Version 4 read a full FIFO's level as RP1's saturated 15 (bench probe, wl-rig-sync0,
+    2026-11-20), so its box failed the depth check with a levels mismatch. Version 5 reads
+    it as 16 (Task 1.20 fix round 3), and a version 4 shim is refused, naming the rebuild
+    (Ruling R42)."""
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
+    with pytest.raises(rp1.PiolibError, match=r"version 4.*needs 5.*build-shim"):
+        rp1._load_shim()
+
+
+def test_a_version_5_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
     gpiod, monkeypatch, caplog
 ):
-    """A .so that reports version 4 but lacks an export, as one hand-built from another
+    """A .so that reports version 5 but lacks an export, as one hand-built from another
     tree might (Task 1.16's review, Minor 4; Ruling R37). ctypes raised AttributeError
     from `_declare`, which `_configure` did not catch, so the unit crash-looped. Now it is
     a shim that cannot be loaded: the process records split with no W, and the ERROR
     names the symbol and the rebuild."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 5)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
     with pytest.raises(rp1.PiolibError, match=r"wlsync_pio_open.*pio/build-shim\.sh"):
         rp1._load_shim()
@@ -1197,7 +1208,7 @@ def test_a_shim_of_the_current_version_is_accepted():
     """Coverage: pins the accepting side of the version check, which passed against the
     sources when it was added. Without it, a check that refused every shim, the current
     one included, would fail only on the box."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 5)
     assert rp1._check_shim_version(shim) is None
 
 
@@ -1278,12 +1289,18 @@ def test_the_shim_reads_the_boxs_answers_and_refuses_what_cannot_be_exact():
 
 def test_the_shim_uses_the_checked_answer():
     """The shim's level read goes through the header the test above runs, not a copy, and
-    hands it the ioctl's own result, which is 8 on the box, not 0."""
+    hands it the ioctl's own result, which is 8 on the box, not 0, and the errno taken
+    straight after the call into a local of its own, so the order the arguments are
+    evaluated in cannot change it (the re-review of fix round 3, Minor 4)."""
     text = _C_SOURCE.read_text()
     assert '#include "wlsync_fifo_state.h"' in text
-    assert "int result = ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args);" in text
-    assert ("wlsync_fifo_state_answer(result, errno, args.level, args.empty, args.full,"
-            in text)
+    call = text.index("int result = ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args);")
+    taken = text.index("int error = errno;", call)
+    used = text.index(
+        "wlsync_fifo_state_answer(result, error, args.level, args.empty, args.full, depth)",
+        taken,
+    )
+    assert call < taken < used
 
 
 def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature():

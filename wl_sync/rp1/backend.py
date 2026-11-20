@@ -254,12 +254,14 @@ def _load_shim() -> ctypes.CDLL:
 
 
 # Bump with WLSYNC_SHIM_VERSION in pio/wlsync_pio.c whenever an exported signature
-# changes: ctypes cannot see a signature, so a stale .so would be called with the wrong
-# arguments without a sound. 1 is the unversioned original; 2: `entry` added,
-# `wlsync_encode_jmp` removed; 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added;
-# 4: `wlsync_sm_rx_level` returns the level or a negative errno, and
-# `wlsync_rx_fifo_depth` added (Task 1.20, Ruling R40).
-_SHIM_VERSION = 4
+# changes, or what an export answers means something else: ctypes cannot see either, so a
+# stale .so would be called with the wrong arguments, or read wrongly, without a sound.
+# 1 is the unversioned original; 2: `entry` added, `wlsync_encode_jmp` removed;
+# 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added; 4: `wlsync_sm_rx_level`
+# returns the level or a negative errno, and `wlsync_rx_fifo_depth` added (Task 1.20,
+# Ruling R40); 5: `wlsync_sm_rx_level` reads a full FIFO as its depth, where version 4
+# read RP1's saturated 15 (Task 1.20 fix round 3, Ruling R42).
+_SHIM_VERSION = 5
 
 
 # How every refusal of the shim ends: the rebuild that fixes it.
@@ -542,7 +544,7 @@ class Rp1Backend:
         # capture starts (`start_strobed_capture`). main() builds the backend before run()
         # (wl_sync/cli.py:1915-1917), and run() names the timebase in the first header
         # (:565-575), so the start-up test's result reaches every segment. Configuring runs
-        # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:131, :194), and
+        # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:135, :198), and
         # a disabled machine pushes nothing, so no code word reaches a FIFO before a
         # segment exists.
         failure = self._configure(pio_index)
@@ -551,7 +553,7 @@ class Rp1Backend:
             # then this raised, nothing above caught it (wl_sync/cli.py:1914-1925), and
             # under Restart=always (deploy/wl-sync.service:30-31) the unit crash-looped.
             # With no capture machine there is no program for a stamp machine to run on
-            # (pio/wlsync_pio.c:209-210), so B is read in software and E counts MONO:
+            # (pio/wlsync_pio.c:213-214), so B is read in software and E counts MONO:
             # split, whose header stays true of a segment without W (wl_sync/log.py,
             # `timebase`). No field or record says W is missing; this ERROR and the health
             # check's episode do (`check_health`).
@@ -633,7 +635,7 @@ class Rp1Backend:
             raise
         if sm < 0:
             # Closed now: a failed start can leave the program loaded or a machine claimed
-            # (pio/wlsync_pio.c:158-167, :185-187), and this process runs no PIO again.
+            # (pio/wlsync_pio.c:162-171, :189-191), and this process runs no PIO again.
             lib.wlsync_pio_close()
             return f"the capture machine did not start (errno {-sm})"
         # The word pump's proof rests on the depth and on every level read (Ruling R40),
@@ -656,7 +658,7 @@ class Rp1Backend:
         start-up test; on a failure of either, split, with one ERROR."""
         lib = self._lib
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
-        # pio/wlsync_pio.c:216-218, :238-243) must not stop the capture machine, and
+        # pio/wlsync_pio.c:220-222, :242-247) must not stop the capture machine, and
         # raising here would: nothing above catches it (wl_sync/cli.py:1914-1925). The
         # process records split instead, with the errno in the ERROR below.
         stamps = lib.wlsync_start_stamp(
@@ -760,7 +762,7 @@ class Rp1Backend:
         WHAT IT WITNESSES. Under c-direct B rests on three things that hold or fail for a
         whole process: the stamp machine's start, which `__init__` checks; the PIO's sight
         of GPIO17 while libgpiod drives it; and the sync enable, which the shim cannot see
-        refused (pio/wlsync_pio.c:248-251). This tests the last two (Task 1.16, C-7): the
+        refused (pio/wlsync_pio.c:252-255). This tests the last two (Task 1.16, C-7): the
         test machine is enabled THROUGH THE SYNC ENABLE, alone in its mask, so a box that
         refuses that call stamps nothing at the rise, fails here, before the first
         segment, and records split, as the user ruled on 2026-11-20. What stays unseen is
@@ -777,11 +779,11 @@ class Rp1Backend:
         machine back at its entry without a new export. The test machine is
         `wlsync_start_stamp` again, on the loaded program, as the stamp machine is
         configured under c-direct: reading GPIO17, unclaimed, so GPIO17 stays libgpiod's
-        output (pio/wlsync_pio.c:200-202). So it reads GPIO17 whatever pin the stamp
+        output (pio/wlsync_pio.c:204-206). So it reads GPIO17 whatever pin the stamp
         machine reads, a spare one included. It is enabled alone, in a mask of its own,
         disabled on every path, and in no production mask or pump. It stays claimed and
         disabled until the block closes, since the shim exports no unclaim: of the block's
-        four machines (pio/wlsync_pio.c:196-198), capture, stamp and test, one is free.
+        four machines (pio/wlsync_pio.c:200-202), capture, stamp and test, one is free.
 
         ONE PIOLIB CALLER. No pump thread exists yet (`start_strobed_capture` starts it),
         so this thread reads the test machine's FIFO, as it opened the block.
@@ -804,7 +806,7 @@ class Rp1Backend:
         (STAMP_TEST_SYNC_REFUSED), an inference: a PIO that missed the first rise and saw
         the second reads the same. None, that the PIO does not see GPIO17 rise
         (STAMP_TEST_BLIND). That plain enable has the same blind spot
-        (pio/wlsync_pio.c:248-251), so a box that refuses both reads as blind: split
+        (pio/wlsync_pio.c:252-255), so a box that refuses both reads as blind: split
         either way. The quiet between the pulses is what a decoder needs after the first
         (STAMP_TEST_QUIET_S), and the second is rejected as the first is.
 
@@ -837,7 +839,7 @@ class Rp1Backend:
             else:
                 test = started
                 # Through the call the production machines are enabled by (C-7). Its only
-                # errno is the shim's own, with no block open (pio/wlsync_pio.c:252-258);
+                # errno is the shim's own, with no block open (pio/wlsync_pio.c:256-262);
                 # a refusal by piolib returns 0 and runs nothing.
                 _check(lib.wlsync_enable_in_sync(1 << test),
                        "enabling the test machine in sync")
@@ -890,7 +892,7 @@ class Rp1Backend:
         # Read while GPIO17 is still high, so a stamp of the fall is not taken for the
         # rise's. The rise's pair is in by now (STAMP_TEST_SETTLE_US). Its data word has
         # the capture window's lines, so pair_fifo's upper-half check holds
-        # (pio/wlsync_pio.c:228-230).
+        # (pio/wlsync_pio.c:232-234).
         time.sleep(STAMP_TEST_SETTLE_US / 1e6)
         level = _check(lib.wlsync_sm_rx_level(test), "reading the test FIFO's level")
         entries = [lib.wlsync_sm_get(test) for _ in range(level - level % 2)]
@@ -911,7 +913,7 @@ class Rp1Backend:
         fact 1), and a pump told MORE than the FIFO holds writes wrong code words
         (tests/test_pio_capture.py, the told-deeper test). piolib names a depth
         (pio_rp1.c:985 at utils b57c48e) and the shim joins the FIFOs
-        (pio/wlsync_pio.c:179, :233), but nothing showed the join takes, or that the level
+        (pio/wlsync_pio.c:183, :237), but nothing showed the join takes, or that the level
         can read the joined depth: a level that wrapped at 16 would read a full FIFO as
         empty, the low read the proof cannot survive. On the box it does not wrap but
         saturates: 15 for 15 and for 16 words, with `full` set at 16 (bench probe,
@@ -988,7 +990,7 @@ class Rp1Backend:
         W; check_health reports it on every call. That comes after the first header
         (wl_sync/cli.py:565-577, :584), so the mode is not changed: a split header is true
         of a segment without W. On one count the shim's one errno is -ENODEV, with no
-        block open (pio/wlsync_pio.c:252-258), which a backend that opened one does not
+        block open (pio/wlsync_pio.c:256-262), which a backend that opened one does not
         reach; if it came, no B could be stamped either, and E goes on through the fit,
         extrapolated (`_watch_fit`).
         """
@@ -1073,12 +1075,12 @@ class Rp1Backend:
         self._fit_anchor_raw_ns = self._origin_raw_ns
         mask = (1 << self._sm) | (1 << self._sm_stamps)
         # A REFUSAL OF THIS CALL ALONE IS NOT SEEN (C-7; Task 1.16). piolib discards the
-        # result (pio/wlsync_pio.c:248-251), and nothing here can watch the machines run
+        # result (pio/wlsync_pio.c:252-255), and nothing here can watch the machines run
         # without a strobe or a stamped edge. The start-up test enabled its machine through
         # this same call, before the first segment, so a box that refuses it is already
         # split (`_test_stamp_machine`). What is left is a refusal of this mask after that
-        # one was obeyed: it holds only machines the shim claimed (pio/wlsync_pio.c:165,
-        # :216), so a transient failure of RP1's firmware. W and B then go silent, every B
+        # one was obeyed: it holds only machines the shim claimed (pio/wlsync_pio.c:169,
+        # :220), so a transient failure of RP1's firmware. W and B then go silent, every B
         # is dropped with its ERROR, and the journal says E is extrapolated (`_watch_fit`).
         _check(self._lib.wlsync_enable_in_sync(mask), "enabling the state machines")
 
