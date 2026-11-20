@@ -69,36 +69,37 @@ status:
     counts under each timebase, where it is zero, and its limits
     (wl_sync/log.py:276-325). Task 1.19, one pass over the reviews' deferred
     minors (claims, citations, coverage tests, one journal message's final
-    period), is on one-clock-p1, not merged (1126 tests). Task 1.20 (the
-    user's ruling, 2026-11-20) is built on one-clock-p1, not merged (1138
-    tests): a desync of the code-word FIFO no longer stops event-code capture
+    period), and Task 1.20 (the user's ruling, 2026-11-20) are reviewed,
+    merged and pushed with main (1160 tests). Task 1.20: a desync of the code-word FIFO no longer stops event-code capture
     for the rest of the process. The word pump writes only the pairs the
     drain's own counts prove are one strobe's two words, drops and counts the
     rest in a desync L record, and goes on. Its review's fix round (Ruling
-    R40; 1158 tests) is on one-clock-p1 too: shim version 4 reads the FIFO
+    R40) made shim version 4, which reads the FIFO
     level so that a failure shows, which piolib's read hid as 0, and the RX
     FIFO's depth, 16 joined on RP1, is measured at start-up, a mismatch
     recording split with no W; note 8 to wl-preproc is queued, not yet
-    delivered. Fix round 2 (1160 tests): the shim takes any FIFO-state answer
-    but its own seed, so a mask-style empty flag no longer fails every read.
+    delivered. Fix round 2: the shim takes any FIFO-state answer but its own
+    seed, so a mask-style empty flag no longer fails every read.
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
-    answers (docs/pending-wl-preproc-amendments.md:425-427). Nothing since
-    2026-11-07 is deployed; a fit lost beyond the restart's reach still drops every B
+    answers (docs/pending-wl-preproc-amendments.md:425-427); note 8 is
+    queued. The box has 77a1f5a installed under --fake (2026-11-20), and runs
+    it from the user's next restart; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
     Bench day, in the order of docs/next-session.md:113-201:
     rebuild the shim (version 4); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
     task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
-    --fake also waits for bench B3a and B3b, on a harness not yet planned
+    --fake also waits for bench B3a and B3b, on a no-wire harness whose
+    design the user ruled on, 2026-11-20, and which is built next
     (docs/superpowers/plans/2026-11-07-one-clock.md:2004-2006). Once the unit
     runs the RP1 backend: run it 1 h, then restart it once, between sessions,
     so it applies a PIO rate (deploy/README.md). Before layout: the task PC
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "00dc1df"
+  describes: "8f68aad"
 
 runs_on: [rig/sync]
 builds_on: [dws]
