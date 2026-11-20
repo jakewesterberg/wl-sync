@@ -96,7 +96,15 @@ status:
     it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
     1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
     wl_sync/rp1/harness.py), is built on the one-clock-p1 branch, reviewed,
-    and its fix rounds made; not merged. Its box run began 2026-11-20: step 1 found /dev/gpiomem0 must be mapped whole (0x30000), step 2 that writer highs need each posted store read back to last their hold, and its rerun that no CPU bound can prove a high short (one RP1 read is 5.1 us). The user ruled for a harness-only PIO width meter (2026-11-20), now built: shim version 6, 1347 tests. The box needs the v6 shim rebuilt in the spike's lib before the probe reruns. B3b's
+    and box-checked; not yet merged or pushed. Its box run (2026-11-20/21) needed
+    fixes along the way: /dev/gpiomem0 mapped whole (0x30000), each posted
+    store read back, and, by the user's ruling, a harness-only PIO width meter
+    (shim version 6) to say which path each high took. Then, on wl-rig-sync0 at
+    ab98afd with nothing wired, beside the --fake service: B3a PASSED (three
+    stamp machines on one sync enable, every pair 0 ticks apart on 100,000 of
+    100,000 edges, and on 20 of 20 fresh starts) and B3b PASSED (1 h, A - B
+    0.0000 ppm with 1 sigma 0.00008 ppm; held 183,989 and short exit 176,846
+    of A's fitted events by the meter; nothing missed or dropped). B3b's
     short highs come from a register writer that sets and clears one spare
     pin's GPIOn_CTRL.OUTOVER through /dev/gpiomem0, confined to the harness;
     bench override reads that override after a run and clears one left set,
@@ -114,16 +122,16 @@ status:
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
     task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
-    --fake also waits for bench B3a and B3b, whose no-wire harness is built
-    and reviewed (Task 1.21) and runs next on the box over ssh, probe, B3a,
-    then B3b, then the override post-check, each with the user's go-ahead
-    (docs/superpowers/plans/2026-11-07-one-clock.md:2007-2010). Once the unit
+    --fake no longer waits for bench B3a and B3b, which passed on the box
+    2026-11-20/21 (docs/superpowers/plans/2026-11-07-one-clock.md:2057,
+    :2066); it waits for the +-100 us gate (:2104-2105), which needs a strobe
+    source, and for the shim v6 rebuild in the deploy. Once the unit
     runs the RP1 backend: run it 1 h, then restart it once, between sessions,
     so it applies a PIO rate (deploy/README.md). Before layout: the task PC
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "20f798e"
+  describes: "b8795c8"
 
 runs_on: [rig/sync]
 builds_on: [dws]
