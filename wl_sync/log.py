@@ -188,10 +188,10 @@ class SyncBoxLogHeader(BaseModel):
     edge.
 
     EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
-    that frame, after its tick is read (wl_sync/rp1/backend.py:1217-1218, :1236-1241).
+    that frame, after its tick is read (wl_sync/rp1/backend.py:1362-1363, :1381-1386).
     Its lead edge then rises later by however long the request takes, which nothing
     measures. A process whose stamp machine started has normally taken the line already,
-    for its start-up test (:654-661); one whose stamp machine did not start has not.
+    for its start-up test (:757-764); one whose stamp machine did not start has not.
     The loopback reports a segment's first frame as not checkable, so its median never
     includes this one.
 
@@ -221,9 +221,16 @@ class SyncBoxLogHeader(BaseModel):
         The rate is unmeasured; at 50 ppm it is 0.18 s an hour. Every segment the RP1
         backend wrote before this field existed was "split". Since the one-clock build
         it is also written by a process whose stamp machine failed its start-up test: it
-        did not start, or it did not see GPIO17 rise. The start's journal ERROR names
-        which, and the process records split until a restart passes the test
-        (wl_sync/rp1/backend.py:541-559).
+        did not start, it did not see GPIO17 rise, or the sync enable was refused (since
+        Task 1.16). The start's journal ERROR names which, and the process records split
+        until a restart passes the test (wl_sync/rp1/backend.py:622-635). SINCE TASK 1.16
+        A SPLIT SEGMENT CAN HAVE NO `W` RECORDS BECAUSE NO CODE WORD COULD BE CAPTURED:
+        the capture machine could not be configured or enabled, or the PIO could not be
+        reached at all. The box records `B` and `E` anyway, and nothing in the segment
+        says `W` is missing: its absence reads as a task that sent no codes. The journal
+        says it, in one ERROR at start and a "capture degraded" episode
+        (wl_sync/rp1/backend.py:516-534; the user's ruling of 2026-11-20, "split, journal
+        only").
       * "fake": the test backend (`wl_sync.backend.FakeBackend`), which the box's unit
         runs until bench acceptance (`--fake`). No hardware clock is involved, and no
         capture path delivers anything real.
@@ -287,8 +294,8 @@ class BarcodeEmitted:
     `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
     (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
     stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
-    ended (wl_sync/rp1/backend.py:1281, :1377). In a split process, and before the
-    build, it is the clock sampled BEFORE the frame is emitted (:1173-1176): reading it
+    ended (wl_sync/rp1/backend.py:1426, :1522). In a split process, and before the
+    build, it is the clock sampled BEFORE the frame is emitted (:1362-1365): reading it
     after emission would put this box's own alignment record 200 ms behind every device
     it is aligning.
 

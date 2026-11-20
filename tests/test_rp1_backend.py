@@ -51,7 +51,10 @@ class _FakeShim:
 
     `enabled` is the set of machines running, and `enables` every (sm, on) that
     `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
-    the sync enable, where the PIO's count starts (`crystals`).
+    each sync enable, where the PIO's count starts (`crystals`), the last one winning.
+    `refuse_sync` makes every sync enable a refused one (C-7): it returns 0, as the shim
+    does when piolib discards the refusal (pio/wlsync_pio.c:207-217), and runs nothing.
+    `sync_errno` and `open_result` are what the shim itself can return.
 
     THE STAMP MACHINE'S FIFO IS RP1'S: `stamp_depth` words, 8, both 4-deep FIFOs joined as
     the shim configures it (pio/wlsync_pio.c:192; `rp1._RX_FIFO_WORDS`). A word pushed to it
@@ -100,6 +103,11 @@ class _FakeShim:
         self.enabled: set[int] = set()
         self.enables: list[tuple[int, bool]] = []
         self.on_sync = None
+        self.refuse_sync = False
+        # `wlsync_enable_in_sync(mask)` returns this errno, negated, for mask.
+        self.sync_errno: dict[int, int] = {}
+        # What `wlsync_pio_open` returns: 0, or a negative errno.
+        self.open_result = 0
         # `wlsync_sm_set_enabled(sm, on)` returns this errno, negated, for (sm, on).
         self.set_enabled_errno: dict[tuple[int, bool], int] = {}
         self.disabled: list[int] = []
@@ -114,9 +122,9 @@ class _FakeShim:
         return object.__getattribute__(self, name)
 
     def wlsync_pio_open(self, index):
-        self.opened = True
+        self.opened = self.open_result >= 0
         self.log.append("open")
-        return 0
+        return self.open_result
 
     def wlsync_pio_close(self):
         self.log.append("close")
@@ -179,6 +187,11 @@ class _FakeShim:
 
     def wlsync_enable_in_sync(self, mask):
         self.log.append(f"sync={mask:#x}")
+        errno = self.sync_errno.get(mask)
+        if errno is not None:
+            return -errno
+        if self.refuse_sync:
+            return 0
         for sm in range(4):
             if mask >> sm & 1:
                 self.enabled.add(sm)
@@ -315,7 +328,9 @@ def test_both_machines_are_configured_at_construction_and_enabled_together_at_ca
 ):
     """Configured before the first segment, so the start-up test's verdict reaches its
     header, and enabled in sync once capture starts, so W and B count one P. The test
-    machine runs alone at construction and is not in the mask."""
+    machine runs alone at construction, enabled in a sync mask of its own since Task 1.16
+    (this test asserted no sync enable before capture until then), and is not in the
+    production mask."""
     real = rp1.time.clock_gettime_ns
     names = {time.CLOCK_MONOTONIC: "origin", time.CLOCK_MONOTONIC_RAW: "raw"}
     capturing = threading.Event()
@@ -336,7 +351,7 @@ def test_both_machines_are_configured_at_construction_and_enabled_together_at_ca
         ]
         assert [s["jmp_pin"] for s in lib.stamp_starts] == [17, 17]
         assert not {0, 1} & {sm for sm, on in lib.enables if on}
-        assert "sync=" not in " ".join(lib.log)
+        assert [e for e in lib.log if e.startswith("sync=")] == ["sync=0x4"]
 
         capturing.set()
         backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
@@ -405,6 +420,13 @@ _SPLIT_ERROR = (
 )
 
 
+# Both pulses unstamped: the PIO does not see GPIO17 rise (Task 1.16). The text is the
+# journal's, so it is spelled out here.
+_BLIND = (
+    "no stamp when GPIO17 rose, enabled in sync or alone: the PIO does not see GPIO17 rise"
+)
+
+
 def _errors(caplog):
     import logging
 
@@ -459,9 +481,9 @@ def test_a_stamp_machine_blind_to_gpio17_puts_the_process_on_the_split_clock_wit
     with caplog.at_level(logging.INFO, logger=rp1.log.name):
         backend = Rp1Backend()
     try:
-        assert backend.stamp_test_failure == "no stamp when GPIO17 rose"
+        assert backend.stamp_test_failure == _BLIND
         assert _is_split(backend)
-        assert _errors(caplog) == [_SPLIT_ERROR.format("no stamp when GPIO17 rose")]
+        assert _errors(caplog) == [_SPLIT_ERROR.format(_BLIND)]
         enables, synced = _capture_enables(lib, backend)
         assert enables == [(0, True)] and not synced
     finally:
@@ -537,12 +559,20 @@ def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
     lib, caplog, on
 ):
     """A disable that fails after a pass fails the test too: the block refused a call the
-    production machines need, and the test machine may still be running."""
-    lib.set_enabled_errno[(2, on)] = 5
+    production machines need, and the test machine may still be running. Since Task 1.16
+    the test machine is enabled through the sync enable, whose one errno is the shim's
+    own (pio/wlsync_pio.c:211-217); this test enabled it through wlsync_sm_set_enabled
+    until then."""
+    if on:
+        lib.sync_errno[0x4] = 19
+    else:
+        lib.set_enabled_errno[(2, False)] = 5
     backend = Rp1Backend()
     try:
-        what = "enabling" if on else "disabling"
-        reason = f"the test could not run ({what} the test machine failed: errno 5)"
+        what = "enabling the test machine in sync failed: errno 19" if on else (
+            "disabling the test machine failed: errno 5"
+        )
+        reason = f"the test could not run ({what})"
         assert backend.stamp_test_failure == reason
         assert _is_split(backend)
         assert lib.enables[-1] == (2, False), "the test machine was not disabled"
@@ -681,7 +711,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         gpiod.request_lines = request_inverted
     backend = Rp1Backend()
     try:
-        assert backend.stamp_test_failure == "no stamp when GPIO17 rose"
+        assert backend.stamp_test_failure == _BLIND
         assert _is_split(backend)
     finally:
         backend.close()
@@ -694,22 +724,23 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
 def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch):
     """Coverage: both settles of the start-up test (Task 1.10a's re-review). The discard
     comes a settle after the enable and before the rise, and the read a settle after the
-    rise; without this, removing either settle passed every other test."""
+    rise; without this, removing either settle passed every other test. The enable is
+    the sync enable's since Task 1.16 (wlsync_sm_set_enabled's until then)."""
     monkeypatch.setattr(rp1, "time", gpiod.clock)
     at = {}
-    enable, level = lib.wlsync_sm_set_enabled, lib.wlsync_sm_rx_level
+    enable, level = lib.wlsync_enable_in_sync, lib.wlsync_sm_rx_level
 
-    def set_enabled(sm, on):
-        if sm == 2 and on:
+    def enable_in_sync(mask):
+        if mask == 1 << 2:
             at["enabled"] = gpiod.clock.ns
-        return enable(sm, on)
+        return enable(mask)
 
     def rx_level(sm):
         if sm == 2:
             at.setdefault("reads", []).append(gpiod.clock.ns)
         return level(sm)
 
-    lib.wlsync_sm_set_enabled, lib.wlsync_sm_rx_level = set_enabled, rx_level
+    lib.wlsync_enable_in_sync, lib.wlsync_sm_rx_level = enable_in_sync, rx_level
     Rp1Backend().close()
     (rise_ns, _), _ = gpiod.sets
     discard, read = at["reads"]
@@ -718,24 +749,240 @@ def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch
     assert discard < rise_ns and read - rise_ns >= settle_ns
 
 
-@pytest.mark.parametrize("fault", ["encoders", "clk_sys", "capture"])
-def test_a_machine_that_cannot_be_configured_closes_the_block_before_raising(
-    lib, fault, monkeypatch
-):
+@pytest.mark.parametrize("fault", ["encoders", "clk_sys"])
+def test_a_block_that_cannot_be_trusted_closes_before_raising(lib, fault, monkeypatch):
     """The shim's open overwrites the block it holds without closing it
-    (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try."""
+    (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try. These
+    two still raise (Task 1.16, the user's ruling on its Q3): an encoding that disagrees
+    would put wrong ticks in every W, and an impossible clk_sys would scale every tick by
+    it. A capture machine that cannot be configured no longer raises: see below."""
     if fault == "encoders":
         def disagree(_lib):
             raise rp1.PiolibError("an encoder disagrees")
 
         monkeypatch.setattr(rp1, "_assert_encoders_agree", disagree)
-    elif fault == "clk_sys":
-        lib.clk_sys_hz = 0xFFFF_FFFF
     else:
-        lib.start_result = -16
+        lib.clk_sys_hz = 0xFFFF_FFFF
     with pytest.raises(rp1.PiolibError):
         Rp1Backend()
     assert lib.log.count("open") == 1 and lib.log[-1] == "close"
+
+
+# --- A capture machine that cannot run records anyway (Task 1.16) ------------------------
+#
+# The user's rulings of 2026-11-20: a process whose capture machine cannot be configured,
+# whose shim cannot be loaded, or whose PIO block cannot be opened records split with no W
+# records, says so in one ERROR, and the health check holds a "capture degraded" episode.
+# A capture machine that cannot be enabled at capture's start records on without W.
+
+_NO_CAPTURE_ERROR = (
+    "event-code capture cannot run ({}): this process records timebase split with no W "
+    "records, and B and E on CLOCK_MONOTONIC, until a restart starts the capture machine"
+)
+_NO_CAPTURE_HEALTH = (
+    "event-code capture did not start ({}): no code word is recorded in this process"
+)
+
+
+def _records_without_w(backend, gpiod, reason):
+    """Capture starts with no word thread, the health check reports W on every call, and
+    B (in software, split's) and E still record."""
+    from wl_sync.backend import CaptureDegraded, FrameStamp
+    from wl_sync.barcode import encode
+
+    words = []
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: words.append(word))
+    assert backend._word_thread is None
+    assert backend.delivered_through() == {}
+    for _ in range(2):  # every call: a path that never started never comes back
+        with pytest.raises(CaptureDegraded) as raised:
+            backend.check_health()
+        assert raised.value.kinds == {"event-code capture: did not start"}
+        assert str(raised.value) == _NO_CAPTURE_HEALTH.format(reason)
+    edges = []
+    backend.start_edge_capture([20], lambda gpio, level, tick: edges.append(tick))
+    stamp = backend.emit_pulses(17, encode(1000))
+    assert isinstance(stamp, FrameStamp) and stamp.tick is not None
+    assert any(level == 1 for _, level in gpiod.sets)
+    assert words == []
+
+
+def test_a_capture_machine_that_cannot_be_configured_records_split_without_w(
+    lib, gpiod, caplog
+):
+    """It raised from the constructor until Task 1.16 (the test that pinned that,
+    test_a_capture_that_cannot_start_raises_rather_than_recording_nothing, is gone), and
+    under Restart=always the unit crash-looped. Now nothing PIO runs: the block is closed
+    at once, no stamp or test machine is started, and the process records split."""
+    lib.start_result = -16  # -EBUSY: no free state machine
+    backend = Rp1Backend()
+    try:
+        reason = "the capture machine did not start (errno 16)"
+        assert _is_split(backend)
+        assert backend.stamp_test_failure == reason  # so bench stamps refuses it
+        assert _errors(caplog) == [_NO_CAPTURE_ERROR.format(reason)]
+        assert "start_stamp" not in lib.log
+        assert lib.log[lib.log.index("start_capture") + 1] == "close"
+        assert lib.enables == [] and gpiod.sets == []  # no test pulse: nothing to test
+        _records_without_w(backend, gpiod, reason)
+        assert lib.enables == []
+    finally:
+        backend.close()
+    assert _errors(caplog) == [_NO_CAPTURE_ERROR.format(reason)]
+
+
+@pytest.mark.parametrize("fault", ["missing", "version"])
+def test_a_shim_that_cannot_be_loaded_records_split_without_w(
+    lib, gpiod, caplog, monkeypatch, fault
+):
+    """The user's ruling on Task 1.16's Q3: no PIO at all is a capture machine that cannot
+    run. The reason is the load's own message, which names the rebuild."""
+    message = {
+        "missing": "libwlsync_pio not found (no such file)",
+        "version": "libwlsync_pio is version 2, and this wl-sync needs 3",
+    }[fault]
+
+    def unloadable():
+        raise rp1.PiolibError(message)
+
+    monkeypatch.setattr(rp1, "_load_shim", unloadable)
+    backend = Rp1Backend()
+    try:
+        assert _is_split(backend)
+        assert _errors(caplog) == [_NO_CAPTURE_ERROR.format(message)]
+        _records_without_w(backend, gpiod, message)
+    finally:
+        backend.close()  # with no library, close calls none
+    assert lib.log == []
+
+
+def test_a_pio_block_that_cannot_be_opened_records_split_without_w(lib, gpiod, caplog):
+    lib.open_result = -2  # -ENOENT: no /dev/pio0
+    backend = Rp1Backend()
+    try:
+        reason = "opening PIO block 0 failed: errno 2"
+        assert _is_split(backend)
+        assert _errors(caplog) == [_NO_CAPTURE_ERROR.format(reason)]
+        assert lib.log == ["open"]
+        _records_without_w(backend, gpiod, reason)
+    finally:
+        backend.close()
+
+
+def test_a_capture_machine_that_cannot_be_enabled_records_on_without_w(
+    lib, gpiod, caplog
+):
+    """In a split process, at capture's start, after the first header: "split" stays true
+    of a segment with no W records, so the process records on (Task 1.16)."""
+    lib.stamp_result = -16  # split, as a failed start-up test leaves it
+    lib.set_enabled_errno[(0, True)] = 5
+    backend = Rp1Backend()
+    try:
+        reason = "enabling the state machine failed: errno 5"
+        before = _errors(caplog)
+        _records_without_w(backend, gpiod, reason)
+        assert _errors(caplog)[len(before):] == [(
+            f"event-code capture could not start ({reason}): this process records no W "
+            "records, and B and E go on, on CLOCK_MONOTONIC, until a restart starts the "
+            "capture machine"
+        )]
+    finally:
+        backend.close()
+
+
+def test_machines_that_cannot_be_enabled_in_sync_record_on_without_w_or_b(
+    lib, gpiod, caplog
+):
+    """On one count, at capture's start. The shim returns an errno here only with no block
+    open (pio/wlsync_pio.c:211-217), which a backend that opened one does not reach; if
+    it did, the process records on: E through the fit, extrapolated, and every B dropped
+    as not stamped, with W reported by the health check."""
+    from wl_sync.backend import STAMPS_NOT_STARTED, CaptureDegraded, FrameStamp
+    from wl_sync.barcode import encode
+
+    lib.sync_errno[0x3] = 19
+    backend = Rp1Backend()
+    try:
+        assert backend.timebase == "rp1-pio"
+        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+        reason = "enabling the state machines failed: errno 19"
+        assert _errors(caplog) == [(
+            f"the capture and stamp machines could not start ({reason}): this process "
+            "records no W and no B records, and E goes on, extrapolated from the sync "
+            "enable, until a restart starts them"
+        )]
+        assert backend._word_thread is None
+        with pytest.raises(CaptureDegraded) as raised:
+            backend.check_health()
+        assert str(raised.value) == _NO_CAPTURE_HEALTH.format(reason)
+        backend.start_edge_capture([20], lambda gpio, level, tick: None)
+        assert backend.emit_pulses(17, encode(1000)) == FrameStamp(None, STAMPS_NOT_STARTED)
+    finally:
+        backend.close()
+
+
+# --- A refused sync enable fails the start-up test (Task 1.16, C-7) ----------------------
+
+def test_the_test_machine_is_enabled_through_the_sync_enable(lib):
+    """The call the production machines are enabled by, alone in its mask, so a box that
+    refuses it fails the test before the first segment."""
+    backend = Rp1Backend()
+    try:
+        assert backend.stamp_test_failure == ""
+        assert [e for e in lib.log if e.startswith(("sync=", "enabled="))] == [
+            "sync=0x4", "enabled=False",
+        ]
+    finally:
+        backend.close()
+
+
+def test_a_refused_sync_enable_puts_the_process_on_the_split_clock(lib, gpiod, caplog):
+    """The second pulse, with the plain enable, is stamped, so the ERROR names the sync
+    enable rather than the PIO's sight of GPIO17."""
+    lib.refuse_sync = True
+    backend = Rp1Backend()
+    try:
+        reason = (
+            "the sync enable was refused: the test machine stamped GPIO17's rise only "
+            "when enabled alone"
+        )
+        assert backend.stamp_test_failure == reason
+        assert _is_split(backend)
+        assert _errors(caplog) == [_SPLIT_ERROR.format(reason)]
+        assert [level for _, level in gpiod.sets] == [1, 0, 1, 0]
+        enables, synced = _capture_enables(lib, backend)
+        assert enables == [(0, True)] and not synced
+    finally:
+        backend.close()
+
+
+def test_the_two_test_pulses_are_rejected_and_the_first_frame_follows(
+    lib, gpiod, monkeypatch
+):
+    """On the failure path the second pulse comes STAMP_TEST_QUIET_S after the first: each
+    is a 1 ms pulse after more than IDLE_MIN_US of LOW, which no decoder takes for a
+    frame, and the first frame still decodes after the second."""
+    from wl_sync.barcode import IDLE_MIN_US, decode_edges, encode
+
+    monkeypatch.setattr(rp1, "STAMP_TEST_QUIET_S", _QUIET_ON_THE_BOX_S)
+    monkeypatch.setattr(rp1, "time", gpiod.clock)
+    lib.refuse_sync = True
+    backend = Rp1Backend()
+    try:
+        backend.emit_pulses(17, encode(1000))
+        gpiod.clock.sleep(0.8)
+        backend.emit_pulses(17, encode(1001))  # so the decoder sees the first one end
+    finally:
+        backend.close()
+    edges = []
+    for ns, level in gpiod.sets:
+        if not edges or edges[-1][1] != level:
+            edges.append((ns // 1000, level))
+    (rise1, _), (fall1, _), (rise2, _), (fall2, _), (lead, _) = edges[:5]
+    assert rise2 - fall1 > IDLE_MIN_US and lead - fall2 > IDLE_MIN_US
+    assert fall1 - rise1 < 2_500 and fall2 - rise2 < 2_500
+    barcodes = decode_edges(edges, start_us=rise1 - IDLE_MIN_US)
+    assert [(b.value, b.start_us) for b in barcodes][0] == (1000, lead)
 
 
 def test_a_frame_before_capture_starts_is_dropped_as_not_started(lib, gpiod, monkeypatch):
@@ -1395,14 +1642,6 @@ def test_a_system_clock_that_cannot_be_real_is_refused(lib):
     with pytest.raises(rp1.PiolibError, match="clk_sys"):
         Rp1Backend()
     assert "start_capture" not in lib.log
-
-
-def test_a_capture_that_cannot_start_raises_rather_than_recording_nothing(lib):
-    """At construction, before run() makes a segment (Task 1.10a)."""
-    lib.start_result = -16  # -EBUSY: no free state machine
-    with pytest.raises(rp1.PiolibError, match="errno 16"):
-        Rp1Backend()
-    assert "start_stamp" not in lib.log
 
 
 def test_the_recorders_clock_is_not_read_before_the_origin_moves(lib, gpiod, monkeypatch):
@@ -2952,8 +3191,10 @@ def test_the_rp1_backend_stamps_the_edge_itself_so_its_delay_is_zero(lib):
 
 def test_a_split_process_runs_the_capture_machine_alone_as_today(lib, monkeypatch):
     """Today's start, kept: the origin, then the capture machine enabled by itself. The
-    stamp machine, configured at construction, is never enabled, nothing is sync-enabled,
-    and no stamp pump or fit is made."""
+    stamp machine, configured at construction, is never enabled, nothing is sync-enabled
+    but the start-up test's machine, alone (Task 1.16, which until then was enabled the
+    plain way, so this test saw no sync enable at all), and no stamp pump or fit is
+    made."""
     real = rp1.time.clock_gettime_ns
     names = {time.CLOCK_MONOTONIC: "origin", time.CLOCK_MONOTONIC_RAW: "raw"}
     capturing = threading.Event()
@@ -2975,7 +3216,7 @@ def test_a_split_process_runs_the_capture_machine_alone_as_today(lib, monkeypatc
                    or e in names.values()]
         assert started == ["origin", "enabled=True"]
         assert lib.enables[enables:] == [(0, True)]
-        assert not any(e.startswith("sync=") for e in lib.log)
+        assert [e for e in lib.log if e.startswith("sync=")] == ["sync=0x4"]
         assert backend._stamp_pump is None and backend._fit is None
     finally:
         backend.close()
@@ -4031,3 +4272,98 @@ def test_run_on_the_rp1_backend_writes_b_at_the_lead_stamp_scaled_once(
     assert [b.tick_us for b in barcodes] == [scaled(gpiod.leads[k]) for k in range(1, 6)]
     words = [r for r in records if isinstance(r, CodeWord)]
     assert [(w.tick_us, w.word) for w in words] == [(scaled(word_p[0]), 7)]
+
+
+def _run_for_five_frames(tmp_path, backend, monkeypatch, tick=None):
+    """cli.run on `backend` for 5 s of a wall clock that steps a second a read."""
+    import datetime
+
+    from wl_sync import cli
+
+    utc = datetime.timezone.utc
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda timeout_s=5: True)
+    monkeypatch.setattr(cli, "probe_board_serial", lambda: "0123456789abcdef")
+    wall = {"n": 0}
+
+    def now_fn():
+        wall["n"] += 1
+        return datetime.datetime(2026, 11, 20, 9, 0, tzinfo=utc) + datetime.timedelta(
+            seconds=wall["n"] - 1
+        )
+
+    folder = cli.run(out=tmp_path, backend=backend, now_fn=now_fn, duration_s=5,
+                     tick_fn=tick or (lambda seconds: None))
+    return sorted(folder.glob("seg-*.log"))
+
+
+def _journal_errors(caplog):
+    import logging
+
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize("where", ["configure", "start"])
+def test_run_records_anyway_when_the_capture_machine_cannot_run(
+    tmp_path, lib, gpiod, caplog, monkeypatch, where
+):
+    """Task 1.16's "record anyway", through cli.run. A capture machine that cannot be
+    configured (at construction, before the first header) or enabled (at capture's
+    start, in a split process, after it) gives one ERROR at start and one "capture
+    degraded" episode, and the run records B and E without W. Every segment's header
+    says "split", with no barcode delay: B is read in software."""
+    from wl_sync.log import BarcodeEmitted, CodeWord, read_log
+
+    if where == "configure":
+        lib.start_result = -16
+        reason = "the capture machine did not start (errno 16)"
+        start_error = _NO_CAPTURE_ERROR.format(reason)
+    else:
+        lib.stamp_result = -16
+        lib.set_enabled_errno[(0, True)] = 5
+        reason = "enabling the state machine failed: errno 5"
+        start_error = (
+            f"event-code capture could not start ({reason}): this process records no W "
+            "records, and B and E go on, on CLOCK_MONOTONIC, until a restart starts the "
+            "capture machine"
+        )
+    backend = Rp1Backend()
+    lib.push(stream((10, 7)))  # a strobe no machine captures
+    segments = _run_for_five_frames(tmp_path, backend, monkeypatch)
+    header, records = read_log(segments[0])
+    assert (header.timebase, header.barcode_delay_us) == ("split", None)
+    assert len([r for r in records if isinstance(r, BarcodeEmitted)]) == 5
+    assert not [r for r in records if isinstance(r, CodeWord)]
+    errors = _journal_errors(caplog)
+    if where == "start":
+        errors = errors[1:]  # the start-up test's, which made the process split
+    assert errors == [
+        start_error,
+        "capture degraded, still recording: " + _NO_CAPTURE_HEALTH.format(reason),
+    ]
+
+
+def test_run_on_a_box_that_refuses_the_sync_enable_records_split(
+    tmp_path, lib, gpiod, caplog, monkeypatch
+):
+    """Task 1.16, C-7, through cli.run: one ERROR, a split process, and W, B and E all
+    recorded, W by the capture machine enabled alone."""
+    from wl_sync.log import BarcodeEmitted, CodeWord, read_log
+
+    lib.refuse_sync = True
+    backend = Rp1Backend()
+    pushed = []
+
+    def tick(seconds):
+        if not pushed and gpiod.sets:
+            pushed.append(True)
+            lib.push(stream((10, 7)))
+
+    segments = _run_for_five_frames(tmp_path, backend, monkeypatch, tick)
+    header, records = read_log(segments[0])
+    assert (header.timebase, header.barcode_delay_us) == ("split", None)
+    assert len([r for r in records if isinstance(r, BarcodeEmitted)]) == 5
+    assert [r.word for r in records if isinstance(r, CodeWord)] == [7]
+    assert _journal_errors(caplog) == [_SPLIT_ERROR.format(
+        "the sync enable was refused: the test machine stamped GPIO17's rise only when "
+        "enabled alone"
+    )]

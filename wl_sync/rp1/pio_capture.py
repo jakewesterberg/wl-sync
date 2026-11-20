@@ -302,7 +302,7 @@ class StampPump:
     in it is a missed stamp, whose frame is dropped as an unstamped lead is.
     It is held as WordPump holds its desync, so check_health reports it, an ERROR once per
     desync (wl_sync/cli.py:1251-1270). No L record: stamps are not written, and the L
-    format's paths are W and E (wl_sync/log.py:362-363).
+    format's paths are W and E (wl_sync/log.py:369-370).
 
     THE PUMP STOPS only when the drain itself fails (`stop`): `stopped` turns True.
 
@@ -357,7 +357,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py:855-886), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:992-1023), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

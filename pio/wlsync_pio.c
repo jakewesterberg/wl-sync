@@ -206,8 +206,8 @@ int wlsync_start_stamp(unsigned wrap_target, unsigned wrap, unsigned entry,
 
 /* Enable every state machine in `mask` on one sync, so both counters start on the same
  * clock edge. It CANNOT report a refused enable: piolib sends PIO_IOC_SM_ENABLE_SYNC and
- * discards the result (pio_rp1.c:514-520 at utils b57c48e). Today's
- * wlsync_sm_set_enabled has the same blind spot; bench S.3b is the check. */
+ * discards the result (pio_rp1.c:514-520 at utils b57c48e), as wlsync_sm_set_enabled's
+ * does. The start-up test enables through it (backend.py, _test_stamp_machine). */
 int wlsync_enable_in_sync(unsigned mask)
 {
     if (g_pio == NULL)

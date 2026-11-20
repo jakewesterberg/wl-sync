@@ -277,7 +277,7 @@ def test_a_rate_beyond_200_ppm_is_refused_and_200_is_not(tmp_path):
 
 
 def test_a_p_per_raw_ratio_beyond_1000_ppm_is_refused_and_1000_is_not(tmp_path):
-    """Final review M3. The ratio seeds the RAW->P fit (wl_sync/rp1/backend.py:1557), so
+    """Final review M3. The ratio seeds the RAW->P fit (wl_sync/rp1/backend.py:1702), so
     one that parses but is wrong maps E wrongly: at -10^9 ppb or below the slope is 0 or
     less, every E lands at about P 0 and every B is dropped. It is bounded as the rate is,
     and refused with its own reason."""

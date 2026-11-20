@@ -439,12 +439,12 @@ added `"barcode_loop": 19`; the build does not, because nothing is wired to GPIO
 
    Under both, "one clock" (`process_uuid`, note 4) is one origin, one wrap count and one rate:
    code words no longer drift from barcodes and edges. The definitions are the `timebase`
-   docstring in wl-sync's `wl_sync/log.py:201-236`.
+   docstring in wl-sync's `wl_sync/log.py:201-243`.
 2. **A dropped `B` can widen the value step at a roll in place to 3.** Note 4 asked you to
    treat +1 or +2 across a roll in place as adjacent.
    - On one count, a frame whose lead edge was not stamped has no `B` record. Every device
      recorded the frame, and its value was spent. No `L` record marks it: an `L` record's path
-     is `W` or `E`. The box's journal ERROR is the only witness (`wl_sync/log.py:295-300`).
+     is `W` or `E`. The box's journal ERROR is the only witness (`wl_sync/log.py:302-307`).
    - The box protects the frame before the roll: the roll in place waits for a frame whose `B`
      was kept. It cannot protect the frames after it. So one `B` dropped just after a roll
      whose grid skipped one value makes the step 3, and each further drop widens it by one
@@ -458,11 +458,15 @@ added `"barcode_loop": 19`; the build does not, because nothing is wired to GPIO
    the spec's `:620`).
 
 **`"split"` is still written, with the meaning note 4 gave it.** A process whose stamp machine
-fails its start-up test records `"split"`: the stamp machine did not start, or it did not see
-GPIO17 rise. Its segments are as split segments were before the build. Its barcodes are timed
+fails its start-up test records `"split"`: the stamp machine did not start, it did not see
+GPIO17 rise, or the box refused the sync enable (since 2026-11-20). Its segments are as split
+segments were before the build. Its barcodes are timed
 in software, its `barcode_delay_us` is the flag's or `null`, and its first `B` can be late as
-note 4 says (`wl_sync/log.py:178-196`, `:217-226`). Read it as you read `"split"` today. The
+note 4 says (`wl_sync/log.py:178-196`, `:217-233`). Read it as you read `"split"` today. The
 process says so once in the journal, and records split until a restart passes the test.
+Since 2026-11-20 a `"split"` segment can also have no `W` records because no code word could be
+captured (its capture machine could not run); nothing in the segment says so, only the journal
+(`wl_sync/log.py:217-233`).
 
 The definitions are the `process_uuid`, `barcode_delay_us` and `timebase` docstrings, and the
 `BarcodeEmitted` docstring, in wl-sync's `wl_sync/log.py`.
