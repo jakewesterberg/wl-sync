@@ -1054,6 +1054,8 @@ gpio_ctrl_offset_stride = [0x004, 8]
 status_outtopad_bit = 9          # "output signal to pad after register overide is applied"
 status_oetopad_bit = 13          # "output enable to pad after register overide is applied"
 status_infrompad_bit = 17        # "input signal from pad, before filtering and override are applied"
+status_outfromperi_bit = 8       # "output signal from selected peripheral, before register overide is applied"
+status_oefromperi_bit = 12       # "output enable from selected peripheral, before register overide is applied"
 # Table 8 (printed p.21-22), GPIOn_CTRL.
 ctrl_funcsel_bits = [4, 0]       # "Function select. 31 == NULL"; reset 0x1f
 ctrl_outover_bits = [13, 12]     # 0x0 from the peripheral funcsel selects, 0x1 its inverse, 0x2 "drive output low", 0x3 "drive output high"
@@ -1083,4 +1085,6 @@ WHAT THE DATASHEET DOES NOT GIVE:
 
 Section 3.3.1 (printed p.35) gives the write latency the pulses ride on: "typically 1us" across
 PCIe, writes "Posted", and "insert a write barrier after the last write that toggles a pin,
-then issue the read", which is how the writer bounds each high."""
+then issue the read". The writer reads after its last write, as advised, but issues no
+barrier, so that the read returns only after the write has landed rests on PCIe's ordering
+and Arm's for Device memory, not on this document [inferred]."""

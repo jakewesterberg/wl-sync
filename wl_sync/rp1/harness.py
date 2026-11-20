@@ -106,6 +106,10 @@ IRQRESET = 1 << 28  # type SC, self-clearing: not part of the state to restore
 STATUS_OUTTOPAD = 1 << 9  # "output signal to pad after register overide is applied"
 STATUS_OETOPAD = 1 << 13  # "output enable to pad after register overide is applied"
 STATUS_INFROMPAD = 1 << 17  # "input signal from pad, before filtering and override"
+# The funcsel's own output and output enable, BEFORE the override: these follow libgpiod
+# even while OUTOVER forces the pad, which is how `clear_override` checks the map.
+STATUS_OUTFROMPERI = 1 << 8  # "output signal from selected peripheral, before register overide"
+STATUS_OEFROMPERI = 1 << 12  # "output enable from selected peripheral, before register overide"
 
 # How many times verify() toggles the pin through libgpiod. One rise and fall could match a
 # stale bit by chance; three cannot, on a map that is not IO_BANK0.
@@ -136,8 +140,9 @@ class Gpiomem:
 
     One word an access, through a memoryview of unsigned ints, so each is a single 32-bit
     load or store [inferred: that CPython's fixed-size copy compiles to one]. O_SYNC, as
-    pinctrl opens it [inferred]. Writes cross PCIe as posted transactions, and a read that
-    follows them returns only after they land (section 3.3.1, p.35)."""
+    pinctrl opens it [inferred]. Writes cross PCIe as posted transactions (section 3.3.1,
+    p.35). That a read which follows them returns only after they land is [inferred]: the
+    datasheet promises it after a write barrier, which nothing here issues (`pulse`)."""
 
     def __init__(self, path: str) -> None:
         fd = os.open(path, os.O_RDWR | os.O_SYNC)
@@ -171,6 +176,11 @@ class Gpiomem:
             self._map.close()
 
 
+def clear_command(pin: int) -> str:
+    """The command that clears an override left set on `pin` (`clear_override`)."""
+    return f"python -m wl_sync.bench override --pin {pin} --clear"
+
+
 def _refusal(pin: int, ctrl: int, status: int) -> str:
     """Why GPIO`pin` is not this harness's libgpiod output, held low, or "" when it is."""
     funcsel = ctrl & FUNCSEL_MASK
@@ -181,9 +191,13 @@ def _refusal(pin: int, ctrl: int, status: int) -> str:
         named = " (NULL)" if funcsel == FUNCSEL_NULL else ""
         return (f"GPIO{pin} runs function {funcsel}{named}, not SYS_RIO "
                 f"({FUNCSEL_SYS_RIO}), the function of a line libgpiod drives")
-    if ctrl & (OUTOVER_MASK | OEOVER_MASK):
-        return (f"GPIO{pin}'s output is under a register override already "
+    if ctrl & OEOVER_MASK:
+        return (f"GPIO{pin}'s output enable is under a register override "
                 f"(CTRL {ctrl:#010x}): something else is driving it")
+    if ctrl & OUTOVER_MASK:
+        return (f"GPIO{pin}'s output is under a register override already "
+                f"(CTRL {ctrl:#010x}), as a run killed between a pulse's two stores leaves "
+                f"it; clear it with: {clear_command(pin)}")
     if not status & STATUS_OETOPAD:
         return f"GPIO{pin} is not driven as an output (STATUS {status:#010x})"
     if status & STATUS_OUTTOPAD:
@@ -209,9 +223,12 @@ class PulseWriter:
     WHAT IT RESTORES, ON EVERY PATH. The precondition is OUTOVER 0, so clearing OUTOVER
     is the pin's prior state. Each pulse clears it in a `finally`, whatever stops the
     hold; close() clears it again and reads CTRL back against the word open() read, and
-    raises if they differ. A process killed between the two writes (SIGKILL) leaves the
-    pin high under the override: the next open() refuses it ("override"), and a reboot
-    clears it [inferred].
+    raises if they differ. A writer that never armed a pulse writes nothing at close,
+    so a refused map or pin is never written (review I1). SIGTERM and SIGHUP restore
+    (the bench's handlers). SIGKILL between the two stores still leaves the pin forced
+    high under the override: harmless, since GPIO18 and GPIO19 are no-connect on the
+    bench and on the breakout, and the next open() refuses the pin, naming
+    `clear_override`'s command, which clears it with no sudo.
 
     WHAT IS UNVERIFIED ON THE CM5: all of it. That the posted SET and CLEAR writes make a
     high of about the hold, that `verify` sees what the pad does, and that the PIO samples
@@ -239,6 +256,10 @@ class PulseWriter:
         self._regs: Gpiomem | None = None
         self._prior = 0
         self._verified = False
+        # Set immediately before the first SET store: only then has the writer anything to
+        # restore, and close() writes nothing through a map it never wrote (review I1).
+        self._armed = False
+        self._pulsed = False
 
     def __enter__(self) -> PulseWriter:
         self.open()
@@ -304,28 +325,55 @@ class PulseWriter:
             raise WriterRefused("the register writer writes only once verify() has passed")
         return regs
 
-    def pulse(self, hold_ns: int) -> tuple[int, int]:
-        """One high: RAW, the SET write, a spin of `hold_ns` from that RAW, the CLEAR write,
-        a STATUS read, RAW. Returns the two RAW reads, which bound the high: the rise is
-        written after the first, and the read cannot return before the CLEAR ahead of it
-        has landed (section 3.3.1.1, p.35). The high is at least the spin less any
-        difference in the two writes' latency [inferred]. Raises when the read shows the
-        pin still high."""
+    def pulse(self, hold_ns: int) -> tuple[int, int, int, int]:
+        """One high: RAW, the SET store, RAW again, a spin of `hold_ns` from that second
+        RAW, the CLEAR store, a STATUS read, RAW. Returns (before, set_after, clear_before,
+        after).
+
+        THE HOLD STARTS AFTER THE SET STORE (review I2). Timed from the first read, a
+        preemption between it and the store ate the hold, and the high could fall under
+        the 1 us the program needs to see it (backend.py:975-976). Now a stall anywhere
+        only lengthens the high, and the bracket shows it.
+
+        THE BOUNDS, BOTH WAYS. The high lies inside [before, after]: the rise is stored
+        after `before`, and the STATUS read cannot return before the posted CLEAR ahead of
+        it has landed [inferred: PCIe does not let a read pass a posted write, and Arm keeps
+        Device-memory accesses to one peripheral in program order. RP1 Peripherals section
+        3.3.1.1, p.35, promises the order only after a write barrier, which this does not
+        issue]. It lasts at least clear_before - set_after, less any difference in the two
+        stores' posting latency [inferred]. Raises when the read shows the pin still high.
+
+        THE FIRST PULSE READS CTRL BACK (review M3), against the word open() read: a store
+        that was split or widened, and so touched other bits of CTRL, stops the writer after
+        one pulse rather than at close."""
         regs = self._checked()
         before = raw_ns()
+        # Armed before the first store, so close() clears the override whatever stops this
+        # between here and the CLEAR; never armed, close() writes nothing (review I1).
+        self._armed = True
         try:
             regs.write32(self._ctrl + ALIAS_SET, OUTOVER_MASK)
-            deadline = before + hold_ns
-            while hold_ns and raw_ns() < deadline:
-                pass
+            set_after = clear_before = raw_ns()
+            deadline = set_after + hold_ns
+            while clear_before < deadline:
+                clear_before = raw_ns()
         finally:
             regs.write32(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
+        ctrl = None if self._pulsed else regs.read32(self._ctrl)
         status = regs.read32(self._status)
         after = raw_ns()
+        if ctrl is not None:
+            self._pulsed = True
+            if (ctrl ^ self._prior) & ~IRQRESET:
+                raise WriterError(
+                    f"GPIO{self.pin}'s CTRL reads {ctrl:#010x} after the first pulse, where "
+                    f"it read {self._prior:#010x} before it: a store touched more than "
+                    "OUTOVER"
+                )
         if status & STATUS_OUTTOPAD:
             raise WriterError(f"GPIO{self.pin} is still high after the override was cleared "
                               f"(STATUS {status:#010x})")
-        return before, after
+        return before, set_after, clear_before, after
 
     def rise_landed(self) -> int:
         """After libgpiod's rise on the pin: one STATUS read, then RAW. The read returns
@@ -339,13 +387,19 @@ class PulseWriter:
         return landed
 
     def close(self) -> None:
-        """Clear the override, read CTRL back, unmap. Raises WriterError when CTRL is not
-        the word open() found, all but the self-clearing IRQRESET; the map is closed
-        either way. Once only: a second call does nothing."""
+        """Unmap; and if the writer ever armed a pulse, first clear the override and read
+        CTRL back. Raises WriterError when CTRL is then not the word open() found, all but
+        the self-clearing IRQRESET; the map is closed either way. A writer that never
+        armed writes nothing: after a refusal by `verify` or `check` the map, or the pin,
+        is not the writer's to write (review I1). Once only: a second call does
+        nothing."""
         regs, self._regs = self._regs, None
         if regs is None:
             return
         self._verified = False
+        if not self._armed:
+            regs.close()
+            return
         try:
             regs.write32(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
             now = regs.read32(self._ctrl)
@@ -583,10 +637,10 @@ class Event:
     """One driven rise and what each stamp machine pushed for it.
 
     `rise_before` is RAW before the rise's write. `rise_after` is RAW after libgpiod's
-    call returned, or after the rise was read back through the register map
-    (`rise_landed`); None for a writer pulse, whose rise is written right after
-    `rise_before`. `fall_before` and `fall_after` bracket the fall's write; for a writer
-    pulse `fall_after` is RAW after the read that follows the fall (`PulseWriter.pulse`).
+    call returned, after the rise was read back through the register map
+    (`rise_landed`), or, for a writer pulse (`writer`), after its SET store.
+    `fall_before` and `fall_after` bracket the fall's write; for a writer pulse
+    `fall_after` is RAW after the read that follows the fall (`PulseWriter.pulse`).
     `drained_at` is RAW when the FIFOs were read. Ticks and RAW are integers."""
 
     index: int
@@ -599,6 +653,7 @@ class Event:
     rise_landed: bool
     drained_at: int
     stamps: dict[int, list[int]]
+    writer: bool = False
 
     @property
     def upper_ns(self) -> int | None:
@@ -611,10 +666,11 @@ class Event:
 
     @property
     def lower_ns(self) -> int | None:
-        """The least a held high can have lasted: from the rise read back to before the
-        fall was written, less any difference in the writes' latency [inferred]. None
-        where the rise was not read back."""
-        if not self.rise_landed or self.fall_before is None or self.rise_after is None:
+        """The least the high can have lasted: from the rise read back, or from after the
+        writer's SET store, to before the fall was written, less any difference in the
+        writes' latency [inferred]. None for a libgpiod rise not read back."""
+        if (not (self.rise_landed or self.writer) or self.fall_before is None
+                or self.rise_after is None):
             return None
         return self.fall_before - self.rise_after
 
@@ -628,8 +684,7 @@ class Event:
 
     @property
     def rise_ns_x2(self) -> int:
-        """Twice the rise's RAW estimate, an integer: its bracket's midpoint, or for a
-        writer pulse the read before its write."""
+        """Twice the rise's RAW estimate, an integer: its bracket's midpoint."""
         if self.rise_after is None:
             return 2 * self.rise_before
         return self.rise_before + self.rise_after
@@ -732,13 +787,13 @@ class Rig:
         return sum(len(words) for words in self._carry.values())
 
     def _event(self, pins, shape, rise_before, rise_after, fall_before, fall_after,
-               landed) -> Event:
+               landed, writer: bool = False) -> Event:
         wait_until(rise_before + SETTLE_NS)
         drained_at = raw_ns()
         stamps = self.drain()
         self._events += 1
         event = Event(self._events, tuple(pins), shape, rise_before, rise_after,
-                      fall_before, fall_after, landed, drained_at, stamps)
+                      fall_before, fall_after, landed, drained_at, stamps, writer)
         if self.on_event is not None:
             self.on_event(event)
         return event
@@ -768,8 +823,9 @@ class Rig:
         """A high on the dense pin from the register writer (`PulseWriter.pulse`)."""
         if self.writer is None:
             raise HarnessError("no register writer: the rig was opened without a dense pin")
-        before, after = self.writer.pulse(hold_ns)
-        return self._event((self.writer.pin,), shape, before, None, None, after, False)
+        before, set_after, clear_before, after = self.writer.pulse(hold_ns)
+        return self._event((self.writer.pin,), shape, before, set_after, clear_before,
+                           after, False, writer=True)
 
     def marker(self, pins: Sequence[int], fall_pin: int, hold_ns: int) -> Event:
         """Every pin in `pins` rising in one `set_values`, then `fall_pin` alone falling
@@ -828,3 +884,102 @@ def _close_all(steps: Sequence[Callable[[], None] | None]) -> None:
             first = first or error
     if first is not None:
         raise first
+
+
+
+# ---------------------------------------------------------------------------
+# The override left set: seeing it, and clearing it with no sudo (review I3)
+# ---------------------------------------------------------------------------
+
+
+def _spare(pin: int) -> None:
+    if type(pin) is not int or pin not in SPARE_PINS:
+        raise ValueError(
+            f"a spare pin ({', '.join(f'GPIO{p}' for p in SPARE_PINS)}), not GPIO{pin}"
+        )
+
+
+def read_overrides(
+    pins: Sequence[int], open_map: Callable[[str], Gpiomem] | None = None,
+) -> list[tuple[int, int, int, int, int]]:
+    """(pin, CTRL, STATUS, OUTOVER, OEOVER) for each spare pin, READ ONLY: the post-check
+    after a run, since pinctrl does not print the override fields [inferred]. It does not
+    check the map against libgpiod, which would mean driving the line: the run that wrote
+    checked it."""
+    for pin in pins:
+        _spare(pin)
+    regs = (open_map or Gpiomem)(GPIOMEM_PATH)
+    try:
+        found = []
+        for pin in pins:
+            ctrl = regs.read32(ctrl_offset(pin))
+            found.append((pin, ctrl, regs.read32(status_offset(pin)),
+                          (ctrl & OUTOVER_MASK) >> 12, (ctrl & OEOVER_MASK) >> 14))
+        return found
+    finally:
+        regs.close()
+
+
+def clear_override(
+    pin: int, chip_path: str, open_map: Callable[[str], Gpiomem] | None = None,
+) -> str:
+    """Clear an OUTOVER left set on one spare pin, with no sudo: the recovery for a run
+    killed between a pulse's two stores. Returns what it did.
+
+    THE SAME RULES AS THE WRITER. libgpiod requests the line first, low, under CONSUMER,
+    so a line another consumer holds is refused before anything is mapped (`Lines`).
+    Then CTRL must show SYS_RIO and no output-enable override. THE MAP IS CHECKED BEFORE
+    THE WRITE: libgpiod toggles the line three times and STATUS.OUTFROMPERI, the funcsel's
+    output before the override (Table 7, p.20-21), must follow it, with OEFROMPERI set.
+    That works while OUTOVER still forces the pad, where `PulseWriter.verify`, which reads
+    the pad, would not. Any refusal writes nothing. Then ONE write, OUTOVER's two bits
+    through CTRL's CLEAR alias, and CTRL and STATUS are read back: OUTOVER 0, nothing else
+    changed, the pad low."""
+    _spare(pin)
+    lines = Lines(chip_path, [pin])
+    try:
+        regs = (open_map or Gpiomem)(GPIOMEM_PATH)
+        try:
+            ctrl = regs.read32(ctrl_offset(pin))
+            funcsel = ctrl & FUNCSEL_MASK
+            if funcsel == FUNCSEL_PIO:
+                raise WriterRefused(f"GPIO{pin} is the PIO's (FUNCSEL {FUNCSEL_PIO}): "
+                                    "nothing written")
+            if funcsel != FUNCSEL_SYS_RIO:
+                raise WriterRefused(f"GPIO{pin} runs function {funcsel}, not SYS_RIO, with "
+                                    "libgpiod holding it: nothing written")
+            if ctrl & OEOVER_MASK:
+                raise WriterRefused(f"GPIO{pin}'s output enable is overridden too (CTRL "
+                                    f"{ctrl:#010x}), which this harness never sets: "
+                                    "nothing written")
+            try:
+                for _ in range(VERIFY_TOGGLES):
+                    for high in (True, False):
+                        lines.set(pin, high)
+                        status = regs.read32(status_offset(pin))
+                        if (bool(status & STATUS_OUTFROMPERI) != high
+                                or not status & STATUS_OEFROMPERI):
+                            raise WriterRefused(
+                                f"GPIO{pin}'s STATUS through {GPIOMEM_PATH} does not follow "
+                                f"the level libgpiod set (STATUS {status:#010x}), so the map "
+                                "is not IO_BANK0 as assumed: nothing written"
+                            )
+            finally:
+                lines.set(pin, False)
+            outover = (ctrl & OUTOVER_MASK) >> 12
+            if not outover:
+                return f"GPIO{pin}: no override set (CTRL {ctrl:#010x}); nothing written"
+            regs.write32(ctrl_offset(pin) + ALIAS_CLEAR, OUTOVER_MASK)
+            now = regs.read32(ctrl_offset(pin))
+            status = regs.read32(status_offset(pin))
+        finally:
+            regs.close()
+    finally:
+        lines.release()
+    if now & OUTOVER_MASK or (now ^ ctrl) & ~(OUTOVER_MASK | IRQRESET):
+        raise WriterError(f"GPIO{pin}'s CTRL reads {now:#010x} after the clear, from "
+                          f"{ctrl:#010x}")
+    if status & STATUS_OUTTOPAD:
+        raise WriterError(f"GPIO{pin} is still high after the clear (STATUS {status:#010x})")
+    return (f"GPIO{pin}: cleared OUTOVER {outover} (CTRL {ctrl:#010x} -> {now:#010x}); "
+            "the pad reads low")

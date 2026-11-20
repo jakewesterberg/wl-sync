@@ -5,6 +5,7 @@
     python -m wl_sync.bench skew [--machines {2,3}] [--edges N] [--record CSV]
     python -m wl_sync.bench streams [--dense-pin {18,19}] [--duration S] [--rate R]
                                     [--marker] [--probe-only] [--record CSV]
+    python -m wl_sync.bench override [--pin {18,19} [--clear]]
 
 THE LOOPBACK. With the barcode output jumpered to an edge input, every frame the box
 emits lands in its own segment twice: as the `B` record it logged, and as the edges it
@@ -322,6 +323,11 @@ class _Terminated(SystemExit):
     hours already run; raised, it unwinds through both."""
 
 
+# What ends a harness run closed and summarised (`_harnessed`): pkill's SIGTERM, and the
+# SIGHUP of an ssh session that drops.
+_ENDING_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
+
+
 def _terminate(signum: int, frame) -> None:
     raise _Terminated(128 + signum)  # the status a SIGTERM'd process exits with
 
@@ -599,10 +605,13 @@ SHORT_EXIT_MAX_NS = 5_000
 HELD_MIN_NS = 6_000
 
 # The pass line (plan :2068) and what may judge it. The hour and the 10^5 events are the
-# plan's (:2067); the 1-sigma bound is the design's proposal (section
-# 2.7), a third of the line; and the share each path must have of A's fitted events is
-# this task's, so that a cycle lost on one path in a few hundred events would show
-# (0.5 us x 25 events a second / 400 = 0.03 ppm).
+# plan's (:2067). THE USER'S RULINGS, 2026-11-20 (Task 1.21's review): "1 sigma <= 0.0033
+# ppm" on A - B, a third of the line, as the design proposed (section 2.7), and "25%
+# each": each path at least a quarter of A's fitted events, so that a cycle lost on one
+# path in a few hundred events would show (0.5 us x 25 events a second / 400 = 0.03 ppm).
+# Short of either, the run is INCONCLUSIVE. That a FAIL needs |A - B| over the line AND
+# over 3 sigma is the harness's choice, which the review found needs no ruling: with
+# sigma within its ruling, over the line is over 3 sigma.
 B3B_LINE_PPM = 0.01
 B3B_SIGMA_MAX_PPM = 0.0033
 B3B_MIN_DURATION_S = 3_600
@@ -621,10 +630,14 @@ PROBE_SHAPE_SPACING_NS = 5_000_000
 HELD_SHAPES_NS = (("back-to-back", 0), ("10 us", 10_000), ("50 us", 50_000),
                   ("1 ms", 1_000_000))
 RUN_HELD_SHAPES = ("10 us", "50 us", "1 ms")
-# The register writer's holds, each a spin from the RAW read before its SET write. The
-# run drives those the probe shows stamped every time and under SHORT_EXIT_MAX_NS for at
-# least SHORT_SHARE_SHOWN of their highs.
-SHORT_HOLDS_NS = (1_000, 2_000, 3_000)
+# The register writer's holds, each a spin from the RAW read after its SET store
+# (`PulseWriter.pulse`). 1.5 us at the least, a margin over the 1 us high the program
+# needs to see (wl_sync/rp1/backend.py:975-976), and 2.5 us at the most, leaving room for
+# the read after the CLEAR under SHORT_EXIT_MAX_NS (review I2). The run drives those the
+# probe shows stamped every time and under SHORT_EXIT_MAX_NS for at least
+# SHORT_SHARE_SHOWN of their highs: a harness choice, not a ruling, since it picks the
+# holds and not the verdict.
+SHORT_HOLDS_NS = (1_500, 2_000, 2_500)
 SHORT_SHARE_SHOWN = 0.9
 
 # THE RUN: one barcode frame a second on GPIO17 for B (wl_sync/barcode.py:3-11), and in
@@ -845,6 +858,7 @@ class StreamsReport:
     a_events: int = 0
     a_stamped: int = 0
     a_missed: int = 0
+    a_missed_writer: int = 0
     a_extra: int = 0
     b_events: int = 0
     b_stamped: int = 0
@@ -890,6 +904,7 @@ class StreamsReport:
         stamp = self._one(event, self.a, self.b)
         if stamp is None:
             self.a_missed += not event.stamps[self.a]
+            self.a_missed_writer += writer and not event.stamps[self.a]
             self.a_extra += max(0, len(event.stamps[self.a]) - 1)
             return
         self.a_stamped += 1
@@ -948,7 +963,12 @@ class StreamsReport:
         failure = self.probe.failure()
         if failure:
             found.append(f"probe: {failure}")
-        for name, count in (("A missed", self.a_missed), ("A extra", self.a_extra),
+        missed = (f"A missed {self.a_missed} (register-writer highs "
+                  f"{self.a_missed_writer}, libgpiod highs "
+                  f"{self.a_missed - self.a_missed_writer})")
+        if self.a_missed:
+            found.append(missed)
+        for name, count in (("A extra", self.a_extra),
                             ("B missed", self.b_missed), ("B extra", self.b_extra),
                             ("stamps by the other pin's machine", self.crosstalk),
                             ("code words", self.words), ("full FIFOs", self.full),
@@ -1112,32 +1132,54 @@ def _harnessed(title: str, open_rig: Callable, body: Callable, record: Path | No
     from wl_sync.rp1.harness import HarnessError, PiolibError, WriterError
 
     recorder = _Recorder(record, command) if record is not None else None
-    rig = stopped = outer = None
-    installed = False
+    rig = stopped = closing = None
+    outer: dict[int, object] = {}
     try:
-        outer, installed = signal.signal(signal.SIGTERM, _terminate), True
+        # SIGHUP as SIGTERM (review I3): an ssh session that drops sends it, and its
+        # default would end the process between a writer pulse's two stores.
+        for signum in _ENDING_SIGNALS:
+            outer[signum] = signal.signal(signum, _terminate)
         try:
             rig = open_rig()
         except (HarnessError, PiolibError, WriterError, OSError) as error:
             print(f"{title} cannot run: {error}")
-            return 1, None, None
+            return 1, None, None, None
         if recorder is not None:
             rig.on_event = recorder.write
         body(rig, recorder)
     except _Terminated as terminated:
         stopped = terminated
     finally:
-        if installed:
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        # Nothing may cut close() short: a second signal, or a Ctrl-C.
+        ignored = {signum: signal.signal(signum, signal.SIG_IGN)
+                   for signum in (*outer, signal.SIGINT)}
         try:
             if rig is not None:
                 rig.close()
+        except BaseException as error:  # noqa: BLE001 - reported after the summary (M2)
+            closing = error
+            running = sys.exc_info()[1]
+            if running is not None and running is not error:
+                running.add_note(f"and closing the rig raised: {error!r}")
         finally:
             if recorder is not None:
                 recorder.close()
-            if installed:
-                signal.signal(signal.SIGTERM, signal.SIG_DFL if outer is None else outer)
-    return None, rig, stopped
+            for signum, handler in outer.items():
+                signal.signal(signum, signal.SIG_DFL if handler is None else handler)
+            signal.signal(signal.SIGINT, ignored[signal.SIGINT])
+    return None, rig, stopped, closing
+
+
+def _ended(stopped: _Terminated, done: str) -> int:
+    """The line a run cut short by a signal ends on, and its exit status."""
+    print(f"  stopped by {signal.Signals(stopped.code - 128).name} after {done}")
+    return stopped.code
+
+
+def _closing(closing: BaseException | None) -> bool:
+    if closing is not None:
+        print(f"  closing the rig failed: {closing!r}")
+    return closing is not None
 
 
 def _skew(machines: int, edges: int, period_us: int, chip_path: str,
@@ -1162,8 +1204,9 @@ def _skew(machines: int, edges: int, period_us: int, chip_path: str,
         started.append(harness.raw_ns())
         skew_run(rig, edges, period_us * _NS_PER_US, report)
 
-    status, rig, stopped = _harnessed("start skew (B3a)", open_rig, body, record,
-                                      f"skew --machines {machines} --edges {edges}")
+    status, rig, stopped, closing = _harnessed(
+        "start skew (B3a)", open_rig, body, record,
+        f"skew --machines {machines} --edges {edges}")
     if status is not None:
         return status
     if started:
@@ -1171,10 +1214,10 @@ def _skew(machines: int, edges: int, period_us: int, chip_path: str,
     _take_tally(report, rig)
     report.stopped = stopped is not None
     print(report.summary())
+    failed_close = _closing(closing)
     if stopped is not None:
-        print(f"  stopped by SIGTERM after {report.edges} of {edges} edges")
-        return stopped.code
-    return 0 if report.passed else 1
+        return _ended(stopped, f"{report.edges} of {edges} edges")
+    return 0 if report.passed and not failed_close else 1
 
 
 def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_only: bool,
@@ -1207,7 +1250,7 @@ def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_onl
         streams_run(rig, report, duration_s, rate, marker, report.probe.short_holds(),
                     duration_s if seed is None else seed)
 
-    status, rig, stopped = _harnessed(
+    status, rig, stopped, closing = _harnessed(
         "independent streams (B3b)", open_rig, body, record,
         f"streams --dense-pin {dense_pin} --duration {duration_s} --rate {rate}"
         + (" --marker" if marker else "") + (" --probe-only" if probe_only else ""))
@@ -1216,10 +1259,46 @@ def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_onl
     _take_tally(report, rig)
     report.stopped = stopped is not None
     print(report.summary())
+    failed_close = _closing(closing)
     if stopped is not None:
-        print(f"  stopped by SIGTERM after {report.seconds} of {duration_s} s")
-        return stopped.code
-    return 0 if report.verdict == "PASS" else 1
+        return _ended(stopped, f"{report.seconds} of {duration_s} s")
+    return 0 if report.verdict == "PASS" and not failed_close else 1
+
+
+def _override(pin: int | None, clear: bool, chip_path: str) -> int:
+    """`python -m wl_sync.bench override`: the register writer's post-check and recovery
+    (review I3), with no sudo.
+
+    With no `--clear`, READ ONLY: each spare pin's CTRL and STATUS through the harness's map,
+    since pinctrl does not show the override fields [inferred]. It exits 0 only when
+    neither OUTOVER nor OEOVER is set. With `--clear`, `harness.clear_override` on the one
+    pin named: libgpiod takes the line, the map is checked against it, and one CLEAR of
+    OUTOVER is written only if every check passes."""
+    from wl_sync.rp1 import harness
+
+    if clear:
+        try:
+            print(harness.clear_override(pin, chip_path))
+        except (harness.HarnessError, harness.WriterError, OSError) as error:
+            print(f"GPIO{pin}: not cleared: {error}")
+            return 1
+        return 0
+    try:
+        found = harness.read_overrides((pin,) if pin is not None else SPARE_PINS)
+    except OSError as error:
+        print(f"the overrides cannot be read: {error}")
+        return 1
+    clean = True
+    for each, ctrl, status, outover, oeover in found:
+        line = (f"GPIO{each}: CTRL {ctrl:#010x} (FUNCSEL {ctrl & harness.FUNCSEL_MASK}, "
+                f"OUTOVER {outover}, OEOVER {oeover}), STATUS {status:#010x}")
+        if outover or oeover:
+            clean = False
+            line += ": an override is set; clear it with " + harness.clear_command(each)
+        else:
+            line += ": no override"
+        print(line)
+    return 0 if clean else 1
 
 
 def _short_holds(text: str) -> tuple[int, ...]:
@@ -1301,7 +1380,18 @@ def main(argv: list[str] | None = None) -> int:
     streams.add_argument("--seed", type=int)
     streams.add_argument("--gpiochip", default="/dev/gpiochip0")
     streams.add_argument("--record", type=Path, help="one CSV line per edge")
+    override = commands.add_parser(
+        "override", help="the register writer's post-check, and its recovery: GPIO18's "
+                         "and GPIO19's OUTOVER, read, or cleared on one pin"
+    )
+    override.add_argument("--pin", type=int, choices=SPARE_PINS,
+                          help="one spare pin; both when not given")
+    override.add_argument("--clear", action="store_true",
+                          help="clear an override left set on --pin")
+    override.add_argument("--gpiochip", default="/dev/gpiochip0")
     args = parser.parse_args(argv)
+    if args.command == "override" and args.clear and args.pin is None:
+        parser.error("override --clear needs --pin")
 
     if args.command == "stamps":
         return _stamps(args.stamp_pin, args.frames, args.gpiochip)
@@ -1311,6 +1401,8 @@ def main(argv: list[str] | None = None) -> int:
         return _streams(args.dense_pin, args.duration, args.rate, args.marker,
                         args.probe_only, args.gpiochip, args.record, args.short_holds_ns,
                         args.seed)
+    if args.command == "override":
+        return _override(args.pin, args.clear, args.gpiochip)
     report = loopback(_segment_of(args.path), args.gpio)
     print(report.summary())
     return 0 if report.passed else 1

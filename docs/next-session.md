@@ -179,10 +179,11 @@ each over ssh, in this order, with the user's go-ahead before each; never two at
 each opens the PIO block. The full expected output is in the build's report,
 `.superpowers/sdd/2026-11-07-one-clock/task-1.21-report.md` (gitignored, above).
 1. Read-only: `ssh wl-rig-sync0 'systemctl is-active wl-sync; systemctl cat wl-sync | grep -c -- "--fake"; pgrep -af wl_sync.bench || echo "no bench running"; ls -l /dev/pio0 /dev/gpiomem0; id -nG; ls /sys/bus/platform/devices | grep -i gpiomem; pinctrl get 17,18,19'`. Pass: `active`, `1`, no bench running, both devices in group `gpio` with the user in it, and GPIO17-19 not under another function.
-2. Copy the harness's commit to `~/wl-sync-spike/src` and check the shim, as S.1 (plan `:1947-1951`); it is still version 5.
+2. Copy the harness's commit to `~/wl-sync-spike/src` and check the shim, as S.1 (plan `:1947-1951`); it is still version 5. Then, read-only, `python -m wl_sync.bench override` from `~/wl-sync-spike`: `no override` on GPIO18 and GPIO19.
 3. The probe, about 30 s: `ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib venv/bin/python -m wl_sync.bench streams --probe-only --record out/b3-probe.csv > out/b3-probe.txt 2>&1; echo "exit $?"; cat out/b3-probe.txt'`. Pass: `independent streams (B3b) probe: PASS`, each pin's 100 rises stamped by its own machine alone, every libgpiod shape 200 of 200, and `short-exit path (high <= 5.0 us): shown`. If GPIO18 is blind, the same with `--dense-pin 19`; if that is blind too, B3b waits for the 12→36 jumper.
 4. B3a, about 4 min: `skew --machines 3 --edges 100000 --record out/b3a.csv`; then 20 fresh starts of `skew --machines 3 --edges 5000`, one process each. Pass, every one: `start skew (B3a): PASS`, each pair's difference one value of at most 1 on every edge.
-5. B3b, about 62 min, detached: `streams --duration 3600 --rate 100 --marker --record out/b3b.csv` under `nohup`, read after the hour. Pass: `independent streams (B3b): PASS`, `A - B` within 0.01 ppm with 1 sigma at most 0.0033 ppm, both paths each at least a quarter of A's fitted events, and no `fails:` or `inconclusive:` line. `pkill -f 'wl_sync.bench streams'` ends it early, closed and INCONCLUSIVE.
+5. B3b, about 62 min, detached: `streams --duration 3600 --rate 100 --marker --record out/b3b.csv` under `nohup`, read after the hour. Pass: `independent streams (B3b): PASS`, `A - B` within 0.01 ppm with 1 sigma at most 0.0033 ppm, both paths each at least a quarter of A's fitted events, and no `fails:` or `inconclusive:` line (both bounds are the user's rulings, 2026-11-20). `pkill -f 'wl_sync.bench streams'` ends it early, closed and INCONCLUSIVE; a dropped ssh session's SIGHUP does the same.
+6. Afterwards, read-only: `python -m wl_sync.bench override`, from `~/wl-sync-spike` with `LD_LIBRARY_PATH` as above. Pass: `no override` on GPIO18 and GPIO19, and exit 0; `pinctrl` cannot show the override. Only SIGKILL between a writer pulse's two stores can leave one set, the pin forced high: harmless, since GPIO18 and GPIO19 are no-connect on the bench and on the breakout. `python -m wl_sync.bench override --pin 18 --clear` clears it with no sudo, after checking the map against libgpiod; it writes nothing on any refusal.
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
@@ -196,7 +197,7 @@ could. The first frame is reported as not checkable, by design. Without the jump
 so, which was checked on the box. *(Amended 2026-11-19, for the one-clock build.)* What the
 lead-edge offset it prints means depends on the segment's `timebase`. With shim v3 this run
 normally records one count, `"rp1-pio-si"` or `"rp1-pio"`, and there the offset is "E's
-constant (B6)", the edge input's own offset (`wl_sync/bench.py:102`): record it here as B6,
+constant (B6)", the edge input's own offset (`wl_sync/bench.py:103`): record it here as B6,
 and do not pass it as `--barcode-delay-us` (`deploy/README.md:28-38`). Only on a segment
 whose header says `"split"` is it the software latency between the logged tick and the pin
 rising, the barcode delay the flag takes. Without such a segment, leave `barcode_delay_us`

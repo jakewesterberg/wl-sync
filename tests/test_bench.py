@@ -924,7 +924,7 @@ def test_a_blind_dense_pin_stops_streams_before_the_run(board, monkeypatch, caps
     assert "the PIO does not see GPIO18, unclaimed" in out
     assert "--dense-pin 19" in out
     assert "A (GPIO18)" not in out
-    assert board.shim.closed == 1 and board.bank.writes[-1] == (0x3094, 0x3000)
+    assert board.shim.closed == 1 and board.bank.writes == []  # the writer never armed
 
 
 def test_crosstalk_between_the_pins_fails_the_probe(board, monkeypatch, capsys, run_fast):
@@ -1072,7 +1072,7 @@ def test_a_sigterm_ends_streams_with_the_writer_restored_and_inconclusive(
         signal.signal(signal.SIGTERM, outer)
     assert status == 128 + signal.SIGTERM
     out = capsys.readouterr().out
-    assert "INCONCLUSIVE" in out.splitlines()[0] or "probe" in out.splitlines()[0], out
+    assert out.splitlines()[0] == "independent streams (B3b): INCONCLUSIVE", out
     assert "stopped by SIGTERM" in out
     assert board.bank.ctrl[18] & 0x3000 == 0 and board.bank.pad(18) == 0
     assert board.shim.closed == 1
@@ -1090,3 +1090,140 @@ def test_the_streams_command_records_every_edge_of_probe_and_run(
     assert rows[0] == bench.RECORD_COLUMNS
     phases = {row.split(",")[0] for row in rows[1:]}
     assert phases == {"probe", "run"}
+
+
+def test_the_default_writer_holds_keep_a_margin_over_the_programs_one_microsecond():
+    """Review I2: a hold at the program's 1 us minimum (backend.py:975-976) had none."""
+    from wl_sync import bench
+
+    assert bench.SHORT_HOLDS_NS == (1_500, 2_000, 2_500)
+    assert min(bench.SHORT_HOLDS_NS) >= 1_500
+
+
+def test_a_missed_writer_high_is_named_as_one(board, monkeypatch, capsys, run_fast):
+    """A miss on a register-writer pulse is the harness's, not the program's, until shown
+    otherwise; the fault says which kind of high it was (review I2)."""
+    real = board.bank.write32
+    sets = []
+
+    def dropping(offset, value):
+        if offset == 0x2094:
+            sets.append(offset)
+            if len(sets) in (150, 151):
+                board.blind.add(18)
+        real(offset, value)
+        board.blind.discard(18)
+
+    board.bank.write32 = dropping
+    status, out = _streams(board, monkeypatch, capsys)
+    assert status == 1
+    assert "fails: A missed 2 (register-writer highs 2, libgpiod highs 0)" in out, out
+
+
+def test_a_sighup_ends_streams_closed_restored_and_inconclusive(
+    board, monkeypatch, capsys, run_fast
+):
+    """An ssh session that drops sends SIGHUP, whose default would end the process
+    between a pulse's two stores with no restore (review I3). It is handled as SIGTERM."""
+    import signal
+
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.bank.write32
+    writes = []
+
+    def hanging_up(offset, value):
+        original(offset, value)
+        writes.append(offset)
+        if len(writes) == 201 and offset == 0x2094:
+            signal.raise_signal(signal.SIGHUP)
+
+    board.bank.write32 = hanging_up
+    outer = signal.signal(signal.SIGHUP, lambda *a: None)
+    try:
+        status = bench.main(["streams", "--duration", "60", "--rate", "20"])
+        assert signal.getsignal(signal.SIGHUP) is not bench._terminate
+    finally:
+        signal.signal(signal.SIGHUP, outer)
+    assert status == 128 + signal.SIGHUP
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "independent streams (B3b): INCONCLUSIVE", out
+    assert "stopped by SIGHUP" in out
+    assert board.bank.ctrl[18] & 0x3000 == 0 and board.bank.pad(18) == 0
+
+
+def test_the_override_command_reads_both_spare_pins_and_writes_nothing(
+    board, monkeypatch, capsys
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.hold_as_output(18)
+    assert bench.main(["override"]) == 0
+    out = capsys.readouterr().out
+    assert "GPIO18:" in out and "GPIO19:" in out and "OUTOVER 0, OEOVER 0" in out
+    assert board.bank.writes == [] and board.gpiod.requests == []
+
+
+def test_the_override_command_fails_on_an_override_left_set_and_names_the_clear(
+    board, monkeypatch, capsys
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.ctrl[18] |= 3 << 12
+    assert bench.main(["override"]) == 1
+    out = capsys.readouterr().out
+    assert "GPIO18:" in out and "OUTOVER 3" in out
+    assert "python -m wl_sync.bench override --pin 18 --clear" in out
+    assert board.bank.writes == []
+
+
+def test_the_override_command_clears_one_pin_when_asked(board, monkeypatch, capsys):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.hold_as_output(18)
+    board.bank.ctrl[18] |= 3 << 12
+    assert bench.main(["override", "--pin", "18", "--clear"]) == 0
+    assert board.bank.writes == [(0x3094, 0x3000)]
+    assert "cleared" in capsys.readouterr().out
+
+
+def test_the_override_command_refuses_to_clear_without_naming_a_pin(board, monkeypatch):
+    from wl_sync import bench
+
+    with pytest.raises(SystemExit) as exited:
+        bench.main(["override", "--clear"])
+    assert exited.value.code == 2
+
+
+def test_the_override_command_reports_a_refused_clear_with_nothing_written(
+    board, monkeypatch, capsys
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.ctrl[18] |= 3 << 12
+    board.used[18] = "someone"
+    assert bench.main(["override", "--pin", "18", "--clear"]) == 1
+    assert "someone" in capsys.readouterr().out and board.bank.writes == []
+
+
+def test_a_close_that_fails_still_prints_the_runs_summary(board, monkeypatch, capsys):
+    """Review M2: a close that raised in the command's `finally` lost the summary of the
+    run before it."""
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+
+    def failing_close():
+        raise RuntimeError("pio_close")
+
+    board.shim.wlsync_pio_close = failing_close
+    assert bench.main(["skew", "--edges", "20"]) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "start skew (B3a): PASS", out
+    assert "closing the rig failed: RuntimeError('pio_close')" in out
+    assert board.gpiod.released == [{17: 0}]

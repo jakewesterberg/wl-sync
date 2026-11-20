@@ -68,6 +68,8 @@ class _Clock:
 _STATUS_OUTTOPAD = 1 << _RP1["status_outtopad_bit"]
 _STATUS_OETOPAD = 1 << _RP1["status_oetopad_bit"]
 _STATUS_INFROMPAD = 1 << _RP1["status_infrompad_bit"]
+_STATUS_OUTFROMPERI = 1 << _RP1["status_outfromperi_bit"]
+_STATUS_OEFROMPERI = 1 << _RP1["status_oefromperi_bit"]
 _F_M_RESET = 0x04 << 5  # Table 8: F_M, bits 11:5, resets to 0x04
 _NULL = 0x1F
 
@@ -142,8 +144,11 @@ class _Bank:
             return self.ctrl[pin]
         if self.frozen:
             return 0
+        rio = self.ctrl[pin] & 0x1F == _RP1["funcsel_sys_rio"]
         return ((self._out(pin) and _STATUS_OUTTOPAD) | (self._oe(pin) and _STATUS_OETOPAD)
-                | (self.pad(pin) and _STATUS_INFROMPAD))
+                | (self.pad(pin) and _STATUS_INFROMPAD)
+                | (rio and self.rio_out[pin] and _STATUS_OUTFROMPERI)
+                | (rio and self.rio_oe[pin] and _STATUS_OEFROMPERI))
 
     def write32(self, offset, value):
         self.writes.append((offset, value))
@@ -204,6 +209,8 @@ def test_the_writers_offsets_and_values_are_the_datasheets():
     assert harness.STATUS_OUTTOPAD == _STATUS_OUTTOPAD
     assert harness.STATUS_OETOPAD == _STATUS_OETOPAD
     assert harness.STATUS_INFROMPAD == _STATUS_INFROMPAD
+    assert harness.STATUS_OUTFROMPERI == _STATUS_OUTFROMPERI == 1 << 8
+    assert harness.STATUS_OEFROMPERI == _STATUS_OEFROMPERI == 1 << 12
     assert harness.FUNCSEL_SYS_RIO == _RP1["funcsel_sys_rio"]
     assert harness.GPIOMEM_PATH == "/dev/gpiomem0"
 
@@ -263,7 +270,7 @@ def test_a_pin_held_by_anything_but_this_harness_libgpiod_output_is_refused(
     elif claim == "high":
         bank.drive(18, 1)
     elif claim == "outover":
-        bank.ctrl[18] |= 2 << 12
+        bank.ctrl[18] |= 3 << 12
     else:
         bank.ctrl[18] |= 3 << 14
     writer = _writer(bank)
@@ -292,7 +299,8 @@ def test_a_map_whose_status_does_not_follow_the_pin_is_refused_with_nothing_writ
     with pytest.raises(harness.WriterRefused, match="does not follow"):
         writer.verify(lambda high: bank.drive(18, int(high)))
     writer.close()
-    assert [w for w in bank.writes if w[0] != 0x3094] == []
+    assert bank.writes == []  # not even a CLEAR, through a map found not to be IO_BANK0
+    assert bank.closed
 
 
 def test_a_pulse_is_refused_before_verify(bank):
@@ -303,14 +311,15 @@ def test_a_pulse_is_refused_before_verify(bank):
 
 def test_each_pulse_is_bounded_by_raw_before_its_rise_and_after_its_fall(bank):
     """The RAW read before the SET write and the one after a STATUS read that follows the
-    CLEAR write bound the high: the read cannot complete before the posted writes ahead of
-    it (RP1 Peripherals, section 3.3.1.1, printed p.35)."""
+    CLEAR write bound the high, given that the read cannot complete before the posted
+    writes ahead of it [inferred: PCIe ordering and Arm Device memory, not the datasheet,
+    whose section 3.3.1.1, printed p.35, promises it after a write barrier]."""
     pads = []
     bank.on_pad = lambda pin, level: pads.append(bank.clock.true_ns)
     with _writer(bank) as writer:
         writer.verify(lambda high: bank.drive(18, int(high)))
         pads.clear()
-        before, after = writer.pulse(3_000)
+        before, _, _, after = writer.pulse(3_000)
         assert bank.reads[-1] == 0x090  # the read that follows the fall
     rise, fall = pads
     assert before <= rise and fall <= after
@@ -340,10 +349,22 @@ def test_a_pulse_cut_short_still_clears_the_override(bank, failure):
         assert bank.ctrl[18] == prior and bank.pad(18) == 0
 
 
-def test_close_puts_back_the_override_and_checks_ctrl_is_as_it_was(bank):
+def test_a_writer_that_never_pulsed_writes_nothing_at_close(bank):
+    """Opened and verified, but never armed: close() unmaps, and writes nothing."""
+    writer = _writer(bank)
+    writer.open()
+    writer.verify(lambda high: bank.drive(18, int(high)))
+    writer.close()
+    assert bank.writes == [] and bank.closed
+
+
+def test_close_after_a_pulse_clears_the_override_and_checks_ctrl_is_as_it_was(bank):
     prior = bank.ctrl[18]
     writer = _writer(bank)
     writer.open()
+    writer.verify(lambda high: bank.drive(18, int(high)))
+    writer.pulse(0)
+    bank.writes.clear()
     writer.close()
     assert bank.writes == [(0x3094, 0x3000)]
     assert bank.ctrl[18] == prior and bank.closed
@@ -351,11 +372,13 @@ def test_close_puts_back_the_override_and_checks_ctrl_is_as_it_was(bank):
     assert bank.writes == [(0x3094, 0x3000)]
 
 
-def test_close_restores_a_pulse_left_high(bank):
-    """A pulse whose CLEAR never ran (as a process killed between the two writes would
-    leave it, in a later version's bug) is put back by close()."""
+def test_close_restores_an_override_left_high_after_the_writer_armed(bank):
+    """An override found set at close, once the writer has written (as a signal landing
+    between the two stores would leave it), is cleared by close()."""
     writer = _writer(bank)
     writer.open()
+    writer.verify(lambda high: bank.drive(18, int(high)))
+    writer.pulse(0)
     bank.write32(0x2094, 0x3000)
     bank.writes.clear()
     writer.close()
@@ -366,8 +389,54 @@ def test_close_restores_a_pulse_left_high(bank):
 def test_a_restore_that_did_not_take_is_raised_not_hidden(bank):
     writer = _writer(bank)
     writer.open()
+    writer.verify(lambda high: bank.drive(18, int(high)))
+    writer.pulse(0)
     bank.write32(0x2094, 0x3000)
     bank.ignore_clear = True
+    with pytest.raises(harness.WriterError, match="not restored"):
+        writer.close()
+    assert bank.closed
+
+
+def test_a_stall_before_the_set_store_does_not_shorten_the_high(bank):
+    """The hold is timed from a RAW read after the SET store, so a preemption between the
+    first RAW read and the store lengthens the pulse's bracket, never shortens its high
+    below the hold (review I2). Here the store itself is 4 us late."""
+    pads = []
+    bank.on_pad = lambda pin, level: pads.append(bank.clock.true_ns)
+    real = bank.write32
+
+    def late_set(offset, value):
+        if offset == 0x2094:
+            bank.clock.advance(4_000)
+        real(offset, value)
+
+    bank.write32 = late_set
+    with _writer(bank) as writer:
+        writer.verify(lambda high: bank.drive(18, int(high)))
+        pads.clear()
+        before, set_after, clear_before, after = writer.pulse(2_000)
+    rise, fall = pads
+    assert fall - rise >= 2_000
+    assert before <= rise <= set_after and clear_before <= fall <= after
+    assert clear_before - set_after >= 2_000
+
+
+def test_a_ctrl_word_changed_by_the_first_pulse_is_raised_at_once(bank):
+    """After the first pulse CTRL is read back against the word open() read: a store that
+    was split or widened, so touched other bits, stops the writer then, not at close
+    (review M3)."""
+    real = bank.write32
+
+    def widened(offset, value):
+        real(offset, value | (0x1 << 5) if offset == 0x2094 else value)
+
+    bank.write32 = widened
+    writer = _writer(bank)
+    writer.open()
+    writer.verify(lambda high: bank.drive(18, int(high)))
+    with pytest.raises(harness.WriterError, match="first pulse"):
+        writer.pulse(0)
     with pytest.raises(harness.WriterError, match="not restored"):
         writer.close()
     assert bank.closed
@@ -376,6 +445,7 @@ def test_a_restore_that_did_not_take_is_raised_not_hidden(bank):
 def test_a_fall_that_did_not_land_is_raised(bank):
     with _writer(bank) as writer:
         writer.verify(lambda high: bank.drive(18, int(high)))
+        writer.pulse(0)  # the first pulse, whose CTRL read-back would raise first
         bank.ignore_clear = True
         with pytest.raises(harness.WriterError, match="still high"):
             writer.pulse(0)
@@ -829,7 +899,8 @@ def test_the_rig_opens_the_writer_on_the_dense_pin_and_verifies_it_before_the_bl
     rig.block.enable_in_sync()
     event = rig.short(2_000, "w2")
     assert event.stamps[1] and not event.stamps[2]
-    assert event.upper_ns < 5_000 and event.lower_ns is None
+    assert event.upper_ns < 5_000 and event.lower_ns >= 2_000
+    assert event.rise_after is not None and event.bracket_ns < event.upper_ns
     rig.close()
     assert board.bank.writes[-1] == (0x3094, 0x3000) and board.bank.closed
 
@@ -859,6 +930,7 @@ def test_a_held_high_on_the_dense_pin_is_read_back_and_has_a_lower_bound(board):
 
 def test_the_close_restores_the_writer_even_when_the_block_fails_to_close(board):
     rig = _rig(board, [18, 17], dense_pin=18)
+    rig.short(2_000)  # armed, so there is an override to restore
 
     def failing_close():
         raise RuntimeError("close")
@@ -910,7 +982,7 @@ def test_a_dense_pin_the_block_takes_is_refused_once_the_block_is_open(board):
     with pytest.raises(harness.WriterRefused, match="PIO"):
         _rig(board, [18, 17], dense_pin=18)
     assert board.shim.closed == 1 and len(board.gpiod.released) == 1
-    assert [w for w in board.bank.writes if w != (0x3094, 0x3000)] == []
+    assert board.bank.writes == []  # the pin is the PIO's now: not even a CLEAR
 
 
 def test_nothing_but_the_bench_reaches_the_harness_or_rp1s_registers():
@@ -925,3 +997,89 @@ def test_nothing_but_the_bench_reaches_the_harness_or_rp1s_registers():
             assert "harness" not in text, name
         if name != "wl_sync/rp1/harness.py":
             assert "gpiomem" not in text, name
+
+
+def test_an_override_found_set_is_refused_naming_the_command_that_clears_it(bank):
+    bank.ctrl[18] |= 3 << 12
+    with pytest.raises(harness.WriterRefused,
+                       match=r"python -m wl_sync.bench override --pin 18 --clear"):
+        _writer(bank).open()
+    assert bank.writes == []
+
+
+def _clear(board, pin=18):
+    return harness.clear_override(pin, "/dev/gpiochip0", open_map=lambda path: board.bank)
+
+
+def test_clearing_a_stuck_override_checks_the_map_and_writes_one_clear(board):
+    """The recovery for an override a killed run left set (review I3). libgpiod takes the
+    line low, and STATUS's OUTFROMPERI, which is before the override (Table 7, p.20-21),
+    must follow it while OUTTOPAD stays forced high; then one CLEAR of OUTOVER, and CTRL
+    and STATUS read back."""
+    board.bank.hold_as_output(18)
+    board.bank.ctrl[18] |= 3 << 12
+    board.bank.rio_oe[18] = 0  # as libgpiod's release may leave it
+    said = _clear(board)
+    assert board.bank.writes == [(0x3094, 0x3000)]
+    assert board.bank.ctrl[18] & 0xF000 == 0 and board.bank.pad(18) == 0
+    assert "cleared" in said and board.bank.closed
+    [(_, pins, _, consumer)] = board.gpiod.requests
+    assert pins == (18,) and consumer == "wl-sync-bench"
+    assert board.gpiod.released == [{18: 0}]
+
+
+def test_clearing_writes_nothing_when_no_override_is_set(board):
+    said = _clear(board)
+    assert board.bank.writes == [] and "nothing" in said
+
+
+@pytest.mark.parametrize("fault, said", [
+    ("frozen", "does not follow"),
+    ("pio", "PIO"),
+    ("oeover", "output enable"),
+])
+def test_clearing_is_refused_with_nothing_written_unless_the_pin_is_provably_ours(
+    board, fault, said
+):
+    board.bank.ctrl[18] |= 3 << 12
+    real = board.gpiod.request_lines
+
+    def request(path, config, consumer):
+        made = real(path, config, consumer)
+        if fault == "frozen":
+            board.bank.frozen = True
+        elif fault == "pio":
+            board.bank.ctrl[18] = (board.bank.ctrl[18] & ~0x1F) | 7
+        else:
+            board.bank.ctrl[18] |= 3 << 14
+        return made
+
+    board.gpiod.request_lines = request
+    with pytest.raises(harness.WriterRefused, match=said):
+        _clear(board)
+    assert board.bank.writes == [] and board.bank.closed
+    assert len(board.gpiod.released) == 1
+
+
+def test_clearing_refuses_a_line_another_consumer_holds_before_mapping(board):
+    board.used[18] = "someone"
+    opened = []
+    with pytest.raises(harness.HarnessError, match="someone"):
+        harness.clear_override(18, "/dev/gpiochip0", open_map=lambda p: opened.append(p))
+    assert opened == [] and board.bank.writes == []
+
+
+@pytest.mark.parametrize("pin", [17, 20])
+def test_clearing_takes_a_spare_pin_only(board, pin):
+    with pytest.raises(ValueError, match="spare"):
+        _clear(board, pin)
+    assert board.gpiod.requests == []
+
+
+def test_reading_the_overrides_only_reads(board):
+    board.bank.hold_as_output(18)
+    board.bank.ctrl[19] |= 3 << 12
+    found = harness.read_overrides((18, 19), open_map=lambda path: board.bank)
+    assert [(pin, outover, oeover) for pin, _, _, outover, oeover in found] == [
+        (18, 0, 0), (19, 3, 0)]
+    assert board.bank.writes == [] and board.gpiod.requests == [] and board.bank.closed
