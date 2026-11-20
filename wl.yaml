@@ -70,7 +70,7 @@ status:
     not merged: the repository's unit writes /data/rig0, the first rig
     box's folder, as the unit installed on wl-sync-rig0 does (the next box
     writes rig1); and CodeWord.tick_us says what a W tick counts under each
-    timebase, where it is zero, and its limits (wl_sync/log.py:276-320).
+    timebase, where it is zero, and its limits (wl_sync/log.py:276-325).
   next: >-
     Task 1.16's and Task 1.17's re-reviews, then their merge to main,
     wait. Note 7 goes to
@@ -90,7 +90,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "db98c6e"
+  describes: "b53daa7"
 
 runs_on: [rig/sync]
 builds_on: [dws]
