@@ -33,9 +33,9 @@ status:
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
     by simulating the program's words but not yet on silicon. One clock
-    (docs/superpowers/specs/2026-10-30-one-clock-design.md), Part 1, is built
-    on branch one-clock-p1 and reviewed, task by task and then as a whole
-    branch, whose fixes are made; it is not merged, pushed or deployed. A
+    (docs/superpowers/specs/2026-10-30-one-clock-design.md), Part 1, is built,
+    reviewed task by task and then as a whole branch, and merged to local main
+    (2026-11-20); it is not pushed or deployed. A
     second state machine stamps each barcode's lead edge, reading GPIO17
     itself with nothing wired (c-direct, bench spike S, 2026-11-07). Code
     words, barcodes and edges share RP1's PIO count, scaled by one rate per
@@ -46,12 +46,15 @@ status:
     not stamped loses its B, with a journal ERROR. The header's schema is
     unchanged. The shim must be rebuilt (version 3). 1056 tests.
   next: >-
-    A local merge of one-clock-p1, which waits for the user, then note 7 to
-    wl-preproc (docs/pending-wl-preproc-amendments.md). Before one count is
-    deployed, the user rules on six things the final review left open: I1,
-    faults that lose B for the rest of the process with nothing to recover it
-    short of a restart (a stamp-stream desync, a fit lost beyond the restart's
-    reach); M2, the edge-order guard clamping edges silently; M4, a rate gate
+    Pushing main waits for the user; then note 7 to wl-preproc
+    (docs/pending-wl-preproc-amendments.md). I1, faults that lose B for the
+    rest of the process with nothing to recover it short of a restart (a
+    stamp-stream desync, a fit lost beyond the restart's reach), is ruled
+    (the user, 2026-11-20) and not yet built: a journal WARNING once E is
+    extrapolated, and a desynced stamp stream resynchronised rather than
+    stopped. Before one count is deployed, the user rules on five more things
+    the final review and earlier tasks left open: M2, the edge-order guard
+    clamping edges silently; M4, a rate gate
     that never opens saying nothing; Task 1.7's WARNING for each frame with
     stamps between frames; a capture machine that cannot start still
     crash-looping the unit; and C-7, a refused sync enable that nothing sees.
@@ -67,7 +70,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "8e13f6f"
+  describes: "9c0de98"
 
 runs_on: [rig/sync]
 builds_on: [dws]
