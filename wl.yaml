@@ -34,8 +34,8 @@ status:
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
     by simulating the program's words but not yet on silicon. One clock
     (docs/superpowers/specs/2026-10-30-one-clock-design.md), Part 1, is built,
-    reviewed task by task and then as a whole branch, and merged to local main
-    (2026-11-20); it is not pushed or deployed. A
+    reviewed task by task and then as a whole branch, merged to main, and
+    pushed (origin/main 29f6c37, 2026-11-20); it is not deployed. A
     second state machine stamps each barcode's lead edge, reading GPIO17
     itself with nothing wired (c-direct, bench spike S, 2026-11-07). Code
     words, barcodes and edges share RP1's PIO count, scaled by one rate per
@@ -45,23 +45,28 @@ status:
     its start-up test records "split", as before. A frame whose lead edge is
     not stamped loses its B, with a journal ERROR. The header's schema is
     unchanged. The shim must be rebuilt (version 3). I1 (Task 1.15) is built,
-    reviewed, its review's minors fixed, and merged to local main
+    reviewed, its review's minors fixed, merged and pushed with main
     (2026-11-20; 1084 tests): a desynced stamp
     stream is paired again rather than stopped, and the journal says, once an
     episode, when the fit has gone 20 frames without a lead-edge pair, so
-    that E and roll boundaries are extrapolated.
+    that E and roll boundaries are extrapolated. Task 1.16 (the user's
+    rulings, 2026-11-20) is built on branch one-clock-p1, not yet reviewed
+    or merged (1094 tests). It closes two gaps: a shim, PIO block or capture
+    machine that cannot start no longer crash-loops the unit, and the
+    process records split with no W records, saying so in the journal; and
+    the start-up test enables its machine through the sync enable, so a box
+    that refuses that call records split (C-7). A refusal of the production
+    enable alone, after the test's was obeyed, is still not seen.
   next: >-
-    Pushing main waits for the user; then note 7 to wl-preproc
-    (docs/pending-wl-preproc-amendments.md). I1 (the user's ruling,
-    2026-11-20) is merged to local main, not pushed or deployed; a fit lost
+    Task 1.16's review, then its merge to main, wait. Note 7 goes to
+    wl-preproc (docs/pending-wl-preproc-amendments.md), now with its line on
+    split segments without W. I1 is pushed, not deployed; a fit lost
     beyond the restart's reach still drops every B
-    until a restart, now with a WARNING. Before one count is deployed, the
-    user rules on five more things
-    the final review and earlier tasks left open: M2, the edge-order guard
-    clamping edges silently; M4, a rate gate
-    that never opens saying nothing; Task 1.7's WARNING for each frame with
-    stamps between frames; a capture machine that cannot start still
-    crash-looping the unit; and C-7, a refused sync enable that nothing sees.
+    until a restart, now with a WARNING. Three rulings of 2026-11-20 are
+    still to be built: M2, the edge-order guard clamping
+    edges silently ("count, summary only"); M4, a rate gate that never opens
+    saying nothing ("one WARNING per process"); and Task 1.7's WARNING for
+    each frame with stamps between frames ("edge-trigger it").
     Bench day, in the order of docs/next-session.md:112-174:
     rebuild the shim (version 3); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
@@ -74,7 +79,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "fa4f821"
+  describes: "3fae138"
 
 runs_on: [rig/sync]
 builds_on: [dws]
