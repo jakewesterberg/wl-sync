@@ -55,6 +55,15 @@ schematic or the private spec:
   per functional block (power, task-PC digital, Pi interface, analog front end, analog-to-NI,
   mux-to-Intan, comparators, opto-to-NI, opto-to-Intan, USB/I²C control).
 
+**Before laying out the breakout board, read `hardware/breakout/constraints.md`.** It is the
+layout constraint set for plan Task 14: ground domains and the four net ties, the isolation
+barriers and their slot margins, net classes, sensitive-net placement, keep-outs and the
+connector faces. Every rule in it cites its source or is marked as engineering judgment, and
+it ends with the questions the designer still has to answer. It sits beside the documents it
+draws on: `design-review.md` (the sign-off that gates layout), `parametric-audit.md`,
+`panel-elevations.md`, `frame-time-inputs.md`, `line-out-and-pfi-copy.md` and
+`f6-review-brief.md`.
+
 As of this commit, `hardware/mule/` carries a generated schematic (`mule.kicad_sch`, produced
 by `hardware/gen/gen_mule.py`) and a generated, placed-but-unrouted board (`mule.kicad_pcb`,
 produced by `hardware/gen/gen_mule_pcb.py`) — see `hardware/mule/floorplan.md` for the

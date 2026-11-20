@@ -877,6 +877,26 @@ cutouts. Domain regions placed so each isolation barrier is a **single straight 
 the board, never a zigzag: AGND front-centre, DGND centre, NI_GND and INTAN_GND each in their
 own rear corner.
 
+> **Superseded in part. Note added 2026-11-20; the text above is left as it was written.**
+> The face assignment in this step is the one spec §9.6 corrected on 2026-08-15
+> (`docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md:789-799`: "The front/rear
+> assignment was backwards"). `hardware/breakout/panel-elevations.md:15-46` was drawn from the
+> corrected version, and **the spec and `panel-elevations.md` supersede this step's face
+> assignment**: the front edge carries the 14 Intan BNCs, the recording NI's two MDR68s, and
+> the reward button and remote; the back edge carries the rig-facing BNCs, the reward driver
+> output, the task PC's two MDR68s, the DB37, the supply inlet and the Pi's port cutouts.
+>
+> Two rules in this task were written for the old faces and **must be re-derived for the
+> corrected ones**:
+>
+> - **"a single straight barrier line"**, with NI_GND and INTAN_GND "each in their own rear
+>   corner" (this step). Both isolated domains now have their connectors on the front edge.
+> - **the barcode "kept away from the front edge"** (Step 2, and Task 15 Step 4's render
+>   check). Two barcode destinations, `J45` and `J46`, are now front-face connectors.
+>
+> `hardware/breakout/constraints.md` gives the corrected rules (its B-1 and B-2 for the
+> barriers, K-1 to K-5 for the barcode) and lists what the designer still has to decide.
+
 - [ ] **Step 1b: Place the Pi, its NVMe adapter, and the airflow path**
 
 The sync box is a **CM5 Lite on the official CM5 IO Board**, booting from that board's onboard

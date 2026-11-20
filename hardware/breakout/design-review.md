@@ -378,3 +378,9 @@ Recorded here so signing this document does not lose them:
 | Standoff height chosen (it sets where the BNC row lands on the panel) | during layout | `panel-elevations.md` §3 |
 | Panel connector positions checked against real placed coordinates | **before panels are machined** | Task 15 Step 2 |
 | Recessed pushbutton (`J4`) MPN locked | during early layout | `procurement-check.md` |
+
+**The layout constraint set is `hardware/breakout/constraints.md`** (added 2026-11-20). It
+carries each item in this table into a numbered layout rule with its source, and it records
+two things this document predates: the three schematic gaps closed on 2026-11-20 (`U63`'s
+input filter, `J19`'s shell position `R224`, and the `U3`/`U4` PowerPAD), and the board's
+four net ties `NT1`–`NT4`, where the net-tie item above still says one.
