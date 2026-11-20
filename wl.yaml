@@ -49,7 +49,7 @@ status:
     they count RP1's crystal ("rp1-pio"). A process whose stamp machine fails
     its start-up test records "split", as before. A frame whose lead edge is
     not stamped loses its B, with a journal ERROR. The header's schema is
-    unchanged. The shim must be rebuilt (version 5). I1 (Task 1.15) is built,
+    unchanged. The shim must be rebuilt (version 6). I1 (Task 1.15) is built,
     reviewed, its review's minors fixed, merged and pushed with main
     (2026-11-20; 1084 tests): a desynced stamp
     stream is paired again rather than stopped, and the journal says, once an
@@ -96,7 +96,7 @@ status:
     it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
     1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
     wl_sync/rp1/harness.py), is built on the one-clock-p1 branch, reviewed,
-    and its fix rounds made (1308 tests); not merged. Its box run began 2026-11-20: step 1 found /dev/gpiomem0 must be mapped whole (0x30000), and step 2 that writer highs need each posted store read back to last their hold; both are fixed, and the probe is rerun next. B3b's
+    and its fix rounds made; not merged. Its box run began 2026-11-20: step 1 found /dev/gpiomem0 must be mapped whole (0x30000), step 2 that writer highs need each posted store read back to last their hold, and its rerun that no CPU bound can prove a high short (one RP1 read is 5.1 us). The user ruled for a harness-only PIO width meter (2026-11-20), now built: shim version 6, 1347 tests. The box needs the v6 shim rebuilt in the spike's lib before the probe reruns. B3b's
     short highs come from a register writer that sets and clears one spare
     pin's GPIOn_CTRL.OUTOVER through /dev/gpiomem0, confined to the harness;
     bench override reads that override after a run and clears one left set,
@@ -110,7 +110,7 @@ status:
     it from the user's next restart; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
     Bench day, in the order of docs/next-session.md:113-273:
-    rebuild the shim (version 5); then GPIO17 looped to GPIO20, so the box
+    rebuild the shim (version 6); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
     task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
@@ -123,7 +123,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "f03c075"
+  describes: "20f798e"
 
 runs_on: [rig/sync]
 builds_on: [dws]
