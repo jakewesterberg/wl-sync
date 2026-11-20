@@ -50,7 +50,7 @@ status:
     Before one count is deployed, three known gaps wait for the user: Task
     1.7's WARNING for each frame with stamps between frames, a capture machine
     that cannot start still crash-looping the unit, and a refused sync enable
-    that nothing sees. Bench day, in the order of docs/next-session.md:112-168:
+    that nothing sees. Bench day, in the order of docs/next-session.md:112-174:
     rebuild the shim (version 3); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the

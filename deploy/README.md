@@ -24,14 +24,17 @@ label (`gpioinfo`):
     wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
 
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
-*(Added 2026-10-30.)* Once the loopback (`docs/next-session.md`, Step B) has measured the
-barcode delay, also add `--barcode-delay-us N`, where N is the median "lead edge after its
-logged tick" it printed, in whole µs. Without it every header says the delay is unmeasured.
-*(Added 2026-11-19, for the one-clock build.)* On the RP1 backend the flag matters only to
-a process that records `"split"` (below). Otherwise the backend stamps the lead edge
-itself, every header says `barcode_delay_us` 0, and a flag given beside it is not used,
-with a WARNING (`wl_sync/cli.py:553-561`). On such a process the loopback's median is the edge input's
-own constant, "E's constant (B6)", not a delay of the barcode's (`wl_sync/bench.py:103`).
+*(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
+is for a process that records `"split"` alone (below). Such a process writes the flag into
+every header (`wl_sync/rp1/backend.py:594`; `wl_sync/cli.py:553-561`, `:570`), and N is
+the loopback's median "lead edge after its logged tick" (`docs/next-session.md`, Step B),
+in whole µs, read from a segment whose header says `"split"`. On one count the backend
+stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
+not used, with a WARNING (`wl_sync/rp1/backend.py:383`; `wl_sync/cli.py:553-561`). There
+the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:103`), the edge input's
+own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
+process that falls back to `"split"` would write it into every header. With no split
+measurement, leave the flag out, and a split process's headers say `null`, unmeasured.
 
 ## Checking it
 
