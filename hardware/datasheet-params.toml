@@ -1046,6 +1046,14 @@ alias_xor = 0x1000
 alias_set = 0x2000
 alias_clear = 0x3000
 aliases_span = 0x4000
+# A BENCH FACT, NOT THE DATASHEET'S (wl-rig-sync0, 2026-11-20, Task 1.21 box step 1):
+# /dev/gpiomem0 must be mapped whole. The kernel log: "rpi-gpiomem 1f000d0000.gpiomem:
+# window base 0x1f000d0000 size 0x00030000 ... initialised 1 regions as /dev/gpiomem0",
+# BAR1 + 0xd0000, IO_BANK0's offset by Section 2.3.1. mmap of 0x1000 and of 0x4000 failed
+# with EINVAL, read-only and read-write; 0x30000 succeeded, and read GPIO18's STATUS
+# 0x04400000 and CTRL 0x9f (no override, FUNCSEL 31). The harness maps the whole window
+# and reaches only aliases_span of it.
+gpiomem0_map_length = 0x30000
 # Table 6 (printed p.18-20) and the register headings (printed p.20, p.21): GPIOn_STATUS
 # at 0x000, 0x008, ... 0x0d8 and GPIOn_CTRL at 0x004, 0x00c, ... 0x0dc, so 8n and 8n + 4.
 gpio_status_offset_stride = [0x000, 8]
@@ -1072,7 +1080,8 @@ registers.
 
 WHAT THE DATASHEET DOES NOT GIVE:
   - /dev/gpiomem0 at all. That the device maps IO_BANK0 from its offset 0 is the kernel's
-    (its device tree), not this document's. The harness checks it on the box before its
+    (its device tree), not this document's, as is the length it must be mapped with
+    (gpiomem0_map_length, a bench fact). The harness checks it on the box before its
     first write: GPIOn_STATUS read through the map must follow a level libgpiod sets
     (PulseWriter.verify), or nothing is written.
   - RIO's register offsets. Section 3.3 (printed p.34) names RIO_OUT, RIO_OE, RIO_NOSYNC_IN

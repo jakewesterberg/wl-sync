@@ -81,8 +81,17 @@ def wait_until(deadline_ns: int) -> None:
 # mapping on the box before the first write.
 GPIOMEM_PATH = "/dev/gpiomem0"
 # The four atomic aliases of a block take 16 kB (section 2.4, p.11), so this span holds
-# IO_BANK0's every register through each.
-GPIOMEM_SPAN = 0x4000
+# IO_BANK0's every register through each. It is the only part of the map `Gpiomem` reaches.
+IO_BANK0_SPAN = 0x4000
+# How much of /dev/gpiomem0 is mapped: ALL of its window, 0x30000. A BENCH FACT, not the
+# datasheet's (wl-rig-sync0, 2026-11-20, box step 1). The kernel logs "rpi-gpiomem
+# 1f000d0000.gpiomem: window base 0x1f000d0000 size 0x00030000 ... as /dev/gpiomem0", and
+# rpi-gpiomem refuses a shorter map: mmap of 0x1000 and 0x4000 failed with EINVAL, under
+# PROT_READ and under PROT_READ | PROT_WRITE, and 0x30000 succeeded. The window runs from
+# IO_BANK0, BAR1 + 0xd0000, through sys_rio and pads_bank0 (Table 2, p.9). Nothing beyond
+# IO_BANK0_SPAN is ever read or written: `Gpiomem._index` refuses it, and the writer's
+# stores are guarded again by `_store`.
+GPIOMEM_MAP_LENGTH = 0x30000
 # Section 2.4, p.11: "Addr + 0x2000 : atomic bitmask set on write", "Addr + 0x3000 :
 # atomic bitmask clear on write". IO_BANK0 has atomic access (Table 5, p.18). So each
 # write changes only the bits it names, with no read-modify-write that could race the
@@ -152,7 +161,7 @@ class Gpiomem:
     def __init__(self, path: str) -> None:
         fd = os.open(path, os.O_RDWR | os.O_SYNC)
         try:
-            self._map = mmap.mmap(fd, GPIOMEM_SPAN, mmap.MAP_SHARED,
+            self._map = mmap.mmap(fd, GPIOMEM_MAP_LENGTH, mmap.MAP_SHARED,
                                   mmap.PROT_READ | mmap.PROT_WRITE)
         finally:
             os.close(fd)
@@ -162,7 +171,7 @@ class Gpiomem:
             raise WriterError("this platform's unsigned int is not 32 bits")
 
     def _index(self, offset: int) -> int:
-        if offset % 4 or not 0 <= offset < GPIOMEM_SPAN:
+        if offset % 4 or not 0 <= offset < IO_BANK0_SPAN:
             raise ValueError(f"{offset:#x} is not a word offset into IO_BANK0's aliases")
         if self._words is None:
             raise WriterError("the map is closed")
@@ -179,6 +188,21 @@ class Gpiomem:
             self._words.release()
             self._words = None
             self._map.close()
+
+
+def _store(regs, pin: int, offset: int, value: int, aliases: Sequence[int]) -> None:
+    """THE ONLY WAY ANYTHING HERE WRITES RP1. The map spans the whole 0x30000 window
+    (GPIOMEM_MAP_LENGTH), so this guard, not the map's bounds, keeps every store to
+    OUTOVER_MASK on GPIO`pin`'s CTRL, through the aliases named: SET and CLEAR for the
+    writer, CLEAR alone for `clear_override`. Anything else raises with nothing
+    written."""
+    allowed = {ctrl_offset(pin) + alias for alias in aliases}
+    if offset not in allowed or value != OUTOVER_MASK:
+        raise WriterError(
+            f"the harness stores only {OUTOVER_MASK:#06x} to GPIO{pin}'s CTRL through "
+            f"{', '.join(f'{a:#x}' for a in sorted(allowed))}, not {value:#x} to {offset:#x}"
+        )
+    regs.write32(offset, value)
 
 
 def clear_command(pin: int) -> str:
@@ -287,6 +311,10 @@ class PulseWriter:
             raise
         self._regs, self._prior = regs, ctrl
 
+    def _store(self, offset: int, value: int) -> None:
+        """Every store the writer makes, through `_store`'s guard."""
+        _store(self._opened(), self.pin, offset, value, (ALIAS_SET, ALIAS_CLEAR))
+
     def check(self) -> None:
         """Read the pin again, as open() read it, and refuse it on the same grounds: the
         rig calls it once the PIO block is open, after which a pin the block had taken
@@ -357,13 +385,13 @@ class PulseWriter:
         # between here and the CLEAR; never armed, close() writes nothing (review I1).
         self._armed = True
         try:
-            regs.write32(self._ctrl + ALIAS_SET, OUTOVER_MASK)
+            self._store(self._ctrl + ALIAS_SET, OUTOVER_MASK)
             set_after = clear_before = raw_ns()
             deadline = set_after + hold_ns
             while clear_before < deadline:
                 clear_before = raw_ns()
         finally:
-            regs.write32(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
+            self._store(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
         ctrl = None if self._pulsed else regs.read32(self._ctrl)
         status = regs.read32(self._status)
         after = raw_ns()
@@ -406,7 +434,8 @@ class PulseWriter:
             regs.close()
             return
         try:
-            regs.write32(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
+            _store(regs, self.pin, self._ctrl + ALIAS_CLEAR, OUTOVER_MASK,
+                   (ALIAS_SET, ALIAS_CLEAR))
             now = regs.read32(self._ctrl)
         finally:
             regs.close()
@@ -984,7 +1013,7 @@ def clear_override(
                             )
             finally:
                 lines.set(pin, False)
-            regs.write32(ctrl_offset(pin) + ALIAS_CLEAR, OUTOVER_MASK)
+            _store(regs, pin, ctrl_offset(pin) + ALIAS_CLEAR, OUTOVER_MASK, (ALIAS_CLEAR,))
             now = regs.read32(ctrl_offset(pin))
             status = regs.read32(status_offset(pin))
         finally:

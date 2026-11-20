@@ -203,7 +203,9 @@ def test_the_writers_offsets_and_values_are_the_datasheets():
     assert harness.status_offset(18) == base + 18 * stride == 0x090
     assert harness.ALIAS_SET == _RP1["alias_set"] == 0x2000
     assert harness.ALIAS_CLEAR == _RP1["alias_clear"] == 0x3000
-    assert harness.GPIOMEM_SPAN == _RP1["aliases_span"]
+    assert harness.IO_BANK0_SPAN == _RP1["aliases_span"] == 0x4000
+    # Not the datasheet's: the box's (wl-rig-sync0, 2026-11-20, box step 1).
+    assert harness.GPIOMEM_MAP_LENGTH == _RP1["gpiomem0_map_length"] == 0x30000
     high, low = _RP1["ctrl_outover_bits"]
     assert harness.OUTOVER_MASK == ((1 << (high - low + 1)) - 1) << low == 0x3000
     assert harness.STATUS_OUTTOPAD == _STATUS_OUTTOPAD
@@ -467,17 +469,49 @@ def test_a_rise_by_libgpiod_is_read_back_through_the_map(bank):
             writer.rise_landed()
 
 
-def test_the_gpiomem_map_reads_and_writes_32_bit_words_at_exact_offsets(tmp_path):
-    """The map itself, on a file the size of the four aliases: each access is one
-    little-endian 32-bit word at its offset, and anything else is refused."""
+@pytest.fixture
+def window_only(monkeypatch):
+    """mmap as rpi-gpiomem answers it on the box: EINVAL for any length but the whole
+    window, 0x30000 (wl-rig-sync0, 2026-11-20: 0x1000 and 0x4000 refused, 0x30000 taken)."""
+    import errno
+
+    real = harness.mmap.mmap
+    lengths = []
+
+    def mmap(fd, length, *args, **kwargs):
+        lengths.append(length)
+        if length != 0x30000:
+            raise OSError(errno.EINVAL, "Invalid argument")
+        return real(fd, length, *args, **kwargs)
+
+    monkeypatch.setattr(harness.mmap, "mmap", mmap)
+    return lengths
+
+
+def test_the_gpiomem_map_takes_the_whole_window_as_the_box_requires(tmp_path, window_only):
+    """Box step 1 (2026-11-20): rpi-gpiomem refuses a map shorter than its 0x30000 window,
+    so a 0x4000 map failed with EINVAL and `override` could not read."""
     path = tmp_path / "gpiomem0"
-    path.write_bytes(bytes(harness.GPIOMEM_SPAN))
+    path.write_bytes(bytes(0x30000))
+    regs = harness.Gpiomem(str(path))
+    assert window_only == [0x30000]
+    regs.close()
+
+
+def test_the_gpiomem_map_reads_and_writes_32_bit_words_at_exact_offsets(
+    tmp_path, window_only
+):
+    """The map itself, on a file the size of the window: each access is one little-endian
+    32-bit word at its offset, and anything else is refused, IO_BANK0's 16 kB of aliases
+    the only part of the window reachable through it."""
+    path = tmp_path / "gpiomem0"
+    path.write_bytes(bytes(0x30000))
     regs = harness.Gpiomem(str(path))
     regs.write32(0x2094, 0x3000)
     regs.write32(0x0094, 0xDEADBEEF)
     assert regs.read32(0x2094) == 0x3000
     assert regs.read32(0x0094) == 0xDEADBEEF
-    for bad in (0x2095, -4, harness.GPIOMEM_SPAN):
+    for bad in (0x2095, -4, 0x4000, 0x2FFFC, 0x30000):
         with pytest.raises(ValueError):
             regs.write32(bad, 0)
         with pytest.raises(ValueError):
@@ -1102,3 +1136,17 @@ def test_reading_the_overrides_only_reads(board):
     assert [(pin, outover, oeover) for pin, _, _, outover, oeover in found] == [
         (18, 0, 0), (19, 3, 0)]
     assert board.bank.writes == [] and board.gpiod.requests == [] and board.bank.closed
+
+
+@pytest.mark.parametrize("offset", [0x094, 0x1094, 0x2090, 0x309C, 0x2098, 0x4094, 0x0])
+def test_the_writer_refuses_any_store_but_its_pins_set_and_clear(bank, offset):
+    """The map now spans the whole 0x30000 window, so the writer's own guard is what keeps
+    every store on the dense pin's CTRL SET and CLEAR aliases: any other offset, or any
+    other value, is refused with nothing written."""
+    writer = _writer(bank)
+    writer.open()
+    with pytest.raises(harness.WriterError, match="only"):
+        writer._store(offset, harness.OUTOVER_MASK)
+    with pytest.raises(harness.WriterError, match="only"):
+        writer._store(0x2094, 0x1000)
+    assert bank.writes == []
