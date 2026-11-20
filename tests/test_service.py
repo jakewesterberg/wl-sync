@@ -4,7 +4,14 @@ from wl_sync.backend import STAMP_NOT_SEEN, CaptureLoss, FakeBackend, FrameStamp
 from wl_sync.barcode import IDLE_MIN_US, decode_edges, encode
 from wl_sync.clockmap import TickScale
 from wl_sync.log import BarcodeEmitted, CodeWord, Edge, Loss, TICK_WRAP_US
-from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, _BoxClock, frame_times
+from wl_sync.service import (
+    FRAME_TIME_GPIO,
+    STEP_BACK_MAX_US,
+    BarcodeGenerator,
+    Recorder,
+    _BoxClock,
+    frame_times,
+)
 
 BARCODE_PIN = 17
 DATA_BASE = 2
@@ -215,19 +222,65 @@ def test_a_clock_that_steps_back_a_few_counts_is_held_not_wrapped():
     ]
 
 
+def test_a_clock_that_steps_back_across_the_wrap_is_held_not_wrapped_twice():
+    """Ruling R34. Just after a wrap, a reading a few counts back lands just below 2^32: a
+    step back measured mod 2^32, held like any other. Under R32, which looked only at
+    drops, it read as a rise of nearly a wrap: `now()` jumped 71.6 min ahead, and the
+    next reading counted a second wrap."""
+    assert _box_clock_readings([TICK_WRAP_US - 10, 3, TICK_WRAP_US - 4, 8]) == [
+        TICK_WRAP_US - 10,
+        TICK_WRAP_US + 3,
+        TICK_WRAP_US + 3,
+        TICK_WRAP_US + 8,
+    ]
+
+
+def test_a_step_back_is_what_the_fit_can_make_with_margin():
+    """Ruling R34: STEP_BACK_MAX_US is the largest step back the fit can make, with margin.
+    A pair moves the line by its lead's distance from the bracket, within the window; an
+    R19 restart by its lead's, within the reach, IDLE_MIN_US; either by up to half a
+    narrow bracket more. 1 s is over twice their sum, so raising the reach past about
+    0.5 s fails here first."""
+    from wl_sync.barcode import IDLE_MIN_US
+    from wl_sync.clockmap import BRACKET_WIDTH_MAX_NS, LEAD_STAMP_TOLERANCE
+
+    assert STEP_BACK_MAX_US == 1_000_000
+    reachable = max(IDLE_MIN_US, LEAD_STAMP_TOLERANCE) + BRACKET_WIDTH_MAX_NS // 2_000
+    assert STEP_BACK_MAX_US >= 2 * reachable
+
+
+def test_a_step_back_just_under_step_back_max_is_held():
+    """Ruling R34's window, at its edge: a step back of STEP_BACK_MAX_US - 1 is held. One of
+    STEP_BACK_MAX_US is a forward gap of a wrap less that, which counts a wrap below."""
+    assert _box_clock_readings([STEP_BACK_MAX_US + 5, 6]) == [STEP_BACK_MAX_US + 5] * 2
+
+
 @pytest.mark.parametrize(
     "before, after",
-    [(TICK_WRAP_US - 10, 5), (TICK_WRAP_US // 2 + 1, 0)],
-    ids=["across-the-boundary", "just-over-half-a-wrap"],
+    [
+        (TICK_WRAP_US - 10, 5),
+        (TICK_WRAP_US // 2, 0),
+        (STEP_BACK_MAX_US + 5, 5),
+    ],
+    ids=["across-the-boundary", "half-a-wrap", "a-drop-of-step-back-max"],
 )
-def test_a_drop_of_more_than_half_a_wrap_is_still_a_wrap(before, after):
-    """Ruling R32: a wrap is counted when the reading drops by more than half a wrap."""
+def test_a_true_wrap_still_counts(before, after):
+    """Ruling R34: a reading that is not a step back is forward, and counts a wrap when its
+    raw value fell. A drop of half a wrap or of STEP_BACK_MAX_US is a long forward gap
+    across the boundary, not a step back."""
     assert _box_clock_readings([before, after]) == [before, TICK_WRAP_US + after]
 
 
-def test_a_drop_of_exactly_half_a_wrap_is_held():
-    """Ruling R32's boundary: a wrap only when the drop EXCEEDS half a wrap."""
-    assert _box_clock_readings([TICK_WRAP_US // 2, 0]) == [TICK_WRAP_US // 2] * 2
+@pytest.mark.parametrize("before", [10, 5_000_000], ids=["no-wrap", "across-the-boundary"])
+@pytest.mark.parametrize("short_by", [1, 0], ids=["just-short", "at-the-edge"])
+def test_a_forward_jump_short_of_a_wrap_less_step_back_max_is_forward(before, short_by):
+    """Ruling R34: a forward gap of up to a wrap less STEP_BACK_MAX_US is forward, from just
+    after the origin (no wrap) and from 5 s in (the raw value falls, so a wrap counts)."""
+    jump = TICK_WRAP_US - STEP_BACK_MAX_US - short_by
+    assert _box_clock_readings([before, (before + jump) % TICK_WRAP_US]) == [
+        before,
+        before + jump,
+    ]
 
 
 def test_a_word_after_the_clock_steps_back_lands_beside_it_not_a_wrap_later():

@@ -178,7 +178,7 @@ not an engine build.
 reconciles fluid against the box's delivered line (S8 §5.1). Since 2026-09-06 nothing in-session depends
 on a live read, so session end is enough if that is what you have. What we read in your source:
 reward lines are individual transitions logged as their own record type (`wl_sync/log.py:12-13`), and
-the emit loop flushes every second (`wl_sync/service.py:200-205`). We could not tell from that whether a
+the emit loop flushes every second (`wl_sync/service.py:467-468`). We could not tell from that whether a
 second process can read an open segment. Source:
 [S8 §8 item 2](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S8-session-management-design.md).
 Not asked: a live interface. Blocks: nothing. Welfare-critical on our side, so please state it exactly.

@@ -880,10 +880,10 @@ def run(
                     value,
                 )
             # THE BOX CLOCK IS READ EVERY FRAME, kept or dropped. It counts a wrap of the
-            # 32-bit counter only if it is read at least once per 2^31 us
-            # (wl_sync/service.py:99-101), and on a quiet rig record_barcode was what read
-            # it: an episode of drops longer than 35.8 min would lose a wrap, and every
-            # later tick would be placed 4294.967296 s early.
+            # 32-bit counter only if it is read at least once per 2^32 us less 1 s
+            # (wl_sync/service.py:115-117), and on a quiet rig record_barcode was what read
+            # it: an episode of drops longer than about 71.6 min would lose a wrap, and
+            # every later tick would be placed 4294.967296 s early.
             recorder.now()
             # A FRAME WITH NO STAMP HAS NO B, and the box records on (the user, 2026-10-30).
             # Every device recorded the frame and only this log lacks it, which costs each
@@ -1435,7 +1435,7 @@ class _RateKeeper:
     NTP-disciplined MONO, and kept in the calibration file (spec §2.2, "Persisting it").
 
     IT NEVER CHANGES THIS PROCESS'S RATE. The Recorder took its scale at the start and
-    keeps it (wl_sync/service.py:243-245). What is measured here is for the next start,
+    keeps it (wl_sync/service.py:262-264). What is measured here is for the next start,
     and for two witnesses in the journal.
 
     THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),

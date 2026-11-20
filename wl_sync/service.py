@@ -68,6 +68,22 @@ class BarcodeGenerator:
         return self._backend.emit_pulses(self._pin, encode(value))
 
 
+# The largest step back `now_us()` can make, with margin (Ruling R34): within it, a
+# reading behind the last, mod 2^32, is held, and beyond it, it is a forward gap. On one
+# count `now_us()` is RAW through the fit, and only the fit moves back:
+#   * a pair moves it to a lead in the window, LEAD_STAMP_TOLERANCE (1 ms) from a narrow
+#     bracket (wl_sync/rp1/backend.py:1292, :1317-1318; wl_sync/clockmap.py:395-397);
+#   * an R19 restart, to a lead within `reach` of the bracket, IDLE_MIN_US, 0.4 s
+#     (wl_sync/rp1/backend.py:1370; wl_sync/clockmap.py:321, :381-383);
+#   * either, by up to half a narrow bracket more, 50 us, since the pair's RAW is its
+#     middle. Restarts come REACQUIRE_FRAMES frames apart, seconds, so a held step back
+#     is caught up before the next.
+# So 0.4 s at most is reachable, and 1 s is over twice it. Before capture starts
+# `now_us()` is on another origin, which the clock never reads (precondition (2) below).
+# A split process's MONO never steps back.
+STEP_BACK_MAX_US = 1_000_000
+
+
 class _BoxClock:
     """The box's one clock, in P: unwraps 32-bit ticks from every delivery path against
     `now_us()`, rather than against each path's own previous tick.
@@ -77,8 +93,8 @@ class _BoxClock:
     and `_origin_ns` together; `edge_tick_us` uses the same origin). So there is ONE
     wrap count, and `now()` is the only thing that has to observe it.
 
-    `now()` is `now_us()` unwrapped: it adds 2^32 when the raw reading drops more than half
-    a wrap below the previous one, and holds a smaller drop at the previous (Ruling R32).
+    `now()` is `now_us()` unwrapped: it holds a reading behind the previous by under
+    STEP_BACK_MAX_US mod 2^32, and adds 2^32 when any other falls below it (R32, R34).
     `unwrap(raw)` returns the value congruent to `raw` mod 2^32 NEAREST to
     `now()`. Nearest, not "at or before": W ticks come from the RP1 crystal while
     `now_us()` follows NTP-slewed CLOCK_MONOTONIC, so a tick can lie slightly AFTER the
@@ -96,9 +112,9 @@ class _BoxClock:
     as a wrap. Here no per-record state is compared at all; each record is placed by its
     distance from `now()`, so interleaving cannot confuse it.
 
-    PRECONDITIONS. (1) `now()` is read at least once per 35.8 minutes, half a wrap, or a
-    wrap is held as a step back (R32) and goes uncounted. Records read it, and the run
-    loop reads it every frame (wl_sync/cli.py:887).
+    PRECONDITIONS. (1) `now()` is read at least once per 2^32 us less STEP_BACK_MAX_US,
+    71.6 min less 1 s, or a wrap goes uncounted (a longer gap reads as a step back). Records
+    read it, and the run loop reads it every frame (wl_sync/cli.py:887).
     (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
@@ -128,19 +144,22 @@ class _BoxClock:
         self._previous_raw: int | None = None
 
     def _now_locked(self) -> int:
-        # Ruling R32. On one count `now_us()` is the fit's and can step BACK a few counts
-        # (a pair below the line; an R19 restart when the fit ran ahead). Only a drop of
-        # more than half a wrap is a wrap. A smaller drop is held: the previous reading
-        # is returned and kept, so no record goes back, and no false wrap puts every
-        # later record 71.6 min late. A true wrap read more than half a wrap after the
-        # reading before it would be held as well; the run loop's per-frame read
-        # (precondition (1)) keeps reads far closer than that.
+        # Rulings R32 and R34. On one count `now_us()` is the fit's and can step BACK (a
+        # pair below the line; an R19 restart when the fit ran ahead). The step is read
+        # mod 2^32, so one across the boundary is seen as a step back too. Behind by under
+        # STEP_BACK_MAX_US is a step back, held: the previous reading is returned and
+        # kept, so no record goes back, and no false wrap puts every later one 71.6 min
+        # late. Anything else is forward, and a wrap when the raw value fell. A step back
+        # is small by construction and a forward gap need not be, so the window is sized
+        # by the step back; a forward gap within it of a whole wrap needs reads 71.6 min
+        # apart, which the per-frame read prevents (precondition (1)).
         raw = self._now_us()
         previous = self._previous_raw
-        if previous is not None and raw < previous:
-            if previous - raw <= TICK_WRAP_US // 2:
+        if previous is not None:
+            if (raw - previous) % TICK_WRAP_US > TICK_WRAP_US - STEP_BACK_MAX_US:
                 return previous + self._offset
-            self._offset += TICK_WRAP_US
+            if raw < previous:
+                self._offset += TICK_WRAP_US
         self._previous_raw = raw
         return raw + self._offset
 

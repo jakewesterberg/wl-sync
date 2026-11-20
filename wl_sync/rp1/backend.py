@@ -554,7 +554,7 @@ class Rp1Backend:
         docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). Before capture
         starts no fit exists, since it is made at the sync enable; then it is RAW us since
         `__init__`. No record is placed before capture starts, and the Recorder's clock
-        reads nothing before it (wl_sync/service.py:102-106).
+        reads nothing before it (wl_sync/service.py:118-122).
 
         SPLIT: MONO us since the origin, as before the one-clock build.
         """
