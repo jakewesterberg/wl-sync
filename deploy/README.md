@@ -5,7 +5,7 @@
     sudo systemctl enable --now wl-sync
 
 Edit `--out` in the unit to the rig's session root before enabling. Its last component
-becomes `rig` in every log header, so `/data/rig0` for a box called `wl-sync-rig0`.
+becomes `rig` in every log header, so `/data/rig0` for a box called `wl-rig-sync0`.
 
 A new box needs its OS first: see [Setting up the OS](#setting-up-the-os-once-per-box).
 
@@ -258,13 +258,13 @@ without the endpoint until the service next restarts.
 
 Replace `$TOKEN` with the token. Read, open and close:
 
-    curl http://wl-sync-rig0.local:8740/session
+    curl http://wl-rig-sync0.local:8740/session
 
-    curl -X POST http://wl-sync-rig0.local:8740/session/open \
+    curl -X POST http://wl-rig-sync0.local:8740/session/open \
       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
       -d '{"request_id": "visit-attempt-0001"}'
 
-    curl -X POST http://wl-sync-rig0.local:8740/session/close \
+    curl -X POST http://wl-rig-sync0.local:8740/session/close \
       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
       -d '{"session_id": "2026-10-18_01"}'
 
@@ -296,7 +296,7 @@ Never commit it, and never paste it into a script. The function reads it with
 
 **Where to call it.** Call `id = wlsync_session('open', box, token_file)` when a session starts
 and `wlsync_session('close', box, token_file, id)` when it ends, with `box` like
-`'wl-sync-rig0.local:8740'` and `id` the one `'open'` returned.
+`'wl-rig-sync0.local:8740'` and `id` the one `'open'` returned.
 NIMH MonkeyLogic is believed to run a user `alert_function.m` with session-level cases (task
 start and end), which would be the likely place. **Confirm this against the installed
 MonkeyLogic version on bench day**, including the exact case names and whether an error
@@ -338,7 +338,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
     for a refused connection, unknown host and timeout, so item 7 reads "unreachable". Then break an
     option on purpose (misspell the `HTTPOptions` property): the error must be `wlsync:internal` with
     MATLAB's own message, and must not be retried (no 3 s wait).
-11. Name resolution: the Windows boot resolves `wl-sync-rig0.local`. If not, use the box's IP
+11. Name resolution: the Windows boot resolves `wl-rig-sync0.local`. If not, use the box's IP
     address or its tailnet name as `box`.
 12. A 409: with a session open, `wlsync_session('close', box, tf, old)`, where `old` is an
     earlier id that is not the open one, errors with HTTP 409 and `[the open session is ...]`,
@@ -362,7 +362,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 
 ## Setting up the OS, once per box
 
-Done this way for `wl-sync-rig0` on 2026-10-18, with no screen and no NVMe adapter. It
+Done this way for `wl-rig-sync0` on 2026-10-18, with no screen and no NVMe adapter. It
 ended running Raspberry Pi OS Lite, Debian 13 "trixie", kernel `6.18.50+rpt-rpi-2712`, from
 the NVMe.
 
@@ -414,12 +414,21 @@ the NVMe.
        curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
        sudo apt-get update && sudo apt-get install -y tailscale
        sudo systemctl enable --now tailscaled
-       sudo tailscale up --hostname=wl-sync-rig0
+       sudo tailscale up --hostname=wl-rig-sync0
 
    `tailscale up` prints a login link, which a person must open. Then:
    - **disable key expiry** for the node in the admin console. Otherwise it expires after
      180 days by default, and a box running unattended quietly drops off;
    - leave Tailscale SSH off, because key-only `sshd` already works.
+
+   **Renaming an existing box to the lab host grammar** (`wl-sync-rig0` became `wl-rig-sync0`,
+   2026-11-20; a person runs these, once, on the box):
+
+       sudo hostnamectl set-hostname wl-rig-sync0
+       sudo tailscale set --hostname=wl-rig-sync0
+       # then: rename the node in the Tailscale admin console if it does not follow,
+       # and update any ~/.ssh/config Host entries that say wl-sync-rig0
+
 
    `wl-sync` itself does not need Tailscale, so it is not in `wl.yaml`.
 
@@ -435,7 +444,7 @@ Two things from that first setup to know about:
 
 ## Installing wl-sync and its hardware backend, once per box
 
-This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-18.
+This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-18.
 
 1. **Build tools and libgpiod's command-line tools:**
 
@@ -468,7 +477,7 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
 
        sudo ln -sfn ~/wl-sync-venv/bin/wl-sync /usr/local/bin/wl-sync
 
-   *(Added 2026-10-19, found by the first install of the unit on `wl-sync-rig0`.)*
+   *(Added 2026-10-19, found by the first install of the unit on `wl-rig-sync0`.)*
 5. **Confirm the GPIO chip by label.** `gpiodetect` should list `gpiochip0
    [pinctrl-rp1] (54 lines)`, which is `--gpiochip`'s default.
 6. **Run the hardware mode by hand**, as your own user rather than root:
@@ -498,7 +507,7 @@ SI µs, and the header says `"rp1-pio-si"`; with none it is 1, the ticks count R
 crystal, and the header says `"rp1-pio"` (`wl_sync/log.py:206-216`). Each process looks
 for the file at start, as `.wl-sync-pio-rate` in its `--out` directory: under this
 repository's unit that is `/data/rig1/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
-`wl_sync/cli.py:514-547`). The unit installed on wl-sync-rig0 writes `/data/rig0` instead,
+`wl_sync/cli.py:514-547`). The unit installed on wl-rig-sync0 writes `/data/rig0` instead,
 as read on the box on 2026-11-07, so that box's file is `/data/rig0/.wl-sync-pio-rate`.
 The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
 reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is used only on

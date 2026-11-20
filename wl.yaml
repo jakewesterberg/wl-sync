@@ -13,7 +13,7 @@ summary: >-
 status:
   phase: >-
     Software: the continuous recorder and the RP1 backend are built and wired
-    into the run loop, and the backend has run on silicon (wl-sync-rig0, a CM5,
+    into the run loop, and the backend has run on silicon (wl-rig-sync0, a CM5,
     2026-10-18). It binds piolib through a C shim, pio/wlsync_pio.c. A 30 s run
     with nothing wired recorded cleanly, with barcodes 1 s apart to within
     147 us. Session identity (one session per animal's visit, minted over HTTP

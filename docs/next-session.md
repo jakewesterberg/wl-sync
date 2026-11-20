@@ -105,9 +105,9 @@ Decided along the way. A `check_health()` failure is logged at ERROR once per ep
 
 ### Step B — bench day *(on the CM5, which is ready)*
 
-The box is `wl-sync-rig0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from its
+The box is `wl-rig-sync0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from its
 NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, and
-`deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
+`deploy/README.md`). `ssh wl-rig-sync0` reaches it over the tailnet.
 
 **Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses an older shim
@@ -115,7 +115,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **The one-clock plan's bench section is the checklist for what follows**
 (`docs/superpowers/plans/2026-11-07-one-clock.md:1868`): P0, then B1 to B10. *(Added
-2026-11-19.)* Its spike, S (`:1896`), has already run on `wl-sync-rig0`, on 2026-11-07,
+2026-11-19.)* Its spike, S (`:1896`), has already run on `wl-rig-sync0`, on 2026-11-07,
 with nothing wired and beside the `--fake` service. S.0 to S.6 all passed:
 - **S.1:** the shim compiles on the box under `-Wall -Wextra` with no warnings, and loads
   from `~/wl-sync-spike/lib` through `LD_LIBRARY_PATH` with no sudo. `wlsync_start_stamp`
@@ -233,7 +233,7 @@ Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`
    appears with a segment in it, that a repeated `request_id` returns the same id, that a wrong
    token gets 401, and that a close naming another id gets 409 with `open`.
 
-   **Done from a Mac over the tailnet, 2026-10-19,** with the unit installed on `wl-sync-rig0`
+   **Done from a Mac over the tailnet, 2026-10-19,** with the unit installed on `wl-rig-sync0`
    (`--out /data/rig0 --fake`, started, not enabled at boot). Every check above passed:
    `2026-10-19_01` minted, the retry returned it with `closed: null`, 401 without and with a
    wrong token, 409 naming the open id on a stale close, then a clean close. The barcode ran
@@ -250,7 +250,7 @@ Then, with the unit's endpoint (`--listen 0.0.0.0:8740 --session-token-file ...`
 3. *(Added 2026-10-18, after the final review.)* **A `GET /session` flood must not cost event
    codes.** Needs Step B's strobe source. During a burst of strobed codes, flood the endpoint
    from another machine, for example
-   `seq 5000 | xargs -P 32 -I{} curl -s -o /dev/null http://wl-sync-rig0.local:8740/session`.
+   `seq 5000 | xargs -P 32 -I{} curl -s -o /dev/null http://wl-rig-sync0.local:8740/session`.
    The journal must show no `WordsDroppedError` (`capture degraded, still recording:
    event-code capture: the PIO RX FIFO was full when drained ...`). `GET` needs no token, and
    the endpoint runs one thread per connection with no cap, so a flood competes with the 1 ms
@@ -403,8 +403,8 @@ left, so no further panel connector fits. One fix-up came with it:
       off the wall clock.
     - A probe that fails at a roll falls back to the run's last definite answer, so it never
       upgrades trust.
-    - The probe costs 62 ms cold and 9 ms warm on wl-sync-rig0.
-    - **Deployed to wl-sync-rig0 on 2026-10-30** (box on `4f1739c`, service restarted 10:14 CET).
+    - The probe costs 62 ms cold and 9 ms warm on wl-rig-sync0.
+    - **Deployed to wl-rig-sync0 on 2026-10-30** (box on `4f1739c`, service restarted 10:14 CET).
   - **Option 2 is built, on local `main` as `56a89f8`, after the header commit `73f4395`.** Neither
     is pushed or deployed. It rolls inside the same folder, which wl-preproc's merged reader
     would take for a box restart, hence the order agreed with wl-preproc on 2026-10-30:
@@ -427,7 +427,7 @@ left, so no further panel connector fits. One fix-up came with it:
       line request in `Rp1Backend.emit_pulses`. Requesting the line before the run loop would
       remove it; that is a hardware-path change left for the bench.
 - **Code words were timed 71.6 min early after a gap: fixed on `main` as `d309bf1`, deployed to
-  wl-sync-rig0 on 2026-10-30.**
+  wl-rig-sync0 on 2026-10-30.**
   - Found by wl-preproc (its ask 6).
   - **The fault:** each path (W, E, B) had its own unwrapper, which noticed a 32-bit wrap only
     when its next raw tick was lower.
