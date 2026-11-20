@@ -84,7 +84,14 @@ class _Bank:
     `writes` and `reads` record every access, as (offset, value) and offset. `on_pad` is
     called with (pin, level) at each change of a pad's level, which is where the board
     stamps a rise. `frozen` makes STATUS read 0 whatever the pads do, as a map that is
-    not IO_BANK0 would; `ignore_clear` makes CLEAR writes do nothing."""
+    not IO_BANK0 would; `ignore_clear` makes CLEAR writes do nothing.
+
+    WRITES ARE POSTED (box step 2, 2026-11-20). A write lands only when the next read of
+    the bank is made, as a posted PCIe write is forced out by a read behind it; until then
+    the pad does not move. Two writes with no read between them land together, at that
+    read, and the high between them lasts nothing: what the probe saw on the box, where
+    the writer's highs were stamped 27 times in 600. `posted = False` lands each write as
+    it is made."""
 
     def __init__(self):
         self.ctrl = {pin: _F_M_RESET | _NULL for pin in range(28)}
@@ -96,6 +103,8 @@ class _Bank:
         self.frozen = False
         self.ignore_clear = False
         self.closed = False
+        self.posted = True
+        self.pending = []
 
     def hold_as_output(self, pin, level=0):
         """What libgpiod's output request leaves [inferred: that the kernel's driver
@@ -138,6 +147,7 @@ class _Bank:
         return alias, pin, is_ctrl == 4
 
     def read32(self, offset):
+        self._flush()  # a read does not pass the posted writes ahead of it
         self.reads.append(offset)
         _, pin, is_ctrl = self._decode(offset)
         if is_ctrl:
@@ -152,6 +162,18 @@ class _Bank:
 
     def write32(self, offset, value):
         self.writes.append((offset, value))
+        self._decode(offset)
+        if self.posted:
+            self.pending.append((offset, value))
+        else:
+            self._land(offset, value)
+
+    def _flush(self):
+        pending, self.pending = self.pending, []
+        for offset, value in pending:
+            self._land(offset, value)
+
+    def _land(self, offset, value):
         alias, pin, is_ctrl = self._decode(offset)
         if not is_ctrl:
             return  # read-only
@@ -167,7 +189,7 @@ class _Bank:
         self._changed(pin, before)
 
     def close(self):
-        self.closed = True
+        self.closed = True  # unmapping lands nothing: a write still posted stays so
 
 
 @pytest.fixture
@@ -312,17 +334,18 @@ def test_a_pulse_is_refused_before_verify(bank):
 
 
 def test_each_pulse_is_bounded_by_raw_before_its_rise_and_after_its_fall(bank):
-    """The RAW read before the SET write and the one after a STATUS read that follows the
-    CLEAR write bound the high, given that the read cannot complete before the posted
-    writes ahead of it [inferred: PCIe ordering and Arm Device memory, not the datasheet,
-    whose section 3.3.1.1, printed p.35, promises it after a write barrier]."""
+    """The RAW read before the SET store and the one after the CLEAR's read-back bound the
+    high, given that a read cannot complete before the posted writes ahead of it (an
+    engineering judgment from PCIe's ordering rules, `PulseWriter.pulse`)."""
     pads = []
     bank.on_pad = lambda pin, level: pads.append(bank.clock.true_ns)
     with _writer(bank) as writer:
         writer.verify(lambda high: bank.drive(18, int(high)))
         pads.clear()
-        before, _, _, after = writer.pulse(3_000)
-        assert bank.reads[-1] == 0x090  # the read that follows the fall
+        bounds = writer.pulse(3_000)
+        before, after = bounds.before, bounds.after
+        # The SET's read-back, the CLEAR's, then the first pulse's CTRL read-back (M3).
+        assert bank.reads[-3:] == [0x090, 0x090, 0x094]
     rise, fall = pads
     assert before <= rise and fall <= after
     assert fall - rise >= 3_000
@@ -417,7 +440,7 @@ def test_a_stall_before_the_set_store_does_not_shorten_the_high(bank):
     with _writer(bank) as writer:
         writer.verify(lambda high: bank.drive(18, int(high)))
         pads.clear()
-        before, set_after, clear_before, after = writer.pulse(2_000)
+        before, set_after, clear_before, after, _, _ = writer.pulse(2_000)
     rise, fall = pads
     assert fall - rise >= 2_000
     # The fake lands a store as it is issued; on RP1 it lands about 1 us later (N6).
@@ -667,7 +690,8 @@ class _Board:
     from a machine's count at each of its events; `short_loss_us` the same, at the fall of
     a high under 5 us only; `blind` the pins no machine sees; `crosstalk` maps a pin to
     another whose machines also stamp its rises; `w_on_rise` pushes a code word to the
-    capture machine at the next rise."""
+    capture machine at the next rise. A high shorter than 1 us is not seen: its stamps
+    are taken back at its fall."""
 
     def __init__(self, clock):
         self.clock = clock
@@ -683,6 +707,7 @@ class _Board:
         self.crosstalk = {}
         self.rises = {}
         self.rose_at = {}
+        self.pushed = {}
         self.w_on_rise = False
         self.used = {}
 
@@ -690,10 +715,20 @@ class _Board:
         shim = self.shim
         if not level:
             high = self.clock.true_ns - self.rose_at.get(pin, self.clock.true_ns)
+            if high < 1_000:
+                # Under the 1 us the program needs (backend.py:975-976): unseen, so the
+                # stamps the rise pushed are taken back (fix round 4's fake).
+                for sm, words in self.pushed.pop(pin, []):
+                    fifo = shim.fifo[sm]
+                    if fifo[-len(words):] == words:
+                        del fifo[-len(words):]
+                    self.lost[sm] = self.lost.get(sm, 0) - self.loss_us.get(sm, 0)
+                return
             if high < 5_000:
                 for sm in self._watching(pin):
                     self.lost[sm] = self.lost.get(sm, 0) + self.short_loss_us.get(sm, 0)
             return
+        self.pushed[pin] = []
         self.rose_at[pin] = self.clock.true_ns
         number = self.rises[pin] = self.rises.get(pin, 0) + 1
         if self.w_on_rise and 0 in shim.enabled:
@@ -703,6 +738,7 @@ class _Board:
             p = (self.clock.p_now() + self.skew_us.get(sm, 0)
                  + self.phase.get(sm, lambda k: 0)(number) - self.lost.get(sm, 0))
             shim.push(sm, [0, (~p) & 0xFFFF_FFFF])
+            self.pushed[pin].append((sm, [0, (~p) & 0xFFFF_FFFF]))
             self.lost[sm] = self.lost.get(sm, 0) + self.loss_us.get(sm, 0)
 
     def _watching(self, pin):
@@ -1150,3 +1186,51 @@ def test_the_writer_refuses_any_store_but_its_pins_set_and_clear(bank, offset):
     with pytest.raises(harness.WriterError, match="only"):
         writer._store(0x2094, 0x1000)
     assert bank.writes == []
+
+
+def test_on_posted_writes_each_high_lasts_its_hold_and_lies_inside_its_bounds(bank):
+    """Box step 2: with writes that land only at the next read, a SET and a CLEAR with no
+    read between them made a high of nothing. Each store is now read back before RAW is
+    taken, so the SET has landed when the hold starts and the CLEAR when the upper bound
+    ends (fix round 4)."""
+    pads = []
+    bank.on_pad = lambda pin, level: pads.append((level, bank.clock.true_ns))
+    with _writer(bank) as writer:
+        writer.verify(lambda high: bank.drive(18, int(high)))
+        pads.clear()
+        bounds = writer.pulse(1_500)
+    (_, rise), (_, fall) = pads
+    assert fall - rise >= 1_500
+    assert bounds.before <= rise <= bounds.set_after
+    assert bounds.clear_before <= fall <= bounds.after
+    assert bounds.clear_before - bounds.set_after >= 1_500
+    assert bounds.set_read_ns > 0 and bounds.clear_read_ns > 0
+
+
+def test_a_set_whose_read_back_shows_no_rise_is_raised_with_the_override_cleared(bank):
+    """If the SET's read-back reads the pad low, the write did not land before the read,
+    so the ordering the bounds rest on does not hold: raised, and the CLEAR still made."""
+    with _writer(bank) as writer:
+        writer.verify(lambda high: bank.drive(18, int(high)))
+        writer.pulse(0)
+        real = bank._land
+
+        def dropped_set(offset, value):
+            if offset != 0x2094:
+                real(offset, value)
+
+        bank._land = dropped_set
+        with pytest.raises(harness.WriterError, match="did not rise"):
+            writer.pulse(1_000)
+        bank._land = real
+        assert bank.writes[-1] == (0x3094, 0x3000)
+
+
+def test_a_libgpiod_fall_on_the_dense_pin_is_read_back_so_its_upper_bound_is_one(board):
+    """The fall is read back too, so a libgpiod high on the dense pin is bounded both ways,
+    and the path rule can be applied to it as to the writer's (fix round 4)."""
+    rig = _rig(board, [18, 17], dense_pin=18)
+    rig.block.enable_in_sync()
+    event = rig.edge(18, 0)
+    assert event.rise_landed and event.fall_landed and event.bounded
+    rig.close()

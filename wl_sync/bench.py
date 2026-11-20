@@ -416,7 +416,7 @@ _WRAP = 1 << 32
 # What --record writes, one line per driven rise, every value an integer RAW ns or a raw
 # 32-bit count, so a verdict can be re-derived without rerunning the hour.
 RECORD_COLUMNS = ("phase,index,pins,shape,rise_before_ns,rise_after_ns,fall_before_ns,"
-                  "fall_after_ns,rise_landed,drained_at_ns,stamps")
+                  "fall_after_ns,set_read_ns,clear_read_ns,rise_landed,drained_at_ns,stamps")
 
 
 def _signed(difference: int) -> int:
@@ -451,6 +451,7 @@ class _Recorder:
             self.phase, str(event.index), "+".join(str(p) for p in event.pins), event.shape,
             field_of(event.rise_before), field_of(event.rise_after),
             field_of(event.fall_before), field_of(event.fall_after),
+            *(field_of(read) for read in (event.reads or (None, None))),
             str(int(event.rise_landed)), field_of(event.drained_at), stamps,
         ]) + "\n")
 
@@ -630,14 +631,16 @@ PROBE_SHAPE_SPACING_NS = 5_000_000
 HELD_SHAPES_NS = (("back-to-back", 0), ("10 us", 10_000), ("50 us", 50_000),
                   ("1 ms", 1_000_000))
 RUN_HELD_SHAPES = ("10 us", "50 us", "1 ms")
-# The register writer's holds, each a spin from the RAW read after its SET store
-# (`PulseWriter.pulse`). 1.5 us at the least, a margin over the 1 us high the program
-# needs to see (wl_sync/rp1/backend.py:975-976), and 2.5 us at the most, leaving room for
-# the read after the CLEAR under SHORT_EXIT_MAX_NS (review I2). The run drives those the
-# probe shows stamped every time and under SHORT_EXIT_MAX_NS for at least
+# The register writer's holds, each a spin from the RAW read after its SET's read-back
+# (`PulseWriter.pulse`, fix round 4). That read-back makes the hold a proven lower bound
+# on the high, so 1 us, the high the program needs to see (wl_sync/rp1/backend.py:975-976),
+# is enough at the least; and the upper bound is the hold plus two read-backs, so the
+# holds stop at 2 us, to leave the read-backs room under SHORT_EXIT_MAX_NS. Until fix
+# round 4 they were 1.5-2.5 us, timed from a store with no read-back (review I2). The
+# run drives those the probe shows stamped every time and under SHORT_EXIT_MAX_NS for at least
 # SHORT_SHARE_SHOWN of their highs: a harness choice, not a ruling, since it picks the
 # holds and not the verdict.
-SHORT_HOLDS_NS = (1_500, 2_000, 2_500)
+SHORT_HOLDS_NS = (1_000, 1_500, 2_000)
 SHORT_SHARE_SHOWN = 0.9
 
 # THE RUN: one barcode frame a second on GPIO17 for B (wl_sync/barcode.py:3-11), and in
@@ -694,6 +697,23 @@ def slope_difference_ppm(a: LineFit, b: LineFit) -> tuple[float, float]:
     return delta, sigma
 
 
+def path_of(event) -> str | None:
+    """Which path through the program a stamped high provably took, by THE SAME RULE
+    WHOEVER DROVE IT (fix round 4): "short" when both its ends were read back
+    (`Event.bounded`) and its upper bound is at most SHORT_EXIT_MAX_NS, "held" when its
+    lower bound is at least HELD_MIN_NS, and None when neither bound decides. A libgpiod
+    high on the dense pin is read back at both ends now, so one that is short enough
+    counts as the writer's would; on the box its two ioctls made back-to-back highs of
+    12.7 us median (box step 2), so it seldom will, and the run drives only libgpiod's
+    held shapes."""
+    upper, lower = event.upper_ns, event.lower_ns
+    if event.bounded and upper is not None and upper <= SHORT_EXIT_MAX_NS:
+        return "short"
+    if lower is not None and lower >= HELD_MIN_NS:
+        return "held"
+    return None
+
+
 @dataclass
 class ShapeResult:
     """One probe shape on the dense pin: how many pulses, how many A stamped once, how
@@ -707,6 +727,11 @@ class ShapeResult:
     other: int = 0
     uppers: list[int] = field(default_factory=list)
     lowers: list[int] = field(default_factory=list)
+    # Highs stamped once whose bounds prove the short exit (`path_of`), and, for the
+    # writer, what each SET's and each CLEAR's read-back cost in RAW (fix round 4).
+    proven_short: int = 0
+    set_reads: list[int] = field(default_factory=list)
+    clear_reads: list[int] = field(default_factory=list)
 
     @property
     def short_shown(self) -> bool:
@@ -784,13 +809,20 @@ class ProbeReport:
         if held:
             lines.append(f"  highs on GPIO{pin} by libgpiod, lower..upper bound, median: " +
                          "; ".join(f"{s.name} {_us(median(s.lowers))}..{_us(median(s.uppers))}"
-                                   f" us ({s.stamped} of {s.pulses} stamped)" for s in held))
+                                   f" us ({s.stamped} of {s.pulses} stamped, "
+                                   f"{s.proven_short} proven short)" for s in held))
         written = [s for s in self.shapes if s.writer and s.uppers]
         if written:
-            lines.append(f"  highs on GPIO{pin} by the register writer, upper bound: " +
+            lines.append(f"  highs on GPIO{pin} by the register writer, lower..upper bound: " +
                          "; ".join(f"hold {_us(s.hold_ns)} us: {s.stamped} of {s.pulses} "
-                                   f"stamped, median {_us(median(s.uppers))} us, max "
-                                   f"{_us(max(s.uppers))} us" for s in written))
+                                   f"stamped, {s.proven_short} proven short, median "
+                                   f"{_us(median(s.lowers))}..{_us(median(s.uppers))} us, "
+                                   f"max upper {_us(max(s.uppers))} us" for s in written))
+            reads = [r for s in written for r in s.set_reads]
+            clears = [r for s in written for r in s.clear_reads]
+            lines.append(f"  register read-back, RAW: after the SET median {_us(median(reads))}"
+                         f" us, max {_us(max(reads))} us; after the CLEAR median "
+                         f"{_us(median(clears))} us, max {_us(max(clears))} us")
         if self.complete:
             lines.append(self._short_line())
         return lines
@@ -836,6 +868,10 @@ def probe(rig, report: ProbeReport, a: int, b: int, short_holds: Sequence[int]) 
             shape.uppers.append(event.upper_ns)
             if event.lower_ns is not None:
                 shape.lowers.append(event.lower_ns)
+            shape.proven_short += (len(event.stamps[a]) == 1 and path_of(event) == "short")
+            if event.reads is not None:
+                shape.set_reads.append(event.reads[0])
+                shape.clear_reads.append(event.reads[1])
     report.complete = True
 
 
@@ -910,9 +946,13 @@ class StreamsReport:
         self.a_stamped += 1
         if not self._point(self.fit_a, event, stamp):
             return
-        if writer and event.upper_ns <= SHORT_EXIT_MAX_NS:
+        self._credit(event)
+
+    def _credit(self, event) -> None:
+        path = path_of(event)
+        if path == "short":
             self.short += 1
-        elif not writer and (event.lower_ns or 0) >= HELD_MIN_NS:
+        elif path == "held":
             self.held += 1
         else:
             self.unbounded += 1
@@ -944,10 +984,7 @@ class StreamsReport:
                 setattr(self, f"{name}_extra", getattr(self, f"{name}_extra") + len(found) - 1)
         if len(a) == 1:
             if self._point(self.fit_a, event, a[0]):
-                if (event.lower_ns or 0) >= HELD_MIN_NS:
-                    self.held += 1
-                else:
-                    self.unbounded += 1
+                self._credit(event)
         if len(b) == 1:
             self._point(self.fit_b, event, b[0])
         if len(a) == 1 and len(b) == 1:

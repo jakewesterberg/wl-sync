@@ -1092,21 +1092,23 @@ def test_the_streams_command_records_every_edge_of_probe_and_run(
     assert phases == {"probe", "run"}
 
 
-def test_the_default_writer_holds_keep_a_margin_over_the_programs_one_microsecond():
-    """Review I2: a hold at the program's 1 us minimum (backend.py:975-976) had none."""
+def test_the_default_writer_holds_are_proven_highs_of_at_least_one_microsecond():
+    """The hold is timed from the SET's read-back, so it is a proven lower bound on the
+    high (fix round 4): 1 us, the program's minimum (backend.py:975-976), is enough, and
+    the holds stop at 2 us to leave two read-backs room under 5 us."""
     from wl_sync import bench
 
-    assert bench.SHORT_HOLDS_NS == (1_500, 2_000, 2_500)
-    assert min(bench.SHORT_HOLDS_NS) >= 1_500
+    assert bench.SHORT_HOLDS_NS == (1_000, 1_500, 2_000)
+    assert min(bench.SHORT_HOLDS_NS) >= 1_000
 
 
 def test_a_missed_writer_high_is_named_as_one(board, monkeypatch, capsys, run_fast):
     """A miss on a register-writer pulse is the harness's, not the program's, until shown
     otherwise; the fault says which kind of high it was (review I2)."""
-    real = board.bank.write32
+    real = board.bank._land
     sets = []
 
-    def dropping(offset, value):
+    def dropping(offset, value):  # where a posted SET lands (fix round 4)
         if offset == 0x2094:
             sets.append(offset)
             if len(sets) in (150, 151):
@@ -1114,7 +1116,7 @@ def test_a_missed_writer_high_is_named_as_one(board, monkeypatch, capsys, run_fa
         real(offset, value)
         board.blind.discard(18)
 
-    board.bank.write32 = dropping
+    board.bank._land = dropping
     status, out = _streams(board, monkeypatch, capsys)
     assert status == 1
     assert "fails: A missed 2 (register-writer highs 2, libgpiod highs 0)" in out, out
@@ -1311,3 +1313,23 @@ def test_clearing_a_pin_with_nothing_set_exits_nonzero_and_says_so(
     out = capsys.readouterr().out
     assert "NOT CLEARED" in out and "no override set" in out
     assert board.bank.writes == []
+
+
+@pytest.mark.parametrize("writer, landed, upper, lower, path", [
+    (True, False, 4_000, 1_000, "short"),
+    (False, True, 4_000, 1_000, "short"),   # a libgpiod high read back at both ends
+    (False, False, 4_000, 1_000, None),     # not read back: its upper bound is no bound
+    (False, True, 20_000, 10_000, "held"),
+    (True, False, 5_500, 1_000, None),      # between the bounds' reach
+])
+def test_a_highs_path_is_judged_by_its_bounds_whoever_drove_it(writer, landed, upper,
+                                                                lower, path):
+    """Fix round 4: the path rule is the same for libgpiod's highs as for the writer's,
+    once both ends are read back."""
+    from wl_sync.bench import path_of
+    from wl_sync.rp1.harness import Event
+
+    rise_after = 1_000 + 300
+    event = Event(1, (18,), "s", 1_000, rise_after, rise_after + lower, 1_000 + upper,
+                  landed, 0, {}, writer, landed, None)
+    assert path_of(event) == path

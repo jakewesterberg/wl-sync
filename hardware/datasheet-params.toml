@@ -1094,6 +1094,9 @@ WHAT THE DATASHEET DOES NOT GIVE:
 
 Section 3.3.1 (printed p.35) gives the write latency the pulses ride on: "typically 1us" across
 PCIe, writes "Posted", and "insert a write barrier after the last write that toggles a pin,
-then issue the read". The writer reads after its last write, as advised, but issues no
-barrier, so that the read returns only after the write has landed rests on PCIe's ordering
-and Arm's for Device memory, not on this document [inferred]."""
+then issue the read". The writer reads back after EACH store, SET and CLEAR, before taking
+RAW (Task 1.21 fix round 4): box step 2 (wl-rig-sync0, 2026-11-20) stamped 27 of 600 writer
+highs made with no read between the two stores, so the posted stores reached RP1 nearly
+together. It issues no barrier, so that a read returns only after the writes ahead of it
+have landed is an engineering judgment from PCIe's ordering rules and Arm's for Device
+memory, not this document's claim."""

@@ -36,6 +36,7 @@ import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from wl_sync.pins import (
     BARCODE_PIN, CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN, SPARE_PINS,
@@ -234,6 +235,18 @@ def _refusal(pin: int, ctrl: int, status: int) -> str:
     return ""
 
 
+class PulseBounds(NamedTuple):
+    """One writer pulse's RAW readings (`PulseWriter.pulse`): the SET lands inside
+    [before, set_after] and the CLEAR inside [clear_before, after]; each read-back's cost."""
+
+    before: int
+    set_after: int
+    clear_before: int
+    after: int
+    set_read_ns: int
+    clear_read_ns: int
+
+
 class PulseWriter:
     """Highs shorter than libgpiod makes, on ONE spare pin, through RP1's GPIOn_CTRL.
 
@@ -358,23 +371,30 @@ class PulseWriter:
             raise WriterRefused("the register writer writes only once verify() has passed")
         return regs
 
-    def pulse(self, hold_ns: int) -> tuple[int, int, int, int]:
-        """One high: RAW, the SET store, RAW again, a spin of `hold_ns` from that second
-        RAW, the CLEAR store, a STATUS read, RAW. Returns (before, set_after, clear_before,
-        after).
+    def pulse(self, hold_ns: int) -> PulseBounds:
+        """One high, EACH STORE READ BACK BEFORE ITS RAW (box step 2, fix round 4):
+        RAW, the SET store, RAW, a STATUS read, RAW, a spin of `hold_ns`, the CLEAR store,
+        RAW, a STATUS read, RAW.
 
-        THE HOLD STARTS AFTER THE SET STORE (review I2). Timed from the first read, a
-        preemption between it and the store ate the hold, and the high could fall under
-        the 1 us the program needs to see it (backend.py:975-976). Now a stall anywhere
-        only lengthens the high, and the bracket shows it.
+        WHY THE READ-BACKS. RP1 is behind PCIe and its writes are posted. On the box
+        (wl-rig-sync0, 2026-11-20) the probe's writer highs, a SET and a CLEAR with no read
+        between them, were stamped 27 times in 600, and the libgpiod ones, each read back,
+        every time: the two stores reached RP1 nearly together, whatever the CPU's hold.
+        A read of the same block cannot complete before the posted writes ahead of it have
+        landed: PCIe's ordering rules let no read request pass a posted write, and Arm keeps
+        Device-memory accesses to one peripheral in program order. That is an ENGINEERING
+        JUDGMENT, not a document's claim. RP1 Peripherals section 3.3.1.1 (p.35) gives the
+        practice ("insert a write barrier after the last write that toggles a pin, then
+        issue the read ... a read will sample the point after the state change"), with a
+        barrier this does not issue.
 
-        THE BOUNDS, BOTH WAYS. The high lies inside [before, after]: the rise is stored
-        after `before`, and the STATUS read cannot return before the posted CLEAR ahead of
-        it has landed [inferred: PCIe does not let a read pass a posted write, and Arm keeps
-        Device-memory accesses to one peripheral in program order. RP1 Peripherals section
-        3.3.1.1, p.35, promises the order only after a write barrier, which this does not
-        issue]. It lasts at least clear_before - set_after, less any difference in the two
-        stores' posting latency [inferred]. Raises when the read shows the pin still high.
+        THE BOUNDS. The SET lands after `before` and before `set_after`; the CLEAR after
+        `clear_before` and before `after`. So the high lasts at most `after - before` and
+        at least `clear_before - set_after`, which is at least `hold_ns`: the hold is timed
+        from the SET's read-back (review I2), so a high can no longer be cut under 1 us.
+        `set_read_ns` and `clear_read_ns` are what each read-back cost in RAW, which sets
+        how short an upper bound can be. Raises when the SET's read-back shows the pad low
+        (the ordering failed) or the CLEAR's shows it high; the CLEAR is stored either way.
 
         THE FIRST PULSE READS CTRL BACK (review M3), against the word open() read: a store
         that was split or widened, and so touched other bits of CTRL, stops the writer after
@@ -386,17 +406,25 @@ class PulseWriter:
         self._armed = True
         try:
             self._store(self._ctrl + ALIAS_SET, OUTOVER_MASK)
+            set_issued = raw_ns()
+            status = regs.read32(self._status)
             set_after = clear_before = raw_ns()
+            if not status & STATUS_OUTTOPAD:
+                raise WriterError(
+                    f"GPIO{self.pin} did not rise by the SET's read-back (STATUS "
+                    f"{status:#010x}): the read passed the posted write"
+                )
             deadline = set_after + hold_ns
             while clear_before < deadline:
                 clear_before = raw_ns()
         finally:
             self._store(self._ctrl + ALIAS_CLEAR, OUTOVER_MASK)
-        ctrl = None if self._pulsed else regs.read32(self._ctrl)
+        clear_issued = raw_ns()
         status = regs.read32(self._status)
         after = raw_ns()
-        if ctrl is not None:
+        if not self._pulsed:
             self._pulsed = True
+            ctrl = regs.read32(self._ctrl)
             if (ctrl ^ self._prior) & ~IRQRESET:
                 raise WriterError(
                     f"GPIO{self.pin}'s CTRL reads {ctrl:#010x} after the first pulse, where "
@@ -406,17 +434,28 @@ class PulseWriter:
         if status & STATUS_OUTTOPAD:
             raise WriterError(f"GPIO{self.pin} is still high after the override was cleared "
                               f"(STATUS {status:#010x})")
-        return before, set_after, clear_before, after
+        return PulseBounds(before, set_after, clear_before, after,
+                           set_after - set_issued, after - clear_issued)
 
     def rise_landed(self) -> int:
         """After libgpiod's rise on the pin: one STATUS read, then RAW. The read returns
         only once the rise's write has landed [inferred: that the kernel's posted write is
-        ordered before this process's read of the same block], so that RAW starts a held
-        high's lower bound. Raises when the pin reads low."""
+        ordered before this process's read of the same block, as `pulse` reasons], so that
+        RAW starts a held high's lower bound. Raises when the pin reads low."""
         status = self._checked().read32(self._status)
         landed = raw_ns()
         if not status & STATUS_OUTTOPAD:
             raise WriterError(f"GPIO{self.pin} did not rise (STATUS {status:#010x})")
+        return landed
+
+    def fall_landed(self) -> int:
+        """After libgpiod's fall on the pin: one STATUS read, then RAW, which ends the
+        high's upper bound as `pulse`'s does (fix round 4) [inferred, as `rise_landed`].
+        Raises when the pin reads high."""
+        status = self._checked().read32(self._status)
+        landed = raw_ns()
+        if status & STATUS_OUTTOPAD:
+            raise WriterError(f"GPIO{self.pin} did not fall (STATUS {status:#010x})")
         return landed
 
     def close(self) -> None:
@@ -672,9 +711,9 @@ class Event:
 
     `rise_before` is RAW before the rise's write. `rise_after` is RAW after libgpiod's
     call returned, after the rise was read back through the register map
-    (`rise_landed`), or, for a writer pulse (`writer`), after its SET store was issued:
-    the posted store lands about 1 us later (RP1 Peripherals section 3.3.1, p.35), so the
-    bracket holds the rise's issue, as libgpiod's does, not its landing (review N6).
+    (`rise_landed`), or, for a writer pulse (`writer`), after its SET's read-back: a
+    read-back bracket holds the rise's landing, libgpiod's unread bracket only its issue
+    (review N6; fix round 4).
     `fall_before` and `fall_after` bracket the fall's write; for a writer pulse
     `fall_after` is RAW after the read that follows the fall (`PulseWriter.pulse`).
     `drained_at` is RAW when the FIFOs were read. Ticks and RAW are integers."""
@@ -690,21 +729,31 @@ class Event:
     drained_at: int
     stamps: dict[int, list[int]]
     writer: bool = False
+    # The fall read back through the register map (`fall_landed`), and a writer pulse's
+    # two read-back costs in RAW ns (`PulseBounds`).
+    fall_landed: bool = False
+    reads: tuple[int, int] | None = None
+
+    @property
+    def bounded(self) -> bool:
+        """Both ends of the high read back, so `upper_ns` and `lower_ns` are bounds: every
+        writer pulse, and a libgpiod high on the dense pin (fix round 4)."""
+        return self.writer or (self.rise_landed and self.fall_landed)
 
     @property
     def upper_ns(self) -> int | None:
-        """The most the high can have lasted: the fall landed before `fall_after` only
-        where a read followed it, so this bounds a writer pulse's high, and a libgpiod
-        high's to within the fall's posting [inferred]. None for a rise left high."""
+        """The most the high can have lasted: a bound where the fall was read back (a
+        writer pulse, or `fall_landed`; see `bounded`), and otherwise short of the fall's
+        posting. None for a rise left high."""
         if self.fall_after is None:
             return None
         return self.fall_after - self.rise_before
 
     @property
     def lower_ns(self) -> int | None:
-        """The least the high can have lasted: from the rise read back, or from after the
-        writer's SET store, to before the fall was written, less any difference in the
-        writes' latency [inferred]. None for a libgpiod rise not read back."""
+        """The least the high can have lasted: from the rise read back (a libgpiod rise's
+        `rise_landed`, a writer SET's read-back) to before the fall was written, which
+        lands after that. None for a libgpiod rise not read back."""
         if (not (self.rise_landed or self.writer) or self.fall_before is None
                 or self.rise_after is None):
             return None
@@ -823,13 +872,15 @@ class Rig:
         return sum(len(words) for words in self._carry.values())
 
     def _event(self, pins, shape, rise_before, rise_after, fall_before, fall_after,
-               landed, writer: bool = False) -> Event:
+               landed, writer: bool = False, fall_landed: bool = False,
+               reads: tuple[int, int] | None = None) -> Event:
         wait_until(rise_before + SETTLE_NS)
         drained_at = raw_ns()
         stamps = self.drain()
         self._events += 1
         event = Event(self._events, tuple(pins), shape, rise_before, rise_after,
-                      fall_before, fall_after, landed, drained_at, stamps, writer)
+                      fall_before, fall_after, landed, drained_at, stamps, writer,
+                      fall_landed, reads)
         if self.on_event is not None:
             self.on_event(event)
         return event
@@ -837,6 +888,11 @@ class Rig:
     def _landed(self, pin: int, after: int) -> tuple[int, bool]:
         if self.writer is not None and pin == self.writer.pin:
             return self.writer.rise_landed(), True
+        return after, False
+
+    def _fallen(self, pin: int, after: int) -> tuple[int, bool]:
+        if self.writer is not None and pin == self.writer.pin:
+            return self.writer.fall_landed(), True
         return after, False
 
     def rise(self, pin: int, shape: str = "") -> Event:
@@ -853,15 +909,18 @@ class Rig:
         after, landed = self._landed(pin, after)
         wait_until(after + hold_ns)
         fall_before, fall_after = self.lines.set_bracketed(pin, False)
-        return self._event((pin,), shape, before, after, fall_before, fall_after, landed)
+        fall_after, fallen = self._fallen(pin, fall_after)
+        return self._event((pin,), shape, before, after, fall_before, fall_after, landed,
+                           fall_landed=fallen)
 
     def short(self, hold_ns: int, shape: str = "") -> Event:
         """A high on the dense pin from the register writer (`PulseWriter.pulse`)."""
         if self.writer is None:
             raise HarnessError("no register writer: the rig was opened without a dense pin")
-        before, set_after, clear_before, after = self.writer.pulse(hold_ns)
-        return self._event((self.writer.pin,), shape, before, set_after, clear_before,
-                           after, False, writer=True)
+        bounds = self.writer.pulse(hold_ns)
+        return self._event((self.writer.pin,), shape, bounds.before, bounds.set_after,
+                           bounds.clear_before, bounds.after, False, writer=True,
+                           reads=(bounds.set_read_ns, bounds.clear_read_ns))
 
     def marker(self, pins: Sequence[int], fall_pin: int, hold_ns: int) -> Event:
         """Every pin in `pins` rising in one `set_values`, then `fall_pin` alone falling
@@ -870,7 +929,9 @@ class Rig:
         after, landed = self._landed(fall_pin, after)
         wait_until(after + hold_ns)
         fall_before, fall_after = self.lines.set_bracketed(fall_pin, False)
-        return self._event(pins, "marker", before, after, fall_before, fall_after, landed)
+        fall_after, fallen = self._fallen(fall_pin, fall_after)
+        return self._event(pins, "marker", before, after, fall_before, fall_after, landed,
+                           fall_landed=fallen)
 
     def running_check(self, pin: int) -> str:
         """Whether every stamp machine on `pin` stamps a RUNNING_CHECK_HIGH_NS pulse: ""
