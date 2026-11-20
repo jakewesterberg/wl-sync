@@ -201,6 +201,13 @@ RATE_FILE_NAME = ".wl-sync-pio-rate"
 # A sanity bound, not a tolerance: a clk_sys that is not really 200 MHz, or a broken
 # reference, lands outside it (spec Sec.2.2).
 RATE_BOUND_PPB = 200_000
+# The same kind of bound on the P/RAW ratio, which seeds the RAW->P fit
+# (wl_sync/rp1/backend.py:1420), so a wrong one maps every E wrongly (final review M3).
+# P/RAW is P/MONO, the rate, times MONO/RAW, and MONO differs from RAW only by NTP's slew,
+# at most 500 ppm (wl_sync/clockmap.py:85). A file whose rate is within RATE_BOUND_PPB
+# therefore has a ratio within about 700 ppm; 1000 ppm leaves margin, and refuses a ratio
+# that is not a crystal's, such as the -10^9 ppb that flattens the fit's slope to 0.
+P_PER_RAW_BOUND_PPB = 1_000_000
 
 DEVICE_TREE_SERIAL = Path("/proc/device-tree/serial-number")
 CPUINFO = Path("/proc/cpuinfo")
@@ -245,6 +252,9 @@ def read_calibration(path: Path, serial: str | None) -> tuple[Calibration | None
                       f"this board {serial})")
     if abs(calibration.rate_ppb) > RATE_BOUND_PPB:
         return None, f"its rate, {calibration.rate_ppb:+d} ppb, is outside +-200 ppm"
+    if abs(calibration.p_per_raw_ppb) > P_PER_RAW_BOUND_PPB:
+        return None, (f"its P/RAW ratio, {calibration.p_per_raw_ppb:+d} ppb, is outside "
+                      f"+-1000 ppm")
     return calibration, ""
 
 

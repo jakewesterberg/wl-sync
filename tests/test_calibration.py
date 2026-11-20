@@ -176,6 +176,7 @@ import datetime  # noqa: E402
 import os  # noqa: E402
 
 from wl_sync.calibration import (  # noqa: E402
+    P_PER_RAW_BOUND_PPB,
     RATE_BOUND_PPB,
     RATE_FILE_NAME,
     Calibration,
@@ -273,6 +274,23 @@ def test_a_rate_beyond_200_ppm_is_refused_and_200_is_not(tmp_path):
         write_calibration(path, make_cal(rate_ppb=bad))
         assert read_calibration(path, SERIAL) == (
             None, f"its rate, {text} ppb, is outside +-200 ppm")
+
+
+def test_a_p_per_raw_ratio_beyond_1000_ppm_is_refused_and_1000_is_not(tmp_path):
+    """Final review M3. The ratio seeds the RAW->P fit (wl_sync/rp1/backend.py:1420), so
+    one that parses but is wrong maps E wrongly: at -10^9 ppb or below the slope is 0 or
+    less, every E lands at about P 0 and every B is dropped. It is bounded as the rate is,
+    and refused with its own reason."""
+    path = tmp_path / RATE_FILE_NAME
+    assert P_PER_RAW_BOUND_PPB == 1_000_000
+    for ok in (-1_000_000, 1_000_000):
+        write_calibration(path, make_cal(p_per_raw_ppb=ok))
+        assert read_calibration(path, SERIAL)[0].p_per_raw_ppb == ok
+    for bad, text in ((1_000_001, "+1000001"), (-1_000_001, "-1000001"),
+                      (-1_000_000_000, "-1000000000")):
+        write_calibration(path, make_cal(p_per_raw_ppb=bad))
+        assert read_calibration(path, SERIAL) == (
+            None, f"its P/RAW ratio, {text} ppb, is outside +-1000 ppm")
 
 
 def test_the_calibration_and_its_directory_are_both_fsynced(tmp_path, monkeypatch):
