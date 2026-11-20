@@ -7,7 +7,7 @@ WHY NOT Rp1Backend. Its sync mask is the capture and stamp machines alone
 (wl_sync/rp1/backend.py:1076), its start-up test keeps a third machine claimed for the
 life of the block (:784-786), and it claims a spare stamp pin for the PIO (:666), which
 would take GPIO18 from libgpiod. So this module calls the shim itself, through the exports
-it already has (pio/wlsync_pio.c, version 5), as the start-up test does (backend.py:
+it already has (pio/wlsync_pio.c, version 6), as the start-up test does (backend.py:
 832-845). Nothing here is imported by the recording path, and nothing in it changes it.
 
 ONE THREAD CALLS PIOLIB, AND IT IS THE ONLY THREAD (the plan's Global Constraints,
@@ -41,7 +41,7 @@ from typing import NamedTuple
 from wl_sync.pins import (
     BARCODE_PIN, CODE_DATA_BASE, CODE_DATA_COUNT, CODE_STROBE_PIN, SPARE_PINS,
 )
-from wl_sync.rp1 import program
+from wl_sync.rp1 import meter, program
 from wl_sync.rp1.backend import (
     _CLK_SYS_SANE_HZ, _CYCLES_PER_TICK, _TICK_HZ, STAMP_TEST_HIGH_US, STAMP_TEST_SETTLE_US,
     PiolibError, _assert_encoders_agree, _check,
@@ -541,6 +541,9 @@ class Block:
         self.stamp_sms: list[int] = []
         self.pins: dict[int, int] = {}  # stamp machine -> its jmp pin
         self.depth = 0
+        # The width meter's machine (fix round 6), and clk_sys, which its counts scale by.
+        self.meter_sm: int | None = None
+        self.clk_sys_hz = 0
 
     def _here(self):
         if threading.get_ident() != self._thread:
@@ -552,11 +555,12 @@ class Block:
             raise HarnessError("the PIO block is not open")
         return self._lib
 
-    def open(self, stamp_pins: Sequence[int]) -> list[int]:
+    def open(self, stamp_pins: Sequence[int], meter_pin: int | None = None) -> list[int]:
         """Load and check the shim, open block 0, start the capture machine as production
         configures it, then one stamp machine per pin with claim_jmp_pin 0, all left
         disabled. Each step is backend.py's `_configure` (:584-654) and the start-up test's
-        start (:832-836). On any failure the block is closed and the error raised."""
+        start (:832-836). With `meter_pin`, then the width meter on it (`_start_meter`).
+        On any failure the block is closed and the error raised."""
         load = self._load
         if load is None:
             from wl_sync.rp1.backend import _load_shim as load
@@ -594,13 +598,35 @@ class Block:
                 ), f"starting a stamp machine on GPIO{pin}")
                 self.stamp_sms.append(sm)
                 self.pins[sm] = pin
+            self.clk_sys_hz = system_hz
+            if meter_pin is not None:
+                self._start_meter(lib, meter_pin)
         except BaseException:
             self.close()
             raise
         return list(self.stamp_sms)
 
+    def _start_meter(self, lib, pin: int) -> None:
+        """The width meter (wl_sync/rp1/meter.py; the user's ruling, 2026-11-20, "A PIO
+        width meter"), through shim version 6's `wlsync_start_meter`: loaded AFTER the
+        capture program, at its own offset, so the capture program and its loading are as
+        on the recording path; on the block's last free machine; its jmp pin `pin`,
+        unclaimed; CLKDIV 1. Left disabled, for the one sync enable."""
+        if isinstance(lib, ctypes.CDLL):  # the shim itself; a test's stand-in has its own
+            try:
+                _declare_meter(lib)
+            except AttributeError as error:  # a .so that reports 6 and lacks the export
+                raise PiolibError(f"libwlsync_pio lacks the width meter ({error}): "
+                                  "rebuild it with pio/build-shim.sh") from error
+        words = (ctypes.c_uint16 * len(meter.WIDTH_METER))(*meter.WIDTH_METER)
+        self.meter_sm = _check(lib.wlsync_start_meter(
+            words, len(meter.WIDTH_METER), meter.WRAP_TARGET, meter.WRAP, meter.ENTRY,
+            pin, meter.CLKDIV,
+        ), f"starting the width meter on GPIO{pin}")
+
     def machines(self) -> list[int]:
-        return [sm for sm in (self.capture_sm, *self.stamp_sms) if sm is not None]
+        return [sm for sm in (self.capture_sm, *self.stamp_sms, self.meter_sm)
+                if sm is not None]
 
     def enable_in_sync(self) -> int:
         """Every machine, the capture machine included, in one sync enable, as production
@@ -733,6 +759,9 @@ class Event:
     # two read-back costs in RAW ns (`PulseBounds`).
     fall_landed: bool = False
     reads: tuple[int, int] | None = None
+    # The width meter's counts drained with this event (fix round 6): one for each high on
+    # the dense pin, none for any other; `meter.width_ns` gives each width.
+    widths: list[int] = field(default_factory=list)
 
     @property
     def bounded(self) -> bool:
@@ -804,6 +833,7 @@ class Rig:
         # Called with every event as it is made, the running check's included: the
         # bench's --record.
         self.on_event: Callable[[Event], None] | None = None
+        self._widths: list[int] = []
 
     @classmethod
     def open(
@@ -831,7 +861,7 @@ class Rig:
                 writer.open()
                 writer.verify(lambda high: lines.set(dense_pin, high))
             block = Block(load)
-            block.open(stamp_pins)
+            block.open(stamp_pins, meter_pin=dense_pin)
             if writer is not None:
                 writer.check()
         except BaseException as error:
@@ -857,6 +887,11 @@ class Rig:
                                                         CODE_DATA_COUNT)
             tally.slips += len(slips)
             stamps[sm] = found
+        # The width meter's words, one a high, each ~count (wl_sync/rp1/meter.py).
+        self._widths = []
+        if block.meter_sm is not None:
+            read = self._count(block.read(block.meter_sm))
+            self._widths = [(~word) & 0xFFFF_FFFF for word in read.words]
         tally.drain_ns.append(raw_ns() - started)
         return stamps
 
@@ -866,6 +901,14 @@ class Rig:
         if capture:
             self.tally.words += len(read.words)
         return read
+
+    def meter_width_ns(self, count: int) -> float:
+        """A width meter count as the high's width in ns (wl_sync/rp1/meter.py)."""
+        return meter.width_ns(count, self.block.clk_sys_hz)
+
+    @property
+    def meter_uncertainty_ns(self) -> float:
+        return meter.uncertainty_ns(self.block.clk_sys_hz)
 
     def carried(self) -> int:
         """Data words still waiting for their counter: none, after a settle."""
@@ -880,7 +923,7 @@ class Rig:
         self._events += 1
         event = Event(self._events, tuple(pins), shape, rise_before, rise_after,
                       fall_before, fall_after, landed, drained_at, stamps, writer,
-                      fall_landed, reads)
+                      fall_landed, reads, self._widths)
         if self.on_event is not None:
             self.on_event(event)
         return event
@@ -968,6 +1011,18 @@ class Rig:
         self._closed = True
         _close_all([self.writer.close if self.writer else None, self.block.close,
                     self.lines.release])
+
+
+def _declare_meter(lib) -> None:
+    """Version 6's `wlsync_start_meter` (pio/wlsync_pio.c, at its end), bound here, not in
+    backend.py's `_declare`: the recording path never calls it. Scalars and the words
+    only, as every export."""
+    lib.wlsync_start_meter.argtypes = [
+        ctypes.POINTER(ctypes.c_uint16), ctypes.c_uint,   # instructions, length
+        ctypes.c_uint, ctypes.c_uint, ctypes.c_uint,      # wrap_target, wrap, entry
+        ctypes.c_uint, ctypes.c_float,                    # jmp_pin, clkdiv
+    ]
+    lib.wlsync_start_meter.restype = ctypes.c_int
 
 
 def _close_all(steps: Sequence[Callable[[], None] | None]) -> None:

@@ -105,6 +105,9 @@ class _Bank:
         self.closed = False
         self.posted = True
         self.pending = []
+        # How long a read takes on the link, the posted writes ahead of it landing at its
+        # middle (fix round 6): the box's read-back costs 5.1 us after a SET (box step 2).
+        self.read_cost_ns = 0
 
     def hold_as_output(self, pin, level=0):
         """What libgpiod's output request leaves [inferred: that the kernel's driver
@@ -147,7 +150,12 @@ class _Bank:
         return alias, pin, is_ctrl == 4
 
     def read32(self, offset):
+        half = self.read_cost_ns // 2
+        if half and hasattr(self, "clock"):
+            self.clock.advance(half)
         self._flush()  # a read does not pass the posted writes ahead of it
+        if self.read_cost_ns - half and hasattr(self, "clock"):
+            self.clock.advance(self.read_cost_ns - half)
         self.reads.append(offset)
         _, pin, is_ctrl = self._decode(offset)
         if is_ctrl:
@@ -558,7 +566,7 @@ _EBUSY = 16
 
 
 class _Shim:
-    """libwlsync_pio.so, version 5's exports, for the harness: successive free state
+    """libwlsync_pio.so, version 6's exports, for the harness: successive free state
     machines (four in the block, pio/wlsync_pio.c:199-202), each with its own RX FIFO of
     `depth` words that drops what it cannot hold, as `push noblock` does. `calls` records
     each call's name and thread; `enables` each mask the sync enable was given.
@@ -579,6 +587,9 @@ class _Shim:
         self.refuse_sync = False
         self.level_errno = {}
         self.capture_args = None
+        self.meter_args = None
+        self.meter_sm = self.meter_pin = None
+        self.meter_errno = 0
 
     def _call(self, name):
         self.calls.append((name, threading.get_ident()))
@@ -642,6 +653,21 @@ class _Shim:
                                                              data_base, clkdiv, seed)))
         return sm
 
+    def wlsync_start_meter(self, instructions, length, wrap_target, wrap, entry, jmp_pin,
+                           clkdiv):
+        """Version 6's meter: after the capture program, or -ENODEV, as the shim's."""
+        self._call("start_meter")
+        if self.capture_args is None:
+            return -19
+        if self.meter_errno:
+            return -self.meter_errno
+        self.meter_args = (list(instructions), length, wrap_target, wrap, entry, jmp_pin,
+                           clkdiv)
+        sm = self._claim(jmp_pin)
+        if sm >= 0:
+            self.meter_sm, self.meter_pin = sm, jmp_pin
+        return sm
+
     def wlsync_enable_in_sync(self, mask):
         self._call("enable_in_sync")
         self.enables.append(mask)
@@ -696,6 +722,7 @@ class _Board:
     def __init__(self, clock):
         self.clock = clock
         self.bank = _Bank()
+        self.bank.clock = clock
         self.bank.on_pad = self.pad_changed
         self.shim = _Shim(self)
         self.skew_us = {}
@@ -708,11 +735,15 @@ class _Board:
         self.rises = {}
         self.rose_at = {}
         self.pushed = {}
+        self.meter_rise = 0
+        self.meter_drop = 0
         self.w_on_rise = False
         self.used = {}
 
     def pad_changed(self, pin, level):
         shim = self.shim
+        if pin == shim.meter_pin and shim.meter_sm in shim.enabled:
+            self._meter(pin, level)
         if not level:
             high = self.clock.true_ns - self.rose_at.get(pin, self.clock.true_ns)
             if high < 1_000:
@@ -741,10 +772,28 @@ class _Board:
             self.pushed[pin].append((sm, [0, (~p) & 0xFFFF_FFFF]))
             self.lost[sm] = self.lost.get(sm, 0) + self.loss_us.get(sm, 0)
 
+    def _meter(self, pin, level):
+        """The width meter's FIFO, as the simulator has it (tests/test_rp1_meter.py,
+        `meter_count`): at the fall, one word, ~count, unless `meter_drop` drops it."""
+        from tests.test_rp1_meter import meter_count
+
+        cycle = self.clock.true_ns // 5  # clk_sys 200 MHz, CLKDIV 1
+        if level:
+            self.meter_rise = cycle
+            return
+        count = meter_count(self.meter_rise, cycle)
+        if count is None:
+            return
+        if self.meter_drop:
+            self.meter_drop -= 1
+            return
+        self.shim.push(self.shim.meter_sm, [(~count) & 0xFFFF_FFFF])
+
     def _watching(self, pin):
         pins = {pin, *([self.crosstalk[pin]] if pin in self.crosstalk else [])}
         return [sm for sm, jmp in self.shim.claimed.items()
-                if sm != 0 and jmp in pins - self.blind and sm in self.shim.enabled]
+                if sm not in (0, self.shim.meter_sm) and jmp in pins - self.blind
+                and sm in self.shim.enabled]
 
 
 def _gpiod_stub(board, set_cost_ns=20_000):
@@ -1058,16 +1107,21 @@ def test_a_dense_pin_the_block_takes_is_refused_once_the_block_is_open(board):
 
 def test_nothing_but_the_bench_reaches_the_harness_or_rp1s_registers():
     """The register writer is confined to the bench harness (the user's ruling,
-    2026-11-20): no module of the package but wl_sync/bench.py names the harness, and none
-    but the harness names /dev/gpiomem."""
+    2026-11-20): no module of the package but wl_sync/bench.py (and the harness's own
+    meter) names the harness, none but the harness names /dev/gpiomem, and none but the
+    harness loads the width meter."""
     root = pathlib.Path(harness.__file__).parent.parent
     for path in sorted(root.rglob("*.py")):
         text = path.read_text()
         name = path.relative_to(root.parent).as_posix()
-        if name not in ("wl_sync/bench.py", "wl_sync/rp1/harness.py"):
+        if name not in ("wl_sync/bench.py", "wl_sync/rp1/harness.py", "wl_sync/rp1/meter.py"):
             assert "harness" not in text, name
         if name != "wl_sync/rp1/harness.py":
             assert "gpiomem" not in text, name
+        # The width meter (fix round 6) is the harness's too: only it loads the program.
+        if name not in ("wl_sync/rp1/harness.py", "wl_sync/rp1/meter.py"):
+            for word in ("wlsync_start_meter", "rp1.meter", "import meter", "WIDTH_METER"):
+                assert word not in text, (name, word)
 
 
 def test_an_override_found_set_is_refused_naming_the_command_that_clears_it(bank):
@@ -1234,3 +1288,54 @@ def test_a_libgpiod_fall_on_the_dense_pin_is_read_back_so_its_upper_bound_is_one
     event = rig.edge(18, 0)
     assert event.rise_landed and event.fall_landed and event.bounded
     rig.close()
+
+
+def test_the_rig_starts_the_width_meter_on_the_dense_pin_after_the_stamp_machines(board):
+    """Fix round 6 (the user's ruling, 2026-11-20, "A PIO width meter"): the meter is
+    loaded after the capture program, at its own offset, on its own machine, with the
+    dense pin as its jmp pin, unclaimed; and it joins the one sync enable."""
+    from wl_sync.rp1 import meter
+
+    rig = _rig(board, [18, 17], dense_pin=18)
+    shim = board.shim
+    names = [name for name, _ in shim.calls]
+    assert names.index("start_capture") < names.index("start_stamp") < names.index(
+        "start_meter")
+    assert shim.meter_args == (list(meter.WIDTH_METER), 7, meter.WRAP_TARGET, meter.WRAP,
+                               meter.ENTRY, 18, meter.CLKDIV)
+    assert rig.block.meter_sm == 3 and rig.block.stamp_sms == [1, 2]
+    rig.block.enable_in_sync()
+    assert shim.enables == [0b1111]
+    rig.close()
+    assert shim.enabled == set()
+
+
+def test_each_dense_high_carries_the_meters_width_and_others_none(board):
+    from wl_sync.rp1 import meter
+
+    rig = _rig(board, [18, 17], dense_pin=18)
+    rig.block.enable_in_sync()
+    pads = []
+    board.bank.on_pad = lambda pin, level: (pads.append((pin, level, board.clock.true_ns)),
+                                            board.pad_changed(pin, level))
+    event = rig.short(2_000)
+    [(_, _, rise), (_, _, fall)] = pads
+    [count] = event.widths
+    assert abs(meter.width_ns(count, 200_000_000) - (fall - rise)) <= 5 + 5
+    assert rig.edge(17, 20_000).widths == []
+    assert len(rig.edge(18, 10_000).widths) == 1
+    rig.close()
+
+
+def test_b3a_s_rig_loads_no_meter(board):
+    rig = _rig(board, [17, 17, 17])
+    assert board.shim.meter_args is None and rig.block.meter_sm is None
+    rig.close()
+
+
+def test_a_meter_that_cannot_start_closes_everything_and_raises(board):
+    board.shim.meter_errno = 28
+    with pytest.raises(harness.PiolibError, match="meter.*errno 28"):
+        _rig(board, [18, 17], dense_pin=18)
+    assert board.shim.closed == 1 and len(board.gpiod.released) == 1
+    assert board.bank.writes == []

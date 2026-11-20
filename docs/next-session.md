@@ -110,14 +110,14 @@ The box is `wl-rig-sync0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from
 NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, and
 `deploy/README.md`). `ssh wl-rig-sync0` reaches it over the tailnet.
 
-**Before anything runs the box, rebuild and install the shim, version 5** (P0 item 1,
+**Before anything runs the box, rebuild and install the shim, version 6** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
 shim (`deploy/README.md:599-606`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
-(libwlsync_pio is version N, and this wl-sync needs 5: rebuild ...)` names the rebuild.
+(libwlsync_pio is version N, and this wl-sync needs 6: rebuild ...)` names the rebuild.
 *[2026-11-20: version 4, Task 1.20's fix round (Ruling R40): a level read that can fail
 visibly, and the FIFO's depth from piolib. Then version 5 (fix round 3, Ruling R42): a
-full FIFO read as 16 from RP1's saturating level field and its full flag.]*
+full FIFO read as 16 from RP1's saturating level field and its full flag. Then version 6 (Task 1.21 fix round 6): `wlsync_start_meter`, the bench harness's width meter, which the recording path never calls.]*
 
 **The conditions the no-wrong-`W` proof rests on, which only silicon can confirm** *(added
 2026-11-20; Task 1.20's review, B-1 to B-5; Ruling R40)*. The word pump writes a code word only
@@ -179,8 +179,8 @@ each over ssh, in this order, with the user's go-ahead before each; never two at
 each opens the PIO block. The full expected output is in the build's report,
 `.superpowers/sdd/2026-11-07-one-clock/task-1.21-report.md` (gitignored, above).
 1. Read-only: `ssh wl-rig-sync0 'systemctl is-active wl-sync; systemctl cat wl-sync | grep -c -- "--fake"; pgrep -af "[w]l_sync.bench" || echo "no bench running"; ls -l /dev/pio0 /dev/gpiomem0; id -nG; ls /sys/bus/platform/devices | grep -i gpiomem; pinctrl get 17,18,19'`. Pass: `active`, `1`, no bench running, both devices in group `gpio` with the user in it, and GPIO17-19 not under another function.
-2. Copy the harness's commit to `~/wl-sync-spike/src` and check the shim, as S.1 (plan `:1947-1951`); it is still version 5. Then, read-only, `python -m wl_sync.bench override` from `~/wl-sync-spike`: `no override` on GPIO18 and GPIO19.
-3. The probe, about 30 s: `ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib venv/bin/python -m wl_sync.bench streams --probe-only --record out/b3-probe.csv > out/b3-probe.txt 2>&1; echo "exit $?"; cat out/b3-probe.txt'`. Pass: `independent streams (B3b) probe: PASS`, each pin's 100 rises stamped by its own machine alone, every libgpiod shape 200 of 200, and `short-exit path (high <= 5.0 us): shown`. If GPIO18 is blind, the same with `--dense-pin 19`; if that is blind too, B3b waits for the 12→36 jumper.
+2. Copy the harness's commit to `~/wl-sync-spike/src` and check the shim, as S.1 (plan `:1947-1951`); it must now be version 6 (`wlsync_start_meter`, fix round 6): rebuild `lib` with `pio/build-shim.sh`, and S.1's check prints `6`. Then, read-only, `python -m wl_sync.bench override` from `~/wl-sync-spike`: `no override` on GPIO18 and GPIO19.
+3. The probe, about 30 s: `ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib venv/bin/python -m wl_sync.bench streams --probe-only --record out/b3-probe.csv > out/b3-probe.txt 2>&1; echo "exit $?"; cat out/b3-probe.txt'`. Pass: `independent streams (B3b) probe: PASS`, each pin's 100 rises stamped by its own machine alone, every libgpiod shape 200 of 200, and `short-exit path (meter width <= 5.0 us): shown`: the PIO's width meter on the dense pin, not the CPU, says which path each high took (the user's ruling, 2026-11-20, "A PIO width meter"), and it must measure every dense high exactly once. If GPIO18 is blind, the same with `--dense-pin 19`; if that is blind too, B3b waits for the 12→36 jumper.
 4. B3a, about 4 min: `skew --machines 3 --edges 100000 --record out/b3a.csv`; then 20 fresh starts of `skew --machines 3 --edges 5000`, one process each. Pass, every one: `start skew (B3a): PASS`, each pair's difference one value of at most 1 on every edge.
 5. B3b, about 62 min, detached: `streams --duration 3600 --rate 100 --marker --record out/b3b.csv` under `nohup`, read after the hour. Pass: `independent streams (B3b): PASS`, `A - B` within 0.01 ppm with 1 sigma at most 0.0033 ppm, both paths each at least a quarter of A's fitted events, and no `fails:` or `inconclusive:` line (both bounds are the user's rulings, 2026-11-20). `pkill -f '[w]l_sync.bench streams'` ends it early (the bracket keeps the pattern from matching the `bash -c` that runs it), closed and INCONCLUSIVE. Under `nohup` a SIGHUP stays ignored; a run in the foreground that gets one ends as `pkill` ends it. The run's dense pin is the one in its `A (GPIO18, SM1)` line: GPIO18, or 19 if step 3 needed `--dense-pin 19`.
 6. Afterwards, read-only: `python -m wl_sync.bench override`, from `~/wl-sync-spike` with `LD_LIBRARY_PATH` as above. Pass: `no override` on GPIO18 and GPIO19, and exit 0; `pinctrl` cannot show the override. Only SIGKILL between a writer pulse's two stores can leave one set, the pin forced high: harmless, since GPIO18 and GPIO19 are no-connect on the bench and on the breakout. The clear command `override` prints beside a set override, `python -m wl_sync.bench override --pin <the run's dense pin> --clear`, clears it with no sudo, after checking the map against libgpiod. It clears only OUTOVER 3, the value the harness writes, and writes nothing on any refusal; on a pin with nothing set it prints `NOT CLEARED` and exits 1.
@@ -218,7 +218,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
-   shim; the backend refuses to use a shim that is not version 5, and records split with no
+   shim; the backend refuses to use a shim that is not version 6, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
    (`deploy/README.md:599-606`, `wl_sync/rp1/backend.py:264`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0

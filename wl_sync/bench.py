@@ -416,7 +416,8 @@ _WRAP = 1 << 32
 # What --record writes, one line per driven rise, every value an integer RAW ns or a raw
 # 32-bit count, so a verdict can be re-derived without rerunning the hour.
 RECORD_COLUMNS = ("phase,index,pins,shape,rise_before_ns,rise_after_ns,fall_before_ns,"
-                  "fall_after_ns,set_read_ns,clear_read_ns,rise_landed,drained_at_ns,stamps")
+                  "fall_after_ns,set_read_ns,clear_read_ns,meter_counts,rise_landed,"
+                  "drained_at_ns,stamps")
 
 
 def _signed(difference: int) -> int:
@@ -452,6 +453,7 @@ class _Recorder:
             field_of(event.rise_before), field_of(event.rise_after),
             field_of(event.fall_before), field_of(event.fall_after),
             *(field_of(read) for read in (event.reads or (None, None))),
+            " ".join(str(count) for count in event.widths),
             str(int(event.rise_landed)), field_of(event.drained_at), stamps,
         ]) + "\n")
 
@@ -714,6 +716,23 @@ def path_of(event) -> str | None:
     return None
 
 
+def path_of_width(width_ns: float, uncertainty_ns: float) -> str | None:
+    """Which path a stamped high took, FROM THE PIO'S OWN WIDTH METER (the user's ruling,
+    2026-11-20, "A PIO width meter"; fix round 6): "short" when the widest the high can be,
+    its measured width plus the meter's uncertainty, is at most SHORT_EXIT_MAX_NS; "held"
+    when the narrowest it can be is at least HELD_MIN_NS; and None, neither, in the band
+    between, where the program's path depends on the sampling phase (piosim: 5.5 us is
+    held at one phase and short at the other). The bounds are the program's own,
+    SHORT_EXIT_MAX_NS and HELD_MIN_NS. The CPU's bounds (`path_of`) are reported beside
+    it, as information only: one RP1 read costs 5.1 us (box step 2), so they cannot prove a
+    short high."""
+    if width_ns + uncertainty_ns <= SHORT_EXIT_MAX_NS:
+        return "short"
+    if width_ns - uncertainty_ns >= HELD_MIN_NS:
+        return "held"
+    return None
+
+
 @dataclass
 class ShapeResult:
     """One probe shape on the dense pin: how many pulses, how many A stamped once, how
@@ -732,12 +751,20 @@ class ShapeResult:
     proven_short: int = 0
     set_reads: list[int] = field(default_factory=list)
     clear_reads: list[int] = field(default_factory=list)
+    # The width meter's record of each high (fix round 6): its widths, how many it put on
+    # each path (`path_of_width`), and the highs it measured not once.
+    widths_ns: list[float] = field(default_factory=list)
+    meter_paths: Counter = field(default_factory=Counter)
+    meter_missed: int = 0
+    meter_extra: int = 0
 
     @property
     def short_shown(self) -> bool:
-        under = sum(upper <= SHORT_EXIT_MAX_NS for upper in self.uppers)
+        """A writer hold the run may drive: every high stamped by A alone, measured once by
+        the meter, and at least SHORT_SHARE_SHOWN of them measured short."""
         return bool(self.writer and self.pulses and self.stamped == self.pulses
-                    and not self.other and under >= SHORT_SHARE_SHOWN * self.pulses)
+                    and not self.other and not self.meter_missed and not self.meter_extra
+                    and self.meter_paths["short"] >= SHORT_SHARE_SHOWN * self.pulses)
 
 
 @dataclass
@@ -756,6 +783,9 @@ class ProbeReport:
     barcode_by_b: int = 0
     barcode_by_a: int = 0
     shapes: list[ShapeResult] = field(default_factory=list)
+    # The width meter on P1's rises (one width each) and P2's (none): its own health.
+    meter_missed: int = 0
+    meter_extra: int = 0
 
     def short_holds(self) -> list[int]:
         return [shape.hold_ns for shape in self.shapes if shape.short_shown]
@@ -784,17 +814,22 @@ class ProbeReport:
             if not shape.writer and (shape.stamped != shape.pulses or shape.other):
                 return (f"A stamped {shape.stamped} of {shape.pulses} {shape.name} highs on "
                         f"GPIO{pin} (B {shape.other})")
+        missed = self.meter_missed + sum(shape.meter_missed for shape in self.shapes)
+        extra = self.meter_extra + sum(shape.meter_extra for shape in self.shapes)
+        if missed or extra:
+            return (f"the width meter measured highs on GPIO{pin} other than once each: "
+                    f"{missed} missed, {extra} extra")
         if not self.short_holds():
             return self._short_line().strip()
         return ""
 
     def _short_line(self) -> str:
         holds = self.short_holds()
-        head = f"  short-exit path (high <= {_us(SHORT_EXIT_MAX_NS)} us): "
+        head = f"  short-exit path (meter width <= {_us(SHORT_EXIT_MAX_NS)} us): "
         if holds:
             return head + f"shown, the run holds {', '.join(str(h) for h in holds)} ns"
-        return head + ("not shown: no register-writer hold had every high stamped and "
-                       f"{SHORT_SHARE_SHOWN:.0%} of them under {_us(SHORT_EXIT_MAX_NS)} us")
+        return head + ("not shown: no register-writer hold had every high stamped, measured "
+                       f"once, and {SHORT_SHARE_SHOWN:.0%} of them measured short")
 
     def lines(self) -> list[str]:
         pin = self.dense_pin
@@ -810,12 +845,12 @@ class ProbeReport:
             lines.append(f"  highs on GPIO{pin} by libgpiod, lower..upper bound, median: " +
                          "; ".join(f"{s.name} {_us(median(s.lowers))}..{_us(median(s.uppers))}"
                                    f" us ({s.stamped} of {s.pulses} stamped, "
-                                   f"{s.proven_short} proven short)" for s in held))
+                                   f"{s.proven_short} proven short by the CPU)" for s in held))
         written = [s for s in self.shapes if s.writer and s.uppers]
         if written:
             lines.append(f"  highs on GPIO{pin} by the register writer, lower..upper bound: " +
                          "; ".join(f"hold {_us(s.hold_ns)} us: {s.stamped} of {s.pulses} "
-                                   f"stamped, {s.proven_short} proven short, median "
+                                   f"stamped, {s.proven_short} proven short by the CPU, median "
                                    f"{_us(median(s.lowers))}..{_us(median(s.uppers))} us, "
                                    f"max upper {_us(max(s.uppers))} us" for s in written))
             reads = [r for s in written for r in s.set_reads]
@@ -823,6 +858,15 @@ class ProbeReport:
             lines.append(f"  register read-back, RAW: after the SET median {_us(median(reads))}"
                          f" us, max {_us(max(reads))} us; after the CLEAR median "
                          f"{_us(median(clears))} us, max {_us(max(clears))} us")
+        metered = [s for s in self.shapes if s.widths_ns]
+        if metered:
+            lines.append("  width meter, median: " + "; ".join(
+                f"{s.name if not s.writer else 'hold ' + _us(s.hold_ns) + ' us'} "
+                f"{_us(median(s.widths_ns))} us (short {s.meter_paths['short']}, held "
+                f"{s.meter_paths['held']}, neither {s.meter_paths[None]}"
+                + (f", missed {s.meter_missed}" if s.meter_missed else "")
+                + (f", extra {s.meter_extra}" if s.meter_extra else "") + ")"
+                for s in metered))
         if self.complete:
             lines.append(self._short_line())
         return lines
@@ -846,6 +890,8 @@ def probe(rig, report: ProbeReport, a: int, b: int, short_holds: Sequence[int]) 
         report.dense_rises += 1
         report.dense_by_a += len(event.stamps[a]) == 1
         report.dense_by_b += len(event.stamps[b])
+        report.meter_missed += not event.widths
+        report.meter_extra += max(0, len(event.widths) - 1)
     for _ in range(PROBE_RISES):
         due += PROBE_SPACING_NS
         wait_until(due)
@@ -853,6 +899,7 @@ def probe(rig, report: ProbeReport, a: int, b: int, short_holds: Sequence[int]) 
         report.barcode_rises += 1
         report.barcode_by_b += len(event.stamps[b]) == 1
         report.barcode_by_a += len(event.stamps[a])
+        report.meter_extra += len(event.widths)  # the meter watches the dense pin alone
     shapes = [ShapeResult(name, False, hold) for name, hold in HELD_SHAPES_NS]
     shapes += [ShapeResult(f"writer {hold}", True, hold) for hold in short_holds]
     for shape in shapes:
@@ -872,6 +919,13 @@ def probe(rig, report: ProbeReport, a: int, b: int, short_holds: Sequence[int]) 
             if event.reads is not None:
                 shape.set_reads.append(event.reads[0])
                 shape.clear_reads.append(event.reads[1])
+            shape.meter_missed += not event.widths
+            shape.meter_extra += max(0, len(event.widths) - 1)
+            if len(event.widths) == 1:
+                width = rig.meter_width_ns(event.widths[0])
+                shape.widths_ns.append(width)
+                if len(event.stamps[a]) == 1:
+                    shape.meter_paths[path_of_width(width, rig.meter_uncertainty_ns)] += 1
     report.complete = True
 
 
@@ -901,9 +955,18 @@ class StreamsReport:
     b_missed: int = 0
     b_extra: int = 0
     crosstalk: int = 0
+    # A's fitted highs by the width meter's path (`path_of_width`, fix round 6), which the
+    # user's ">= 25% each" counts; and, as information only, by the CPU's bounds.
     held: int = 0
     short: int = 0
     unbounded: int = 0
+    cpu_short: int = 0
+    cpu_held: int = 0
+    meter_missed: int = 0
+    meter_extra: int = 0
+    # The meter's counts to ns, from the rig (`Rig.meter_width_ns`).
+    width_of: Callable[[int], float] | None = None
+    meter_uncertainty_ns: float = 0.0
     wide: int = 0
     fit_a: LineFit = field(default_factory=LineFit)
     fit_b: LineFit = field(default_factory=LineFit)
@@ -937,6 +1000,7 @@ class StreamsReport:
 
     def add_dense(self, event, writer: bool) -> None:
         self.a_events += 1
+        self._measured(event)
         stamp = self._one(event, self.a, self.b)
         if stamp is None:
             self.a_missed += not event.stamps[self.a]
@@ -948,17 +1012,28 @@ class StreamsReport:
             return
         self._credit(event)
 
+    def _measured(self, event) -> None:
+        """The meter's health on a dense-pin high: exactly one width."""
+        self.meter_missed += not event.widths
+        self.meter_extra += max(0, len(event.widths) - 1)
+
     def _credit(self, event) -> None:
-        path = path_of(event)
+        path = None
+        if len(event.widths) == 1 and self.width_of is not None:
+            path = path_of_width(self.width_of(event.widths[0]), self.meter_uncertainty_ns)
         if path == "short":
             self.short += 1
         elif path == "held":
             self.held += 1
         else:
             self.unbounded += 1
+        cpu = path_of(event)
+        self.cpu_short += cpu == "short"
+        self.cpu_held += cpu == "held"
 
     def add_barcode(self, event) -> None:
         self.b_events += 1
+        self.meter_extra += len(event.widths)  # the meter watches the dense pin alone
         stamp = self._one(event, self.b, self.a)
         if stamp is None:
             self.b_missed += not event.stamps[self.b]
@@ -972,6 +1047,7 @@ class StreamsReport:
         A - B, which one lost tick on either moves by 1 with no fit. Informational: that
         the two pads change on one write is [unverified] (the user's decision 5)."""
         self.markers += 1
+        self._measured(event)
         a, b = event.stamps[self.a], event.stamps[self.b]
         self.a_events += 1
         self.b_events += 1
@@ -1010,7 +1086,9 @@ class StreamsReport:
                             ("stamps by the other pin's machine", self.crosstalk),
                             ("code words", self.words), ("full FIFOs", self.full),
                             ("slips", self.slips), ("failed level reads", self.level_errors),
-                            ("data words left waiting", self.carried)):
+                            ("data words left waiting", self.carried),
+                            ("width meter missed", self.meter_missed),
+                            ("width meter extra", self.meter_extra)):
             if count:
                 found.append(f"{name} {count}")
         difference = self.difference()
@@ -1066,10 +1144,11 @@ class StreamsReport:
 
             lines.append(f"  A (GPIO{pin}, SM{self.a}): {self.a_events} rises, "
                          f"{self.a_stamped} stamped, fit through {fit_a.n}: {slope(fit_a)}")
-            lines.append(f"    held path (high >= {_us(HELD_MIN_NS)} us) {self.held}, short "
-                         f"exit (high <= {_us(SHORT_EXIT_MAX_NS)} us) {self.short}, "
-                         f"neither bound {self.unbounded}; {self.wide} brackets wider than "
-                         "the fit takes")
+            lines.append(f"    held path (meter width >= {_us(HELD_MIN_NS)} us) {self.held}, "
+                         f"short exit (meter width <= {_us(SHORT_EXIT_MAX_NS)} us) "
+                         f"{self.short}, neither {self.unbounded}; by the CPU's bounds, "
+                         f"for information, short {self.cpu_short}, held {self.cpu_held}; "
+                         f"{self.wide} brackets wider than the fit takes")
             lines.append(f"  B (GPIO{BARCODE_PIN}, SM{self.b}): {self.frames} frames, "
                          f"{self.b_events} rises, {self.b_stamped} stamped, fit through "
                          f"{fit_b.n}: {slope(fit_b)}")
@@ -1278,6 +1357,8 @@ def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_onl
 
     def body(rig, recorder):
         report.a, report.b = rig.block.stamp_sms
+        report.width_of = rig.meter_width_ns
+        report.meter_uncertainty_ns = rig.meter_uncertainty_ns
         report.enable_raw = rig.block.enable_in_sync()
         if recorder is not None:
             recorder.comment(f"enable_raw_ns={report.enable_raw}")

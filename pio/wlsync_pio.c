@@ -72,7 +72,7 @@ static int find_fd(unsigned index)
  * after a close and a reopen, is -ENODEV rather than a machine at a stale offset. */
 static unsigned g_offset;
 static unsigned g_length;
-static int g_loaded;
+static int g_loaded, g_meter_loaded; /* the meter: wlsync_start_meter, at the end */
 
 int wlsync_pio_open(unsigned index)
 {
@@ -88,7 +88,7 @@ int wlsync_pio_open(unsigned index)
      * before any instruction is encoded. */
     pio_select(pio);
     g_pio = pio;
-    g_loaded = 0; /* a block just opened holds none of this shim's program yet */
+    g_loaded = g_meter_loaded = 0; /* a block just opened holds none of our programs */
     g_fd = find_fd(index);
     return 0;
 }
@@ -98,7 +98,7 @@ void wlsync_pio_close(void)
     if (g_pio != NULL) {
         pio_close(g_pio);
         g_pio = NULL;
-        g_loaded = 0;
+        g_loaded = g_meter_loaded = 0;
         g_fd = -1;
     }
 }
@@ -127,8 +127,8 @@ uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
  *    `wlsync_rx_fifo_depth` added (Task 1.20, Ruling R40);
  * 5: `wlsync_sm_rx_level` reads a full FIFO as its depth, from RP1's level field, which
  *    saturates at 15, and its full flag, where version 4 read 15 (wlsync_fifo_state.h;
- *    Task 1.20 fix round 3, Ruling R42). */
-#define WLSYNC_SHIM_VERSION 5
+ *    Task 1.20 fix round 3, Ruling R42); 6: wlsync_start_meter, at the end. */
+#define WLSYNC_SHIM_VERSION 6
 int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
 
 /*
@@ -315,3 +315,61 @@ int wlsync_rx_fifo_depth(void)
 
 int wlsync_sm_rx_full(unsigned sm) { return pio_sm_is_rx_fifo_full(g_pio, sm) ? 1 : 0; }
 uint32_t wlsync_sm_get(unsigned sm) { return pio_sm_get(g_pio, sm); }
+
+/*
+ * VERSION 6 (Task 1.21 fix round 6; the user's ruling, 2026-11-20, "A PIO width meter"):
+ * the bench harness's width meter, wl_sync/rp1/meter.py. NOT ON THE RECORDING PATH: only
+ * wl_sync/rp1/harness.py calls it, and the backend never does.
+ *
+ * Load the meter program at its own offset, after the capture program (which must already
+ * be loaded, so the meter can never take the capture program's place in instruction
+ * memory; -ENODEV otherwise), and configure one more state machine on it, left DISABLED,
+ * with its jmp pin `jmp_pin` left unclaimed as the stamp machines' are (wlsync_start_stamp,
+ * claim_jmp_pin 0): the pin stays libgpiod's. No in pins: the program reads none. Returns
+ * the state machine's number, or a negative errno: -EINVAL for a program that cannot be
+ * one, -ENOSPC when it does not fit beside the capture program, -EBUSY with no machine
+ * free or a meter already loaded, -EIO when the machine could not be configured, its
+ * claim given back. One meter per open block; wlsync_pio_close forgets it.
+ */
+int wlsync_start_meter(const uint16_t *instructions, unsigned length,
+                       unsigned wrap_target, unsigned wrap, unsigned entry,
+                       unsigned jmp_pin, float clkdiv)
+{
+    if (g_pio == NULL || !g_loaded)
+        return -ENODEV;
+    if (g_meter_loaded)
+        return -EBUSY;
+    if (length == 0 || length > 32 || entry >= length || wrap >= length || wrap_target > wrap)
+        return -EINVAL;
+
+    pio_program_t program = {
+        .instructions = instructions,
+        .length = (uint8_t)length,
+        .origin = -1,
+        .pio_version = 0,
+    };
+    pio_clear_error(g_pio);
+    if (!pio_can_add_program(g_pio, &program))
+        return -ENOSPC;
+    unsigned offset = pio_add_program(g_pio, &program);
+    if (pio_get_error(g_pio))
+        return -ENOSPC;
+    g_meter_loaded = 1;
+
+    int sm = pio_claim_unused_sm(g_pio, false);
+    if (sm < 0)
+        return -EBUSY;
+
+    pio_sm_config config = pio_get_default_sm_config();
+    sm_config_set_jmp_pin(&config, jmp_pin);
+    sm_config_set_in_shift(&config, false, false, 32);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_RX);
+    sm_config_set_wrap(&config, offset + wrap_target, offset + wrap);
+    sm_config_set_clkdiv(&config, clkdiv);
+    pio_sm_init(g_pio, sm, offset + entry, &config);
+    if (pio_get_error(g_pio)) {
+        pio_sm_unclaim(g_pio, sm);
+        return -EIO;
+    }
+    return sm;
+}

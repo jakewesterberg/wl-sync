@@ -908,7 +908,7 @@ def test_the_streams_probe_sees_both_pins_and_shows_the_short_exit(
     out = capsys.readouterr().out
     assert out.splitlines()[0] == "independent streams (B3b) probe: PASS", out
     assert "GPIO18 rises 20, stamped A 20, B 0; GPIO17 rises 20, stamped B 20, A 0" in out
-    assert "short-exit path (high <= 5.0 us): shown" in out
+    assert "short-exit path (meter width <= 5.0 us): shown" in out
     assert board.bank.writes and board.bank.writes[-1] == (0x3094, 0x3000)
     assert board.bank.ctrl[18] & 0x3000 == 0
     assert [(pin, c) for _, pin, c, _ in board.shim.claims] == [(18, 0), (17, 0)]
@@ -944,7 +944,7 @@ def test_writer_highs_too_wide_for_the_short_exit_stop_streams(
     _patch_rig(monkeypatch, board, _Clock(read_ns=3_000))
     assert bench.main(["streams", "--duration", "60"]) == 1
     out = capsys.readouterr().out
-    assert "short-exit path (high <= 5.0 us): not shown" in out
+    assert "short-exit path (meter width <= 5.0 us): not shown" in out
 
 
 def _streams(board, monkeypatch, capsys, *args, clock=None):
@@ -966,7 +966,8 @@ def test_two_crystals_pass_b3b_with_both_slopes_about_ten_ppm_from_one(
 
     slopes = [float(s) for s in re.findall(r"slope (\d\.\d+)", out)]
     assert len(slopes) >= 2 and all(abs(s - (1 - 10e-6)) < 1e-7 for s in slopes), out
-    assert "held path (high >= 6.0 us)" in out and "short exit (high <= 5.0 us)" in out
+    assert "held path (meter width >= 6.0 us)" in out
+    assert "short exit (meter width <= 5.0 us)" in out
     assert re.search(r"marker A-B: 0 on 60 of 60 frames", out), out
     assert board.bank.ctrl[18] & 0x3000 == 0 and board.shim.closed == 1
 
@@ -1333,3 +1334,73 @@ def test_a_highs_path_is_judged_by_its_bounds_whoever_drove_it(writer, landed, u
     event = Event(1, (18,), "s", 1_000, rise_after, rise_after + lower, 1_000 + upper,
                   landed, 0, {}, writer, landed, None)
     assert path_of(event) == path
+
+
+@pytest.mark.parametrize("width_ns, path", [
+    (4_990, "short"), (4_995, "short"), (4_996, None), (5_500, None), (6_004, None),
+    (6_005, "held"), (1_000_000, "held"), (1_000, "short"),
+])
+def test_the_meters_width_names_the_path_with_its_uncertainty(width_ns, path):
+    """Fix round 6: short when the widest the high can be is 5.0 us, held when the
+    narrowest is 6.0 us (the program's own bounds, piosim), the meter's 5 ns either way;
+    between, neither, and said so."""
+    from wl_sync.bench import path_of_width
+
+    assert path_of_width(width_ns, 5) == path
+
+
+def test_the_probe_judges_the_short_exit_by_the_meter_not_the_cpu(
+    board, monkeypatch, capsys, run_fast
+):
+    """As on the box (box step 2): each register read costs 3 us, so no CPU bound proves a
+    writer high short, but the PIO's own width meter does, and the probe passes on it."""
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.bank.read_cost_ns = 3_000
+    assert bench.main(["streams", "--probe-only"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "independent streams (B3b) probe: PASS", out
+    assert "short-exit path (meter width <= 5.0 us): shown" in out, out
+    assert "0 proven short by the CPU" in out
+    assert "width meter, median:" in out
+
+
+def test_a_width_meter_that_misses_highs_fails_the_probe(board, monkeypatch, capsys, run_fast):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.meter_drop = 3
+    assert bench.main(["streams", "--probe-only"]) == 1
+    out = capsys.readouterr().out
+    assert "the width meter measured" in out, out
+
+
+def test_the_runs_path_shares_are_the_meters(board, monkeypatch, capsys, run_fast):
+    """B3b's per-path share (the user's ruling, ">= 25% each") counts by the meter: with
+    3 us reads no CPU bound credits the short exit, and the meter does."""
+    import re
+
+    board.bank.read_cost_ns = 3_000
+    status, out = _streams(board, monkeypatch, capsys)
+    assert status == 0, out
+    short = int(re.search(r"short exit \(meter width <= 5.0 us\) (\d+)", out).group(1))
+    held = int(re.search(r"held path \(meter width >= 6.0 us\) (\d+)", out).group(1))
+    assert short >= 500 and held >= 500, out
+
+
+def test_a_width_meter_that_misses_a_run_high_fails_b3b(board, monkeypatch, capsys, run_fast):
+    real = board._meter
+    calls = []
+
+    def dropping(pin, level):
+        if not level:
+            calls.append(pin)
+            if len(calls) == 900:
+                board.meter_drop = 1
+        real(pin, level)
+
+    board._meter = dropping
+    status, out = _streams(board, monkeypatch, capsys)
+    assert status == 1
+    assert "fails: width meter missed 1" in out, out

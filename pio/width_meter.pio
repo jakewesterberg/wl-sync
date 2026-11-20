@@ -1,0 +1,29 @@
+; The bench's PIO width meter. NOT ON THE RECORDING PATH: only the B3b harness loads it
+; (wl_sync/rp1/harness.py), on a spare state machine whose jmp pin is the dense pin,
+; unclaimed. The user's ruling, 2026-11-20 (Task 1.21 fix round 6): "A PIO width meter".
+;
+; Like pio/strobe_capture.pio, this file is the listing, not what is loaded: the words are
+; built in wl_sync/rp1/meter.py, and tests/test_rp1_meter.py runs them in tests/piosim.py.
+;
+; It measures every high on its jmp pin: X counts down, 2 cycles a decrement, while the pin
+; is high, and is pushed at the fall. At CLKDIV 1 (clk_sys, 200 MHz on RP1) a count is
+; 10 ns, and the width is (2 count + 1) cycles to within one cycle, 5 ns. The count is ~word.
+;
+;   jmp_pin   = the dense pin, unclaimed (wlsync_start_meter)
+;   fifo      = RX joined; one word a high, drained after every event on the harness's thread
+;   wrap      = idle .. idle_wrap; ENTRY = idle
+
+.program width_meter
+rise:                           ; = offset + 0
+    mov x, ~null                ; [1] the rise: X = all ones
+count:                          ; = offset + 1
+    jmp x--, count_test         ; [1] one decrement, falling into the test either way
+count_test:                     ; = offset + 2
+    jmp pin, count              ; [1] still high: count again
+    mov isr, x                  ; [1] the fall
+    push noblock                ; [1] one word a high
+.wrap_target
+idle:                           ; = offset + 5, ENTRY
+    jmp pin, rise               ; [1] a rise starts a measurement
+    jmp x--, idle               ; [1] back to idle either way
+.wrap

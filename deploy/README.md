@@ -194,7 +194,7 @@ capture machine cannot be configured, the journal has, once, at start
     event-code capture cannot run (<cause>): this process records timebase split with no W records, and B and E on CLOCK_MONOTONIC, until a restart starts the capture machine
 
 (`wl_sync/rp1/backend.py:550-568`). `<cause>` is the load's own message (`libwlsync_pio not
-found (...)`, or `libwlsync_pio is version N, and this wl-sync needs 5: rebuild ...`, which
+found (...)`, or `libwlsync_pio is version N, and this wl-sync needs 6: rebuild ...`, which
 names the rebuild), `opening PIO block 0 failed: errno N`, `the capture machine did not
 start (errno N)` (`wl_sync/rp1/backend.py:602`, `:606`, `:640`), or, since 2026-11-20,
 `the capture machine's RX FIFO cannot be measured (depth D, level L): the code-word pairing
@@ -310,8 +310,8 @@ nine more times, 100 µs each, without draining the test machine's FIFO, and rea
 after each (`wl_sync/rp1/backend.py:906-957`). It must read 2, 4, ... 16, 16. The box's
 level field itself saturates at 15, `full` set at 16 words, and the shim reads 15 with
 `full` as 16 (`pio/wlsync_fifo_state.h`; bench probe, wl-rig-sync0, 2026-11-20). A
-version 4 shim, built before that fix, read `[0, 2, ..., 14, 15, 15]`; version 5 is
-required, and the backend refuses another. If the check does
+version 4 shim, built before that fix, read `[0, 2, ..., 14, 15, 15]`; version 6 is
+required (5 plus the bench's width meter, Task 1.21), and the backend refuses another. If the check does
 not read 2, 4, ... 16, 16, the process records split with no `W`, and the journal has
 `event-code capture cannot run (the RX FIFO read levels [...] as the test machine filled it,
 where its depth of 16 words gives [...]): this process records timebase split with no W
@@ -600,9 +600,9 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
    `wlsync_shim_version` at start and refuses to use a shim of another version, naming this
    step. *Since 2026-11-20 the unit then stays active:* the process records split with no
    `W`, and the journal's `event-code capture cannot run (libwlsync_pio is version N, and
-   this wl-sync needs 5: rebuild and reinstall it with pio/build-shim.sh ...)` names the
-   rebuild (above, "A process that cannot capture code words"). A shim that says 5 and
-   lacks a function reads `libwlsync_pio reports version 5 but lacks a function ...`, and
+   this wl-sync needs 6: rebuild and reinstall it with pio/build-shim.sh ...)` names the
+   rebuild (above, "A process that cannot capture code words"). A shim that says 6 and
+   lacks a function reads `libwlsync_pio reports version 6 but lacks a function ...`, and
    ends the same way. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed.
    It starts the program at its entry. Version 3 (2026-11-07): `wlsync_start_stamp` and `wlsync_enable_in_sync`
    added, so a second state machine can stamp the barcode output. Version 4 (2026-11-20):

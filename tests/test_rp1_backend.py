@@ -1148,7 +1148,7 @@ def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch)
 def test_a_shim_of_another_version_is_refused(monkeypatch):
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 1)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 5"):
+    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 6"):
         rp1._load_shim()
 
 
@@ -1157,7 +1157,7 @@ def test_a_version_2_shim_is_refused(monkeypatch):
     symbol, not with the rebuild instruction."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 5"):
+    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 6"):
         rp1._load_shim()
 
 
@@ -1168,7 +1168,7 @@ def test_a_version_3_shim_is_refused(monkeypatch):
     is refused with the rebuild."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 3.*needs 5.*build-shim"):
+    with pytest.raises(rp1.PiolibError, match=r"version 3.*needs 6.*build-shim"):
         rp1._load_shim()
 
 
@@ -1179,19 +1179,19 @@ def test_a_version_4_shim_is_refused(monkeypatch):
     (Ruling R42)."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 4.*needs 5.*build-shim"):
+    with pytest.raises(rp1.PiolibError, match=r"version 4.*needs 6.*build-shim"):
         rp1._load_shim()
 
 
-def test_a_version_5_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
+def test_a_version_6_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
     gpiod, monkeypatch, caplog
 ):
-    """A .so that reports version 5 but lacks an export, as one hand-built from another
+    """A .so that reports version 6 but lacks an export, as one hand-built from another
     tree might (Task 1.16's review, Minor 4; Ruling R37). ctypes raised AttributeError
     from `_declare`, which `_configure` did not catch, so the unit crash-looped. Now it is
     a shim that cannot be loaded: the process records split with no W, and the ERROR
     names the symbol and the rebuild."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 5)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 6)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
     with pytest.raises(rp1.PiolibError, match=r"wlsync_pio_open.*pio/build-shim\.sh"):
         rp1._load_shim()
@@ -1208,7 +1208,7 @@ def test_a_shim_of_the_current_version_is_accepted():
     """Coverage: pins the accepting side of the version check, which passed against the
     sources when it was added. Without it, a check that refused every shim, the current
     one included, would fail only on the box."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 5)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 6)
     assert rp1._check_shim_version(shim) is None
 
 
@@ -1360,7 +1360,7 @@ def test_the_python_binds_each_shim_export_at_its_c_types():
     )
     assert len(definitions) >= 15, f"read only {len(definitions)} exports from {_C_SOURCE}"
     lib = unittest.mock.MagicMock()
-    rp1._declare(lib)
+    _declare_all(lib)  # the backend's exports, and the bench harness's meter (version 6)
     for returns, function, parameters in definitions:
         if function == "wlsync_shim_version":  # typed where it is read (_check_shim_version)
             continue
@@ -4957,3 +4957,35 @@ def test_run_on_a_box_that_refuses_the_sync_enable_records_split(
         "the sync enable was refused: the test machine stamped GPIO17's rise only when "
         "enabled alone"
     )]
+
+
+def _declare_all(lib):
+    """Every shim export bound: the backend's (`_declare`), and the one only the bench
+    harness calls, `wlsync_start_meter` (wl_sync/rp1/harness.py, `_declare_meter`)."""
+    from wl_sync.rp1 import harness
+
+    rp1._declare(lib)
+    harness._declare_meter(lib)
+
+
+def test_a_version_5_shim_is_refused():
+    """Version 5 has no `wlsync_start_meter`, the bench's width meter (Task 1.21 fix round
+    6; the user's ruling, 2026-11-20). Version 6 adds it, and a version 5 shim is refused
+    with the rebuild, as R42's rule has each bump refuse the one before."""
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 5)
+    with pytest.raises(rp1.PiolibError, match=r"version 5.*needs 6.*build-shim"):
+        rp1._check_shim_version(shim)
+
+
+def test_the_meter_export_is_bound_with_one_argtype_per_c_parameter():
+    """The bench harness binds `wlsync_start_meter` itself; its argtypes count its C
+    parameters, as the tie test above counts the backend's."""
+    from wl_sync.rp1 import harness
+
+    lib = unittest.mock.MagicMock()
+    harness._declare_meter(lib)
+    c_names = _c_prototype(_C_SOURCE.read_text(), "wlsync_start_meter")
+    assert c_names == ["instructions", "length", "wrap_target", "wrap", "entry", "jmp_pin",
+                       "clkdiv"]
+    assert len(lib.wlsync_start_meter.argtypes) == len(c_names)
+    assert "wlsync_start_meter" not in inspect.getsource(rp1)  # never the backend's

@@ -260,8 +260,8 @@ def _load_shim() -> ctypes.CDLL:
 # 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added; 4: `wlsync_sm_rx_level`
 # returns the level or a negative errno, and `wlsync_rx_fifo_depth` added (Task 1.20,
 # Ruling R40); 5: `wlsync_sm_rx_level` reads a full FIFO as its depth, where version 4
-# read RP1's saturated 15 (Task 1.20 fix round 3, Ruling R42).
-_SHIM_VERSION = 5
+# read RP1's saturated 15 (Ruling R42); 6: an export for the bench's width meter (Task 1.21).
+_SHIM_VERSION = 6
 
 
 # How every refusal of the shim ends: the rebuild that fixes it.
