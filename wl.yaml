@@ -50,15 +50,15 @@ status:
     stream is paired again rather than stopped, and the journal says, once an
     episode, when the fit has gone 20 frames without a lead-edge pair, so
     that E and roll boundaries are extrapolated. Task 1.16 (the user's
-    rulings, 2026-11-20) is built on branch one-clock-p1, not yet reviewed
-    or merged (1094 tests). It closes two gaps: a shim, PIO block or capture
+    rulings, 2026-11-20) is built on branch one-clock-p1, reviewed, and its
+    review's fixes made; not yet merged (1096 tests). It closes two gaps: a shim, PIO block or capture
     machine that cannot start no longer crash-loops the unit, and the
     process records split with no W records, saying so in the journal; and
     the start-up test enables its machine through the sync enable, so a box
     that refuses that call records split (C-7). A refusal of the production
     enable alone, after the test's was obeyed, is still not seen.
   next: >-
-    Task 1.16's review, then its merge to main, wait. Note 7 goes to
+    Task 1.16's re-review, then its merge to main, wait. Note 7 goes to
     wl-preproc (docs/pending-wl-preproc-amendments.md), now with its line on
     split segments without W. I1 is pushed, not deployed; a fit lost
     beyond the restart's reach still drops every B
@@ -67,7 +67,7 @@ status:
     edges silently ("count, summary only"); M4, a rate gate that never opens
     saying nothing ("one WARNING per process"); and Task 1.7's WARNING for
     each frame with stamps between frames ("edge-trigger it").
-    Bench day, in the order of docs/next-session.md:112-174:
+    Bench day, in the order of docs/next-session.md:112-177:
     rebuild the shim (version 3); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
@@ -79,7 +79,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "3fae138"
+  describes: "2cdb423"
 
 runs_on: [rig/sync]
 builds_on: [dws]
