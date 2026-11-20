@@ -1020,3 +1020,67 @@ KiCad design files, which were not fetched.
 
 The p.6 drawing prints "All dimensions are approximate and for reference purposes only."
 Its other printed values (56, 48, 41, 33, 10, 2.7) were not needed and are not recorded."""
+
+# ---------------------------------------------------------------------------
+# RP1's GPIO registers (bench harness only -- Task 1.21, the B3b register writer)
+# ---------------------------------------------------------------------------
+
+[rp1_peripherals]
+part = "Raspberry Pi RP1 (the I/O controller on the CM5), IO_BANK0"
+document = "Raspberry Pi RP1 Peripherals (Raspberry Pi Ltd)"
+revised = "2023-11-07"           # Colophon, PDF p.2: "build-date: 2023-11-07", "build-version: b9b6f74-clean"
+retrieved = "2026-11-20"
+url = "https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf"
+sha256 = "87fb7b24e8d9add075b849d095a107827610c0409ea194785af624c1ea986c3d"
+pages = "printed p.8 (Section 2.3.1); p.9 (Table 2); p.11 (Section 2.4); p.15 (Table 4); p.18-20 (Table 5, Table 6); p.20-22 (Tables 7 and 8); p.34-35 (Section 3.3, Table 23, Section 3.3.1). The PDF's own page index is one higher: 9, 10, 12, 16, 19-21, 21-23 and 35-36 of 93."
+
+# Table 2 (printed p.9) and Table 5 (printed p.18): IO_BANK0's address, with atomic access.
+# Section 2.3.1 (printed p.8): the host reaches peripherals "as offsets from the assigned
+# base addresses in BAR1", so IO_BANK0 is BAR1 + 0xd0000.
+io_bank0_address = 0x400d0000
+io_bank0_atomic = true
+# Section 2.4 (printed p.11): every register of a block with atomic access has four
+# aliases. "Addr + 0x2000 : atomic bitmask set on write", "Addr + 0x3000 : atomic bitmask
+# clear on write", both with "normal read access". The four take 16 kB.
+alias_xor = 0x1000
+alias_set = 0x2000
+alias_clear = 0x3000
+aliases_span = 0x4000
+# Table 6 (printed p.18-20) and the register headings (printed p.20, p.21): GPIOn_STATUS
+# at 0x000, 0x008, ... 0x0d8 and GPIOn_CTRL at 0x004, 0x00c, ... 0x0dc, so 8n and 8n + 4.
+gpio_status_offset_stride = [0x000, 8]
+gpio_ctrl_offset_stride = [0x004, 8]
+# Table 7 (printed p.20-21), GPIOn_STATUS, read-only bits.
+status_outtopad_bit = 9          # "output signal to pad after register overide is applied"
+status_oetopad_bit = 13          # "output enable to pad after register overide is applied"
+status_infrompad_bit = 17        # "input signal from pad, before filtering and override are applied"
+# Table 8 (printed p.21-22), GPIOn_CTRL.
+ctrl_funcsel_bits = [4, 0]       # "Function select. 31 == NULL"; reset 0x1f
+ctrl_outover_bits = [13, 12]     # 0x0 from the peripheral funcsel selects, 0x1 its inverse, 0x2 "drive output low", 0x3 "drive output high"
+ctrl_oeover_bits = [15, 14]      # 0x0 from the peripheral, 0x1 its inverse, 0x2 "disable output", 0x3 "enable output"
+ctrl_irqreset_bit = 28           # type SC, self-clearing
+# Table 4 (printed p.15), the function columns a0-a8: a5 is SYS_RIO[n] and a7 is PIO[n] on
+# every one of GPIO0-27.
+funcsel_sys_rio = 5
+funcsel_pio = 7
+note = """Recorded for the B3b bench harness's register writer (wl_sync/rp1/harness.py,
+PulseWriter), which makes highs shorter than libgpiod can by writing GPIOn_CTRL.OUTOVER of
+one spare pin through its SET and CLEAR aliases. Nothing on the recording path reads RP1's
+registers.
+
+WHAT THE DATASHEET DOES NOT GIVE:
+  - /dev/gpiomem0 at all. That the device maps IO_BANK0 from its offset 0 is the kernel's
+    (its device tree), not this document's. The harness checks it on the box before its
+    first write: GPIOn_STATUS read through the map must follow a level libgpiod sets
+    (PulseWriter.verify), or nothing is written.
+  - RIO's register offsets. Section 3.3 (printed p.34) names RIO_OUT, RIO_OE, RIO_NOSYNC_IN
+    and RIO_SYNC_IN and Table 23 (printed p.35) sys_rio0's base, 0x400e0000, but no table
+    gives each register's offset; it points to "the RP1 GPIO Linux kernel driver". The
+    writer therefore uses CTRL.OUTOVER, whose offset and values Tables 6 and 8 give, and
+    never writes RIO.
+  - which function the kernel's GPIO driver selects for a line it drives as an output. The
+    writer requires SYS_RIO (a5) on the pin libgpiod holds, and refuses anything else.
+
+Section 3.3.1 (printed p.35) gives the write latency the pulses ride on: "typically 1us" across
+PCIe, writes "Posted", and "insert a write barrier after the last write that toggles a pin,
+then issue the read", which is how the writer bounds each high."""

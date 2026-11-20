@@ -661,7 +661,7 @@ What matters for the budget is that the map is affine, which it is by constructi
     - 11→35 for the loopback (B4, B3b, B6, B8, B10); *[2026-11-07, c-direct: none of them needs it now]*
     - 11→38 for B6's edge input;
     - 12→36 if B3b's dense stream comes from GPIO18.
-  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:192`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
+  - **Is moving the unit off `--fake` part of this work?** The unit leaves `--fake` after bench acceptance (`docs/next-session.md:271`). The deploy hold on the box is lifted, pending your restart (wl-preproc `d48943c`: "wl-sync told the box may run its change").
   - *Answered 2026-11-07 (the user): a spike first, "Yes, spike first"; the hardware, "Not yet".*
     - Nothing physical for now: no jumpers, no signal generator, no board. So nobody fits the jumpers above yet.
     - The spike covers only what needs no wiring (the plan's bench section S). B3a and B3b wait for jumpers, unless B4's c-direct case works there. *[2026-11-07: it did (S.4), so they can run with no wire, on a harness not yet planned.]*

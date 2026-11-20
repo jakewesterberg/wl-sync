@@ -2,6 +2,9 @@
 
     python -m wl_sync.bench loopback <segment or day directory> [--gpio 20]
     python -m wl_sync.bench stamps [--stamp-pin {17,18,19}] [--frames N] [--gpiochip PATH]
+    python -m wl_sync.bench skew [--machines {2,3}] [--edges N] [--record CSV]
+    python -m wl_sync.bench streams [--dense-pin {18,19}] [--duration S] [--rate R]
+                                    [--marker] [--probe-only] [--record CSV]
 
 THE LOOPBACK. With the barcode output jumpered to an edge input, every frame the box
 emits lands in its own segment twice: as the `B` record it logged, and as the edges it
@@ -19,22 +22,30 @@ edges consumed. It also gives the lead edge's CPU bracket width for every frame,
 bench check B5 needs. Capture runs beside it, as the run loop's does, so the box is
 loaded as it is when recording; with nothing wired, a code word or an edge is itself a
 finding.
+
+THE STAMP MACHINES AGAINST EACH OTHER. `skew` is bench check B3a and `streams` B3b, with
+no wire (Task 1.21). They run the shim through wl_sync.rp1.harness, never Rp1Backend, from
+one thread, and `streams` writes one spare pin's RP1 registers to make highs shorter than
+libgpiod can (`harness.PulseWriter`).
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import random
 import signal
 import sys
 import time
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from fractions import Fraction
 from pathlib import Path
 from statistics import median, quantiles
 
 from wl_sync.backend import CaptureDegraded
-from wl_sync.barcode import INTERVAL_US, decode_edges, encode, rises_us
+from wl_sync.barcode import FRAME_US, INTERVAL_US, decode_edges, encode, rises_us
 from wl_sync.clockmap import LEAD_STAMP_TOLERANCE
 from wl_sync.log import BarcodeEmitted, Edge, read_log
 from wl_sync.pins import (
@@ -386,6 +397,853 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     return 0 if report.passed else 1
 
 
+# ---------------------------------------------------------------------------
+# B3a and B3b, with no wire (Task 1.21; the plan's bench section,
+# docs/superpowers/plans/2026-11-07-one-clock.md:1990-2010). The hardware is
+# wl_sync.rp1.harness, imported inside each command as `_stamps` imports the backend.
+# "The design" below is .superpowers/sdd/2026-11-07-one-clock/b3-harness-design.md, which
+# the user ruled on, 2026-11-20.
+# ---------------------------------------------------------------------------
+
+_WRAP = 1 << 32
+
+# What --record writes, one line per driven rise, every value an integer RAW ns or a raw
+# 32-bit count, so a verdict can be re-derived without rerunning the hour.
+RECORD_COLUMNS = ("phase,index,pins,shape,rise_before_ns,rise_after_ns,fall_before_ns,"
+                  "fall_after_ns,rise_landed,drained_at_ns,stamps")
+
+
+def _signed(difference: int) -> int:
+    """A difference of two 32-bit counts, read as the signed value nearest zero."""
+    difference &= _WRAP - 1
+    return difference - _WRAP if difference >= _WRAP // 2 else difference
+
+
+def _us(ns: float) -> str:
+    return f"{ns / _NS_PER_US:.1f}"
+
+
+class _Recorder:
+    """--record: the run's every rise as CSV lines (RECORD_COLUMNS), after comment lines
+    that give the command and the RAW reading at the sync enable, which P counts from."""
+
+    def __init__(self, path: Path, command: str) -> None:
+        self._file = open(path, "w")  # noqa: SIM115 - closed with the rig
+        self.phase = ""
+        self.comment(f"wl-sync bench {command}")
+        self._file.write(RECORD_COLUMNS + "\n")
+
+    def comment(self, text: str) -> None:
+        self._file.write(f"# {text}\n")
+
+    def write(self, event) -> None:
+        def field_of(value) -> str:
+            return "" if value is None else str(int(value))
+
+        stamps = " ".join(f"{sm}={p}" for sm in sorted(event.stamps) for p in event.stamps[sm])
+        self._file.write(",".join([
+            self.phase, str(event.index), "+".join(str(p) for p in event.pins), event.shape,
+            field_of(event.rise_before), field_of(event.rise_after),
+            field_of(event.fall_before), field_of(event.fall_after),
+            str(int(event.rise_landed)), field_of(event.drained_at), stamps,
+        ]) + "\n")
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def _drain_line(tally) -> str:
+    drains = tally.get("drain_ns") or []
+    timing = (f"; drain median {_us(median(drains))} us, max {_us(max(drains))} us"
+              if drains else "")
+    return (f"  words {tally['words']}, FIFO full {tally['full']}, slips {tally['slips']}, "
+            f"level errors {tally['level_errors']}, carried {tally['carried']}{timing}")
+
+
+# --- B3a -----------------------------------------------------------------------------
+
+# Each edge's high: it does not matter here (the design, section 2.6), so long
+# enough that the held loop, not the short exit, ends it (HELD_MIN_NS below).
+SKEW_HOLD_NS = 20_000
+SKEW_PERIOD_US = 2_000
+# The pass line (plan :2058): the tick difference is identical on every event, and <= 1.
+SKEW_MAX_TICKS = 1
+
+
+@dataclass
+class SkewReport:
+    """What every stamp machine pushed for each rise on GPIO17, all of them reading it
+    unclaimed and started by one sync enable. `differences` counts, for each pair of
+    machines (i, j), each value of P_j - P_i over the edges both stamped once. `missed`
+    and `extra` count by machine the edges with no stamp and the stamps past one.
+    `running` is why the machines were not seen running, if they were not."""
+
+    machines: list[int]
+    capture_sm: int = 0
+    edges: int = 0
+    stamped: dict[int, int] = field(default_factory=dict)
+    missed: dict[int, int] = field(default_factory=dict)
+    extra: dict[int, int] = field(default_factory=dict)
+    differences: dict[tuple[int, int], Counter] = field(default_factory=dict)
+    running: str = ""
+    stopped: bool = False
+    seconds: float = 0.0
+    words: int = 0
+    full: int = 0
+    slips: int = 0
+    level_errors: int = 0
+    carried: int = 0
+    drain_ns: list[int] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for sm in self.machines:
+            self.stamped.setdefault(sm, 0)
+        for index, i in enumerate(self.machines):
+            for j in self.machines[index + 1:]:
+                self.differences.setdefault((i, j), Counter())
+
+    def add(self, event) -> None:
+        self.edges += 1
+        once: dict[int, int] = {}
+        for sm in self.machines:
+            found = event.stamps.get(sm, [])
+            if not found:
+                self.missed[sm] = self.missed.get(sm, 0) + 1
+            elif len(found) > 1:
+                self.extra[sm] = self.extra.get(sm, 0) + len(found) - 1
+            else:
+                self.stamped[sm] += 1
+                once[sm] = found[0]
+        for (i, j), counter in self.differences.items():
+            if i in once and j in once:
+                counter[_signed(once[j] - once[i])] += 1
+
+    @property
+    def verdict(self) -> str:
+        if self.stopped:
+            return "INCONCLUSIVE"
+        constant = all(
+            len(counter) == 1 and abs(next(iter(counter))) <= SKEW_MAX_TICKS
+            and counter.total() == self.edges
+            for counter in self.differences.values()
+        )
+        clean = not (self.missed or self.extra or self.words or self.full or self.slips
+                     or self.level_errors or self.carried or self.running)
+        whole = all(count == self.edges for count in self.stamped.values())
+        return "PASS" if self.edges and constant and clean and whole else "FAIL"
+
+    @property
+    def passed(self) -> bool:
+        return self.verdict == "PASS"
+
+    def summary(self) -> str:
+        machines = ", ".join(f"SM{sm}" for sm in self.machines)
+        lines = [
+            f"start skew (B3a): {self.verdict}",
+            f"  machines: capture SM{self.capture_sm} (GPIO0-16, nothing wired); stamp "
+            f"{machines} on GPIO{BARCODE_PIN}, unclaimed; one sync enable",
+        ]
+        if self.running:
+            lines.append(f"  machines not seen running: {self.running}")
+        stamped = ", ".join(f"SM{sm} {n}" for sm, n in self.stamped.items())
+
+        def by_machine(name: str, counts: dict[int, int]) -> str:
+            if not counts:
+                return f"{name} 0"
+            return f"{name} " + ", ".join(f"SM{sm} {n}" for sm, n in sorted(counts.items()))
+
+        lines.append(f"  edges {self.edges}; stamped {stamped}; "
+                     f"{by_machine('missed', self.missed)}, {by_machine('extra', self.extra)}")
+        pairs = []
+        for (i, j), counter in self.differences.items():
+            if len(counter) == 1:
+                [(d, n)] = counter.items()
+                pairs.append(f"SM{j}-SM{i}: {d} on {n} of {self.edges}")
+            elif counter:
+                values = ", ".join(f"{d} x{n}" for d, n in sorted(counter.items()))
+                pairs.append(f"SM{j}-SM{i}: {values}")
+            else:
+                pairs.append(f"SM{j}-SM{i}: no edge stamped once by both")
+        lines.append("  " + "; ".join(pairs))
+        lines.append(_drain_line(vars(self)))
+        lines.append(f"  {self.edges} edges in {self.seconds:.1f} s")
+        return "\n".join(lines)
+
+
+def skew_run(rig, edges: int, period_ns: int, report: SkewReport) -> SkewReport:
+    """B3a on an open rig whose machines are enabled in sync: the running check on GPIO17
+    (`Rig.running_check`), which ends the run on a miss, then `edges` rises on GPIO17
+    every `period_ns`, each SKEW_HOLD_NS high and drained after its settle."""
+    from wl_sync.rp1.harness import raw_ns, wait_until
+
+    report.running = rig.running_check(BARCODE_PIN)
+    if report.running:
+        return report
+    first = raw_ns()
+    for k in range(edges):
+        wait_until(first + k * period_ns)
+        report.add(rig.edge(BARCODE_PIN, SKEW_HOLD_NS, "skew"))
+    return report
+
+
+# --- B3b -----------------------------------------------------------------------------
+
+# WHICH PATH A HIGH TAKES THROUGH THE CAPTURE PROGRAM, from its width. tests/piosim.py runs
+# the program's words (wl_sync/rp1/program.py:88-102): a high of 5.0 us or less is gone
+# before the held test at address 9, at either sampling phase, and leaves by the exit at
+# 10; one of 6.0 us or more takes the held loop at 8-9 at both; 5.5 us depends on the
+# phase (tests/test_bench.py runs it). So a stamped high whose RAW upper bound is at most
+# SHORT_EXIT_MAX_NS took the short exit, and one whose lower bound is at least HELD_MIN_NS
+# the held loop. B3b must cover both (the user's ruling, 2026-11-20).
+SHORT_EXIT_MAX_NS = 5_000
+HELD_MIN_NS = 6_000
+
+# The pass line (plan :2068) and what may judge it. The hour and the 10^5 events are the
+# plan's (:2067); the 1-sigma bound is the design's proposal (section
+# 2.7), a third of the line; and the share each path must have of A's fitted events is
+# this task's, so that a cycle lost on one path in a few hundred events would show
+# (0.5 us x 25 events a second / 400 = 0.03 ppm).
+B3B_LINE_PPM = 0.01
+B3B_SIGMA_MAX_PPM = 0.0033
+B3B_MIN_DURATION_S = 3_600
+B3B_MIN_A_EVENTS = 100_000
+B3B_PATH_SHARE_MIN = 0.25
+
+# THE PROBE (the design, section 2.7, phase 1).
+PROBE_RISES = 100
+PROBE_SPACING_NS = 10_000_000
+PROBE_HOLD_NS = 20_000
+PROBE_SHAPE_PULSES = 200
+PROBE_SHAPE_SPACING_NS = 5_000_000
+# libgpiod's highs, held from when the rise is read back: back to back (no hold), then
+# 10 us, 50 us and 1 ms. Back to back has no lower bound worth the name, so the run drives
+# the other three.
+HELD_SHAPES_NS = (("back-to-back", 0), ("10 us", 10_000), ("50 us", 50_000),
+                  ("1 ms", 1_000_000))
+RUN_HELD_SHAPES = ("10 us", "50 us", "1 ms")
+# The register writer's holds, each a spin from the RAW read before its SET write. The
+# run drives those the probe shows stamped every time and under SHORT_EXIT_MAX_NS for at
+# least SHORT_SHARE_SHOWN of their highs.
+SHORT_HOLDS_NS = (1_000, 2_000, 3_000)
+SHORT_SHARE_SHOWN = 0.9
+
+# THE RUN: one barcode frame a second on GPIO17 for B (wl_sync/barcode.py:3-11), and in
+# the 800 ms of idle after it `--rate` dense events on the dense pin for A, IDLE_MARGIN_NS
+# clear of either frame.
+IDLE_MARGIN_NS = 20_000_000
+MARKER_HOLD_NS = 20_000
+
+
+class LineFit:
+    """Ordinary least squares of y (P, unwrapped, in us) on x (RAW, in half-ns: a
+    bracket's midpoint doubled, so it stays an integer), ON EXACT INTEGER SUMS. Float
+    sums of squares of RAW ns, about 10^15 each, would lose the digits a 0.01 ppm line
+    is read from. Each point is taken relative to the first."""
+
+    def __init__(self) -> None:
+        self.n = 0
+        self._x0 = self._y0 = 0
+        self._sx = self._sy = self._sxx = self._sxy = self._syy = 0
+
+    def add(self, x2: int, y: int) -> None:
+        if not self.n:
+            self._x0, self._y0 = x2, y
+        dx, dy = x2 - self._x0, y - self._y0
+        self.n += 1
+        self._sx += dx
+        self._sy += dy
+        self._sxx += dx * dx
+        self._sxy += dx * dy
+        self._syy += dy * dy
+
+    def _sums(self) -> tuple[int, int, int]:
+        n = self.n
+        return (n * self._sxx - self._sx ** 2, n * self._sxy - self._sx * self._sy,
+                n * self._syy - self._sy ** 2)
+
+    def slope_us_per_us(self) -> Fraction:
+        """P us per RAW us: (1 + RP1's ppm) / (1 + the CPU's)."""
+        sxx, sxy, _ = self._sums()
+        return Fraction(sxy, sxx) * 2 * _NS_PER_US
+
+    def stderr_us_per_us(self) -> float:
+        """The slope's standard error, from the residuals."""
+        sxx, sxy, syy = self._sums()
+        residual = Fraction(syy * sxx - sxy * sxy, sxx * self.n)
+        return math.sqrt(float(residual / (self.n - 2) * self.n / sxx)) * 2 * _NS_PER_US
+
+
+def slope_difference_ppm(a: LineFit, b: LineFit) -> tuple[float, float]:
+    """(slope_a - slope_b) / slope_b in ppm, and its 1-sigma error."""
+    slope_a, slope_b = a.slope_us_per_us(), b.slope_us_per_us()
+    delta = float((slope_a - slope_b) / slope_b) * 1e6
+    sigma = math.hypot(a.stderr_us_per_us(), b.stderr_us_per_us()) / float(slope_b) * 1e6
+    return delta, sigma
+
+
+@dataclass
+class ShapeResult:
+    """One probe shape on the dense pin: how many pulses, how many A stamped once, how
+    many B stamped at all, and each high's RAW bounds."""
+
+    name: str
+    writer: bool
+    hold_ns: int
+    pulses: int = 0
+    stamped: int = 0
+    other: int = 0
+    uppers: list[int] = field(default_factory=list)
+    lowers: list[int] = field(default_factory=list)
+
+    @property
+    def short_shown(self) -> bool:
+        under = sum(upper <= SHORT_EXIT_MAX_NS for upper in self.uppers)
+        return bool(self.writer and self.pulses and self.stamped == self.pulses
+                    and not self.other and under >= SHORT_SHARE_SHOWN * self.pulses)
+
+
+@dataclass
+class ProbeReport:
+    """B3b's probe (the design, section 2.7, phase 1): the machines seen running
+    on both pins, the dense pin's rises seen by A alone, GPIO17's by B alone, and each
+    shape of high stamped."""
+
+    dense_pin: int
+    running: str = ""
+    complete: bool = False
+    dense_rises: int = 0
+    dense_by_a: int = 0
+    dense_by_b: int = 0
+    barcode_rises: int = 0
+    barcode_by_b: int = 0
+    barcode_by_a: int = 0
+    shapes: list[ShapeResult] = field(default_factory=list)
+
+    def short_holds(self) -> list[int]:
+        return [shape.hold_ns for shape in self.shapes if shape.short_shown]
+
+    def failure(self) -> str:
+        """Why B3b cannot run, or "": nothing is judged of a probe cut short."""
+        pin = self.dense_pin
+        if self.running:
+            if f"GPIO{pin}" in self.running:
+                follow = ("try --dense-pin 19, then the 12->36 jumper" if pin == 18
+                          else "B3b waits for the 12->36 jumper")
+                return f"{self.running} ({follow}; the user's decision 4)"
+            return self.running
+        if not self.complete:
+            return ""
+        if self.dense_by_a != self.dense_rises:
+            return (f"A stamped {self.dense_by_a} of GPIO{pin}'s {self.dense_rises} rises: "
+                    f"the PIO does not see GPIO{pin} reliably, unclaimed")
+        if self.dense_by_b or self.barcode_by_a:
+            return (f"crosstalk: B stamped {self.dense_by_b} of GPIO{pin}'s rises and A "
+                    f"{self.barcode_by_a} of GPIO{BARCODE_PIN}'s")
+        if self.barcode_by_b != self.barcode_rises:
+            return (f"B stamped {self.barcode_by_b} of GPIO{BARCODE_PIN}'s "
+                    f"{self.barcode_rises} rises")
+        for shape in self.shapes:
+            if not shape.writer and (shape.stamped != shape.pulses or shape.other):
+                return (f"A stamped {shape.stamped} of {shape.pulses} {shape.name} highs on "
+                        f"GPIO{pin} (B {shape.other})")
+        if not self.short_holds():
+            return self._short_line().strip()
+        return ""
+
+    def _short_line(self) -> str:
+        holds = self.short_holds()
+        head = f"  short-exit path (high <= {_us(SHORT_EXIT_MAX_NS)} us): "
+        if holds:
+            return head + f"shown, the run holds {', '.join(str(h) for h in holds)} ns"
+        return head + ("not shown: no register-writer hold had every high stamped and "
+                       f"{SHORT_SHARE_SHOWN:.0%} of them under {_us(SHORT_EXIT_MAX_NS)} us")
+
+    def lines(self) -> list[str]:
+        pin = self.dense_pin
+        lines = []
+        if self.running:
+            lines.append(f"  machines not seen running: {self.running}")
+        lines.append(f"  probe: GPIO{pin} rises {self.dense_rises}, stamped A "
+                     f"{self.dense_by_a}, B {self.dense_by_b}; GPIO{BARCODE_PIN} rises "
+                     f"{self.barcode_rises}, stamped B {self.barcode_by_b}, A "
+                     f"{self.barcode_by_a}")
+        held = [s for s in self.shapes if not s.writer and s.uppers]
+        if held:
+            lines.append(f"  highs on GPIO{pin} by libgpiod, lower..upper bound, median: " +
+                         "; ".join(f"{s.name} {_us(median(s.lowers))}..{_us(median(s.uppers))}"
+                                   f" us ({s.stamped} of {s.pulses} stamped)" for s in held))
+        written = [s for s in self.shapes if s.writer and s.uppers]
+        if written:
+            lines.append(f"  highs on GPIO{pin} by the register writer, upper bound: " +
+                         "; ".join(f"hold {_us(s.hold_ns)} us: {s.stamped} of {s.pulses} "
+                                   f"stamped, median {_us(median(s.uppers))} us, max "
+                                   f"{_us(max(s.uppers))} us" for s in written))
+        if self.complete:
+            lines.append(self._short_line())
+        return lines
+
+
+def probe(rig, report: ProbeReport, a: int, b: int, short_holds: Sequence[int]) -> None:
+    """Phase 1 of `streams`, about 30 s: P0, the running check on GPIO17 and on the dense
+    pin; P1, PROBE_RISES rises on the dense pin; P2, as many on GPIO17; P3, each shape of
+    high on the dense pin, libgpiod's then the register writer's."""
+    from wl_sync.rp1.harness import raw_ns, wait_until
+
+    pin = report.dense_pin
+    report.running = rig.running_check(BARCODE_PIN) or rig.running_check(pin)
+    if report.running:
+        return
+    due = raw_ns()
+    for _ in range(PROBE_RISES):
+        due += PROBE_SPACING_NS
+        wait_until(due)
+        event = rig.edge(pin, PROBE_HOLD_NS, "probe dense")
+        report.dense_rises += 1
+        report.dense_by_a += len(event.stamps[a]) == 1
+        report.dense_by_b += len(event.stamps[b])
+    for _ in range(PROBE_RISES):
+        due += PROBE_SPACING_NS
+        wait_until(due)
+        event = rig.edge(BARCODE_PIN, PROBE_HOLD_NS, "probe barcode")
+        report.barcode_rises += 1
+        report.barcode_by_b += len(event.stamps[b]) == 1
+        report.barcode_by_a += len(event.stamps[a])
+    shapes = [ShapeResult(name, False, hold) for name, hold in HELD_SHAPES_NS]
+    shapes += [ShapeResult(f"writer {hold}", True, hold) for hold in short_holds]
+    for shape in shapes:
+        report.shapes.append(shape)
+        for _ in range(PROBE_SHAPE_PULSES):
+            due += PROBE_SHAPE_SPACING_NS
+            wait_until(due)
+            event = (rig.short(shape.hold_ns, shape.name) if shape.writer
+                     else rig.edge(pin, shape.hold_ns, shape.name))
+            shape.pulses += 1
+            shape.stamped += len(event.stamps[a]) == 1
+            shape.other += len(event.stamps[b])
+            shape.uppers.append(event.upper_ns)
+            if event.lower_ns is not None:
+                shape.lowers.append(event.lower_ns)
+    report.complete = True
+
+
+@dataclass
+class StreamsReport:
+    """B3b: each machine's count fitted against RAW through its own events (plan :2067),
+    and the two slopes compared. A is the dense pin's machine, B GPIO17's."""
+
+    dense_pin: int
+    probe: ProbeReport
+    asked_s: int = 0
+    probe_only: bool = False
+    a: int = 0
+    b: int = 0
+    enable_raw: int = 0
+    ran: bool = False
+    seconds: int = 0
+    stopped: bool = False
+    frames: int = 0
+    a_events: int = 0
+    a_stamped: int = 0
+    a_missed: int = 0
+    a_extra: int = 0
+    b_events: int = 0
+    b_stamped: int = 0
+    b_missed: int = 0
+    b_extra: int = 0
+    crosstalk: int = 0
+    held: int = 0
+    short: int = 0
+    unbounded: int = 0
+    wide: int = 0
+    fit_a: LineFit = field(default_factory=LineFit)
+    fit_b: LineFit = field(default_factory=LineFit)
+    markers: int = 0
+    marker: Counter = field(default_factory=Counter)
+    words: int = 0
+    full: int = 0
+    slips: int = 0
+    level_errors: int = 0
+    carried: int = 0
+    drain_ns: list[int] = field(default_factory=list)
+
+    def _point(self, fit: LineFit, event, stamp: int) -> bool:
+        """The rise's RAW estimate against its stamp, unwrapped near RAW's time since the
+        sync enable (wl_sync/clockmap.py:276-281): P wraps at 2^32 us, 71.6 min
+        (pio_capture.py:52-53), inside a long run. A bracket wider than
+        BRACKET_WIDTH_MAX_NS (clockmap.py:41) is left out, as the fit leaves it."""
+        from wl_sync.clockmap import BRACKET_WIDTH_MAX_NS, unwrap_near
+
+        if event.bracket_ns > BRACKET_WIDTH_MAX_NS:
+            self.wide += 1
+            return False
+        x2 = event.rise_ns_x2 - 2 * self.enable_raw
+        fit.add(x2, unwrap_near(stamp, x2 // (2 * _NS_PER_US)))
+        return True
+
+    def _one(self, event, own: int, other: int) -> int | None:
+        found = event.stamps[own]
+        self.crosstalk += len(event.stamps[other])
+        return found[0] if len(found) == 1 else None
+
+    def add_dense(self, event, writer: bool) -> None:
+        self.a_events += 1
+        stamp = self._one(event, self.a, self.b)
+        if stamp is None:
+            self.a_missed += not event.stamps[self.a]
+            self.a_extra += max(0, len(event.stamps[self.a]) - 1)
+            return
+        self.a_stamped += 1
+        if not self._point(self.fit_a, event, stamp):
+            return
+        if writer and event.upper_ns <= SHORT_EXIT_MAX_NS:
+            self.short += 1
+        elif not writer and (event.lower_ns or 0) >= HELD_MIN_NS:
+            self.held += 1
+        else:
+            self.unbounded += 1
+
+    def add_barcode(self, event) -> None:
+        self.b_events += 1
+        stamp = self._one(event, self.b, self.a)
+        if stamp is None:
+            self.b_missed += not event.stamps[self.b]
+            self.b_extra += max(0, len(event.stamps[self.b]) - 1)
+            return
+        self.b_stamped += 1
+        self._point(self.fit_b, event, stamp)
+
+    def add_marker(self, event) -> None:
+        """Both pins in one `set_values` at a frame's lead: an A event and a B event, and
+        A - B, which one lost tick on either moves by 1 with no fit. Informational: that
+        the two pads change on one write is [unverified] (the user's decision 5)."""
+        self.markers += 1
+        a, b = event.stamps[self.a], event.stamps[self.b]
+        self.a_events += 1
+        self.b_events += 1
+        for found, name in ((a, "a"), (b, "b")):
+            if len(found) == 1:
+                setattr(self, f"{name}_stamped", getattr(self, f"{name}_stamped") + 1)
+            elif not found:
+                setattr(self, f"{name}_missed", getattr(self, f"{name}_missed") + 1)
+            else:
+                setattr(self, f"{name}_extra", getattr(self, f"{name}_extra") + len(found) - 1)
+        if len(a) == 1:
+            if self._point(self.fit_a, event, a[0]):
+                if (event.lower_ns or 0) >= HELD_MIN_NS:
+                    self.held += 1
+                else:
+                    self.unbounded += 1
+        if len(b) == 1:
+            self._point(self.fit_b, event, b[0])
+        if len(a) == 1 and len(b) == 1:
+            self.marker[_signed(a[0] - b[0])] += 1
+
+    def difference(self) -> tuple[float, float] | None:
+        if self.fit_a.n < 3 or self.fit_b.n < 3:
+            return None
+        return slope_difference_ppm(self.fit_a, self.fit_b)
+
+    def faults(self) -> list[str]:
+        found = []
+        failure = self.probe.failure()
+        if failure:
+            found.append(f"probe: {failure}")
+        for name, count in (("A missed", self.a_missed), ("A extra", self.a_extra),
+                            ("B missed", self.b_missed), ("B extra", self.b_extra),
+                            ("stamps by the other pin's machine", self.crosstalk),
+                            ("code words", self.words), ("full FIFOs", self.full),
+                            ("slips", self.slips), ("failed level reads", self.level_errors),
+                            ("data words left waiting", self.carried)):
+            if count:
+                found.append(f"{name} {count}")
+        difference = self.difference()
+        if difference is not None:
+            delta, sigma = difference
+            if abs(delta) > B3B_LINE_PPM and abs(delta) > 3 * sigma:
+                found.append(f"A - B is {delta:.4f} ppm, beyond the {B3B_LINE_PPM} ppm line")
+        return found
+
+    def shortfalls(self) -> list[str]:
+        """Why a run with no fault still cannot pass."""
+        found = []
+        if self.stopped:
+            found.append("stopped before its end")
+        if self.seconds < B3B_MIN_DURATION_S:
+            found.append(f"run {self.seconds} s of the {B3B_MIN_DURATION_S} s B3b needs")
+        if self.fit_a.n < B3B_MIN_A_EVENTS:
+            found.append(f"A fitted through {self.fit_a.n} events of the "
+                         f"{B3B_MIN_A_EVENTS} B3b needs")
+        for name, count in (("held path", self.held), ("short exit", self.short)):
+            if count < B3B_PATH_SHARE_MIN * max(self.fit_a.n, 1):
+                found.append(f"the {name} has {count} of A's {self.fit_a.n} fitted events, "
+                             f"under {B3B_PATH_SHARE_MIN:.0%}")
+        difference = self.difference()
+        if difference is None:
+            found.append("too few points to fit")
+        elif difference[1] > B3B_SIGMA_MAX_PPM:
+            found.append(f"1 sigma on A - B is {difference[1]:.5f} ppm, over "
+                         f"{B3B_SIGMA_MAX_PPM} ppm")
+        return found
+
+    @property
+    def verdict(self) -> str:
+        if self.probe_only:
+            return "FAIL" if self.probe.failure() else (
+                "PASS" if self.probe.complete else "INCONCLUSIVE")
+        if self.faults():
+            return "FAIL"
+        return "INCONCLUSIVE" if self.shortfalls() else "PASS"
+
+    def summary(self) -> str:
+        title = "independent streams (B3b)" + (" probe" if self.probe_only else "")
+        lines = [f"{title}: {self.verdict}", *self.probe.lines()]
+        if self.ran:
+            pin = self.dense_pin
+            fit_a, fit_b = self.fit_a, self.fit_b
+
+            def slope(fit: LineFit) -> str:
+                if fit.n < 3:
+                    return "too few points to fit"
+                return (f"slope {float(fit.slope_us_per_us()):.12f} +- "
+                        f"{fit.stderr_us_per_us():.12f}")
+
+            lines.append(f"  A (GPIO{pin}, SM{self.a}): {self.a_events} rises, "
+                         f"{self.a_stamped} stamped, fit through {fit_a.n}: {slope(fit_a)}")
+            lines.append(f"    held path (high >= {_us(HELD_MIN_NS)} us) {self.held}, short "
+                         f"exit (high <= {_us(SHORT_EXIT_MAX_NS)} us) {self.short}, "
+                         f"neither bound {self.unbounded}; {self.wide} brackets wider than "
+                         "the fit takes")
+            lines.append(f"  B (GPIO{BARCODE_PIN}, SM{self.b}): {self.frames} frames, "
+                         f"{self.b_events} rises, {self.b_stamped} stamped, fit through "
+                         f"{fit_b.n}: {slope(fit_b)}")
+            difference = self.difference()
+            if difference is not None:
+                lines.append(f"  A - B: {difference[0]:.4f} ppm (line {B3B_LINE_PPM} ppm; "
+                             f"1 sigma {difference[1]:.5f} ppm)")
+            if self.markers:
+                if len(self.marker) == 1:
+                    [(d, n)] = self.marker.items()
+                    told = f"{d} on {n} of {self.markers} frames"
+                else:
+                    told = ", ".join(f"{d} x{n}" for d, n in sorted(self.marker.items()))
+                lines.append(f"  marker A-B: {told} (informational)")
+            lines.append(f"  run {self.seconds} s of the {self.asked_s} s asked")
+        lines.append(_drain_line(vars(self)))
+        for fault in self.faults():
+            lines.append(f"  fails: {fault}")
+        if not self.probe_only and not self.faults():
+            for shortfall in self.shortfalls():
+                lines.append(f"  inconclusive: {shortfall}")
+        return "\n".join(lines)
+
+
+def _drive_frame(rig, report: StreamsReport, pulses, start_ns: int, marker: bool) -> None:
+    """One barcode frame on GPIO17 against absolute deadlines (`pulse_deadlines`,
+    wl_sync/rp1/gpio.py:217-240), each rise bracketed and drained, ending low as `_drive`
+    ends every frame (backend.py:1551-1556). With `marker`, the lead rises with the dense
+    pin in one call."""
+    from wl_sync.rp1.gpio import pulse_deadlines
+    from wl_sync.rp1.harness import wait_until
+
+    end_ns = start_ns + sum(duration for _, duration in pulses) * _NS_PER_US
+    level, lead = 0, True
+    for want, deadline in [*pulse_deadlines(pulses, start_ns), (0, end_ns)]:
+        wait_until(deadline)
+        if want and not level:
+            if lead and marker:
+                report.add_marker(rig.marker((BARCODE_PIN, report.dense_pin),
+                                             report.dense_pin, MARKER_HOLD_NS))
+            else:
+                report.add_barcode(rig.rise(BARCODE_PIN, "frame"))
+            lead = False
+        elif level and not want:
+            rig.lines.set(BARCODE_PIN, False)
+        level = want
+
+
+def streams_run(rig, report: StreamsReport, duration_s: int, rate: int, marker: bool,
+                short_holds: Sequence[int], seed: int) -> None:
+    """Phase 2 of `streams`: each second, a frame on GPIO17, then `rate` events on the
+    dense pin in the idle after it, alternating libgpiod's held highs and the writer's
+    short ones, so both paths interleave over the same hour and a drift between RP1's
+    crystal and the CPU's moves both slopes alike."""
+    from wl_sync.rp1.harness import raw_ns, wait_until
+
+    rng = random.Random(seed)
+    held = [(name, hold) for name, hold in HELD_SHAPES_NS if name in RUN_HELD_SHAPES]
+    short = [(f"writer {hold}", hold) for hold in short_holds]
+    cycle = []
+    for k in range(max(len(held), len(short))):
+        cycle += [(False, *held[k % len(held)]), (True, *short[k % len(short)])]
+    second_ns = INTERVAL_US * _NS_PER_US
+    frame_ns = FRAME_US * _NS_PER_US
+    span = second_ns - frame_ns - 2 * IDLE_MARGIN_NS
+    start = raw_ns() + PROBE_SPACING_NS
+    count = 0
+    for second in range(duration_s):
+        t0 = start + second * second_ns
+        _drive_frame(rig, report, encode(rng.getrandbits(32)), t0, marker)
+        report.frames += 1
+        first = t0 + frame_ns + IDLE_MARGIN_NS
+        for k in range(rate):
+            wait_until(first + k * span // rate)
+            writer, name, hold = cycle[count % len(cycle)]
+            count += 1
+            event = rig.short(hold, name) if writer else rig.edge(report.dense_pin, hold, name)
+            report.add_dense(event, writer)
+        report.seconds = second + 1
+
+
+def _take_tally(report, rig) -> None:
+    if rig is None:
+        return
+    tally = rig.tally
+    report.words, report.full, report.slips = tally.words, tally.full, tally.slips
+    report.level_errors, report.drain_ns = tally.level_errors, tally.drain_ns
+    report.carried = rig.carried()
+
+
+def _harnessed(title: str, open_rig: Callable, body: Callable, record: Path | None,
+               command: str):
+    """Open the rig, run `body(rig, recorder)`, and close the rig on every path: SIGTERM
+    (pkill) raises `_Terminated`, as in `stamps`, so the writer is restored and the
+    machines stopped before the summary. Returns (status or None, the rig, the SIGTERM).
+    A rig that cannot open is printed with `title` and status 1."""
+    from wl_sync.rp1.harness import HarnessError, PiolibError, WriterError
+
+    recorder = _Recorder(record, command) if record is not None else None
+    rig = stopped = outer = None
+    installed = False
+    try:
+        outer, installed = signal.signal(signal.SIGTERM, _terminate), True
+        try:
+            rig = open_rig()
+        except (HarnessError, PiolibError, WriterError, OSError) as error:
+            print(f"{title} cannot run: {error}")
+            return 1, None, None
+        if recorder is not None:
+            rig.on_event = recorder.write
+        body(rig, recorder)
+    except _Terminated as terminated:
+        stopped = terminated
+    finally:
+        if installed:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        try:
+            if rig is not None:
+                rig.close()
+        finally:
+            if recorder is not None:
+                recorder.close()
+            if installed:
+                signal.signal(signal.SIGTERM, signal.SIG_DFL if outer is None else outer)
+    return None, rig, stopped
+
+
+def _skew(machines: int, edges: int, period_us: int, chip_path: str,
+          record: Path | None) -> int:
+    """`python -m wl_sync.bench skew`: B3a, on the box, with the shim."""
+    from wl_sync.rp1 import harness
+
+    report = SkewReport(machines=[])
+    started: list[int] = []
+
+    def open_rig():
+        return harness.Rig.open(chip_path, [BARCODE_PIN] * machines)
+
+    def body(rig, recorder):
+        nonlocal report
+        report = SkewReport(machines=rig.block.stamp_sms, capture_sm=rig.block.capture_sm)
+        if recorder is not None:
+            recorder.phase = "skew"
+        enable = rig.block.enable_in_sync()
+        if recorder is not None:
+            recorder.comment(f"enable_raw_ns={enable}")
+        started.append(harness.raw_ns())
+        skew_run(rig, edges, period_us * _NS_PER_US, report)
+
+    status, rig, stopped = _harnessed("start skew (B3a)", open_rig, body, record,
+                                      f"skew --machines {machines} --edges {edges}")
+    if status is not None:
+        return status
+    if started:
+        report.seconds = (harness.raw_ns() - started[0]) / 1e9
+    _take_tally(report, rig)
+    report.stopped = stopped is not None
+    print(report.summary())
+    if stopped is not None:
+        print(f"  stopped by SIGTERM after {report.edges} of {edges} edges")
+        return stopped.code
+    return 0 if report.passed else 1
+
+
+def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_only: bool,
+             chip_path: str, record: Path | None, short_holds: Sequence[int],
+             seed: int | None) -> int:
+    """`python -m wl_sync.bench streams`: B3b, on the box, with the shim and the
+    register writer."""
+    from wl_sync.rp1 import harness
+
+    report = StreamsReport(dense_pin=dense_pin, probe=ProbeReport(dense_pin),
+                           asked_s=duration_s, probe_only=probe_only)
+
+    def open_rig():
+        return harness.Rig.open(chip_path, [dense_pin, BARCODE_PIN], dense_pin=dense_pin)
+
+    def body(rig, recorder):
+        report.a, report.b = rig.block.stamp_sms
+        report.enable_raw = rig.block.enable_in_sync()
+        if recorder is not None:
+            recorder.comment(f"enable_raw_ns={report.enable_raw}")
+            recorder.comment(f"A=SM{report.a} on GPIO{dense_pin}, B=SM{report.b} on "
+                             f"GPIO{BARCODE_PIN}")
+            recorder.phase = "probe"
+        probe(rig, report.probe, report.a, report.b, short_holds)
+        if probe_only or report.probe.failure():
+            return
+        if recorder is not None:
+            recorder.phase = "run"
+        report.ran = True
+        streams_run(rig, report, duration_s, rate, marker, report.probe.short_holds(),
+                    duration_s if seed is None else seed)
+
+    status, rig, stopped = _harnessed(
+        "independent streams (B3b)", open_rig, body, record,
+        f"streams --dense-pin {dense_pin} --duration {duration_s} --rate {rate}"
+        + (" --marker" if marker else "") + (" --probe-only" if probe_only else ""))
+    if status is not None:
+        return status
+    _take_tally(report, rig)
+    report.stopped = stopped is not None
+    print(report.summary())
+    if stopped is not None:
+        print(f"  stopped by SIGTERM after {report.seconds} of {duration_s} s")
+        return stopped.code
+    return 0 if report.verdict == "PASS" else 1
+
+
+def _short_holds(text: str) -> tuple[int, ...]:
+    """--short-holds-ns: each hold a positive integer of ns under SHORT_EXIT_MAX_NS, since
+    a spin that long cannot make a short high."""
+    try:
+        holds = tuple(int(part) for part in text.split(","))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"not a list of integers: {text!r}") from error
+    if not holds or any(not 0 < hold < SHORT_EXIT_MAX_NS for hold in holds):
+        raise argparse.ArgumentTypeError(
+            f"each hold must lie between 0 and {SHORT_EXIT_MAX_NS} ns: {text!r}")
+    return holds
+
+
+def _rate(text: str) -> int:
+    """--rate: dense events a second, which must fit the 760 ms of idle with room for
+    the longest held shape (1 ms), its settle and its drain."""
+    rate = int(text)
+    if not 1 <= rate <= 400:
+        raise argparse.ArgumentTypeError(f"--rate must be 1-400 events a second, not {rate}")
+    return rate
+
+
 def _segment_of(path: Path) -> Path:
     """A segment file as given, or a day directory's last segment."""
     if path.is_dir():
@@ -417,10 +1275,42 @@ def main(argv: list[str] | None = None) -> int:
     stamps.add_argument("--frames", type=int, default=60, help="one a second")
     stamps.add_argument("--gpiochip", default="/dev/gpiochip0",
                         help="RP1's GPIO bank, as for wl-sync record")
+    skew = commands.add_parser(
+        "skew", help="B3a: start skew between stamp machines on GPIO17, one sync enable"
+    )
+    skew.add_argument("--machines", type=int, choices=(2, 3), default=3,
+                      help="stamp machines on GPIO17, beside the capture machine")
+    skew.add_argument("--edges", type=int, default=100_000)
+    skew.add_argument("--period-us", type=int, default=SKEW_PERIOD_US)
+    skew.add_argument("--gpiochip", default="/dev/gpiochip0")
+    skew.add_argument("--record", type=Path, help="one CSV line per edge")
+    streams = commands.add_parser(
+        "streams", help="B3b: a dense pin's machine against GPIO17's, against RAW"
+    )
+    streams.add_argument("--dense-pin", type=int, choices=SPARE_PINS, default=SPARE_PINS[0],
+                         help="the spare pin machine A reads, unclaimed (decision 4: 19 "
+                              "if 18 is blind)")
+    streams.add_argument("--duration", type=int, default=B3B_MIN_DURATION_S,
+                         help="seconds of run after the probe")
+    streams.add_argument("--rate", type=_rate, default=100, help="dense events a second")
+    streams.add_argument("--marker", action="store_true",
+                         help="GPIO17 and the dense pin rise together at each frame's "
+                              "lead (informational)")
+    streams.add_argument("--probe-only", action="store_true")
+    streams.add_argument("--short-holds-ns", type=_short_holds, default=SHORT_HOLDS_NS)
+    streams.add_argument("--seed", type=int)
+    streams.add_argument("--gpiochip", default="/dev/gpiochip0")
+    streams.add_argument("--record", type=Path, help="one CSV line per edge")
     args = parser.parse_args(argv)
 
     if args.command == "stamps":
         return _stamps(args.stamp_pin, args.frames, args.gpiochip)
+    if args.command == "skew":
+        return _skew(args.machines, args.edges, args.period_us, args.gpiochip, args.record)
+    if args.command == "streams":
+        return _streams(args.dense_pin, args.duration, args.rate, args.marker,
+                        args.probe_only, args.gpiochip, args.record, args.short_holds_ns,
+                        args.seed)
     report = loopback(_segment_of(args.path), args.gpio)
     print(report.summary())
     return 0 if report.passed else 1

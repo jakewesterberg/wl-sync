@@ -32,7 +32,7 @@ the loopback's median "lead edge after its logged tick" (`docs/next-session.md`,
 in whole µs, read from a segment whose header says `"split"`. On one count the backend
 stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
 not used, with a WARNING (`wl_sync/rp1/backend.py:436`; `wl_sync/cli.py:555-563`). There
-the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:91`), the edge input's
+the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:102`), the edge input's
 own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
 process that falls back to `"split"` would write it into every header. With no split
 measurement, leave the flag out, and a split process's headers say `null`, unmeasured.
@@ -156,10 +156,10 @@ the test by hand, stop the service (`sudo systemctl stop wl-sync`) and run spike
 
 It builds the backend as the unit does, so it repeats the start-up test first. A test that
 fails again prints `start-up test failed (<cause>)`, runs no frame, and exits 1
-(`wl_sync/bench.py:346-353`). A test that passes is followed by 60 of the box's own
+(`wl_sync/bench.py:357-364`). A test that passes is followed by 60 of the box's own
 frames, one a second (`--frames N` for more; S.4 ran 300). It passes when every lead edge
 is stamped, every later rising edge is accounted for, and nothing is stamped between
-frames (`wl_sync/bench.py:208-211`). Then `sudo systemctl start wl-sync`: a process whose
+frames (`wl_sync/bench.py:219-222`). Then `sudo systemctl start wl-sync`: a process whose
 test passes records one count again.
 
 If the test passes and the frames still get no stamp, spike S.3b's pull toggles show
@@ -220,7 +220,7 @@ start-up checks stay fatal, and still restart the unit every second: a GPIO chip
 not RP1's bank (nothing could be recorded), piolib's encodings disagreeing with this
 package's, and an impossible `clk_sys` (either would put wrong ticks in every `W`).
 `bench stamps` refuses such a process, printing `event-code capture cannot run (<cause>):
-this process records split, and has no stamps to count` (`wl_sync/bench.py:339-345`).
+this process records split, and has no stamps to count` (`wl_sync/bench.py:350-356`).
 
 **A dropped barcode is a journal ERROR, and only that** *(added 2026-11-19)*. On one count a
 frame whose lead edge was not stamped has no `B` record, and no `L` record either. Every
@@ -718,3 +718,9 @@ whether timesyncd sets STA_PLL, is the check.
 - **Important:** the unit runs `--fake` until bench acceptance (see above). The hardware
   capture is wired but unproven, while the crash-stitching mechanism is ready to verify
   at bring-up.
+  - *(Added 2026-11-20, Task 1.21.)* Bench B3a and B3b are part of that acceptance:
+    `python -m wl_sync.bench skew` and `streams`. Never run them under the unit, or beside
+    a unit that runs the RP1 backend: each opens the PIO block alone, and `streams` writes
+    GPIO18's (or GPIO19's) RP1 registers through `/dev/gpiomem0`. They run from
+    `~/wl-sync-spike` beside the `--fake` service, in the order of `docs/next-session.md`,
+    Step B.

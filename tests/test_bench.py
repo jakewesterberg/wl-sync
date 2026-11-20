@@ -610,3 +610,483 @@ def test_a_sigterm_ends_the_stamps_command_closed_and_summarised(monkeypatch, ca
     out = capsys.readouterr().out
     assert "frames 2, stamped 2" in out, out
     assert "stopped by SIGTERM after 2 of 5 frames" in out, out
+
+
+# ---------------------------------------------------------------------------
+# B3a and B3b (Task 1.21): the analysis alone, then the commands against the harness's
+# stand-ins (tests/test_rp1_harness.py)
+# ---------------------------------------------------------------------------
+
+from tests.test_rp1_harness import _Board, _Clock, board  # noqa: E402,F401
+
+
+def _skew_event(index, stamps):
+    from wl_sync.rp1.harness import Event
+
+    return Event(index, (17,), "skew", 1_000 * index, 1_000 * index + 20, 1_000 * index + 40,
+                 1_000 * index + 60, False, 1_000 * index + 100,
+                 {sm: list(found) for sm, found in stamps.items()})
+
+
+def _skew_report(edges, stamp_of):
+    from wl_sync.bench import SkewReport
+
+    report = SkewReport(machines=[1, 2, 3])
+    for k in range(edges):
+        report.add(_skew_event(k, {sm: stamp_of(sm, k) for sm in (1, 2, 3)}))
+    return report
+
+
+@pytest.mark.parametrize("d", [0, 1, -1])
+def test_one_difference_per_pair_on_every_edge_of_at_most_one_tick_passes(d):
+    report = _skew_report(50, lambda sm, k: [1_000 + 10 * k + (d if sm == 3 else 0)])
+    assert report.passed, report.summary()
+    summary = report.summary()
+    assert summary.splitlines()[0] == "start skew (B3a): PASS"
+    assert f"SM3-SM1: {d} on 50 of 50" in summary and "SM2-SM1: 0 on 50 of 50" in summary
+    assert f"SM3-SM2: {d} on 50 of 50" in summary
+
+
+def test_a_constant_difference_of_two_ticks_fails():
+    report = _skew_report(50, lambda sm, k: [1_000 + k + (2 if sm == 2 else 0)])
+    assert not report.passed
+    assert "SM2-SM1: 2 on 50 of 50" in report.summary()
+
+
+def test_a_difference_of_zero_and_one_mixed_fails_with_both_counts():
+    report = _skew_report(40, lambda sm, k: [1_000 + k + (k % 4 == 0 if sm == 2 else 0)])
+    assert not report.passed
+    assert "SM2-SM1: 0 x30, 1 x10" in report.summary(), report.summary()
+
+
+def test_the_difference_is_read_signed_across_the_counts_wrap():
+    report = _skew_report(3, lambda sm, k: [0xFFFF_FFFF if sm == 1 else 0])
+    assert report.differences[(1, 2)] == {1: 3}
+    assert report.passed
+
+
+def test_a_missed_edge_fails_by_machine_and_is_in_no_difference():
+    report = _skew_report(10, lambda sm, k: [] if (sm == 2 and k == 4) else [k])
+    assert not report.passed
+    assert report.missed == {2: 1} and report.differences[(1, 2)] == {0: 9}
+    assert "missed SM2 1" in report.summary()
+
+
+def test_two_stamps_for_one_edge_fail():
+    report = _skew_report(10, lambda sm, k: [k, k + 5] if (sm == 1 and k == 2) else [k])
+    assert not report.passed and report.extra == {1: 1}
+
+
+@pytest.mark.parametrize("field", ["words", "full", "slips", "level_errors", "carried"])
+def test_anything_but_stamps_in_the_fifos_fails_the_skew(field):
+    report = _skew_report(10, lambda sm, k: [k])
+    setattr(report, field, 1)
+    assert not report.passed
+
+
+def test_a_skew_run_cut_short_is_inconclusive_never_a_pass():
+    report = _skew_report(10, lambda sm, k: [k])
+    report.stopped = True
+    assert not report.passed
+    assert report.summary().splitlines()[0] == "start skew (B3a): INCONCLUSIVE"
+
+
+def test_the_line_fit_recovers_a_known_slope_on_integers():
+    """Ordinary least squares on exact integer sums: x in RAW ns about 10^15, y in us. A
+    float sum of 10^30-sized squares would lose the digits a 0.01 ppm line needs."""
+    from wl_sync.bench import LineFit
+
+    fit = LineFit()
+    ratio = (1 - 7e-6) / (1 + 3e-6)
+    for k in range(5_000):  # an hour, a point each 0.72 s
+        x = 10**15 + 720_000_000 * k
+        fit.add(2 * x, int(720_000 * k * ratio) + 12_345)
+    assert fit.n == 5_000
+    assert abs(float(fit.slope_us_per_us()) / ratio - 1) < 1e-10
+    assert fit.stderr_us_per_us() < 1e-9
+
+
+def test_the_slopes_difference_is_in_ppm_with_its_error():
+    from wl_sync.bench import LineFit, slope_difference_ppm
+
+    a, b = LineFit(), LineFit()
+    for k in range(1_000):  # a point a second
+        a.add(2 * 10**9 * k, int(10**6 * k * (1 + 5e-6)))
+        b.add(2 * 10**9 * k + 7, int(10**6 * k))
+    delta, sigma = slope_difference_ppm(a, b)
+    assert abs(delta - 5) < 0.01 and sigma < 0.01
+
+
+def test_the_short_exit_and_held_bounds_are_the_programs_own():
+    """tests/piosim.py runs the program's words: a high of SHORT_EXIT_MAX_NS or less leaves
+    by the short exit at both sampling phases, one of HELD_MIN_NS or more takes the held
+    loop at both, and 5.5 us depends on the phase. That is how a high's RAW bound names
+    the path it took."""
+    from tests.piosim import high_during, run
+    from wl_sync.bench import HELD_MIN_NS, SHORT_EXIT_MAX_NS
+    from wl_sync.rp1.program import ENTRY, STROBE_CAPTURE, WRAP, WRAP_TARGET
+
+    def held(width_cycles, start):
+        calls = []
+        high = high_during([(start, start + width_cycles)])
+
+        def strobe(cycle):
+            calls.append(high(cycle))
+            return calls[-1]
+
+        result = run(STROBE_CAPTURE, entry=ENTRY, wrap_target=WRAP_TARGET, wrap=WRAP,
+                     cycles=start + width_cycles + 40, strobe=strobe)
+        assert len(result.pushes) == 2  # stamped once, either way
+        return calls[calls.index(True) + 1]  # the jmp pin at 9, after the capture
+
+    cycle_ns = 500
+    for start in (20, 21):
+        for width in range(2, SHORT_EXIT_MAX_NS // cycle_ns + 1):
+            assert not held(width, start)
+        for width in range(HELD_MIN_NS // cycle_ns, HELD_MIN_NS // cycle_ns + 6):
+            assert held(width, start)
+    assert {held(11, 20), held(11, 21)} == {True, False}
+
+
+@pytest.fixture
+def run_fast(monkeypatch):
+    """B3b's hour and its 10^5 events, scaled down to a laptop's minute."""
+    from wl_sync import bench
+
+    monkeypatch.setattr(bench, "B3B_MIN_DURATION_S", 60)
+    monkeypatch.setattr(bench, "B3B_MIN_A_EVENTS", 1_000)
+    monkeypatch.setattr(bench, "PROBE_SHAPE_PULSES", 20)
+    monkeypatch.setattr(bench, "PROBE_RISES", 20)
+
+
+def _patch_rig(monkeypatch, board, clock=None):
+    """The commands build their rig with the shim and /dev/gpiomem0; both are the board's."""
+    from wl_sync.rp1 import backend as rp1
+    from wl_sync.rp1 import harness
+
+    monkeypatch.setattr(rp1, "_load_shim", lambda: board.shim)
+    monkeypatch.setattr(harness, "Gpiomem", lambda path: board.bank)
+    if clock is not None:
+        board.clock = clock
+        monkeypatch.setattr(harness, "time", clock)
+
+
+def test_the_skew_command_runs_three_machines_on_gpio17_and_passes(board, monkeypatch, capsys):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    assert bench.main(["skew", "--machines", "3", "--edges", "200"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "start skew (B3a): PASS", out
+    assert "edges 200; stamped SM1 200, SM2 200, SM3 200" in out
+    assert "stamp SM1, SM2, SM3 on GPIO17, unclaimed; one sync enable" in out
+    assert board.shim.enables == [0b1111] and board.shim.closed == 1
+    assert board.gpiod.released == [{17: 0}]
+    assert [c for _, _, c, _ in board.shim.claims] == [0, 0, 0]
+
+
+def test_the_skew_command_fails_on_dividers_out_of_phase(board, monkeypatch, capsys):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.phase = {3: lambda k: k % 2}
+    assert bench.main(["skew", "--edges", "100"]) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "start skew (B3a): FAIL"
+    assert "SM3-SM1: 0 x" in out and ", 1 x" in out
+
+
+@pytest.mark.parametrize("fault, said", [
+    ("refuse_sync", "the sync enable was refused"),
+    ("blind", "the PIO does not see GPIO17"),
+])
+def test_the_skew_command_stops_when_the_machines_are_not_seen_running(
+    board, monkeypatch, capsys, fault, said
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    if fault == "refuse_sync":
+        board.shim.refuse_sync = True
+    else:
+        board.blind = {17}
+    assert bench.main(["skew", "--edges", "100"]) == 1
+    out = capsys.readouterr().out
+    assert said in out and "edges 0" in out
+    assert board.shim.closed == 1
+
+
+def test_the_skew_command_takes_two_or_three_machines_only(board, monkeypatch):
+    from wl_sync import bench
+
+    for machines in ("1", "4"):
+        with pytest.raises(SystemExit) as exited:
+            bench.main(["skew", "--machines", machines])
+        assert exited.value.code == 2
+
+
+def test_the_skew_command_records_every_edge_as_integers(board, monkeypatch, tmp_path):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    path = tmp_path / "b3a.csv"
+    assert bench.main(["skew", "--machines", "2", "--edges", "30", "--record", str(path)]) == 0
+    lines = path.read_text().splitlines()
+    comments = [line for line in lines if line.startswith("#")]
+    assert any(line.startswith("# enable_raw_ns=") for line in comments)
+    header, *rows = [line for line in lines if not line.startswith("#")]
+    assert header == bench.RECORD_COLUMNS
+    assert len(rows) == 31  # the running check's pulse, then the 30 edges
+    for row in rows:
+        phase, index, pins, shape, *raw, landed, drained, stamps = row.split(",")
+        assert all(value == "" or int(value) >= 0 for value in raw)
+        assert {pair.split("=")[0] for pair in stamps.split()} == {"1", "2"}
+        assert all(int(pair.split("=")[1]) >= 0 for pair in stamps.split())
+
+
+def test_the_skew_command_closes_the_block_and_lines_when_the_run_raises(
+    board, monkeypatch, capsys
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.shim.wlsync_sm_get
+    calls = []
+
+    def failing(sm):
+        calls.append(sm)
+        if len(calls) == 40:
+            raise RuntimeError("piolib")
+        return original(sm)
+
+    board.shim.wlsync_sm_get = failing
+    with pytest.raises(RuntimeError, match="piolib"):
+        bench.main(["skew", "--edges", "100"])
+    assert board.shim.closed == 1 and board.gpiod.released == [{17: 0}]
+
+
+def test_a_sigterm_ends_the_skew_command_closed_and_inconclusive(board, monkeypatch, capsys):
+    import signal
+
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.shim.wlsync_sm_get
+    calls = []
+
+    def terminating(sm):
+        calls.append(sm)
+        if len(calls) == 60:
+            signal.raise_signal(signal.SIGTERM)
+        return original(sm)
+
+    board.shim.wlsync_sm_get = terminating
+
+    def unhandled(signum, frame):
+        raise AssertionError("SIGTERM's handler was not the command's")
+
+    outer = signal.signal(signal.SIGTERM, unhandled)
+    try:
+        status = bench.main(["skew", "--edges", "1000"])
+        assert signal.getsignal(signal.SIGTERM) is unhandled
+    finally:
+        signal.signal(signal.SIGTERM, outer)
+    assert status == 128 + signal.SIGTERM
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "start skew (B3a): INCONCLUSIVE", out
+    assert "stopped by SIGTERM after" in out
+    assert board.shim.closed == 1
+
+
+def test_the_streams_probe_sees_both_pins_and_shows_the_short_exit(
+    board, monkeypatch, capsys, run_fast
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    assert bench.main(["streams", "--probe-only"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "independent streams (B3b) probe: PASS", out
+    assert "GPIO18 rises 20, stamped A 20, B 0; GPIO17 rises 20, stamped B 20, A 0" in out
+    assert "short-exit path (high <= 5.0 us): shown" in out
+    assert board.bank.writes and board.bank.writes[-1] == (0x3094, 0x3000)
+    assert board.bank.ctrl[18] & 0x3000 == 0
+    assert [(pin, c) for _, pin, c, _ in board.shim.claims] == [(18, 0), (17, 0)]
+
+
+def test_a_blind_dense_pin_stops_streams_before_the_run(board, monkeypatch, capsys, run_fast):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.blind = {18}
+    assert bench.main(["streams", "--duration", "60"]) == 1
+    out = capsys.readouterr().out
+    assert "the PIO does not see GPIO18, unclaimed" in out
+    assert "--dense-pin 19" in out
+    assert "A (GPIO18)" not in out
+    assert board.shim.closed == 1 and board.bank.writes[-1] == (0x3094, 0x3000)
+
+
+def test_crosstalk_between_the_pins_fails_the_probe(board, monkeypatch, capsys, run_fast):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    board.crosstalk = {18: 17}
+    assert bench.main(["streams", "--probe-only"]) == 1
+    assert "B 20" in capsys.readouterr().out
+
+
+def test_writer_highs_too_wide_for_the_short_exit_stop_streams(
+    board, monkeypatch, capsys, run_fast
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board, _Clock(read_ns=3_000))
+    assert bench.main(["streams", "--duration", "60"]) == 1
+    out = capsys.readouterr().out
+    assert "short-exit path (high <= 5.0 us): not shown" in out
+
+
+def _streams(board, monkeypatch, capsys, *args, clock=None):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board, clock)
+    status = bench.main(["streams", "--duration", "60", "--rate", "20", *args])
+    return status, capsys.readouterr().out
+
+
+def test_two_crystals_pass_b3b_with_both_slopes_about_ten_ppm_from_one(
+    board, monkeypatch, capsys, run_fast
+):
+    status, out = _streams(board, monkeypatch, capsys, "--marker",
+                           clock=_Clock(cpu_ppm=3, rp1_ppm=-7))
+    assert status == 0, out
+    assert out.splitlines()[0] == "independent streams (B3b): PASS", out
+    import re
+
+    slopes = [float(s) for s in re.findall(r"slope (\d\.\d+)", out)]
+    assert len(slopes) >= 2 and all(abs(s - (1 - 10e-6)) < 1e-7 for s in slopes), out
+    assert "held path (high >= 6.0 us)" in out and "short exit (high <= 5.0 us)" in out
+    assert re.search(r"marker A-B: 0 on 60 of 60 frames", out), out
+    assert board.bank.ctrl[18] & 0x3000 == 0 and board.shim.closed == 1
+
+
+def test_a_tick_lost_at_each_dense_event_fails_b3b_near_its_rate(
+    board, monkeypatch, capsys, run_fast
+):
+    import re
+
+    board.loss_us = {1: 1}  # A is SM1, the first stamp machine
+    status, out = _streams(board, monkeypatch, capsys)
+    assert status == 1
+    assert out.splitlines()[0] == "independent streams (B3b): FAIL", out
+    delta = float(re.search(r"A - B: (-?[\d.]+) ppm", out).group(1))
+    assert -25 < delta < -15, out  # 1 us lost at each of 20 events a second
+
+
+def test_a_tick_lost_on_the_short_exit_alone_fails_b3b(board, monkeypatch, capsys, run_fast):
+    """Half the dense events are the writer's short highs, so 1 us lost at each of them is
+    10 us a second at 20 events a second: A's count falls 10 ppm behind B's. Which path
+    lost it the slopes cannot say, since both paths share A's one counter."""
+    import re
+
+    board.short_loss_us = {1: 1}
+    status, out = _streams(board, monkeypatch, capsys)
+    assert status == 1
+    assert out.splitlines()[0] == "independent streams (B3b): FAIL", out
+    delta = float(re.search(r"A - B: (-?[\d.]+) ppm", out).group(1))
+    assert -13 < delta < -7, out
+
+
+def test_a_streams_run_shorter_than_an_hour_is_inconclusive(
+    board, monkeypatch, capsys, run_fast
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    assert bench.main(["streams", "--duration", "30", "--rate", "20"]) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "independent streams (B3b): INCONCLUSIVE", out
+    assert "30 s of the 60 s" in out
+
+
+@pytest.mark.parametrize("pin", ["17", "20", "16"])
+def test_the_streams_command_takes_a_spare_dense_pin_only(pin):
+    from wl_sync import bench
+
+    with pytest.raises(SystemExit) as exited:
+        bench.main(["streams", "--dense-pin", pin])
+    assert exited.value.code == 2
+
+
+def test_the_streams_command_runs_on_gpio19_when_asked(board, monkeypatch, capsys, run_fast):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    assert bench.main(["streams", "--dense-pin", "19", "--probe-only"]) == 0
+    assert {offset for offset, _ in board.bank.writes} == {0x209C, 0x309C}
+    assert "GPIO19 rises 20" in capsys.readouterr().out
+
+
+def test_a_writer_that_refuses_the_dense_pin_stops_streams_with_nothing_written(
+    board, monkeypatch, capsys, run_fast
+):
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    real = board.gpiod.request_lines
+
+    def held_by_the_pio(path, config, consumer):
+        request = real(path, config, consumer)
+        board.bank.ctrl[18] = (board.bank.ctrl[18] & ~0x1F) | 7
+        return request
+
+    board.gpiod.request_lines = held_by_the_pio
+    assert bench.main(["streams", "--probe-only"]) == 1
+    assert "GPIO18 is the PIO's" in capsys.readouterr().out
+    assert board.bank.writes == [] and board.shim.calls == []
+
+
+def test_a_sigterm_ends_streams_with_the_writer_restored_and_inconclusive(
+    board, monkeypatch, capsys, run_fast
+):
+    import signal
+
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    original = board.bank.write32
+    writes = []
+
+    def terminating(offset, value):
+        original(offset, value)
+        writes.append(offset)
+        if len(writes) == 101 and offset == 0x2094:  # mid-pulse, the override set
+            signal.raise_signal(signal.SIGTERM)
+
+    board.bank.write32 = terminating
+    outer = signal.signal(signal.SIGTERM, lambda *a: None)
+    try:
+        status = bench.main(["streams", "--duration", "60", "--rate", "20"])
+    finally:
+        signal.signal(signal.SIGTERM, outer)
+    assert status == 128 + signal.SIGTERM
+    out = capsys.readouterr().out
+    assert "INCONCLUSIVE" in out.splitlines()[0] or "probe" in out.splitlines()[0], out
+    assert "stopped by SIGTERM" in out
+    assert board.bank.ctrl[18] & 0x3000 == 0 and board.bank.pad(18) == 0
+    assert board.shim.closed == 1
+
+
+def test_the_streams_command_records_every_edge_of_probe_and_run(
+    board, monkeypatch, capsys, tmp_path, run_fast
+):
+    path = tmp_path / "b3b.csv"
+    status, out = _streams(board, monkeypatch, capsys, "--duration", "60",
+                           "--record", str(path))
+    from wl_sync import bench
+
+    rows = [line for line in path.read_text().splitlines() if not line.startswith("#")]
+    assert rows[0] == bench.RECORD_COLUMNS
+    phases = {row.split(",")[0] for row in rows[1:]}
+    assert phases == {"probe", "run"}
