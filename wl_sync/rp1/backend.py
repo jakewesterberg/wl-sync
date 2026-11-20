@@ -103,7 +103,7 @@ STAMP_TEST_HIGH_US = 1_000
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
-# edge (wl_sync/rp1/pio_capture.py:349-354); this leaves room for the syscalls either side,
+# edge (wl_sync/rp1/pio_capture.py:352-357); this leaves room for the syscalls either side,
 # and stays well inside the pulse.
 STAMP_TEST_SETTLE_US = 100
 # The start-up test's two failures of the pulse, as the journal gives them (Task 1.16): the
@@ -913,14 +913,18 @@ class Rp1Backend:
         (pio_rp1.c:985 at utils b57c48e) and the shim joins the FIFOs
         (pio/wlsync_pio.c:179, :233), but nothing showed the join takes, or that the level
         can read the joined depth: a level that wrapped at 16 would read a full FIFO as
-        empty, the low read the proof cannot survive.
+        empty, the low read the proof cannot survive. On the box it does not wrap but
+        saturates: 15 for 15 and for 16 words, with `full` set at 16 (bench probe,
+        wl-rig-sync0, 2026-11-20), and the shim reads 15 with `full` as 16, exactly
+        (pio/wlsync_fifo_state.h; fix round 3). Until then this check read
+        [0, 2, ..., 14, 15, 15] there, and the box recorded split with no W.
 
         HOW. The test machine runs the capture program on GPIO17 (`_test_stamp_machine`),
         and its FIFO is configured as the capture machine's. It is emptied, then GPIO17 is
         pulsed depth/2 + 1 times, nothing drained: each rise pushes a pair, so after the
         k-th the level must read min(2k, depth), and the last pushes into a full FIFO. Each
         pulse is STAMP_TEST_SETTLE_US high and low, past the pair's 5.5 us
-        (wl_sync/rp1/pio_capture.py:349-354). No decoder takes a pulse under 7.5 ms for a
+        (wl_sync/rp1/pio_capture.py:352-357). No decoder takes a pulse under 7.5 ms for a
         frame's lead (wl_sync/barcode.py:135-138), and the test's quiet follows them.
         Raises what piolib or libgpiod raise, and the caller makes that a failure too."""
         from gpiod.line import Value

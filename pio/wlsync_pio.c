@@ -276,8 +276,9 @@ int wlsync_sm_set_enabled(unsigned sm, int enabled)
  * level of 0, and a level read low is the one thing the word pump's proof cannot survive
  * (wl_sync/rp1/pio_capture.py, CodeWordPairer). This issues the same message itself
  * (PIO_IOC_SM_FIFO_STATE), with every answer field seeded to a value none can take, and
- * refuses an answer that left a seed in place or whose empty flag contradicts its level
- * (wlsync_fifo_state.h, which tests/test_rp1_backend.py compiles and runs on its own). */
+ * reads the answer by wlsync_fifo_state.h's rule, which the tests compile and run on their
+ * own (tests/fifo_state_c.py): exact, from RP1's level field, which saturates at 15, and
+ * its full flag (fix round 3), or refused. */
 int wlsync_sm_rx_level(unsigned sm)
 {
     if (g_pio == NULL)
@@ -288,9 +289,9 @@ int wlsync_sm_rx_level(unsigned sm)
         .sm = (uint16_t)sm, .tx = 0, .level = WLSYNC_LEVEL_SEED, .empty = WLSYNC_FLAG_SEED,
         .full = WLSYNC_FLAG_SEED,
     };
-    if (ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args) < 0)
-        return errno > 0 ? -errno : -EIO;
-    return wlsync_fifo_state_level(args.level, args.empty, args.full);
+    int result = ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args);
+    return wlsync_fifo_state_answer(result, errno, args.level, args.empty, args.full,
+                                    pio_get_fifo_depth(g_pio) * 2);
 }
 
 /* The depth of the RX FIFO of every machine this shim configures: piolib's per-direction

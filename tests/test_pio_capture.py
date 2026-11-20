@@ -375,7 +375,7 @@ def test_a_word_still_waiting_when_capture_stops_is_counted():
 
 # The fuzz: the capture machine and the word drain on one timeline.
 
-def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
+def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0, answer=None):
     """Run `events`, (time_us, tick, data) strobes, through the FIFO as the box has it,
     and return the batches the drain hands the pump: each a list of (push, word), `push`
     being the word's place among every word the program pushed, with its `level_after`
@@ -389,7 +389,14 @@ def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
     than a strobe, which is how a word is left alone, and a share `starved` of its polls
     come milliseconds late, which is how the FIFO fills. The FIFO holds `depth` words, and
     a share `fails` of level reads fail (Ruling R40): a look that fails pops nothing, and a
-    read after popping that fails leaves the batch with no level after it."""
+    read after popping that fails leaves the batch with no level after it.
+
+    `answer`, the shim's compiled rule (tests/fifo_state_c.py), reads every level as the box
+    does (fix round 3): the kernel answers from a status register, `empty` and `full`, and
+    a level field that saturates at 15 (bench probe, wl-rig-sync0, 2026-11-20), and the two
+    registers are read at instants of their own, in either order, with pushes landing
+    between them in a third of the reads. The level the rule returns is what the drain
+    counts on, and a refusal is a failed read."""
     pushes = []
     for at, tick, data in events:
         pushes += [(at + 1.0, data), (at + 3.0, _counter(tick))]
@@ -401,6 +408,21 @@ def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
             if len(fifo) < depth:
                 fifo.append((pushed, pushes[pushed][1]))
             pushed += 1
+
+    def level_read():
+        """(level, errno): the FIFO's level as the drain reads it."""
+        nonlocal now
+        if answer is None:
+            return len(fifo), None
+        status_first = rng.random() < 0.5
+        first = len(fifo)
+        if rng.random() < 1 / 3:
+            now += rng.uniform(0.5, 6)
+            run_until(now)
+        second = len(fifo)
+        status, field = (first, second) if status_first else (second, first)
+        level = answer(8, 0, min(field, 15), int(status == 0), int(status >= depth), depth)
+        return (level, None) if level >= 0 else (None, -level)
 
     now = 0.0
     # No read fails once the last strobe, 200 ms after the rest, is due, so the fuzz can
@@ -414,7 +436,11 @@ def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
         if rng.random() < failing:
             batches.append(([], None, 5))  # the look's read failed: nothing popped
             continue
-        level, batch, level_after, error = len(fifo), [], None, None
+        level, refused = level_read()
+        if refused is not None:
+            batches.append(([], None, refused))  # the rule refused the answer
+            continue
+        batch, level_after, error = [], None, None
         for _ in range(level):
             now += rng.uniform(4, 40) if rng.random() < slow else rng.uniform(0.3, 3)
             run_until(now)
@@ -425,7 +451,7 @@ def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
             if rng.random() < failing:
                 error = 5
             else:
-                level_after = len(fifo)
+                level_after, error = level_read()
         batches.append((batch, level_after, error))
     return batches
 
@@ -482,13 +508,16 @@ FUZZ_RUNS = 2_000
 
 
 FUZZ_CASES = {
-    # name: (near the wrap, the FIFO's depth, the depth the pump is told, read failures)
-    "far": (False, 8, 8, 0.0),
-    "near-wrap": (True, 8, 8, 0.0),
-    "joined-16": (False, 16, 16, 0.0),
-    "told-less-than-real": (False, 16, 8, 0.0),
-    "level-reads-fail": (False, 8, 8, 0.03),
-    "near-wrap-level-reads-fail": (True, 8, 8, 0.03),
+    # name: (near the wrap, the FIFO's depth, the depth the pump is told, read failures,
+    #        levels read as the box's shim reads them)
+    "far": (False, 8, 8, 0.0, False),
+    "near-wrap": (True, 8, 8, 0.0, False),
+    "joined-16": (False, 16, 16, 0.0, False),
+    "told-less-than-real": (False, 16, 8, 0.0, False),
+    "level-reads-fail": (False, 8, 8, 0.03, False),
+    "near-wrap-level-reads-fail": (True, 8, 8, 0.03, False),
+    "box-saturating-16": (False, 16, 16, 0.0, True),
+    "box-saturating-16-fails": (False, 16, 16, 0.03, True),
 }
 
 
@@ -510,12 +539,21 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(case_nam
     Fix round 1 (Ruling R40) adds RP1's joined depth, 16 (pio_rp1.c:985 at utils b57c48e,
     doubled); a pump told less than the real depth, which errs safe; and level reads that
     fail, 3% of them, at the look and after popping, each handed to the pump as the drain
-    hands it (`level_error`)."""
+    hands it (`level_error`). Fix round 3 adds levels read as the box's shim reads them,
+    from a saturating field and a status register read at instants of their own
+    (`_through_the_fifo`'s `answer`): the lemma is checked against the pushes there too."""
     import random
 
     from wl_sync.rp1.pio_capture import WordPump
 
-    near_wrap, depth, told, fails = FUZZ_CASES[case_name]
+    near_wrap, depth, told, fails, box = FUZZ_CASES[case_name]
+    answer = None
+    if box:
+        from tests import fifo_state_c
+
+        answer = fifo_state_c.answer()
+        if answer is None:
+            pytest.skip("no C compiler on this host")
     rng = random.Random(f"120-{case_name}")
     totals = dict.fromkeys(
         ("strobes", "written", "lost_reported", "words_dropped", "whole_dropped",
@@ -523,7 +561,7 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(case_nam
     for case in range(FUZZ_RUNS):
         events = _fuzzed_strobes(rng, near_wrap)
         batches = _through_the_fifo(
-            rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08), depth, fails
+            rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08), depth, fails, answer
         )
         pushes = [push for batch, _, _ in batches for push, _ in batch]
         words = [word for batch, _, _ in batches for _, word in batch]

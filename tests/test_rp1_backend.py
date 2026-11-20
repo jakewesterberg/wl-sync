@@ -62,7 +62,9 @@ class _FakeShim:
     as the shim does (Ruling R40; until then the fake used the backend's own constant, 8,
     and could not show a depth the backend did not assume, review M5). A test sets a depth
     of its own to model a join that did not take; `level_wrap` makes every level read
-    modulo it, as a level field too narrow for the joined depth would, and
+    modulo it, as a level field too narrow for the joined depth would; `box_answers`
+    answers as the box's shim does, from a level field that saturates at 15 and a `full`
+    flag (bench probe, wl-rig-sync0, 2026-11-20), through the shim's own compiled rule; and
     `level_failures[sm]` holds the errnos the next level reads of `sm` return, negated, as
     the shim's checked read returns a failed one, None for a read that goes through
     (pio/wlsync_pio.c, `wlsync_sm_rx_level`).
@@ -71,7 +73,7 @@ class _FakeShim:
     the shim configures it (pio/wlsync_pio.c:233). A word pushed to it
     full is dropped, as `push noblock` drops it, and counted in `stamp_dropped`, and
     `wlsync_sm_rx_full` reads it full, as `pio_sm_is_rx_fifo_full` reads FSTAT
-    (pio/wlsync_pio.c:308). Until Task 1.15 it was unbounded (final review M11), so the
+    (pio/wlsync_pio.c:309). Until Task 1.15 it was unbounded (final review M11), so the
     fault that desynced the stream could not be built here. `between_words`, when set, is
     called between the two words of every pair pushed to it, which is where a drain must
     pop for a word to be left alone; `stamp_gate`, an Event, holds the stamp drain at its
@@ -100,6 +102,10 @@ class _FakeShim:
         self.stamp_depth = 2 * self.fifo_depth
         self.test_depth = 2 * self.fifo_depth
         self.level_wrap: int | None = None
+        # Answer level reads as the box's shim does (bench probe, wl-rig-sync0, 2026-11-20):
+        # the kernel's raw answer, its level field saturating at 15 and `full` set at the
+        # FIFO's depth, read through the shim's own rule (tests/fifo_state_c.py).
+        self.box_answers = False
         self.level_failures: dict[int, list[int]] = {}
         self.stamp_dropped = 0
         self.between_words = None
@@ -320,6 +326,14 @@ class _FakeShim:
             return -errno
         with self._lock:
             level = len(self._fifo_of(sm))
+        if self.box_answers:
+            from tests import fifo_state_c
+
+            depth = {0: self.word_depth, 1: self.stamp_depth, 2: self.test_depth}[sm]
+            return fifo_state_c.answer()(
+                8, 0, min(level, 15), int(level == 0), int(level >= depth),
+                self.wlsync_rx_fifo_depth(),
+            )
         return level % self.level_wrap if self.level_wrap else level
 
     def wlsync_rx_fifo_depth(self):
@@ -830,7 +844,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         backend.close()
     # The settle that lets a stamp at the enable land before it is discarded, and the
     # read after the rise: more than the 5.5 us a pair takes
-    # (wl_sync/rp1/pio_capture.py:349-354), and well inside the pulse.
+    # (wl_sync/rp1/pio_capture.py:352-357), and well inside the pulse.
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
@@ -1202,60 +1216,74 @@ def _c_prototype(text, name):
     return names
 
 
-# (level, empty, full) as the kernel answers PIO_IOC_SM_FIFO_STATE, and what the shim makes
-# of it: the level, or -EIO (5).
-_FIFO_STATE_CASES = [
-    ((0, 1, 0), 0),            # empty
-    ((5, 0, 0), 5),
-    ((16, 0, 1), 16),          # a full joined FIFO
-    ((0, 1 << 2, 0), 0),       # empty answered as a mask, 1 << sm, for the test machine
-    ((3, 1 << 1, 0), -5),      # ... and contradicting its level
-    ((0, 0, 0), -5),           # a level of 0 that is not empty
-    ((7, 1, 0), -5),           # empty, with words in it
-    ((0xFFFF, 1, 0), -5),      # the level never written
-    ((0, 0xFF, 0), -5),        # empty never written
-    ((4, 0, 0xFF), -5),        # full never written
+# (ioctl result, errno, level, empty, full, joined depth) as the kernel answers
+# PIO_IOC_SM_FIFO_STATE, and what the shim makes of it: the level, or a negative errno.
+_EIO = -5
+_BOX = [
+    # The bench probe, wl-rig-sync0, 2026-11-20: the ioctl returns 8 on success, and the
+    # joined RX FIFO's level field saturates at 15, `full` set at 16 words.
+    ((8, 0, 0, 1, 0, 16), 0),
+    ((8, 0, 2, 0, 0, 16), 2),
+    ((8, 0, 14, 0, 0, 16), 14),
+    ((8, 0, 15, 0, 1, 16), 16),   # 16 held: the field saturated, `full` makes it exact
+    ((8, 0, 15, 0, 0, 16), 15),   # one popped: 15 held, exactly
+    ((8, 0, 1, 0, 0, 16), 1),
+]
+_FIFO_STATE_CASES = _BOX + [
+    ((0, 0, 5, 0, 0, 16), 5),                # a result of 0 is success too
+    ((-1, 5, 5, 0, 0, 16), -5),              # the ioctl failed: its errno
+    ((-1, 0, 5, 0, 0, 16), _EIO),            # ... with no errno: EIO
+    ((8, 0, 16, 0, 1, 16), 16),              # a field wide enough to read 16
+    ((8, 0, 0, 1 << 2, 0, 16), 0),           # empty as a mask, 1 << sm (fix round 2)
+    ((8, 0, 3, 1 << 1, 0, 16), _EIO),        # ... contradicting its level
+    ((8, 0, 0, 0, 0, 16), _EIO),             # a level of 0 that is not empty
+    ((8, 0, 7, 1, 0, 16), _EIO),             # empty, with words in it
+    ((8, 0, 14, 0, 1, 16), _EIO),            # full, with fewer words than the depth
+    ((8, 0, 15, 1, 1, 16), _EIO),            # full and empty
+    ((8, 0, 16, 0, 0, 16), _EIO),            # the depth, and not full
+    ((8, 0, 15, 0, 0, 32), _EIO),            # saturated below a deeper FIFO's depth: 15 or more
+    ((8, 0, 15, 0, 1, 32), 32),              # ... and full: exactly its depth
+    ((8, 0, 5, 0, 0, 0), _EIO),              # no depth to read against
+    ((8, 0, 0xFFFF, 1, 0, 16), _EIO),        # the level never written
+    ((8, 0, 0, 0xFF, 0, 16), _EIO),          # empty never written
+    ((8, 0, 4, 0, 0xFF, 16), _EIO),          # full never written
 ]
 
 
-def test_the_shim_takes_any_answer_but_its_own_seed_and_a_contradiction(tmp_path):
-    """The shim's check of the kernel's FIFO-state answer (pio/wlsync_fifo_state.h, used by
-    wlsync_sm_rx_level), compiled with the host's C compiler and run, since the shim itself
-    cannot run off the box. A field still holding its seed was not answered, and an empty
-    flag that contradicts the level is refused; ANY OTHER VALUE IS AN ANSWER (Task 1.20 fix
-    round 2, the re-review's N-M1). The check once refused an `empty` other than 0 or 1, so
-    a firmware that answers it as a bit mask, as piolib's own `bool` would accept
-    (pio_rp1.c:573-580 at utils b57c48e), would have failed every read of every machine but
-    SM 0: the start-up test would fail, and one count would be lost on the box."""
-    import shutil
-    import subprocess
+def test_the_shim_reads_the_boxs_answers_and_refuses_what_cannot_be_exact():
+    """The shim's reading of the kernel's FIFO-state answer (pio/wlsync_fifo_state.h), run
+    as compiled C (tests/fifo_state_c.py), since the shim cannot run off the box.
 
-    cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
-    if cc is None:
+    THE BOX'S ANSWERS FIRST (bench probe, wl-rig-sync0, 2026-11-20). The ioctl returns 8 on
+    success, so any result >= 0 is success. The joined RX FIFO's level field reads 0-14
+    exactly, then 15 for 15 AND for 16 words, with `full` set only at 16: the field
+    saturates, and with `full` read it is lossless. Until fix round 3 the shim returned 15
+    for a full FIFO, the depth check read [0, 2, ..., 14, 15, 15], and the box recorded
+    split with no W.
+
+    Then what stays refused: a seed left in place (fix round 2), an empty or full flag
+    that contradicts the level, and a saturated reading that cannot be exact, as 15 would
+    be below a FIFO deeper than 16. Any other value is an answer, a mask-style `empty`
+    included (fix round 2, N-M1)."""
+    from tests import fifo_state_c
+
+    answer = fifo_state_c.answer()
+    if answer is None:
         pytest.skip("no C compiler on this host")
-    header = _C_SOURCE.parent / "wlsync_fifo_state.h"
-    cases = "".join(
-        f'    printf("%d\\n", wlsync_fifo_state_level({a}u, {b}u, {c}u));\n'
-        for (a, b, c), _ in _FIFO_STATE_CASES
-    )
-    source = tmp_path / "harness.c"
-    source.write_text(
-        f'#include <stdio.h>\n#include "{header}"\nint main(void)\n{{\n{cases}'
-        "    return 0;\n}\n"
-    )
-    binary = tmp_path / "harness"
-    subprocess.run([cc, "-Wall", "-Wextra", "-Werror", "-o", str(binary), str(source)],
-                   check=True)
-    got = [int(line) for line in subprocess.run(
-        [str(binary)], check=True, capture_output=True, text=True).stdout.split()]
-    assert got == [want for _, want in _FIFO_STATE_CASES], list(zip(_FIFO_STATE_CASES, got))
+    got = [answer(*case) for case, _ in _FIFO_STATE_CASES]
+    assert got == [want for _, want in _FIFO_STATE_CASES], [
+        (case, want, have) for (case, want), have in zip(_FIFO_STATE_CASES, got) if want != have
+    ]
 
 
 def test_the_shim_uses_the_checked_answer():
-    """The shim's level read goes through the header the test above runs, not a copy."""
+    """The shim's level read goes through the header the test above runs, not a copy, and
+    hands it the ioctl's own result, which is 8 on the box, not 0."""
     text = _C_SOURCE.read_text()
     assert '#include "wlsync_fifo_state.h"' in text
-    assert "wlsync_fifo_state_level(args.level, args.empty, args.full)" in text
+    assert "int result = ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args);" in text
+    assert ("wlsync_fifo_state_answer(result, errno, args.level, args.empty, args.full,"
+            in text)
 
 
 def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature():
@@ -1559,6 +1587,45 @@ def test_a_fifo_not_as_deep_as_counted_on_is_a_capture_fault_with_no_w(lib, capl
         lib.push(stream((10, 1)))
         time.sleep(0.05)
         assert seen == [] and lib.sm_enabled_never(0)
+    finally:
+        backend.close()
+
+
+def _needs_a_c_compiler():
+    from tests import fifo_state_c
+
+    if fifo_state_c.answer() is None:
+        pytest.skip("no C compiler on this host")
+
+
+def test_the_depth_check_passes_on_a_level_field_that_saturates_as_the_boxs_does(lib):
+    """THE BOX'S FINDING (bench probe, wl-rig-sync0, 2026-11-20). Its joined RX FIFO's level
+    field reads 15 for 15 and for 16 words, with `full` set at 16. Until fix round 3 the
+    shim passed 15 on, the depth check read [0, 2, ..., 14, 15, 15], and the box recorded
+    split with no W. The shim now reads 15 with `full` as 16, exactly, and the check passes
+    with the levels the hardware really gives."""
+    _needs_a_c_compiler()
+    lib.box_answers = True
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert not _is_split(backend) and not backend.capture_failure
+        assert backend._rx_words == 16
+    finally:
+        backend.close()
+
+
+def test_a_saturated_level_below_a_deeper_fifos_depth_is_a_capture_fault(lib, caplog):
+    """A field that saturates at 15 below a FIFO deeper than 16 cannot say how many words
+    15 is. The shim refuses that answer, so the depth check cannot measure the FIFO, and the
+    process records split with no W: the pairing never counts on a level it cannot trust."""
+    _needs_a_c_compiler()
+    lib.box_answers = True
+    lib.fifo_depth = 16
+    lib.word_depth = lib.stamp_depth = lib.test_depth = 32
+    backend = Rp1Backend()
+    try:
+        assert _is_split(backend) and backend.capture_failure
+        assert "could not be measured" in backend.capture_failure, backend.capture_failure
     finally:
         backend.close()
 

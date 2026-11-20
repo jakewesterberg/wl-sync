@@ -190,7 +190,10 @@ class CodeWordPairer:
          level showed, and reads the level again when it popped any
          (Rp1Backend.drain). Every level is read exactly, or the read says it failed
          (pio/wlsync_pio.c, `wlsync_sm_rx_level`; Ruling R40), and nothing is paired
-         from a drain whose read failed. So the stream is every word the FIFO took, in
+         from a drain whose read failed. RP1's level field saturates at 15 below its
+         16-word FIFO; the shim reads it with the `full` flag, so 15 with `full` is 16,
+         and refuses any answer that is not the count at some instant of the read
+         (pio/wlsync_fifo_state.h; fix round 3). So the stream is every word the FIFO took, in
          order. Only one wl-sync process may hold the PIO block: the kernel does not
          stop another from popping it (bench condition B-5).
       3. Each strobe pushes its data word, then its counter, and nothing is pushed between
@@ -199,7 +202,7 @@ class CodeWordPairer:
          (wl_sync/rp1/program.py:55-61): a data word pushed straight after a taken push
          has no bits above the window. The box's window is those 16 lines
          (wl_sync/pins.py:11), and capture refuses any other
-         (wl_sync/rp1/backend.py:996-1004).
+         (wl_sync/rp1/backend.py:1000-1008).
 
     When the n-th word the FIFO ever took went in, it held n words less those popped. That
     word was not in the FIFO when the drain before the one that read it looked, so every
@@ -470,7 +473,7 @@ class WordPump:
         they were popped, which errs safe.
 
         `entries` is every word the FIFO held when the drain looked, and `level_after` the
-        level it read after popping them (wl_sync/rp1/backend.py:1007-1012): the counts
+        level it read after popping them (wl_sync/rp1/backend.py:1116-1123): the counts
         the pairing's proof is made of (`CodeWordPairer`).
 
         `polled_at` is `now_us()` read just before the drain that produced `entries`. Every
@@ -632,7 +635,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py:1126-1166), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:1130-1170), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

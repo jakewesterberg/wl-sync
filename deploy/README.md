@@ -178,7 +178,7 @@ run fails by design. A count of 0 means that machine did not run, or the pulls d
 reach the pins. The start-up test sees a box that refuses the sync enable (above), but not
 a refusal of the production machines' own enable after the test's was obeyed: that one is
 invisible to the shim (`pio/wlsync_pio.c:248-251`), and only these toggles see it. It is
-the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:1071-1078`): the mask holds only
+the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:1075-1082`): the mask holds only
 machines the shim claimed, so it would be a transient failure of RP1's firmware, and every
 `B` of that process would be dropped with its ERROR until a restart. The toggles also need
 a passing test. A failed test's cause tells a refused sync enable from a PIO that cannot
@@ -211,9 +211,9 @@ and on one count, where the shim's one errno needs a closed block and is not exp
 
     the capture and stamp machines could not start (enabling the state machines failed: errno 19): this process records no W and no B records, and E goes on, extrapolated from the sync enable, until a restart starts them
 
-(`wl_sync/rp1/backend.py:1018-1031`). Either way the health check holds one episode for the
+(`wl_sync/rp1/backend.py:1022-1035`). Either way the health check holds one episode for the
 run, `capture degraded, still recording: event-code capture did not start (<cause>): no
-code word is recorded in this process` (`wl_sync/rp1/backend.py:1478-1484`). The segments
+code word is recorded in this process` (`wl_sync/rp1/backend.py:1482-1488`). The segments
 say `"split"` (or the one-count value they had), with no `W` records, and nothing in them
 says `W` is missing: the journal is the only witness (`wl_sync/log.py:222-233`). Three
 start-up checks stay fatal, and still restart the unit every second: a GPIO chip that is
@@ -258,16 +258,16 @@ left alone and the pairing slips. The journal has
 
     capture degraded, still recording: barcode stamping: the stamp FIFO lost a word, so its data/counter pairing slipped (a counter, 0x..., where a data word belongs): resynchronised on that counter, and stamping goes on; a frame whose lead edge's stamp was lost is dropped; N desync(s) this run
 
-(`wl_sync/rp1/pio_capture.py:655-660`). Like every health ERROR it is given once an
+(`wl_sync/rp1/pio_capture.py:658-663`). Like every health ERROR it is given once an
 episode: desyncs found in consecutive health checks, a second apart, share one line, and
 N, the run's count so far, says how many there have been. The full FIFO behind a desync
 has its own line, `barcode stamping: the stamp machine's RX FIFO was full when drained:
-barcode stamps may have been lost` (`wl_sync/rp1/pio_capture.py:644-647`), only when a
+barcode stamps may have been lost` (`wl_sync/rp1/pio_capture.py:647-650`), only when a
 health check fell between the two; found by the same check, only the desync is given. A frame whose lead
 edge's stamp was lost has its own `barcode N dropped` ERROR, and the frames after it are
 stamped. Each run's end on one count logs `barcode stamping: N desync(s) this run, each
 resynchronised`, or `barcode stamping: 0 desync(s) this run`
-(`wl_sync/rp1/backend.py:1921-1925`). Until 2026-11-20 a desync stopped the stamp drain,
+(`wl_sync/rp1/backend.py:1925-1929`). Until 2026-11-20 a desync stopped the stamp drain,
 and every later frame was dropped until a restart. `barcode stamping stopped` now means
 the drain itself failed, with its cause in the same ERROR, and a restart starts it again.
 
@@ -277,17 +277,17 @@ lost, and the pairing of data words with counters slips. The journal has
 
     capture degraded, still recording: event-code capture: the code-word FIFO may have dropped a word, so at least N strobe(s) whose data/counter pairing cannot be proven are left out, with an L record in the segment: paired again from the next pair proven whole, and capture goes on; D desync(s) this run
 
-(`wl_sync/rp1/pio_capture.py:533-538`). The word pump writes only the pairs the drain's own
+(`wl_sync/rp1/pio_capture.py:536-541`). The word pump writes only the pairs the drain's own
 counts prove are one strobe's two words, and drops the rest, so no `W` in the segment is a
 misreading across a lost word. At least N strobes were dropped, and the segment's `desync`
 `L` record carries the same count, just after the last `W` before them. Like every health
 ERROR it is given once an episode, and D, the run's count so far, says how many desyncs
 there have been: one for each unbroken run of dropped words, which can give an `L` record
 at each drain it spans. The full FIFO behind it has its own line, `event-code capture: the PIO RX FIFO was
-full when drained: event codes may have been lost` (`:499-502`), only when a health check
+full when drained: event codes may have been lost` (`:502-505`), only when a health check
 fell between the two. Each run's end logs `event-code capture: N desync(s) this run, each
 resynchronised`, or `event-code capture: 0 desync(s) this run`
-(`wl_sync/rp1/backend.py:1906-1910`), in either timebase. Until 2026-11-20 a desync
+(`wl_sync/rp1/backend.py:1910-1914`), in either timebase. Until 2026-11-20 a desync
 stopped event-code capture for the rest of the process; `event-code capture stopped: no
 later code word can be recorded` now means the drain or its consumer failed. In the 65.5 ms
 before each 71.6-minute wrap of the PIO count a counter cannot be told from a code, so a
@@ -302,13 +302,16 @@ shim's read says it failed (version 4), and the journal has
 or, when the read after popping failed, `... the words that drain popped are left out, with an
 L record in the segment, and capture goes on`; for the stamp machine, `barcode stamping: the
 stamp FIFO's level could not be read (errno E): that drain read nothing, and stamping goes on`
-(`wl_sync/rp1/pio_capture.py:503-508`, `wl_sync/rp1/backend.py:1159-1162`).
+(`wl_sync/rp1/pio_capture.py:506-511`, `wl_sync/rp1/backend.py:1163-1166`).
 
 **The FIFO's depth is measured at start-up** *(added 2026-11-20)*. RP1's FIFOs hold 8 words a way,
 16 joined, by piolib's count. After the start-up test sees GPIO17 rise, the box pulses GPIO17
 nine more times, 100 µs each, without draining the test machine's FIFO, and reads its level
-after each (`wl_sync/rp1/backend.py:904-951`). It must read 2, 4, ... 16, 16. If it does
-not, the process records split with no `W`, and the journal has
+after each (`wl_sync/rp1/backend.py:904-951`). It must read 2, 4, ... 16, 16. The box's
+level field itself saturates at 15, `full` set at 16 words, and the shim reads 15 with
+`full` as 16 (`pio/wlsync_fifo_state.h`; bench probe, wl-rig-sync0, 2026-11-20); a shim
+built before that fix reads `[0, 2, ..., 14, 15, 15]`, so rebuild it. If the check does
+not read 2, 4, ... 16, 16, the process records split with no `W`, and the journal has
 `event-code capture cannot run (the RX FIFO read levels [...] as the test machine filled it,
 where its depth of 16 words gives [...]): this process records timebase split with no W
 records, ...`: a FIFO shallower than the pairing counts on could make a wrong `W`. A process
@@ -322,9 +325,9 @@ When no pair comes for 20 frames, or for 20 frames' time, the journal has
 
     the RAW->P fit's last lead-edge pair is S s old, F frame(s) ago: E ticks and roll boundaries are extrapolated from it, drifting from P by the fit's slope error, until a lead edge is matched again
 
-once, at WARNING (`wl_sync/rp1/backend.py:1811-1816`), or, when no pair has come since
+once, at WARNING (`wl_sync/rp1/backend.py:1815-1820`), or, when no pair has come since
 capture started, `the RAW->P fit has had no lead-edge pair since capture started S s ago,
-F frame(s): ...` (`:1803-1809`). The edges are still written. Their error grows with the
+F frame(s): ...` (`:1807-1813`). The edges are still written. Their error grows with the
 pair's age, by at most 5 ppm of it on a calibrated box before its slope is fitted, which is
 100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`, `wl_sync/rp1/backend.py:135-151`). The
 episode ends with
@@ -486,7 +489,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 18. The strobe and code lines, which the task PC drives for the capture program: hold the code
     at least 2.5 µs after raising the strobe, keep the strobe high at least 1 µs and low at
     least 1 µs, and rise at least 6 µs after the previous rise (the contract in
-    `wl_sync/rp1/backend.py:963-970`).
+    `wl_sync/rp1/backend.py:967-974`).
 
 ## Setting up the OS, once per box
 
@@ -655,7 +658,7 @@ reaches an hour, and every hour after (`wl_sync/cli.py:1714-1738`). A file is us
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
 and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:262-285`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
-RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1854-1855`;
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1858-1859`;
 `wl_sync/log.py:217-233`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**

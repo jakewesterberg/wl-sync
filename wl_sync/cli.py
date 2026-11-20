@@ -856,7 +856,7 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:1583-1678); under --fake, the fake's clock
+            # has ended (wl_sync/rp1/backend.py:1587-1682); under --fake, the fake's clock
             # as the frame starts (wl_sync/backend.py:255-260). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
@@ -896,7 +896,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:507-509, :1676-1677), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:507-509, :1680-1681), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
@@ -1328,7 +1328,7 @@ _DROP_ADVICE = {
         "block's state machines"
     ),
     # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
-    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1456-1460, :1472-1476).
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1460-1464, :1476-1480).
     STAMPS_STOPPED: (
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"
@@ -1443,7 +1443,7 @@ class _StampsBetweenFrames:
     WHERE THEY COME FROM. Stamps before the frame's lead, or before its window when its
     rises align on no lead (wl_sync/clockmap.py:296-298). A drain that gave up on the
     frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-    (wl_sync/rp1/backend.py:1630-1637). A fit that has drifted leaves them too, the
+    (wl_sync/rp1/backend.py:1634-1641). A fit that has drifted leaves them too, the
     frame's own when its rises align on none. And GPIO17 is this process's own output
     (wl_sync/rp1/backend.py:442-443), so anything else is a fault on the line. The frame's
     `B` is not touched here: a frame with stamps between can keep it.
@@ -1455,11 +1455,11 @@ class _StampsBetweenFrames:
     so frames hit now and then, fewer than that apart, are one episode. Its first frame is
     one WARNING, in Task 1.7's text, and its end one more, at that clean frame or at
     `close()`, with the frames it held and their stamps. One frame alone, as the RP1
-    backend's carried misread is (wl_sync/rp1/backend.py:1638-1646), is an episode of
+    backend's carried misread is (wl_sync/rp1/backend.py:1642-1650), is an episode of
     one: two lines, not a flood.
 
     BOTH LINES ARE WARNINGS, as Task 1.15's extrapolation episode's are
-    (wl_sync/rp1/backend.py:1762-1764): the journal filtered at WARNING (`journalctl -p
+    (wl_sync/rp1/backend.py:1766-1768): the journal filtered at WARNING (`journalctl -p
     warning`) then shows the end of every start it shows. At INFO its end would be
     filtered out, and a reader would think the episode ran on. `close()` also gives the
     run's totals, at INFO, as `_DroppedBarcodes` does.

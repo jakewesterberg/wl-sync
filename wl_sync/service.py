@@ -72,9 +72,9 @@ class BarcodeGenerator:
 # reading behind the last, mod 2^32, is held, and beyond it, it is a forward gap. On one
 # count `now_us()` is RAW through the fit, and only the fit moves back:
 #   * a pair moves it to a lead in the window, LEAD_STAMP_TOLERANCE (1 ms) from a narrow
-#     bracket (wl_sync/rp1/backend.py:1648, :1673-1674; wl_sync/clockmap.py:395-397);
+#     bracket (wl_sync/rp1/backend.py:1652, :1677-1678; wl_sync/clockmap.py:395-397);
 #   * an R19 restart, to a lead within `reach` of the bracket, IDLE_MIN_US, 0.4 s
-#     (wl_sync/rp1/backend.py:1728; wl_sync/clockmap.py:321, :381-383);
+#     (wl_sync/rp1/backend.py:1732; wl_sync/clockmap.py:321, :381-383);
 #   * either, by up to half a narrow bracket more, 50 us, since the pair's RAW is its
 #     middle. Restarts come REACQUIRE_FRAMES frames apart, seconds, so a held step back
 #     is caught up before the next.

@@ -181,14 +181,14 @@ class SyncBoxLogHeader(BaseModel):
     default until bench day measures it. The box is given the value with `wl-sync
     record --barcode-delay-us N` (deploy/README.md), and writes it into every segment
     of the run. It is never negative, because the tick is read before the frame goes
-    out (wl_sync/rp1/backend.py:1519-1522, spec Sec.5): after the run loop writes the
+    out (wl_sync/rp1/backend.py:1523-1526, spec Sec.5): after the run loop writes the
     checkpoint, first thing in `emit_pulses`. The lead edge therefore rises after the
     tick, and this is how long after. The loopback sees that edge as an `E` record on
     an input wired to the barcode output, so the sum is where this box's own edge
     capture places the lead edge.
 
     EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
-    that frame, after its tick is read (wl_sync/rp1/backend.py:1519-1520, :1538-1543).
+    that frame, after its tick is read (wl_sync/rp1/backend.py:1523-1524, :1542-1547).
     Its lead edge then rises later by however long the request takes, which nothing
     measures. A process whose stamp machine started has normally taken the line already,
     for its start-up test (:822-829); one whose stamp machine did not start has not.
@@ -297,21 +297,21 @@ class CodeWord:
         that crystal really runs. Again the same count as `B` and `E`.
       * "split": the same raw counts, unscaled, so RP1's crystal's us, with no
         calibration (`apply_calibration` returns no scale in a split process,
-        wl_sync/rp1/backend.py:1854-1855). `B` and `E` count CLOCK_MONOTONIC us, so a `W`
+        wl_sync/rp1/backend.py:1858-1859). `B` and `E` count CLOCK_MONOTONIC us, so a `W`
         tick is NOT on their count: it drifts from them by the crystal's rate error
         times the time since capture began (`timebase`'s account).
       * "fake": whatever the test backend hands the recorder. Nothing real.
 
     WHERE IT IS ZERO. The PIO counter reads 0 when the capture machine is enabled, and
     that enable is the process's origin (wl_sync/service.py:127-128;
-    wl_sync/rp1/backend.py:1053-1054, :1063-1080). Under "rp1-pio-si" and "rp1-pio" the
+    wl_sync/rp1/backend.py:1057-1058, :1067-1084). Under "rp1-pio-si" and "rp1-pio" the
     stamp machine is enabled in the same call, so `W`, `B` and `E` share that zero. In a
     split process it is the capture machine alone, enabled at its start. Either way it is
     zero at the start of THIS PROCESS's capture, not of the segment: a roll does not
     reset it (`process_uuid`), and a restart begins a new clock.
 
     ITS LIMITS. The counter runs DOWN, and the word pump inverts it to count up
-    (wl_sync/rp1/pio_capture.py:57, :298), so the tick is exact in whole counts. The
+    (wl_sync/rp1/pio_capture.py:57, :301), so the tick is exact in whole counts. The
     wrap above is the counter's, and an unwrapped tick is exact only while the box
     clock is read often enough to follow it (wl_sync/service.py:118-121). Under
     "rp1-pio-si" the tick is an integer, rounded half up from `counts / r`, so it is off
@@ -319,7 +319,7 @@ class CodeWord:
     Under "rp1-pio" and "split" no rounding occurs, because the count is already whole.
     A tick is the counter as the program read it, 3 decrements after the `jmp pin` that
     saw the strobe (wl_sync/rp1/program.py:94), and the strobe is seen up to 1 us after it
-    rises (wl_sync/rp1/backend.py:964-965). One decrement is one tick, 1 us
+    rises (wl_sync/rp1/backend.py:968-969). One decrement is one tick, 1 us
     (wl_sync/rp1/backend.py:64-65), so a tick is later than the strobe's rise by 3 us
     plus up to 1 us: about 4 us at most, in counts, and nothing corrects that. A `W` tick
     is an ordering and alignment key, not the instant the task PC raised the line."""
@@ -344,8 +344,8 @@ class BarcodeEmitted:
     `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
     (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
     stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
-    ended (wl_sync/rp1/backend.py:1583, :1680). In a split process, and before the
-    build, it is the clock sampled BEFORE the frame is emitted (:1519-1522): reading it
+    ended (wl_sync/rp1/backend.py:1587, :1684). In a split process, and before the
+    build, it is the clock sampled BEFORE the frame is emitted (:1523-1526): reading it
     after emission would put this box's own alignment record 200 ms behind every device
     it is aligning.
 

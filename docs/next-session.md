@@ -112,7 +112,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 4** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:595-602`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:598-605`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
 (libwlsync_pio is version N, and this wl-sync needs 4: rebuild ...)` names the rebuild.
 *[2026-11-20: version 4, Task 1.20's fix round (Ruling R40): a level read that can fail
@@ -120,12 +120,20 @@ visibly, and the FIFO's depth from piolib.]*
 
 **The conditions the no-wrong-`W` proof rests on, which only silicon can confirm** *(added
 2026-11-20; Task 1.20's review, B-1 to B-5; Ruling R40)*. The word pump writes a code word only
-when the drain's own FIFO counts prove it whole (`wl_sync/rp1/pio_capture.py:170-335`). The
+when the drain's own FIFO counts prove it whole (`wl_sync/rp1/pio_capture.py:170-338`). The
 proof holds given these:
 - **B-1. The FIFO's depth and join.** The start-up check now measures it
-  (`deploy/README.md:307-317`): the start-up INFO `the RX FIFO holds 16 words,
+  (`deploy/README.md:307-320`): the start-up INFO `the RX FIFO holds 16 words,
   measured at start-up: the code-word pairing counts on 16` says it passed. Confirm by hand
   once too: stop draining SM 0, send at least 20 strobes, and read the level. It must read 16.
+  *Found (bench probe, wl-rig-sync0, 2026-11-20, at 3a58cbb, on the test machine): the
+  joined RX FIFO is 16 deep. The level field saturates at 15: it reads 0-14 exactly, then
+  15 for both 15 and 16 words, with `full` set only at 16, and pushes past 16 are dropped.
+  Popping one word from full reads 15 with `full` clear, and 16 pops reach 0 with `empty`
+  set. `empty` and `full` are 0/1. The FIFO-state ioctl returns 8, not 0, on success. So
+  15 with `full` is exactly 16, and the shim reads it so (`pio/wlsync_fifo_state.h`, fix
+  round 3); until then the start-up check read `[0, 2, ..., 14, 15, 15]` and the box
+  recorded split with no W. The by-hand check on SM 0 itself is still to do.*
 - **B-2. The level read is exact.** With a known strobe train and a deliberately slow drain,
   compare each batch's length and level-after with the words actually received.
 - **B-3. A failed level read.** Count the journal's `level could not be read (errno E)` lines
@@ -198,7 +206,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses to use a shim that is not version 4, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:595-602`, `wl_sync/rp1/backend.py:262`).
+   (`deploy/README.md:598-605`, `wl_sync/rp1/backend.py:262`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -216,23 +224,23 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
 7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
-   strobe (`wl_sync/rp1/backend.py:963-968`). The strobe is tested every 2 PIO cycles (1 µs), so
+   strobe (`wl_sync/rp1/backend.py:967-972`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
    the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
    1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
-   previous one (`wl_sync/rp1/backend.py:969-970`).
+   previous one (`wl_sync/rp1/backend.py:973-974`).
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
 (`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
-latched count, inverted (`wl_sync/rp1/pio_capture.py:298`) and handed on as it is (`:548`).
+latched count, inverted (`wl_sync/rp1/pio_capture.py:301`) and handed on as it is (`:551`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
-`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:1063-1079`),
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:1067-1083`),
 so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
@@ -323,7 +331,7 @@ left, so no further panel connector fits. One fix-up came with it:
   *[2026-11-20, Task 1.20, built on `one-clock-p1`, not merged: it no longer does. The word
   pump pairs the stream again and goes on. It writes only the pairs the drain's own counts
   prove are one strobe's two words, and drops and counts every other word, as a `desync`
-  L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:170-335`;
+  L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:170-338`;
   `deploy/README.md:274-294`).]*
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
