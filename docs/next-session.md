@@ -111,7 +111,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:527-534`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:528-535`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
 (libwlsync_pio is version N, and this wl-sync needs 3: rebuild ...)` names the rebuild.
 
@@ -152,7 +152,7 @@ so, which was checked on the box. *(Amended 2026-11-19, for the one-clock build.
 lead-edge offset it prints means depends on the segment's `timebase`. With shim v3 this run
 normally records one count, `"rp1-pio-si"` or `"rp1-pio"`, and there the offset is "E's
 constant (B6)", the edge input's own offset (`wl_sync/bench.py:91`): record it here as B6,
-and do not pass it as `--barcode-delay-us` (`deploy/README.md:27-37`). Only on a segment
+and do not pass it as `--barcode-delay-us` (`deploy/README.md:28-38`). Only on a segment
 whose header says `"split"` is it the software latency between the logged tick and the pin
 rising, the barcode delay the flag takes. Without such a segment, leave `barcode_delay_us`
 `null`.
@@ -174,7 +174,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses to use a shim that is not version 3, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:527-534`, `wl_sync/rp1/backend.py:254`).
+   (`deploy/README.md:528-535`, `wl_sync/rp1/backend.py:254`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and

@@ -151,7 +151,7 @@ def test_the_lead_edge_offset_is_reported_as_es_constant_with_its_spread(tmp_pat
 )
 def test_the_lead_edge_offset_is_labelled_by_the_segments_timebase(tmp_path, timebase, label):
     """Final review M9. On one count the median is E's constant: B is the lead edge's own
-    stamp, so there is no barcode delay. On split it is exactly what deploy/README.md:27-37
+    stamp, so there is no barcode delay. On split it is exactly what deploy/README.md:28-38
     tells the operator to pass as --barcode-delay-us, which the one-count label told them
     not to. Any other timebase, or none, is neither, and says where the flag's value
     comes from."""

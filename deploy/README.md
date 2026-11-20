@@ -6,6 +6,7 @@
 
 Edit `--out` in the unit to the rig's session root before enabling. Its last component
 becomes `rig` in every log header, so `/data/rig0` for a box called `wl-rig-sync0`.
+The folder names the rig box: rig0 is the first, and the next box writes `/data/rig1`.
 
 A new box needs its OS first: see [Setting up the OS](#setting-up-the-os-once-per-box).
 
@@ -21,7 +22,7 @@ verified at bring-up.
 On bench day, run the hardware mode by hand first, with the GPIO chip confirmed by
 label (`gpioinfo`):
 
-    wl-sync record --out /data/rig1 --gpiochip /dev/gpiochipN
+    wl-sync record --out /data/rig0 --gpiochip /dev/gpiochipN
 
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
@@ -40,12 +41,12 @@ measurement, leave the flag out, and a split process's headers say `null`, unmea
 
     systemctl status wl-sync          # is it running
     journalctl -u wl-sync -f          # what is it saying
-    ls /data/rig1/unassigned/$(date -u +%F)/syncbox/    # between visits (UTC date)
-    ls /data/rig1/*/syncbox/                         # one folder per visit
-    cat /data/rig1/unassigned/$(date -u +%F)/syncbox/manifest.json
+    ls /data/rig0/unassigned/$(date -u +%F)/syncbox/    # between visits (UTC date)
+    ls /data/rig0/*/syncbox/                         # one folder per visit
+    cat /data/rig0/unassigned/$(date -u +%F)/syncbox/manifest.json
 
-Segments land in `/data/rig1/unassigned/<date>/syncbox/` while no animal is in the rig,
-and in `/data/rig1/<id>/syncbox/` during a visit, where `<id>` is the session id the
+Segments land in `/data/rig0/unassigned/<date>/syncbox/` while no animal is in the rig,
+and in `/data/rig0/<id>/syncbox/` during a visit, where `<id>` is the session id the
 task PC was given (for example `2026-10-18_01`). Each folder has its own manifest.
 
 The manifest is the thing to read. `gaps` lists spans where this box was **not
@@ -590,9 +591,10 @@ tick by one rate, fixed for the process. Taken from a usable rate file, it makes
 SI µs, and the header says `"rp1-pio-si"`; with none it is 1, the ticks count RP1's
 crystal, and the header says `"rp1-pio"` (`wl_sync/log.py:206-216`). Each process looks
 for the file at start, as `.wl-sync-pio-rate` in its `--out` directory: under this
-repository's unit that is `/data/rig1/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
-`wl_sync/cli.py:516-549`). The unit installed on wl-rig-sync0 writes `/data/rig0` instead,
-as read on the box on 2026-11-07, so that box's file is `/data/rig0/.wl-sync-pio-rate`.
+repository's unit that is `/data/rig0/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
+`wl_sync/cli.py:516-549`), which is also what the unit installed on wl-rig-sync0 writes
+(read on the box on 2026-11-07). The next rig box writes `/data/rig1`, so its file is
+`/data/rig1/.wl-sync-pio-rate`.
 The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
 reaches an hour, and every hour after (`wl_sync/cli.py:1714-1738`). A file is used only on
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal

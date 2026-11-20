@@ -84,7 +84,7 @@ class LoopbackReport:
         B is the lead edge's own stamp, so the offset is the edge input's, E's constant
         (B6), and no barcode delay (wl_sync/log.py:170-176). On split B is a software
         tick read before the frame goes out, and the median is the barcode delay that
-        deploy/README.md:27-37 has the operator pass as --barcode-delay-us
+        deploy/README.md:28-38 has the operator pass as --barcode-delay-us
         (wl_sync/log.py:177-184). Any other timebase, or none, is not a split
         process's, so it is named and the flag's value pointed at a split segment."""
         if self.timebase in ONE_COUNT_TIMEBASES:

@@ -274,6 +274,51 @@ class Edge:
 
 @dataclass(frozen=True, slots=True)
 class CodeWord:
+    """A code word the task PC strobed, with the tick of its strobe.
+
+    `tick_us` is UNWRAPPED, like `Edge`'s and `BarcodeEmitted`'s: the raw 32-bit
+    counter, which wraps every 2^32 us (71.6 min, `TICK_WRAP_US`), is placed by the
+    box's one clock at the value nearest its `now()`, so a tick runs past 2^32 across a
+    wrap and never repeats (wl_sync/service.py:176-182, :315).
+
+    WHAT A TICK COUNTS DEPENDS ON THE SEGMENT'S `timebase`, and the header says which:
+
+      * "rp1-pio-si": the PIO counter's counts, scaled to SI us by the box's measured
+        rate, which is fixed for the process: `round(counts / r)`, with r the PIO counts
+        per SI us (wl_sync/clockmap.py:407-425). It is on the same count as `B` and `E`,
+        so a `W` tick compares with their ticks by number.
+      * "rp1-pio": the same counts at r = 1, unscaled, because no calibration was usable
+        at start (`IDENTITY`, wl_sync/clockmap.py:428). They are RP1's crystal's
+        counts, nominally 1 per us (wl_sync/rp1/backend.py:64-65), at whatever rate
+        that crystal really runs. Again the same count as `B` and `E`.
+      * "split": the same raw counts, unscaled, so RP1's crystal's us, with no
+        calibration (`apply_calibration` returns no scale in a split process,
+        wl_sync/rp1/backend.py:1720-1721). `B` and `E` count CLOCK_MONOTONIC us, so a `W`
+        tick is NOT on their count: it drifts from them by the crystal's rate error
+        times the time since capture began (`timebase`'s account).
+      * "fake": whatever the test backend hands the recorder. Nothing real.
+
+    WHERE IT IS ZERO. The PIO counter reads 0 when the capture machine is enabled, and
+    that enable is the process's origin (wl_sync/service.py:127-128;
+    wl_sync/rp1/backend.py:946-947, :956-973). Under "rp1-pio-si" and "rp1-pio" the
+    stamp machine is enabled in the same call, so `W`, `B` and `E` share that zero. In a
+    split process it is the capture machine alone, enabled at its start. Either way it is
+    zero at the start of THIS PROCESS's capture, not of the segment: a roll does not
+    reset it (`process_uuid`), and a restart begins a new clock.
+
+    ITS LIMITS. The counter runs DOWN, and `pair_fifo` inverts it to count up
+    (wl_sync/rp1/pio_capture.py:55, :81), so the tick is exact in whole counts. The
+    wrap above is the counter's, and an unwrapped tick is exact only while the box
+    clock is read often enough to follow it (wl_sync/service.py:118-121). Under
+    "rp1-pio-si" the tick is an integer, rounded half up from `counts / r`, so it is off
+    by at most half a us from the scaled count: the same rounding `B` and `E` get.
+    Under "rp1-pio" and "split" no rounding occurs, because the count is already whole.
+    A tick is the counter as the program read it, 3 decrements after the `jmp pin` that
+    saw the strobe (wl_sync/rp1/program.py:93), and the strobe is seen up to 1 us after it
+    rises (wl_sync/rp1/backend.py:857-858). So a tick is later than the strobe's rise by
+    a few us, and nothing corrects that: a `W` tick is an ordering and alignment key,
+    not the instant the task PC raised the line."""
+
     tick_us: int
     word: int
 

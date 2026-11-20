@@ -444,7 +444,7 @@ added `"barcode_loop": 19`; the build does not, because nothing is wired to GPIO
    treat +1 or +2 across a roll in place as adjacent.
    - On one count, a frame whose lead edge was not stamped has no `B` record. Every device
      recorded the frame, and its value was spent. No `L` record marks it: an `L` record's path
-     is `W` or `E`. The box's journal ERROR is the only witness (`wl_sync/log.py:302-307`).
+     is `W` or `E`. The box's journal ERROR is the only witness (`wl_sync/log.py:347-352`).
    - The box protects the frame before the roll: the roll in place waits for a frame whose `B`
      was kept. It cannot protect the frames after it. So one `B` dropped just after a roll
      whose grid skipped one value makes the step 3, and each further drop widens it by one
