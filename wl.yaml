@@ -96,7 +96,7 @@ status:
     it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
     1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
     wl_sync/rp1/harness.py), is built on the one-clock-p1 branch, reviewed,
-    and its two fix rounds made (1292 tests); not merged or run on the box. B3b's
+    and its fix rounds made (1300 tests); not merged. Its box run began 2026-11-20: step 1 found /dev/gpiomem0 must be mapped whole (0x30000), now fixed. B3b's
     short highs come from a register writer that sets and clears one spare
     pin's GPIOn_CTRL.OUTOVER through /dev/gpiomem0, confined to the harness;
     bench override reads that override after a run and clears one left set,
@@ -123,7 +123,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "2b2a0a7"
+  describes: "d167b06"
 
 runs_on: [rig/sync]
 builds_on: [dws]
