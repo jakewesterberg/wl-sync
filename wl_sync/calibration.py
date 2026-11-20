@@ -86,16 +86,43 @@ def probe_kernel_ntp() -> KernelNtp | None:
         return None
 
 
+# What holds the gate, by name, for the journal (`gate_holds`; final review M4), in the
+# order si_gate tests them. A kernel that cannot be read has none of the last three.
+HELD_NTP_UNKNOWN = "NTP's state unknown"
+HELD_NTP_UNSYNCED = "NTP not synchronised"
+HELD_KERNEL_UNREAD = "the kernel's NTP state unreadable"
+HELD_STA_UNSYNC = "STA_UNSYNC set"
+HELD_NO_PLL = "no STA_PLL"
+HELD_OFFSET = f"the kernel's offset over {KERNEL_OFFSET_MAX_NS / 1e6:g} ms"
+
+
+def gate_holds(ntp_known: bool | None, kernel: KernelNtp | None) -> tuple[str, ...]:
+    """Every condition, of NTP's state and the kernel's, that closes the gate, in
+    si_gate's order: empty when only the bracket is left to judge. Named so a gate that
+    never opens can say why (wl_sync/cli.py `_RateKeeper`)."""
+    held = []
+    if ntp_known is None:
+        held.append(HELD_NTP_UNKNOWN)
+    elif ntp_known is not True:
+        held.append(HELD_NTP_UNSYNCED)
+    if kernel is None:
+        held.append(HELD_KERNEL_UNREAD)
+    else:
+        if kernel.unsynchronized:
+            held.append(HELD_STA_UNSYNC)
+        if not kernel.pll:
+            held.append(HELD_NO_PLL)
+        if abs(kernel.offset_ns) > KERNEL_OFFSET_MAX_NS:
+            held.append(HELD_OFFSET)
+    return tuple(held)
+
+
 def si_gate(ntp_known: bool | None, kernel: KernelNtp | None, pair: ClockPair) -> bool:
     """True only when MONO is known to be NTP-disciplined at this pair: NTP synced, a
     kernel read that is synchronized with its PLL on and a small offset, and a narrow
-    bracket. Unknown is not good: None for either input closes the gate."""
-    return (ntp_known is True
-            and kernel is not None
-            and not kernel.unsynchronized
-            and kernel.pll
-            and abs(kernel.offset_ns) <= KERNEL_OFFSET_MAX_NS
-            and pair.narrow)
+    bracket. Unknown is not good: None for either input closes the gate. Its conditions
+    are those of `gate_holds`, so the journal names exactly what closed it."""
+    return pair.narrow and not gate_holds(ntp_known, kernel)
 
 
 @dataclass(frozen=True)
@@ -202,7 +229,7 @@ RATE_FILE_NAME = ".wl-sync-pio-rate"
 # reference, lands outside it (spec Sec.2.2).
 RATE_BOUND_PPB = 200_000
 # The same kind of bound on the P/RAW ratio, which seeds the RAW->P fit
-# (wl_sync/rp1/backend.py:1716), so a wrong one maps every E wrongly (final review M3).
+# (wl_sync/rp1/backend.py:1726), so a wrong one maps every E wrongly (final review M3).
 # P/RAW is P/MONO, the rate, times MONO/RAW, and MONO differs from RAW only by NTP's slew,
 # at most 500 ppm (wl_sync/clockmap.py:85). A file whose rate is within RATE_BOUND_PPB
 # therefore has a ratio within about 700 ppm; 1000 ppm leaves margin, and refuses a ratio

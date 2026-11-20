@@ -741,7 +741,12 @@ class EdgePump:
     on one line can put the second before the first, so the second is delivered at the
     first one's tick, and an L record written just before it takes that tick too
     (wl_sync/log.py:440-441). Only for edges stamped within _GUARD_REACH_NS of each other,
-    which says why (Ruling R30).
+    which says why (Ruling R30). Each such edge is counted, `order_clamped`, and the
+    furthest one was moved, `order_clamp_max_us`, for the run's summary (final review M2;
+    the user, 2026-11-20, "Count, summary only"). Silent, a clamp hid how far the map had
+    moved back: every edge on a line within the move is written at one tick, up to 0.4 s
+    of camera frames after an R19 restart. Counted, not journalled one by one, for that
+    same reason.
 
     AN EDGE THE TIMEBASE CANNOT PLACE IS LEFT OUT, and capture goes on: it is counted as
     unplaced (DroppedEdgeError) for check_health(), and a loss found at it is left to the
@@ -789,6 +794,8 @@ class EdgePump:
         self.delivered_through: int | None = None
         self.stamp_lag_max_us: int | None = None
         self.stamp_lag_over = 0
+        self.order_clamped = 0
+        self.order_clamp_max_us = 0
 
     def pump_once(self, request, now_us: Callable[[], int]) -> bool:
         """One wait for edges, and one read if it found any. Returns False when the pump
@@ -938,8 +945,11 @@ class EdgePump:
         last = self._last_on_line.get(gpio)
         if last is not None:
             last_stamp, last_tick = last
-            if abs(stamp - last_stamp) < _GUARD_REACH_NS and _since(tick, last_tick) < 0:
+            ahead = _since(tick, last_tick)
+            if abs(stamp - last_stamp) < _GUARD_REACH_NS and ahead < 0:
                 tick = last_tick
+                self.order_clamped += 1
+                self.order_clamp_max_us = max(self.order_clamp_max_us, -ahead)
         self._last_on_line[gpio] = (stamp, tick)
         return tick
 

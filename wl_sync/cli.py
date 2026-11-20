@@ -13,6 +13,7 @@ what makes the stitching automatic.
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import datetime
 import logging
@@ -41,6 +42,7 @@ from wl_sync.calibration import (
     KernelNtp,
     RateEstimate,
     RateEstimator,
+    gate_holds,
     probe_board_serial,
     probe_kernel_ntp,
     read_calibration,
@@ -509,7 +511,7 @@ def run(
     # header, which names the timebase the backend takes from it, and before capture
     # starts, so no tick is placed at another rate; neither a roll nor the keeper's own
     # writes change it. A backend with no PIO count to scale returns None, as FakeBackend
-    # does (wl_sync/backend.py:252-253): its ticks are as they were, and nothing is
+    # does (wl_sync/backend.py:269-270): its ticks are as they were, and nothing is
     # measured or journalled for it.
     rate_path = out / RATE_FILE_NAME
     serial = probe_board_serial()
@@ -603,6 +605,7 @@ def run(
     generator = BarcodeGenerator(backend, BARCODE_PIN)
     health = _HealthReport(backend, recorder)
     drops = _DroppedBarcodes()
+    stamps_between = _StampsBetweenFrames()
 
     # The last value that went onto the wire, whether or not its B was kept, and what the
     # checkpoint is at the end (spec Sec.2.5, "Two rules"). The segments cannot say: a
@@ -853,8 +856,8 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:1440-1534); under --fake, the fake's clock
-            # as the frame starts (wl_sync/backend.py:238-243). The loop used to read the
+            # has ended (wl_sync/rp1/backend.py:1449-1544); under --fake, the fake's clock
+            # as the frame starts (wl_sync/backend.py:255-260). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
             #
@@ -864,21 +867,7 @@ def run(
             stamp = generator.emit_frame(value)
             last_emitted = value
             frame_end = mono_fn()
-            if stamp.between:
-                # Stamps before the frame's lead, or before its window when its rises
-                # align on no lead (wl_sync/clockmap.py:296-298). A drain that gave up on
-                # the frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-                # (wl_sync/rp1/backend.py:1487-1494). A fit that has drifted leaves them
-                # too, the frame's own when its rises align on none. And GPIO17 is this
-                # process's own output (wl_sync/rp1/backend.py:432-433), so anything else
-                # is a fault on the line.
-                log.warning(
-                    "%d stamps on GPIO17 between frames, before barcode %d, discarded: "
-                    "late stamps of the frame before, a fit that has drifted, or something "
-                    "else driving the barcode line",
-                    stamp.between,
-                    value,
-                )
+            stamps_between.frame(value, stamp.between)
             # THE BOX CLOCK IS READ EVERY FRAME, kept or dropped. It counts a wrap of the
             # 32-bit counter only if it is read at least once per 2^32 us less 1 s
             # (wl_sync/service.py:118-120), and on a quiet rig record_barcode was what read
@@ -907,7 +896,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:497-499, :1532-1533), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:497-499, :1542-1543), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
@@ -1089,6 +1078,7 @@ def run(
         # the final FIFO drain -- would otherwise never be reported.
         health()
         health.summary()
+        stamps_between.close()
         drops.close()
         sink.close(now_fn())
         # NEVER REWIND: the last value emitted, not the last B written (see
@@ -1238,6 +1228,12 @@ class _HealthReport:
     Edges going over are a WARNING, once per episode: an episode lasts while each check
     finds more of them. `summary()` gives the largest bound of the run, so a quiet run
     says the assumption held.
+
+    AND THE ORDER GUARD'S CLAMPS (`backend.order_clamps()`; final review M2), in the
+    summary alone (the user, 2026-11-20, "Count, summary only"). A backward move of the
+    edge map clamps every edge on a line within it (rp1.gpio, EdgePump), so a line for
+    each, or a WARNING an episode as the witness has, would say one thing many times. The
+    summary gives how many, and how far the furthest was moved, beside the witness's.
     """
 
     def __init__(self, backend, recorder: Recorder) -> None:
@@ -1293,7 +1289,8 @@ class _HealthReport:
         self._lag_over = over
 
     def summary(self) -> None:
-        """The run's largest edge witness, if the backend has one, for the journal."""
+        """The run's largest edge witness, and its order guard's clamps, if the backend
+        has them, for the journal."""
         lag = self._backend.stamp_lag()
         if lag is not None:
             log.info(
@@ -1303,13 +1300,21 @@ class _HealthReport:
                 lag.allowance_us,
                 lag.over,
             )
+        clamps = self._backend.order_clamps()
+        if clamps is not None:
+            log.info(
+                "edges written at their line's last tick, to keep each line in tick "
+                "order, this run: %d, the furthest %d us behind it",
+                clamps.clamped,
+                clamps.max_us,
+            )
 
 
 # What an episode's closing ERROR advises for each kind of cause it held, verbatim from
 # the plan's Task 1.7 (docs/superpowers/plans/2026-11-07-one-clock.md:990-999): spec
 # Sec.2.5 sent every episode to a GPIO17->GPIO19 loopback, and under c-direct the stamp
 # machine reads GPIO17 itself, with nothing wired. The causes are the backend's
-# (wl_sync/backend.py:98-117).
+# (wl_sync/backend.py:110-129).
 _DROP_ADVICE = {
     STAMP_NOT_SEEN: (
         "no stamp came for their lead edges; with the service stopped, python -m "
@@ -1323,7 +1328,7 @@ _DROP_ADVICE = {
         "block's state machines"
     ),
     # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
-    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1313-1317, :1329-1333).
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1322-1326, :1338-1342).
     STAMPS_STOPPED: (
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"
@@ -1417,6 +1422,84 @@ class _DroppedBarcodes:
         self._first = None
 
 
+class _StampsBetweenFrames:
+    """The journal of the stamps on GPIO17 that a frame found between frames and the
+    backend discarded (`FrameStamp.between`; spec §2.5 step 4).
+
+    WHERE THEY COME FROM. Stamps before the frame's lead, or before its window when its
+    rises align on no lead (wl_sync/clockmap.py:296-298). A drain that gave up on the
+    frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
+    (wl_sync/rp1/backend.py:1496-1503). A fit that has drifted leaves them too, the
+    frame's own when its rises align on none. And GPIO17 is this process's own output
+    (wl_sync/rp1/backend.py:432-433), so anything else is a fault on the line. The frame's
+    `B` is not touched here: a frame with stamps between can keep it.
+
+    EDGE-TRIGGERED (the user, 2026-11-20, "Edge-trigger it"). Task 1.7 gave a WARNING for
+    every frame that had any, and a cause that lasts, such as a drain that gives up on
+    every frame, is one a frame, 86,400 a day. An episode is a run of consecutive frames
+    with stamps between. Its first frame is one WARNING, in Task 1.7's text, and its end
+    one more, at the first frame with none or at `close()`, with the frames and the
+    stamps it held. One frame alone, as the RP1 backend's carried misread is
+    (wl_sync/rp1/backend.py:1504-1512), is an episode of one: two lines, not a flood.
+
+    BOTH LINES ARE WARNINGS, as Task 1.15's extrapolation episode's are
+    (wl_sync/rp1/backend.py:1628-1630): the journal filtered at WARNING (`journalctl -p
+    warning`) then shows the end of every start it shows. At INFO its end would be
+    filtered out, and a reader would think the episode ran on. `close()` also gives the
+    run's totals, at INFO, as `_DroppedBarcodes` does.
+    """
+
+    def __init__(self) -> None:
+        self._stamps = 0  # this run's, in every episode
+        self._frames = 0
+        # The open episode: its first value (None when there is none), its last, how many
+        # frames it has held, and their stamps.
+        self._first: int | None = None
+        self._last = 0
+        self._count = 0
+        self._held = 0
+
+    def frame(self, value: int, between: int) -> None:
+        """The frame `value` just driven, and the stamps it found between frames."""
+        if not between:
+            if self._first is not None:
+                log.warning(
+                    "stamps on GPIO17 between frames ended before barcode %d: %d stamp(s) "
+                    "discarded, before %d frame(s) in a row, barcodes %d to %d",
+                    value, self._held, self._count, self._first, self._last,
+                )
+                self._first = None
+            return
+        self._stamps += between
+        self._frames += 1
+        if self._first is None:
+            log.warning(
+                "%d stamps on GPIO17 between frames, before barcode %d, discarded: "
+                "late stamps of the frame before, a fit that has drifted, or something "
+                "else driving the barcode line",
+                between,
+                value,
+            )
+            self._first, self._count, self._held = value, 0, 0
+        self._last = value
+        self._count += 1
+        self._held += between
+
+    def close(self) -> None:
+        if self._first is not None:
+            log.warning(
+                "capture stopped with stamps on GPIO17 between frames still coming: %d "
+                "stamp(s) discarded, before %d frame(s) in a row, barcodes %d to %d",
+                self._held, self._count, self._first, self._last,
+            )
+            self._first = None
+        log.info(
+            "stamps on GPIO17 between frames: %d discarded this run, before %d frame(s)",
+            self._stamps,
+            self._frames,
+        )
+
+
 # Spec §2.2, "Persisting it": the file is "first written once the baseline reaches 1 h,
 # then rewritten every hour" (docs/superpowers/specs/2026-10-30-one-clock-design.md:295).
 CALIBRATION_WRITE_EVERY_S = 3600.0
@@ -1438,8 +1521,8 @@ class _RateKeeper:
     keeps it (wl_sync/service.py:279-281). What is measured here is for the next start,
     and for two witnesses in the journal.
 
-    THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),
-    restarted by a REALTIME step (:170-176). The file is first written when it reaches an
+    THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-125),
+    restarted by a REALTIME step (:197-203). The file is first written when it reaches an
     hour, and again each time it has grown an hour past the last attempt.
 
     A RESTARTED BASELINE IS NOT WRITTEN UNTIL IT IS AN HOUR LONGER THAN THE ONE LAST
@@ -1450,7 +1533,7 @@ class _RateKeeper:
     an hour longer than the failed one, though the file holds nothing that long.
 
     NOTHING IS WRITTEN WITHOUT THE BOARD'S SERIAL. A file is applied only on the board it
-    names (wl_sync/calibration.py:248-252), so one written without it could never be used.
+    names (wl_sync/calibration.py:275-279), so one written without it could never be used.
 
     A WRITE THAT FAILS IS AN ERROR ONCE PER EPISODE, AND THE BOX RECORDS ON: the file is
     for the next start, and a full disk or a read-only root must not stop this one. Once
@@ -1461,6 +1544,19 @@ class _RateKeeper:
     THE WITNESSES WARN ONCE EACH, per process. What either finds belongs to the
     calibration or the crystal, which nothing in this process changes, and the process
     keeps its rate whatever they say.
+
+    A GATE THAT NEVER OPENS IS ONE WARNING, per process (final review M4; the user,
+    2026-11-20, "One WARNING per process"). With no pair gated, `si()` stays None, the
+    file is never written, and every start repeats "no calibration file" while the
+    README tells the operator to wait: the expected cause is a timesyncd that never sets
+    STA_PLL, unverified until bench B7 (deploy/README.md, "Before first boot"). So once
+    narrow pairs have spanned CALIBRATION_WRITE_EVERY_S on MONO, the hour the first
+    write waits for, with none gated, the WARNING names every condition that held a pair
+    (`calibration.gate_holds`), each with its count, the most frequent first. All of
+    them, not the most frequent alone: NTP's first sync can hold the first minutes and
+    the PLL the rest, and the line must name both. One gated pair, at any time before,
+    means the gate opens, and the WARNING never comes; after it, a gate held again is
+    the baseline's matter, not this line's.
     """
 
     def __init__(
@@ -1477,6 +1573,12 @@ class _RateKeeper:
         self._write_failing = False
         self._raw_ratio_warned = False
         self._rate_warned = False
+        # The gate's watch: the first narrow pair's MONO, how many narrow pairs, how many
+        # each condition held, and whether any pair has been gated or the WARNING given.
+        self._narrow_from_ns: int | None = None
+        self._narrow = 0
+        self._held: collections.Counter[str] = collections.Counter()
+        self._gate_opened = False
 
     def frame(
         self,
@@ -1488,13 +1590,46 @@ class _RateKeeper:
         if not pairs:
             return  # nothing moved: no estimate, witness or schedule can have changed
         for pair in pairs:
-            self._estimator.add(pair, si_gate(ntp_known, kernel, pair))
+            gated = si_gate(ntp_known, kernel, pair)
+            self._estimator.add(pair, gated)
+            self._watch_gate(pair, gated, ntp_known, kernel)
         self._witness_raw_ratio()
         estimate = self._estimator.si()
         if estimate is None:
             return
         self._witness_rate(estimate)
         self._keep(estimate)
+
+    def _watch_gate(
+        self,
+        pair: ClockPair,
+        gated: bool,
+        ntp_known: bool | None,
+        kernel: KernelNtp | None,
+    ) -> None:
+        if self._gate_opened or not pair.narrow:
+            return  # opened, or warned (which sets it too); a wide pair is not a pair
+        if gated:
+            self._gate_opened = True
+            return
+        if self._narrow_from_ns is None:
+            self._narrow_from_ns = pair.mono_ns
+        self._narrow += 1
+        self._held.update(gate_holds(ntp_known, kernel))
+        span_s = (pair.mono_ns - self._narrow_from_ns) / 1e9
+        if span_s < CALIBRATION_WRITE_EVERY_S:
+            return
+        self._gate_opened = True  # never again in this process
+        # most_common keeps first-seen order among equal counts, which is gate order
+        # for conditions first seen at one pair (calibration.gate_holds).
+        log.warning(
+            "no clock pair has passed the PIO rate gate in %.0f s of narrow pairs, %d of "
+            "them, held by %s: this process measures no PIO rate and writes no "
+            'calibration for the next start (deploy/README.md, "The PIO rate file")',
+            span_s,
+            self._narrow,
+            ", ".join(f"{held} ({n} of them)" for held, n in self._held.most_common()),
+        )
 
     def _witness_raw_ratio(self) -> None:
         if self._applied is None or self._raw_ratio_warned:

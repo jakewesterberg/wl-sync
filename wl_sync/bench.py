@@ -171,7 +171,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1509-1517),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1519-1527),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -312,7 +312,7 @@ def _terminate(signum: int, frame) -> None:
 
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
-    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1599-1604): building
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1734-1739): building
     # it needs the shim and a GPIO chip, which `loopback` never touches.
     from wl_sync.rp1.backend import Rp1Backend
 
@@ -339,7 +339,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         backend.close()
         return 1
     if backend.stamp_test_failure:
-        # The process is split (wl_sync/rp1/backend.py:1376-1379): each frame's B is the
+        # The process is split (wl_sync/rp1/backend.py:1385-1388): each frame's B is the
         # clock read before it, and nothing is stamped or matched. Were it run, every frame
         # would count as stamped (`stamp_run`), and it would pass on stamps never seen.
         print(f"start-up test failed ({backend.stamp_test_failure}): this process records "
@@ -372,7 +372,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         print(f"  stopped by SIGTERM after {report.frames} of {frames} frames")
     try:
         # What capture held at the end, which run() also asks for after close()
-        # (wl_sync/cli.py:1088-1090): a full stamp FIFO would explain short frames.
+        # (wl_sync/cli.py:1077-1079): a full stamp FIFO would explain short frames.
         backend.check_health()
     except CaptureDegraded as degraded:
         print(f"  capture degraded: {degraded}")

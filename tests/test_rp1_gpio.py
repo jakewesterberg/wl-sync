@@ -1807,6 +1807,30 @@ def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     assert seen == [(20, 500), (20, 500), (21, 497), (20, 500)]
 
 
+def test_the_order_guard_counts_the_edges_it_clamps_and_the_furthest():
+    """Final review M2 (the user, 2026-11-20, "Count, summary only"). The guard used to
+    clamp silently: after a backward move of the map every edge on a line within it is
+    written at one tick, up to 0.4 s of camera frames after an R19 restart. The same moves
+    as above: the edge mapped to 497 is clamped 3 counts, the one mapped to 498 2, and
+    GPIO21's 497, the first of its line, is not clamped. So 2 clamps, the furthest 3, as
+    `stamp_lag_over` and `stamp_lag_max_us` count the witness."""
+    timebase = _Timebase()
+    pump = EdgePump(lambda *_: None, timebase=timebase)
+    assert (pump.order_clamped, pump.order_clamp_max_us) == (0, 0)
+    timebase.offset = 500 - 40_000
+    pump.handle([_ev(1, 20, 1, True, 40_000)], read_at=45_000)
+    assert (pump.order_clamped, pump.order_clamp_max_us) == (0, 0)
+    timebase.offset = 497 - 40_010
+    pump.handle([_ev(2, 20, 2, False, 40_010), _ev(3, 21, 1, True, 40_010)], read_at=45_100)
+    assert (pump.order_clamped, pump.order_clamp_max_us) == (1, 3)
+    timebase.offset = 498 - 40_020
+    pump.handle([_ev(4, 20, 3, True, 40_020)], read_at=45_200)
+    assert (pump.order_clamped, pump.order_clamp_max_us) == (2, 3)
+    timebase.offset = 600 - 40_030  # forward again: in order, nothing clamped
+    pump.handle([_ev(5, 20, 4, False, 40_030)], read_at=45_300)
+    assert (pump.order_clamped, pump.order_clamp_max_us) == (2, 3)
+
+
 def test_a_loss_windows_span_comes_from_the_timebase():
     """The window's start is a distance back from `after` (CaptureLoss), which on one count
     is P counts at the fit's ratio, not MONO us (wl_sync/clockmap.py:269-273)."""
@@ -1883,8 +1907,8 @@ def test_the_witness_skips_an_edge_whose_tick_lies_after_the_read():
     an R19 restart between `read_at` and the witness's own map. An edge mapped after the
     read that returned it bounds no lag, so it is skipped. Taken mod 2^32, as it was, its
     bound was about 2^32 (the review saw 4294966596): the run loop's WARNING fired
-    (wl_sync/cli.py:1278-1289) and the summary's maximum was spoiled
-    (wl_sync/cli.py:1295-1305)."""
+    (wl_sync/cli.py:1274-1285) and the summary's maximum was spoiled
+    (wl_sync/cli.py:1291-1302)."""
     request = _Request([[_edge(1, 40_000), _edge(2, 49_000)], [_edge(3, 49_500)]])
     pump = EdgePump(lambda *_: None, timebase=_Timebase(lambda ns: ns // 1_000 + 2_000))
     pump.pump_once(request, request.now_us)  # read at 50 000: ticks 42 000 and 51 000
@@ -1942,6 +1966,8 @@ def test_the_order_guard_reaches_a_quarter_wrap_of_stamps_and_no_further():
         timebase.offset = 497 - (40_000 + gap_us)  # mapped 3 counts behind the first
         pump.handle([_edge(2, 40_000 + gap_us)], read_at=45_100)
         assert seen == [500, expected], gap_us
+        # Coverage: only a clamp is counted; beyond the guard's reach nothing is.
+        assert pump.order_clamped == (1 if expected == 500 else 0), gap_us
 
 
 class _PumpedThrough(_Pumped):

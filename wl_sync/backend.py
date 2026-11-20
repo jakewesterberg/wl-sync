@@ -95,20 +95,32 @@ class StampLag:
     allowance_us: int
 
 
+@dataclass(frozen=True)
+class OrderClamps:
+    """The edge path's order guard this run: how many edges it wrote at their line's last
+    tick, because the map placed them behind it, and the furthest behind one was, in
+    ticks (final review M2). Both only ever grow. A clamped edge is in the segment, at a
+    tick up to `max_us` later than the map gave it.
+    """
+
+    clamped: int
+    max_us: int
+
+
 # Why a frame's `B` is dropped: each completes the journal's "barcode %d dropped: <cause>"
 # (spec §2.5, docs/superpowers/specs/2026-10-30-one-clock-design.md:407-415). ALL HERE,
 # beside the protocol, because the run loop gives each kind its own advice when an
-# episode of drops ends (wl_sync/cli.py:1313-1349), and imports the RP1 backend only to
-# build it (wl_sync/cli.py:1599-1604).
+# episode of drops ends (wl_sync/cli.py:1318-1354), and imports the RP1 backend only to
+# build it (wl_sync/cli.py:1734-1739).
 #
 # No stamp at all up to the frame's end.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
 # The start of the cause for a lead the frame's rises align on, outside the lead edge's
-# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1510-1515),
+# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1520-1525),
 # which differs frame to frame, so the run loop tells the kind by this.
 STAMP_TOO_FAR_PREFIX = "the stamp lies "
 # No frame can be matched, because the stamp machine never started (Ruling R15; a guard
-# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1472-1483).
+# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1481-1492).
 STAMPS_NOT_STARTED = "the stamp machine did not start"
 STAMPS_STOPPED = "the stamp drain stopped"
 # The frame's stamps align on no lead: too few of them lie on the frame's own rises
@@ -202,6 +214,11 @@ class SyncBackend(Protocol):
         """How late edges have reached this process after the kernel stamped them, as an
         upper bound (`StampLag`), for the health report. None for a backend with no such
         delay, or before the first edge."""
+
+    def order_clamps(self) -> OrderClamps | None:
+        """How many edges the edge path's order guard clamped this run, and the furthest
+        (`OrderClamps`), for the run's summary. None for a backend with no such guard, or
+        before edge capture starts."""
 
     def check_health(self) -> None:
         """Raise if anything capturing in the background has failed.
@@ -315,6 +332,9 @@ class FakeBackend:
 
     def stamp_lag(self) -> StampLag | None:
         return None  # no kernel between an injected edge and its delivery
+
+    def order_clamps(self) -> OrderClamps | None:
+        return None  # an injected edge is delivered at the tick it is given
 
     def check_health(self) -> None:
         pass  # dispatch is synchronous, so nothing runs in the background to fail

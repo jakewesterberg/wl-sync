@@ -72,9 +72,9 @@ class BarcodeGenerator:
 # reading behind the last, mod 2^32, is held, and beyond it, it is a forward gap. On one
 # count `now_us()` is RAW through the fit, and only the fit moves back:
 #   * a pair moves it to a lead in the window, LEAD_STAMP_TOLERANCE (1 ms) from a narrow
-#     bracket (wl_sync/rp1/backend.py:1504, :1529-1530; wl_sync/clockmap.py:395-397);
+#     bracket (wl_sync/rp1/backend.py:1514, :1539-1540; wl_sync/clockmap.py:395-397);
 #   * an R19 restart, to a lead within `reach` of the bracket, IDLE_MIN_US, 0.4 s
-#     (wl_sync/rp1/backend.py:1584; wl_sync/clockmap.py:321, :381-383);
+#     (wl_sync/rp1/backend.py:1594; wl_sync/clockmap.py:321, :381-383);
 #   * either, by up to half a narrow bracket more, 50 us, since the pair's RAW is its
 #     middle. Restarts come REACQUIRE_FRAMES frames apart, seconds, so a held step back
 #     is caught up before the next.
@@ -117,7 +117,7 @@ class _BoxClock:
 
     PRECONDITIONS. (1) `now()` is read at least once per 2^32 us less STEP_BACK_MAX_US,
     71.6 min less 1 s, or a wrap goes uncounted (a longer gap reads as a step back). Records
-    read it, and the run loop reads it every frame (wl_sync/cli.py:887).
+    read it, and the run loop reads it every frame (wl_sync/cli.py:876).
     (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
@@ -230,7 +230,7 @@ class Recorder:
     sink for one reason -- an un-unwrapped `B` tick is on a DIFFERENT TIMEBASE from the
     `E` and `W` ticks it exists to align, and diverges from them by k*2^32 us after the
     first wrap, i.e. after 71.6 minutes of a day-long run. Every path reads that clock, and
-    the run loop reads it every frame, its B kept or dropped (wl_sync/cli.py:887), so a
+    the run loop reads it every frame, its B kept or dropped (wl_sync/cli.py:876), so a
     word or edge path that goes silent for hours still lands on the barcodes' timebase.
 
     `sink` takes each record as it arrives. The default accumulates in memory and

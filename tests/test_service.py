@@ -644,7 +644,7 @@ def test_a_mark_read_before_a_held_step_back_lies_after_now_not_a_wrap_early(ahe
 def test_a_roll_across_a_held_step_back_does_not_wait_for_a_path_that_has_delivered(
     caplog,
 ):
-    """Final review M1 through the roll (wl_sync/cli.py:665): the boundary is the held
+    """Final review M1 through the roll (wl_sync/cli.py:668): the boundary is the held
     `now()`, and the mark, read before the step back, is past it, so the barrier passes at
     once and says nothing. Before, it waited ROLL_BARRIER_TIMEOUT_S and warned."""
     import logging

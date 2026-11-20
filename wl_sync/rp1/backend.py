@@ -45,7 +45,7 @@ from typing import NamedTuple
 
 from wl_sync.backend import (
     STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_OFF_RISES,
-    STAMPS_STOPPED, CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
+    STAMPS_STOPPED, CaptureDegraded, CaptureLoss, FrameStamp, OrderClamps, StampLag,
 )
 from wl_sync.barcode import INTERVAL_US, rises_us
 from wl_sync.calibration import Calibration
@@ -99,7 +99,7 @@ STAMP_TEST_HIGH_US = 1_000
 # for the end of the idle a lead must follow, so the first frame must rise more than
 # IDLE_MIN_US, 0.4 s, after it or no decoder finds it (wl_sync/barcode.py:37, :128). The
 # first frame comes later still: run() begins only once the backend exists
-# (wl_sync/cli.py:1751-1753, :455).
+# (wl_sync/cli.py:1886-1888, :457).
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
@@ -139,13 +139,13 @@ REACQUIRE_FRAMES = 3
 # slope's error times the time since. The largest slope error the box runs on without a word
 # is a calibrated seed's, which the line keeps below FIT_FREE_SLOPE_PAIRS and again after
 # each R19 restart (wl_sync/clockmap.py:47, :193-202): within RAW_RATIO_WITNESS_PPB,
-# 5 ppm, of the ratio measured live, or a WARNING says it is not (wl_sync/cli.py:1428,
-# :1499-1519). At one frame a second (INTERVAL_US, wl_sync/barcode.py:36), 5 ppm carries E
+# 5 ppm, of the ratio measured live, or a WARNING says it is not (wl_sync/cli.py:1511,
+# :1634-1654). At one frame a second (INTERVAL_US, wl_sync/barcode.py:36), 5 ppm carries E
 # 100 us, the whole of the spec's +-100 us budget (spec §3,
 # docs/superpowers/specs/2026-10-30-one-clock-design.md:517), in 100 / 5 = 20 frames. A
 # fitted slope is far better, so there the WARNING comes early, the side to err on. With no
 # calibration the seed is 0, and its error is the crystals' difference, which only
-# RATE_BOUND_PPB's 200 ppm sanity bound limits (wl_sync/calibration.py:203): no frame count
+# RATE_BOUND_PPB's 200 ppm sanity bound limits (wl_sync/calibration.py:230): no frame count
 # warns of E's error in time there, but 20 frames is still well inside the 125 that 200 ppm
 # takes to carry the line past R19's reach for good, 25 ms (`_reacquire`).
 EXTRAPOLATION_WARN_FRAMES = 20
@@ -522,15 +522,15 @@ class Rp1Backend:
 
         # BOTH MACHINES ARE CONFIGURED HERE, BEFORE THE FIRST SEGMENT, and enabled when
         # capture starts (`start_strobed_capture`). main() builds the backend before run()
-        # (wl_sync/cli.py:1751-1753), and run() names the timebase in the first header
-        # (:563-573), so the start-up test's result reaches every segment. Configuring runs
+        # (wl_sync/cli.py:1886-1888), and run() names the timebase in the first header
+        # (:565-575), so the start-up test's result reaches every segment. Configuring runs
         # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:90, :153), and
         # a disabled machine pushes nothing, so no code word reaches a FIFO before a
         # segment exists.
         failure = self._configure(pio_index)
         if failure:
             # THE BOX RECORDS ANYWAY (Task 1.16; the user's rulings of 2026-11-20). Until
-            # then this raised, nothing above caught it (wl_sync/cli.py:1750-1761), and
+            # then this raised, nothing above caught it (wl_sync/cli.py:1885-1896), and
             # under Restart=always (deploy/wl-sync.service:30-31) the unit crash-looped.
             # With no capture machine there is no program for a stamp machine to run on
             # (pio/wlsync_pio.c:168-169), so B is read in software and E counts MONO:
@@ -626,7 +626,7 @@ class Rp1Backend:
         lib = self._lib
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
         # pio/wlsync_pio.c:175-177, :197-202) must not stop the capture machine, and
-        # raising here would: nothing above catches it (wl_sync/cli.py:1750-1761). The
+        # raising here would: nothing above catches it (wl_sync/cli.py:1885-1896). The
         # process records split instead, with the errno in the ERROR below.
         stamps = lib.wlsync_start_stamp(
             program.WRAP_TARGET, program.WRAP, program.ENTRY,
@@ -682,8 +682,8 @@ class Rp1Backend:
         Refused once a capture path has started, because the mode is the whole process's:
         a path started on one count already reads its clock. Refused too once
         `apply_calibration` has run, because the run loop holds the scale it returned: it
-        keeps a rate keeper because there is one (wl_sync/cli.py:517-547) and scales
-        every record by it (:580), where a split process's is None. The backend cannot
+        keeps a rate keeper because there is one (wl_sync/cli.py:519-549) and scales
+        every record by it (:582), where a split process's is None. The backend cannot
         take it back."""
         if self._started:
             raise RuntimeError(
@@ -875,7 +875,7 @@ class Rp1Backend:
         whose capture machine could not be configured starts nothing here. A machine that
         cannot be enabled is journaled once, at ERROR, and the process records on without
         W; check_health reports it on every call. That comes after the first header
-        (wl_sync/cli.py:563-575, :582), so the mode is not changed: a split header is true
+        (wl_sync/cli.py:565-577, :584), so the mode is not changed: a split header is true
         of a segment without W. On one count the shim's one errno is -ENODEV, with no
         block open (pio/wlsync_pio.c:211-217), which a backend that opened one does not
         reach; if it came, no B could be stamped either, and E goes on through the fit,
@@ -1125,7 +1125,7 @@ class Rp1Backend:
             (`_pump_edges`), then RAW -> P through the lead-edge fit (spec §2.3,
             docs/superpowers/specs/2026-10-30-one-clock-design.md:354-364). The fit is
             made at the sync enable, so this refuses to run before
-            `start_strobed_capture`; run() starts codes first (wl_sync/cli.py:582-583).
+            `start_strobed_capture`; run() starts codes first (wl_sync/cli.py:584-585).
           * SPLIT: MONO us since the origin, which `now_us()` counts too, as before the
             one-clock build.
 
@@ -1272,6 +1272,15 @@ class Rp1Backend:
             return None
         return StampLag(pump.stamp_lag_max_us, pump.stamp_lag_over, EDGE_STAMP_LAG_US)
 
+    def order_clamps(self) -> OrderClamps | None:
+        """The edge pump's order guard (`EdgePump`, EACH LINE IN TICK ORDER): the edges
+        it clamped and the furthest. None before edge capture starts. Read across
+        threads, as `stamp_lag` is: two ints the edge thread writes, for a summary."""
+        pump = self._pump
+        if pump is None:
+            return None
+        return OrderClamps(pump.order_clamped, pump.order_clamp_max_us)
+
     def check_health(self) -> None:
         """Raise if anything this backend runs in the background has failed.
 
@@ -1320,7 +1329,7 @@ class Rp1Backend:
                 ("edge capture: stopped", "the edge capture thread stopped unexpectedly")
             )
         # The kind is the one a dead word thread had, so the run loop's episodes are as
-        # they were (wl_sync/cli.py:1218-1248).
+        # they were (wl_sync/cli.py:1208-1244).
         if words_stopped:
             problems.append((
                 "event-code capture: stopped",
@@ -1332,7 +1341,7 @@ class Rp1Backend:
                 "barcode stamping stopped: no later frame's lead edge can be stamped",
             ))
         # On every call, as a dead thread is, so the run loop holds one episode for the
-        # run (wl_sync/cli.py:1251-1271), beside the start's ERROR (Task 1.16).
+        # run (wl_sync/cli.py:1247-1267), beside the start's ERROR (Task 1.16).
         if self._started and self.capture_failure:
             problems.append((
                 "event-code capture: did not start",
@@ -1363,7 +1372,7 @@ class Rp1Backend:
         piolib has one caller, the pump's.
 
         The run loop records `B` from the stamp returned, or drops it with an ERROR
-        episode when there is none (wl_sync/cli.py:864-895).
+        episode when there is none (wl_sync/cli.py:867-884).
 
         THE JOURNAL SAYS WHEN E IS EXTRAPOLATED (`_watch_fit`): once a frame finds the fit
         EXTRAPOLATION_WARN_FRAMES frames, or that many frames' time, past its last pair.
@@ -1497,7 +1506,8 @@ class Rp1Backend:
         # paired again after a lost word can queue one stamp out of order: a lone data
         # word read as a counter, just short of P's wrap (`pio_capture.pair_stamps`).
         # Unwrapped here it lies before the frame, or, while P lies past 2**31, far past
-        # its end, where it is carried and the next frame counts it between frames.
+        # its end, where it is carried and the next frame counts it between frames, once:
+        # the run loop's journal makes that an episode of one frame (Task 1.17).
         # Unsorted, its place broke the match's search, and a frame whose rises all but
         # one were stamped was dropped.
         fresh = sorted(unwrap_near(stamp, low) for stamp in pump.take())
@@ -1608,7 +1618,7 @@ class Rp1Backend:
         pair, at its slope (wl_sync/clockmap.py:157-163). A fit lost beyond R19's reach
         (`_reacquire`) writes E for the rest of the process a quarter of a second or more
         off W, and drifting, and until this nothing said so (final review I1). B is not
-        written then, and the dropped Bs have their ERRORs (wl_sync/cli.py:1383-1417); E
+        written then, and the dropped Bs have their ERRORs (wl_sync/cli.py:1388-1422); E
         has no word but this. Nothing here restarts anything: the user ruled out a restart.
 
         AN EPISODE begins at the frame that finds the fit EXTRAPOLATION_WARN_FRAMES frames
@@ -1618,8 +1628,8 @@ class Rp1Backend:
         next pair, R19's restart included, with its length. Both lines are WARNINGs, so
         that the journal filtered at WARNING (`journalctl -p warning`) shows the end of
         every start it shows. One still open when capture stops is closed by `close`. The
-        WARNING is never repeated within an episode: Task 1.7's line for each frame with
-        stamps between frames is noise enough.
+        WARNING is never repeated within an episode, nor, since Task 1.17, is the run
+        loop's for stamps between frames (wl_sync/cli.py `_StampsBetweenFrames`).
         """
         if self._fit is None or anchor_ns is None:
             return  # before capture starts: no fit, so nothing extrapolated
@@ -1752,7 +1762,7 @@ class Rp1Backend:
 
     def _summarise_stamps(self) -> None:
         """The run's end, on one count (Task 1.15): the stamp stream's desyncs, beside
-        the run loop's count of the barcodes dropped (wl_sync/cli.py:1404-1406), and an
+        the run loop's count of the barcodes dropped (wl_sync/cli.py:1409-1411), and an
         extrapolation episode still open, which no pair will now close (`_watch_fit`).
         Once: a second close says nothing again."""
         pump = self._stamp_pump

@@ -26,11 +26,11 @@ label (`gpioinfo`):
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
 is for a process that records `"split"` alone (below). Such a process writes the flag into
-every header (`wl_sync/rp1/backend.py:701`; `wl_sync/cli.py:553-561`, `:570`), and N is
+every header (`wl_sync/rp1/backend.py:701`; `wl_sync/cli.py:555-563`, `:572`), and N is
 the loopback's median "lead edge after its logged tick" (`docs/next-session.md`, Step B),
 in whole µs, read from a segment whose header says `"split"`. On one count the backend
 stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
-not used, with a WARNING (`wl_sync/rp1/backend.py:424`; `wl_sync/cli.py:553-561`). There
+not used, with a WARNING (`wl_sync/rp1/backend.py:424`; `wl_sync/cli.py:555-563`). There
 the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:91`), the edge input's
 own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
 process that falls back to `"split"` would write it into every header. With no split
@@ -204,7 +204,7 @@ and on one count, where the shim's one errno needs a closed block and is not exp
 
 (`wl_sync/rp1/backend.py:911-924`). Either way the health check holds one episode for the
 run, `capture degraded, still recording: event-code capture did not start (<cause>): no
-code word is recorded in this process` (`wl_sync/rp1/backend.py:1335-1341`). The segments
+code word is recorded in this process` (`wl_sync/rp1/backend.py:1344-1350`). The segments
 say `"split"` (or the one-count value they had), with no `W` records, and nothing in them
 says `W` is missing: the journal is the only witness (`wl_sync/log.py:222-233`). Three
 start-up checks stay fatal, and still restart the unit every second: a GPIO chip that is
@@ -217,9 +217,27 @@ this process records split, and has no stamps to count` (`wl_sync/bench.py:334-3
 frame whose lead edge was not stamped has no `B` record, and no `L` record either. Every
 device recorded the frame. The first drop of a run logs `barcode N dropped: <cause>. Every
 device recorded the frame; this log has no B for it`, and a run of more than one ends with
-`K barcodes dropped in a row, N to M: <advice>` (`wl_sync/cli.py:1383-1417`). Each run's
+`K barcodes dropped in a row, N to M: <advice>` (`wl_sync/cli.py:1388-1422`). Each run's
 end logs `barcodes: E emitted, D dropped this run`. `journalctl -u wl-sync -p err` shows
 the ERRORs. Advice that names `python -m wl_sync.bench stamps` means the checks above.
+
+**Stamps between frames are a WARNING an episode** *(added 2026-11-20)*. On one count a
+stamp on GPIO17 that came before a frame's lead edge, or before its window, is discarded,
+and the frame keeps its `B`. The first frame of a run of frames that have such stamps logs
+
+    N stamps on GPIO17 between frames, before barcode V, discarded: late stamps of the frame before, a fit that has drifted, or something else driving the barcode line
+
+and the run ends, at the first frame with none, with
+
+    stamps on GPIO17 between frames ended before barcode V: N stamp(s) discarded, before F frame(s) in a row, barcodes V1 to V2
+
+or, if capture stops first, `capture stopped with stamps on GPIO17 between frames still
+coming: N stamp(s) discarded, before F frame(s) in a row, barcodes V1 to V2`
+(`wl_sync/cli.py:1462-1495`). Both are WARNINGs, so `journalctl -u wl-sync -p warning`
+shows every episode's start and end. Each run's end logs `stamps on GPIO17 between frames:
+N discarded this run, before F frame(s)` (`:1496-1500`). Until 2026-11-20 the first line
+came once for every frame that had any, so a drain that gave up on every frame gave one a
+second. A lone misread stamp, after the stamp FIFO lost a word, is an episode of one frame.
 
 **A desynced stamp stream is an ERROR, and stamping goes on** *(added 2026-11-20)*. When
 the stamp machine's FIFO fills and the drain runs between a pair's two pushes, one word is
@@ -236,7 +254,7 @@ health check fell between the two; found by the same check, only the desync is g
 edge's stamp was lost has its own `barcode N dropped` ERROR, and the frames after it are
 stamped. Each run's end on one count logs `barcode stamping: N desync(s) this run, each
 resynchronised`, or `barcode stamping: 0 desync(s) this run`
-(`wl_sync/rp1/backend.py:1762-1766`). Until 2026-11-20 a desync stopped the stamp drain,
+(`wl_sync/rp1/backend.py:1772-1776`). Until 2026-11-20 a desync stopped the stamp drain,
 and every later frame was dropped until a restart. `barcode stamping stopped` now means
 the drain itself failed, with its cause in the same ERROR, and a restart starts it again.
 
@@ -246,9 +264,9 @@ When no pair comes for 20 frames, or for 20 frames' time, the journal has
 
     the RAW->P fit's last lead-edge pair is S s old, F frame(s) ago: E ticks and roll boundaries are extrapolated from it, drifting from P by the fit's slope error, until a lead edge is matched again
 
-once, at WARNING (`wl_sync/rp1/backend.py:1667-1672`), or, when no pair has come since
+once, at WARNING (`wl_sync/rp1/backend.py:1677-1682`), or, when no pair has come since
 capture started, `the RAW->P fit has had no lead-edge pair since capture started S s ago,
-F frame(s): ...` (`:1659-1665`). The edges are still written. Their error grows with the
+F frame(s): ...` (`:1669-1675`). The edges are still written. Their error grows with the
 pair's age, by at most 5 ppm of it on a calibrated box before its slope is fitted, which is
 100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`, `wl_sync/rp1/backend.py:135-151`). The
 episode ends with
@@ -256,14 +274,20 @@ episode ends with
     a lead-edge pair reached the RAW->P fit again after F frame(s) without one: E ticks and roll boundaries had been extrapolated from a pair up to S s old
 
 or `the RAW->P fit took its first lead-edge pair after F frame(s) without one: ...`
-(`:1476-1481`, `:1469-1474`). If capture stops first it ends with `capture stopped F
+(`:1645-1650`, `:1638-1643`). If capture stops first it ends with `capture stopped F
 frame(s) after the RAW->P fit's last lead-edge pair: ...`, or `capture stopped F frame(s)
-after it started, with no lead-edge pair for the RAW->P fit: ...` (`:1619-1624`,
-`:1612-1617`). All are WARNINGs, so `journalctl -u wl-sync -p warning` shows every
+after it started, with no lead-edge pair for the RAW->P fit: ...` (`:1789-1794`,
+`:1782-1787`). All are WARNINGs, so `journalctl -u wl-sync -p warning` shows every
 episode's start and end. An episode that runs on while the `barcode N dropped` ERRORs say
 `their stamps lay outside the lead edges' windows` is a fit lost for good: the box does
 not restart itself (the user, 2026-11-20), and a restart between sessions starts a new fit
 at the sync enable.
+
+A fit that moves back, as R19's restart can, places a line's next edges behind the one
+before; each is written at that line's last tick instead, so each line stays in tick
+order. Nothing is logged for each. Each run's end gives the count and the furthest, `edges
+written at their line's last tick, to keep each line in tick order, this run: N, the
+furthest D us behind it` (`wl_sync/cli.py:1303-1310`) *(added 2026-11-20)*.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
@@ -563,14 +587,14 @@ SI µs, and the header says `"rp1-pio-si"`; with none it is 1, the ticks count R
 crystal, and the header says `"rp1-pio"` (`wl_sync/log.py:206-216`). Each process looks
 for the file at start, as `.wl-sync-pio-rate` in its `--out` directory: under this
 repository's unit that is `/data/rig1/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
-`wl_sync/cli.py:514-547`). The unit installed on wl-rig-sync0 writes `/data/rig0` instead,
+`wl_sync/cli.py:516-549`). The unit installed on wl-rig-sync0 writes `/data/rig0` instead,
 as read on the box on 2026-11-07, so that box's file is `/data/rig0/.wl-sync-pio-rate`.
 The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
-reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is used only on
+reaches an hour, and every hour after (`wl_sync/cli.py:1685-1709`). A file is used only on
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
-and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:235-258`). A process that
+and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:262-285`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
-RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1710-1711`;
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1720-1721`;
 `wl_sync/log.py:217-233`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**
@@ -578,14 +602,14 @@ RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.p
 1. Let the box run at least 1 h.
 2. Before the restart, check that `.wl-sync-pio-rate` exists in the `--out` directory. If
    it does not yet, wait: it is first written once an hour of pairs has been taken with NTP
-   synchronized (`wl_sync/calibration.py:89-98`).
+   synchronized (`wl_sync/calibration.py:89-125`).
 3. Restart it once, between sessions: `sudo systemctl restart wl-sync`. Between sessions,
    because a restart begins a new clock (`process_uuid`).
 4. After it, the start's journal line names the applied rate,
 
        applying the PIO rate calibration written <time>: <+N> ppb, measured over <S> s and <P> pairs; timebase rp1-pio-si
 
-   not the no-calibration WARNING (`wl_sync/cli.py:523-539`).
+   not the no-calibration WARNING (`wl_sync/cli.py:525-541`).
 
 Until that restart, the process records `"rp1-pio"`, because no calibration was usable when
 it started (`docs/superpowers/specs/2026-10-30-one-clock-design.md:311`). Its ticks
@@ -595,11 +619,17 @@ share one rate, RP1's crystal's, which is not SI. The journal says so at start:
 
 `<why>` is `no calibration file`, an unreadable file, another board's, a rate outside
 ±200 ppm, a P/RAW ratio outside ±1000 ppm, or `this board's serial cannot be read`. Without a serial a WARNING also says
-that this process's rate cannot be kept for the next start (`wl_sync/cli.py:540-546`).
+that this process's rate cannot be kept for the next start (`wl_sync/cli.py:542-548`).
 Later starts take the newest file. During a run, a WARNING that the calibration "most
 likely came from other hardware", or that this process measures a rate more than 1 ppm
 from the one it applies, changes nothing in that run: the process keeps the rate it
-started with (`wl_sync/cli.py:1499-1548`).
+started with (`wl_sync/cli.py:1634-1683`).
+
+If an hour of pairs passes with none gated, the journal has, once a process, `no clock
+pair has passed the PIO rate gate in S s of narrow pairs, N of them, held by <conditions>:
+...` (`wl_sync/cli.py:1603-1632`) *(added 2026-11-20)*. It means no rate file will come
+from this process, however long it runs, so waiting longer does not help. If it names `no
+STA_PLL`, bench B7, which logs whether timesyncd sets STA_PLL, is the check.
 
 ## Before first boot
 
@@ -608,7 +638,7 @@ started with (`wl_sync/cli.py:1499-1548`).
   2026-11-19, for the one-clock build.)* **systemd-timesyncd must be the NTP client.** The
   PIO rate (above) is measured only over clock pairs taken while NTP is synchronized and
   the kernel reports its PLL on and an outstanding offset of at most 1 ms
-  (`wl_sync/calibration.py:89-98`). The offset check keeps out the first sync's slew, and
+  (`wl_sync/calibration.py:89-125`). The offset check keeps out the first sync's slew, and
   it assumes a client that corrects the clock through the kernel's PLL. A builder check
   found that under chrony the offset stays 0, so large slews would pass it; that is
   unverified here (`docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272`). That

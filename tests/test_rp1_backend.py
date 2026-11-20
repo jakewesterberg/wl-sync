@@ -1981,6 +1981,24 @@ def test_the_edge_pump_witnesses_how_late_edges_reach_it(lib, gpiod):
         backend.close()
 
 
+def test_the_backend_reports_the_order_guards_clamps_for_the_summary(lib, gpiod):
+    """Final review M2: the edge pump's count of edges the order guard clamped, and the
+    furthest, reach the run loop as the witness does (`stamp_lag`), for the run's summary.
+    None while no edge capture runs; the pump's counts, zero at first, once it does."""
+    from wl_sync.backend import OrderClamps
+
+    backend = Rp1Backend()
+    assert backend.order_clamps() is None
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    backend.start_edge_capture([20], lambda gpio, level, tick: None)
+    try:
+        assert backend.order_clamps() == OrderClamps(clamped=0, max_us=0)
+        backend._pump.order_clamped, backend._pump.order_clamp_max_us = 7, 412
+        assert backend.order_clamps() == OrderClamps(clamped=7, max_us=412)
+    finally:
+        backend.close()
+
+
 def test_lost_edges_reach_check_health_by_cause_and_a_swap_does_not(lib, gpiod):
     """The camera lines' events out of order are not a problem at all. A gap in one
     line's own numbers reaches check_health() at once, its cause in the problem's kind,
@@ -2395,7 +2413,7 @@ def test_a_split_process_counts_edges_from_the_monotonic_origin_as_today(
 
 def test_edges_cannot_be_mapped_before_the_count_has_started(lib, gpiod):
     """On one count the edge map runs through the RAW->P fit, which the sync enable makes
-    (`start_strobed_capture`), and run() starts codes before edges (wl_sync/cli.py:582-583).
+    (`start_strobed_capture`), and run() starts codes before edges (wl_sync/cli.py:584-585).
     Refused, the start opens no line request and fixes nothing: a calibration can still be
     applied."""
     backend = Rp1Backend()
@@ -2954,6 +2972,10 @@ def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(
     # carried, so the frame after the one that queued it may count it.
     settled = frame + 1 + far
     assert [stamp.between for stamp in stamps[settled:]] == [0] * (7 - settled), lost
+    # Coverage: the misread is one stamp between frames, at one frame, so the run loop's
+    # journal gives it an episode of one frame, a WARNING to open it and one to close it
+    # (wl_sync/cli.py `_StampsBetweenFrames`; Task 1.17), never one a frame.
+    assert sum(stamp.between for stamp in stamps) <= 1, (lost, stamps)
     if far and lost[2] == 1:  # a lone data word: its misread is carried, never matched
         assert any(trace.lead.leftover and max(trace.lead.leftover) >= 0xFFFF_0000
                    for trace in traces[frame - 1:frame + 1]), lost
@@ -4190,7 +4212,7 @@ def test_a_frame_before_drained_late_is_not_taken_for_a_lead_a_second_away(
 def test_falling_back_after_a_calibration_was_applied_is_refused(lib, given):
     """The run loop already holds the scale apply_calibration returned, IDENTITY without
     a calibration: it keeps a rate keeper because there is one, and scales every record by
-    it (wl_sync/cli.py:517-547, :581). The backend cannot take it back."""
+    it (wl_sync/cli.py:519-549, :583). The backend cannot take it back."""
     backend = Rp1Backend()
     try:
         backend.apply_calibration(_calibration(40_000, 40_000) if given else None)

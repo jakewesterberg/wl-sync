@@ -14,6 +14,7 @@ from wl_sync.calibration import (
     RateEstimator,
     Timex,
     kernel_ntp_from,
+    gate_holds,
     probe_kernel_ntp,
     si_gate,
 )
@@ -124,6 +125,29 @@ def test_the_gate_is_open_at_exactly_the_offset_limit():
     """Coverage: the offset limit is inclusive."""
     kernel = dataclasses.replace(GOOD, offset_ns=KERNEL_OFFSET_MAX_NS)
     assert si_gate(True, kernel, pair(0, 0)) is True
+
+
+@pytest.mark.parametrize("known, kernel, expected", [
+    (True, GOOD, ()),
+    (None, GOOD, (calibration.HELD_NTP_UNKNOWN,)),
+    (False, GOOD, (calibration.HELD_NTP_UNSYNCED,)),
+    (True, None, (calibration.HELD_KERNEL_UNREAD,)),
+    (None, None, (calibration.HELD_NTP_UNKNOWN, calibration.HELD_KERNEL_UNREAD)),
+    (True, dataclasses.replace(GOOD, unsynchronized=True), (calibration.HELD_STA_UNSYNC,)),
+    (True, dataclasses.replace(GOOD, pll=False), (calibration.HELD_NO_PLL,)),
+    (True, dataclasses.replace(GOOD, offset_ns=-1_000_001), (calibration.HELD_OFFSET,)),
+    (True, dataclasses.replace(GOOD, offset_ns=-1_000_000), ()),
+    (False, KernelNtp(unsynchronized=True, pll=False, offset_ns=5_000_000), (
+        calibration.HELD_NTP_UNSYNCED, calibration.HELD_STA_UNSYNC,
+        calibration.HELD_NO_PLL, calibration.HELD_OFFSET,
+    )),
+])
+def test_the_gate_names_every_condition_that_holds_it(known, kernel, expected):
+    """Final review M4: a gate that never opens is named in the journal by what held it,
+    so each of si_gate's conditions but the bracket's has a name, and a narrow pair is
+    gated exactly when none holds."""
+    assert gate_holds(known, kernel) == expected
+    assert si_gate(known, kernel, pair(0, 0)) is (expected == ())
 
 
 def test_adjtimex_offset_is_nanoseconds_under_sta_nano_and_microseconds_otherwise():
@@ -277,7 +301,7 @@ def test_a_rate_beyond_200_ppm_is_refused_and_200_is_not(tmp_path):
 
 
 def test_a_p_per_raw_ratio_beyond_1000_ppm_is_refused_and_1000_is_not(tmp_path):
-    """Final review M3. The ratio seeds the RAW->P fit (wl_sync/rp1/backend.py:1716), so
+    """Final review M3. The ratio seeds the RAW->P fit (wl_sync/rp1/backend.py:1726), so
     one that parses but is wrong maps E wrongly: at -10^9 ppb or below the slope is 0 or
     less, every E lands at about P 0 and every B is dropped. It is bounded as the rate is,
     and refused with its own reason."""

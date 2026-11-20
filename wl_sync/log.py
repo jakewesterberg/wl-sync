@@ -143,10 +143,10 @@ class SyncBoxLogHeader(BaseModel):
 
     A DROPPED `B` CAN WIDEN THAT STEP, since the one-clock build (`BarcodeEmitted`). Not
     before the roll: the roll in place waits for a frame whose `B` was kept
-    (wl_sync/cli.py:977-983, :997). After it, it can: the frames after the roll can lose
+    (wl_sync/cli.py:966-972, :986). After it, it can: the frames after the roll can lose
     their `B`s too, and each one dropped widens the step by one, so one dropped after a
     skipped value makes it 3. The box's journal ERROR is then the only witness
-    (wl_sync/cli.py:1386-1391; docs/superpowers/specs/2026-10-30-one-clock-design.md:621-623).
+    (wl_sync/cli.py:1391-1396; docs/superpowers/specs/2026-10-30-one-clock-design.md:621-623).
 
     Records cross a roll as they cross any point in a file, ordered within each path
     (`ordering`). A roll waits up to 0.2 s for each capture path to deliver what it
@@ -172,7 +172,7 @@ class SyncBoxLogHeader(BaseModel):
     machine's count of the lead edge itself, so nothing lies between the tick and the
     wire, and the latency it shares with `W` cancels. The backend declares the 0, and a
     `--barcode-delay-us` given beside it is not used, with a WARNING
-    (wl_sync/cli.py:553-561; docs/superpowers/specs/2026-10-30-one-clock-design.md:454-458).
+    (wl_sync/cli.py:555-563; docs/superpowers/specs/2026-10-30-one-clock-design.md:454-458).
     Nothing makes such a process's first `B` late, so the exception below is gone with it.
 
     IN A SPLIT PROCESS, AS BEFORE THE ONE-CLOCK BUILD, it is the flag's, or None. The
@@ -188,7 +188,7 @@ class SyncBoxLogHeader(BaseModel):
     edge.
 
     EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
-    that frame, after its tick is read (wl_sync/rp1/backend.py:1376-1377, :1395-1400).
+    that frame, after its tick is read (wl_sync/rp1/backend.py:1385-1386, :1404-1409).
     Its lead edge then rises later by however long the request takes, which nothing
     measures. A process whose stamp machine started has normally taken the line already,
     for its start-up test (:771-778); one whose stamp machine did not start has not.
@@ -294,17 +294,17 @@ class BarcodeEmitted:
     `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
     (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
     stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
-    ended (wl_sync/rp1/backend.py:1440, :1536). In a split process, and before the
-    build, it is the clock sampled BEFORE the frame is emitted (:1376-1379): reading it
+    ended (wl_sync/rp1/backend.py:1449, :1546). In a split process, and before the
+    build, it is the clock sampled BEFORE the frame is emitted (:1385-1388): reading it
     after emission would put this box's own alignment record 200 ms behind every device
     it is aligning.
 
     IT MAY BE ABSENT. A frame whose lead edge was not stamped has no `B`, and the box
-    records on (wl_sync/cli.py:888-893). The frame was emitted, and every device
+    records on (wl_sync/cli.py:877-882). The frame was emitted, and every device
     recorded it; its value was spent, because the checkpoint marked it before the frame
-    (:850). No `L` record marks it (`Loss`, `path`); the journal does, with an ERROR at
+    (:853). No `L` record marks it (`Loss`, `path`); the journal does, with an ERROR at
     the first drop of a run and another at its end when it dropped more than one
-    (:1383-1417). A split process stamps nothing, so it drops none.
+    (:1388-1422). A split process stamps nothing, so it drops none.
     """
 
     tick_us: int

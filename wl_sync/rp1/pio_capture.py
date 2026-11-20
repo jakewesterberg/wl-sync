@@ -214,7 +214,7 @@ class WordPump:
         self._data_count = data_count
         # The held error, written on the pump's thread and taken on the run loop's
         # (`take_error`): both under `_held`, so a take cannot clear one held between its
-        # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:984-994).
+        # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:994-1004).
         self._held = threading.Lock()
         self.error: BaseException | None = None
         self.delivered_through: int | None = None
@@ -301,7 +301,7 @@ class StampPump:
     unless its frame lies within 65.5 ms before P's wrap (`pair_stamps`), and a stamp lost
     in it is a missed stamp, whose frame is dropped as an unstamped lead is.
     It is held as WordPump holds its desync, so check_health reports it, an ERROR once per
-    desync (wl_sync/cli.py:1251-1270). No L record: stamps are not written, and the L
+    desync (wl_sync/cli.py:1247-1266). No L record: stamps are not written, and the L
     format's paths are W and E (wl_sync/log.py:369-370).
 
     THE PUMP STOPS only when the drain itself fails (`stop`): `stopped` turns True.

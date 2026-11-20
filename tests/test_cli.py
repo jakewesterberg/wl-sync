@@ -1,4 +1,5 @@
 import collections
+import dataclasses
 import datetime
 import json
 import logging
@@ -44,7 +45,7 @@ from wl_sync.cli import (
     run,
 )
 from wl_sync.endpoint import serve
-from wl_sync.clockmap import ClockPair, TickScale
+from wl_sync.clockmap import BRACKET_WIDTH_MAX_NS, ClockPair, TickScale
 from wl_sync.clock import (
     BARCODE_EPOCH,
     CLOCK_TRUST_TOLERANCE_S,
@@ -331,6 +332,19 @@ _BETWEEN = (
     "{} stamps on GPIO17 between frames, before barcode {}, discarded: late stamps of the "
     "frame before, a fit that has drifted, or something else driving the barcode line"
 )
+# Task 1.17 (the user's ruling, 2026-11-20, "Edge-trigger it"): _BETWEEN opens an episode,
+# and one of these closes it.
+_BETWEEN_ENDED = (
+    "stamps on GPIO17 between frames ended before barcode {}: {} stamp(s) discarded, "
+    "before {} frame(s) in a row, barcodes {} to {}"
+)
+_BETWEEN_AT_STOP = (
+    "capture stopped with stamps on GPIO17 between frames still coming: {} stamp(s) "
+    "discarded, before {} frame(s) in a row, barcodes {} to {}"
+)
+_BETWEEN_SUMMARY = (
+    "stamps on GPIO17 between frames: {} discarded this run, before {} frame(s)"
+)
 _TOO_FAR = (
     STAMP_TOO_FAR_PREFIX
     + "1500 us from the frame's lead edge as the CPU bracketed it (1000 us allowed)"
@@ -489,9 +503,68 @@ def test_stamps_between_frames_are_a_warning_naming_the_next_barcode(tmp_path, c
     wire, written = _dropping(tmp_path, backend, 3, caplog)
 
     assert written == wire
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert warnings == [_BETWEEN.format(3, wire[1])]
+    assert _warnings(caplog) == [
+        _BETWEEN.format(3, wire[1]),
+        _BETWEEN_ENDED.format(wire[2], 3, 1, wire[1], wire[1]),
+    ]
     assert _errors(caplog) == []
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_frames_in_a_row_with_stamps_between_are_one_episode_of_two_warnings(
+    tmp_path, caplog
+):
+    """Task 1.7's WARNING, edge-triggered (the user, 2026-11-20). Frames 2 to 11 each find
+    stamps between frames, 65 in all: one WARNING at the first, in Task 1.7's text, and one
+    at frame 12, the first with none, giving the frames and the stamps. Both WARNINGs, as
+    Task 1.15's episode lines are, so a journal filtered at WARNING shows every end of a
+    start it shows (wl_sync/rp1/backend.py:1628-1630). One a frame was 86,400 a day."""
+    backend = _StampsBetween({n: n for n in range(2, 12)})
+    wire, written = _dropping(tmp_path, backend, 13, caplog)
+
+    assert written == wire
+    assert _warnings(caplog) == [
+        _BETWEEN.format(2, wire[1]),
+        _BETWEEN_ENDED.format(wire[11], 65, 10, wire[1], wire[10]),
+    ]
+    summary = [m for m in caplog.messages if m.startswith("stamps on GPIO17 between")]
+    assert summary[-1] == _BETWEEN_SUMMARY.format(65, 10)
+
+
+def test_two_episodes_of_stamps_between_frames_give_two_pairs(tmp_path, caplog):
+    backend = _StampsBetween({2: 1, 3: 4, 6: 2})
+    wire, _ = _dropping(tmp_path, backend, 8, caplog)
+
+    assert _warnings(caplog) == [
+        _BETWEEN.format(1, wire[1]),
+        _BETWEEN_ENDED.format(wire[3], 5, 2, wire[1], wire[2]),
+        _BETWEEN.format(2, wire[5]),
+        _BETWEEN_ENDED.format(wire[6], 2, 1, wire[5], wire[5]),
+    ]
+    assert _BETWEEN_SUMMARY.format(7, 3) in caplog.messages
+
+
+def test_an_episode_of_stamps_between_frames_open_at_shutdown_is_closed(tmp_path, caplog):
+    """As Task 1.15's extrapolation episode is closed at close()
+    (wl_sync/rp1/backend.py:1777-1794): the run's end closes the episode, with what it
+    held, then the totals."""
+    backend = _StampsBetween({3: 2, 4: 5})
+    wire, _ = _dropping(tmp_path, backend, 4, caplog)
+
+    assert _warnings(caplog) == [
+        _BETWEEN.format(2, wire[2]),
+        _BETWEEN_AT_STOP.format(7, 2, wire[2], wire[3]),
+    ]
+    assert _BETWEEN_SUMMARY.format(7, 2) in caplog.messages
+
+
+def test_a_run_with_no_stamps_between_frames_says_so_at_its_end(tmp_path, caplog):
+    _dropping(tmp_path, FakeBackend(), 3, caplog)
+    assert _warnings(caplog) == []
+    assert _BETWEEN_SUMMARY.format(0, 0) in caplog.messages
 
 
 def test_a_dropped_last_barcode_does_not_rewind_the_checkpoint(tmp_path):
@@ -3751,6 +3824,55 @@ def test_a_backend_with_no_edge_lag_says_nothing_about_it(tmp_path, caplog):
     assert not [m for m in caplog.messages if m.startswith("edges reached the pump")]
 
 
+class _ClampsEdges(FakeBackend):
+    """Its order guard clamps `per_frame` edges a frame, the furthest `step_us` further
+    behind each frame."""
+
+    def __init__(self, per_frame, step_us) -> None:
+        super().__init__()
+        self._per_frame, self._step_us = per_frame, step_us
+
+    def order_clamps(self):
+        from wl_sync.backend import OrderClamps
+
+        frames = len(self.emitted)
+        return OrderClamps(self._per_frame * frames, self._step_us * frames)
+
+
+_CLAMPED_SUMMARY = (
+    "edges written at their line's last tick, to keep each line in tick order, this run: "
+    "{}, the furthest {} us behind it"
+)
+
+
+def test_the_order_guards_clamps_reach_the_summary_and_no_other_line(tmp_path, caplog):
+    """Final review M2 (the user, 2026-11-20, "Count, summary only"): the edges the order
+    guard clamped, and the furthest, are counted for the run's summary, beside the
+    witness's (`summary`). No line for an edge or a health check: a backward move of the
+    map clamps every edge on a line within it, and a line each would be a flood."""
+    with caplog.at_level(logging.DEBUG, logger=cli.log.name):
+        run(tmp_path, _ClampsEdges(3, 150), _clock_from(START), 3, lambda _s: None)
+
+    assert _warnings(caplog) == []
+    clamped = [m for m in caplog.messages if m.startswith("edges written at their line")]
+    assert clamped == [_CLAMPED_SUMMARY.format(9, 450)]
+
+
+def test_a_run_whose_guard_clamped_nothing_says_so(tmp_path, caplog):
+    """Coverage: a quiet guard is a line too, as a quiet witness is, so the summary says the
+    guard did nothing rather than nothing."""
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        run(tmp_path, _ClampsEdges(0, 0), _clock_from(START), 2, lambda _s: None)
+    assert _CLAMPED_SUMMARY.format(0, 0) in caplog.messages
+
+
+def test_a_backend_with_no_edge_order_guard_says_nothing_about_it(tmp_path, caplog):
+    """Coverage: FakeBackend has no order guard, so no count to give."""
+    with caplog.at_level(logging.INFO, logger=cli.log.name):
+        run(tmp_path, FakeBackend(), _clock_from(START), 2, lambda _s: None)
+    assert not [m for m in caplog.messages if m.startswith("edges written at their line")]
+
+
 # --- one PIO rate per process, and the next one measured and kept (spec §2.2) -----------
 
 
@@ -4040,6 +4162,77 @@ def test_no_calibration_is_written_before_ntp_has_synced(tmp_path):
     assert read_calibration(path, "test-serial")[0].pairs == 7
 
 
+_GATE_NEVER_OPENED = (
+    "no clock pair has passed the PIO rate gate in {} s of narrow pairs, {} of them, held "
+    "by {}: this process measures no PIO rate and writes no calibration for the next "
+    "start (deploy/README.md, \"The PIO rate file\")"
+)
+NO_PLL = KernelNtp(unsynchronized=False, pll=False, offset_ns=0)
+
+
+def _gate_warnings(caplog):
+    return [m for m in _warnings(caplog) if m.startswith("no clock pair has passed")]
+
+
+def test_an_hour_of_narrow_pairs_none_gated_is_one_warning_naming_what_held_it(
+    tmp_path, caplog
+):
+    """Final review M4 (the user, 2026-11-20, "One WARNING per process"). If timesyncd
+    never sets STA_PLL (bench B7), no pair is gated, the keeper writes nothing, and until
+    this the journal said nothing while the README told the operator to wait. An hour of
+    narrow pairs, the hour the keeper's first write waits for, with none gated, is one
+    WARNING naming what held the gate; two hours are still one. Pairs 600 s apart: six
+    span 3000 s, seven 3600 s."""
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", None, "")
+    pairs = _pair_train(600, 13)
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for pair in pairs[:6]:
+            keeper.frame([pair], True, NO_PLL)
+        assert _gate_warnings(caplog) == []
+        keeper.frame([pairs[6]], True, NO_PLL)
+        assert _gate_warnings(caplog) == [
+            _GATE_NEVER_OPENED.format(3600, 7, "no STA_PLL (7 of them)")
+        ]
+        for pair in pairs[7:]:  # two hours
+            keeper.frame([pair], True, NO_PLL)
+    assert len(_gate_warnings(caplog)) == 1
+
+
+def test_the_gate_warning_names_every_condition_that_held_it_most_frequent_first(
+    tmp_path, caplog
+):
+    """Which condition held the gate can change within the hour: NTP not yet synced at
+    first, then a kernel without its PLL. The WARNING names each that held a pair, with
+    its count, the most frequent first, so whichever condition B7 must look at is named
+    whatever came before it. A wide pair counts toward neither the hour nor the gate."""
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", None, "")
+    pairs = _pair_train(600, 7)
+    wide = dataclasses.replace(pairs[3], width_ns=BRACKET_WIDTH_MAX_NS + 1)
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        keeper.frame([pairs[0]], False, None)
+        keeper.frame([pairs[1]], False, NO_PLL)
+        keeper.frame([pairs[2]], True, NO_PLL)
+        keeper.frame([wide], True, SYNCED)  # wide: neither gated nor counted
+        for pair in pairs[4:]:
+            keeper.frame([pair], True, NO_PLL)
+    assert _gate_warnings(caplog) == [_GATE_NEVER_OPENED.format(
+        3600, 6,
+        "no STA_PLL (5 of them), NTP not synchronised (2 of them), "
+        "the kernel's NTP state unreadable (1 of them)",
+    )]
+
+
+def test_a_gated_pair_within_the_hour_means_no_gate_warning(tmp_path, caplog):
+    """The WARNING is for a gate that never opens: one pair through it within the hour,
+    and the process says nothing of the kind, however long the gate is held after."""
+    keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", None, "")
+    pairs = _pair_train(600, 13)
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for n, pair in enumerate(pairs):
+            keeper.frame([pair], True, SYNCED if n == 4 else NO_PLL)
+    assert _gate_warnings(caplog) == []
+
+
 def test_nothing_is_written_when_the_board_serial_cannot_be_read(
     tmp_path, monkeypatch, caplog
 ):
@@ -4236,7 +4429,7 @@ def test_a_write_that_keeps_failing_is_one_error_until_one_succeeds(tmp_path, ca
 
 
 def test_a_baseline_a_realtime_step_restarts_never_overwrites_a_longer_one(tmp_path):
-    """A REALTIME step restarts the estimator's baseline (wl_sync/calibration.py:170-176).
+    """A REALTIME step restarts the estimator's baseline (wl_sync/calibration.py:197-203).
     The step moves MONO's phase, not RP1's rate, so the estimate from before it stays the
     better one (Ruling R23), and the file is rewritten only once the new baseline is an
     hour longer than the last one tried. Pairs 600 s apart, a step at 3.5 h: writes at 1,
