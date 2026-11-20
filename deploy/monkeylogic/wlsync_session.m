@@ -8,7 +8,7 @@ function id = wlsync_session(action, box, token_file, session_id)
 %
 %   Inputs
 %     ACTION      'open', 'close' or 'show'. Anything else is an error.
-%     BOX         host and port of the sync box, e.g. 'wl-sync-rig0.local:8740'.
+%     BOX         host and port of the sync box, e.g. 'wl-rig-sync0.local:8740'.
 %     TOKEN_FILE  path to a text file holding the session token. Needed for
 %                 'open' and 'close'; 'show' needs no token.
 %     SESSION_ID  'close' only: the id 'open' returned. Pass it. Given, the
@@ -26,9 +26,9 @@ function id = wlsync_session(action, box, token_file, session_id)
 %                 'show'  : the open id, or '' when no session is open.
 %
 %   Example
-%     id = wlsync_session('open', 'wl-sync-rig0.local:8740', 'C:\wl\session-token');
+%     id = wlsync_session('open', 'wl-rig-sync0.local:8740', 'C:\wl\session-token');
 %     % ... run the visit, naming MonkeyLogic's data after ID ...
-%     wlsync_session('close', 'wl-sync-rig0.local:8740', 'C:\wl\session-token', id);
+%     wlsync_session('close', 'wl-rig-sync0.local:8740', 'C:\wl\session-token', id);
 %
 %   Requires MATLAB R2016b or later (believed, UNVERIFIED): matlab.net.http,
 %   jsonencode and isstring are believed to need it.

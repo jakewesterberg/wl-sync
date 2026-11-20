@@ -714,7 +714,7 @@ class Rp1Backend:
         refuses that call stamps nothing at the rise, fails here, before the first
         segment, and records split, as the user ruled on 2026-11-20. What stays unseen is
         a refusal of the production call alone, after this one was obeyed
-        (`_start_one_count`). Bench S.4 found the PIO's sight of GPIO17 on wl-sync-rig0,
+        (`_start_one_count`). Bench S.4 found the PIO's sight of GPIO17 on wl-rig-sync0,
         against datasheet §3.1.1's suggestion (the spec's :585-589). It belongs to the
         silicon, the kernel and the pin
         controller's driver, so an RP1 revision or a kernel change could take it away

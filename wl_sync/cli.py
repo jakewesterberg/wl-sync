@@ -113,14 +113,14 @@ GRID_PHASE_TOLERANCE_S = 0.2
 # How long the run loop waits between asking NTP whether it has synced, while a run that
 # began unsynchronised waits for the first sync (see run()). A probe runs timedatectl on
 # the loop's own thread, between two frames, and costs 9 ms warm and 62 ms cold on
-# wl-sync-rig0, where a frame is due every second. Ten seconds ends the unsynchronised
+# wl-rig-sync0, where a frame is due every second. Ten seconds ends the unsynchronised
 # stretch within ten seconds of the sync, where it used to last until a session changed.
 NTP_POLL_INTERVAL_S = 10.0
 
 # A POLL MUST NOT COST A FRAME, so its probe has its own timeout. The probe's default
 # 5 s, kept for the start and for a roll at an open or close, would let a hung
 # timedatectl (D-Bus, timedated) hold the loop past five frames at every poll. Measured
-# on wl-sync-rig0, the probe takes 62 ms cold and 9 ms warm, so 0.3 s is about five times
+# on wl-rig-sync0, the probe takes 62 ms cold and 9 ms warm, so 0.3 s is about five times
 # the cold case.
 #
 # A BUDGET, NOT A GUARANTEE. The poll runs after a 200 ms frame, and the loop then has
@@ -353,7 +353,7 @@ def _await_delivery(recorder: Recorder, boundary: int) -> None:
       * With ~5 ms for Python's thread switch interval, that is about 65 ms at most. The
         rest of an open's or close's iteration is normally tens of milliseconds too (the
         flush's fsync, the state file's two, the trailer's, two manifest rebuilds, and
-        the NTP probe: 62 ms cold, 9 ms warm on wl-sync-rig0), so a roll does not cost a
+        the NTP probe: 62 ms cold, 9 ms warm on wl-rig-sync0), so a roll does not cost a
         frame in normal operation.
     The edge pump's wait was 0.2 s, which alone would have made the idle case 0.4 s.
 

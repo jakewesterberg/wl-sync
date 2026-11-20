@@ -294,7 +294,7 @@ def write_calibration(path: Path, calibration: Calibration) -> None:
 def probe_board_serial() -> str | None:
     """This board's serial number, or None where it cannot be read. Never raises.
 
-    Verified on the box: spike S.6, 2026-11-07, on wl-sync-rig0 (a CM5 Lite, revision
+    Verified on the box: spike S.6, 2026-11-07, on wl-rig-sync0 (a CM5 Lite, revision
     d041a0). `/proc/device-tree/serial-number` holds the serial followed by a NUL byte,
     so it is stripped of NULs; `/proc/cpuinfo`'s `Serial` line gives the same value.
     The device tree is tried first, cpuinfo as the fallback."""
