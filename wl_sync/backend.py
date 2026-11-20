@@ -111,7 +111,7 @@ class OrderClamps:
 # (spec §2.5, docs/superpowers/specs/2026-10-30-one-clock-design.md:407-415). ALL HERE,
 # beside the protocol, because the run loop gives each kind its own advice when an
 # episode of drops ends (wl_sync/cli.py:1318-1354), and imports the RP1 backend only to
-# build it (wl_sync/cli.py:1734-1739).
+# build it (wl_sync/cli.py:1763-1768).
 #
 # No stamp at all up to the frame's end.
 STAMP_NOT_SEEN = "its lead edge was not stamped"

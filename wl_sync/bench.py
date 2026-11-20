@@ -312,7 +312,7 @@ def _terminate(signum: int, frame) -> None:
 
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
-    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1734-1739): building
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1763-1768): building
     # it needs the shim and a GPIO chip, which `loopback` never touches.
     from wl_sync.rp1.backend import Rp1Backend
 

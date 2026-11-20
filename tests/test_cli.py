@@ -332,15 +332,15 @@ _BETWEEN = (
     "{} stamps on GPIO17 between frames, before barcode {}, discarded: late stamps of the "
     "frame before, a fit that has drifted, or something else driving the barcode line"
 )
-# Task 1.17 (the user's ruling, 2026-11-20, "Edge-trigger it"): _BETWEEN opens an episode,
-# and one of these closes it.
+# Task 1.17 (the user's ruling, 2026-11-20, "Edge-trigger it"; Ruling R38): _BETWEEN
+# opens an episode, and one of these closes it.
 _BETWEEN_ENDED = (
-    "stamps on GPIO17 between frames ended before barcode {}: {} stamp(s) discarded, "
-    "before {} frame(s) in a row, barcodes {} to {}"
+    "stamps on GPIO17 between frames ended: none in the {} frames up to barcode {}; the "
+    "episode discarded {} stamp(s), before {} frame(s) of barcodes {} to {}"
 )
 _BETWEEN_AT_STOP = (
-    "capture stopped with stamps on GPIO17 between frames still coming: {} stamp(s) "
-    "discarded, before {} frame(s) in a row, barcodes {} to {}"
+    "capture stopped during an episode of stamps on GPIO17 between frames: {} stamp(s) "
+    "discarded, before {} frame(s) of barcodes {} to {}"
 )
 _BETWEEN_SUMMARY = (
     "stamps on GPIO17 between frames: {} discarded this run, before {} frame(s)"
@@ -503,10 +503,7 @@ def test_stamps_between_frames_are_a_warning_naming_the_next_barcode(tmp_path, c
     wire, written = _dropping(tmp_path, backend, 3, caplog)
 
     assert written == wire
-    assert _warnings(caplog) == [
-        _BETWEEN.format(3, wire[1]),
-        _BETWEEN_ENDED.format(wire[2], 3, 1, wire[1], wire[1]),
-    ]
+    assert _warnings(caplog)[0] == _BETWEEN.format(3, wire[1])
     assert _errors(caplog) == []
 
 
@@ -514,35 +511,85 @@ def _warnings(caplog):
     return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
 
 
+K = cli.BETWEEN_CLEAN_FRAMES
+
+
 def test_frames_in_a_row_with_stamps_between_are_one_episode_of_two_warnings(
     tmp_path, caplog
 ):
     """Task 1.7's WARNING, edge-triggered (the user, 2026-11-20). Frames 2 to 11 each find
     stamps between frames, 65 in all: one WARNING at the first, in Task 1.7's text, and one
-    at frame 12, the first with none, giving the frames and the stamps. Both WARNINGs, as
-    Task 1.15's episode lines are, so a journal filtered at WARNING shows every end of a
-    start it shows (wl_sync/rp1/backend.py:1628-1630). One a frame was 86,400 a day."""
+    at the BETWEEN_CLEAN_FRAMES-th clean frame after them, giving the frames and the
+    stamps. Both WARNINGs, as Task 1.15's episode lines are, so a journal filtered at
+    WARNING shows every end of a start it shows (wl_sync/rp1/backend.py:1628-1630). One a
+    frame was 86,400 a day."""
     backend = _StampsBetween({n: n for n in range(2, 12)})
-    wire, written = _dropping(tmp_path, backend, 13, caplog)
+    wire, written = _dropping(tmp_path, backend, 11 + K, caplog)
 
     assert written == wire
     assert _warnings(caplog) == [
         _BETWEEN.format(2, wire[1]),
-        _BETWEEN_ENDED.format(wire[11], 65, 10, wire[1], wire[10]),
+        _BETWEEN_ENDED.format(K, wire[10 + K], 65, 10, wire[1], wire[10]),
     ]
     summary = [m for m in caplog.messages if m.startswith("stamps on GPIO17 between")]
     assert summary[-1] == _BETWEEN_SUMMARY.format(65, 10)
 
 
+def test_frames_that_alternate_with_stamps_between_are_one_episode(tmp_path, caplog):
+    """Ruling R38 (final review I-2). An episode that ended at the first clean frame made
+    frames that alternate, 1, 0, 1, 0, two WARNINGs each: 100 lines for 50 frames, twice
+    Task 1.7's per-frame line, and an intermittent cause is the likely one (a drain that
+    gives up under load). Fewer than BETWEEN_CLEAN_FRAMES clean frames between them keep
+    one episode open: one WARNING at its start, and one when the run ends."""
+    backend = _StampsBetween({n: 1 for n in range(1, 101, 2)})
+    wire, _ = _dropping(tmp_path, backend, 100, caplog)
+
+    assert _warnings(caplog) == [
+        _BETWEEN.format(1, wire[0]),
+        _BETWEEN_AT_STOP.format(50, 50, wire[0], wire[98]),
+    ]
+
+
+def test_an_episode_ends_after_exactly_between_clean_frames_frames(tmp_path, caplog):
+    """Ruling R38: the end comes at the BETWEEN_CLEAN_FRAMES-th consecutive clean frame,
+    and names it. One frame fewer, and the episode is still open when the run ends."""
+    backend = _StampsBetween({2: 4})
+    wire, _ = _dropping(tmp_path, backend, 1 + K, caplog)  # K - 1 clean frames after it
+    assert _warnings(caplog)[1:] == [_BETWEEN_AT_STOP.format(4, 1, wire[1], wire[1])]
+
+    caplog.clear()
+    backend = _StampsBetween({2: 4})
+    wire, _ = _dropping(tmp_path / "again", backend, 2 + K, caplog)
+    assert _warnings(caplog) == [
+        _BETWEEN.format(4, wire[1]),
+        _BETWEEN_ENDED.format(K, wire[1 + K], 4, 1, wire[1], wire[1]),
+    ]
+
+
+def test_one_carried_misread_is_one_episode_of_one_frame(tmp_path, caplog):
+    """Task 1.15's carry: a misread after a lost stamp word is counted between frames once,
+    at one frame (tests/test_rp1_backend.py:2975-2978). That is one episode: one WARNING
+    to open it and one to close it, a minute later."""
+    backend = _StampsBetween({5: 1})
+    wire, _ = _dropping(tmp_path, backend, 5 + K, caplog)
+    assert _warnings(caplog) == [
+        _BETWEEN.format(1, wire[4]),
+        _BETWEEN_ENDED.format(K, wire[4 + K], 1, 1, wire[4], wire[4]),
+    ]
+
+
 def test_two_episodes_of_stamps_between_frames_give_two_pairs(tmp_path, caplog):
-    backend = _StampsBetween({2: 1, 3: 4, 6: 2})
-    wire, _ = _dropping(tmp_path, backend, 8, caplog)
+    """Stamps again after BETWEEN_CLEAN_FRAMES clean frames are a new episode."""
+    second = 3 + K + 5
+    backend = _StampsBetween({2: 1, 3: 4, second: 2})
+    wire, _ = _dropping(tmp_path, backend, second + K, caplog)
 
     assert _warnings(caplog) == [
         _BETWEEN.format(1, wire[1]),
-        _BETWEEN_ENDED.format(wire[3], 5, 2, wire[1], wire[2]),
-        _BETWEEN.format(2, wire[5]),
-        _BETWEEN_ENDED.format(wire[6], 2, 1, wire[5], wire[5]),
+        _BETWEEN_ENDED.format(K, wire[2 + K], 5, 2, wire[1], wire[2]),
+        _BETWEEN.format(2, wire[second - 1]),
+        _BETWEEN_ENDED.format(K, wire[second - 1 + K], 2, 1, wire[second - 1],
+                              wire[second - 1]),
     ]
     assert _BETWEEN_SUMMARY.format(7, 3) in caplog.messages
 
@@ -4164,8 +4211,9 @@ def test_no_calibration_is_written_before_ntp_has_synced(tmp_path):
 
 _GATE_NEVER_OPENED = (
     "no clock pair has passed the PIO rate gate in {} s of narrow pairs, {} of them, held "
-    "by {}: this process measures no PIO rate and writes no calibration for the next "
-    "start (deploy/README.md, \"The PIO rate file\")"
+    "by {}: so this process has no PIO rate yet, and no calibration for the next start; "
+    "if the gate opens later, one is written once an hour of pairs has passed it "
+    "(deploy/README.md, \"The PIO rate file\")"
 )
 NO_PLL = KernelNtp(unsynchronized=False, pll=False, offset_ns=0)
 
@@ -4223,14 +4271,33 @@ def test_the_gate_warning_names_every_condition_that_held_it_most_frequent_first
 
 
 def test_a_gated_pair_within_the_hour_means_no_gate_warning(tmp_path, caplog):
-    """The WARNING is for a gate that never opens: one pair through it within the hour,
-    and the process says nothing of the kind, however long the gate is held after."""
+    """The WARNING is for a gate that has not opened in the hour: one pair through it
+    within the hour, and the process says nothing of the kind, however long the gate is
+    held after."""
     keeper = cli._RateKeeper(tmp_path / RATE_FILE_NAME, "test-serial", None, "")
     pairs = _pair_train(600, 13)
     with caplog.at_level(logging.WARNING, logger=cli.log.name):
         for n, pair in enumerate(pairs):
             keeper.frame([pair], True, SYNCED if n == 4 else NO_PLL)
     assert _gate_warnings(caplog) == []
+
+
+def test_a_gate_that_opens_after_its_warning_still_writes_the_rate_file(tmp_path, caplog):
+    """Final review I-1 (Ruling R38). The WARNING is an hour with no pair gated, not a gate
+    that will never open: NTP up late, for 4800 s, then synced, and an hour of gated pairs
+    writes the file as ever. The WARNING says so, and is not given again."""
+    path = tmp_path / RATE_FILE_NAME
+    keeper = cli._RateKeeper(path, "test-serial", None, "")
+    pairs = iter(_pair_train(600, 16))
+    with caplog.at_level(logging.WARNING, logger=cli.log.name):
+        for _ in range(8):
+            keeper.frame([next(pairs)], False, SYNCED)
+        for _ in range(7):
+            keeper.frame([next(pairs)], True, SYNCED)
+    assert _gate_warnings(caplog) == [
+        _GATE_NEVER_OPENED.format(3600, 7, "NTP not synchronised (7 of them)")
+    ]
+    assert read_calibration(path, "test-serial")[0].pairs == 7
 
 
 def test_nothing_is_written_when_the_board_serial_cannot_be_read(

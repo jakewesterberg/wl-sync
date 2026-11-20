@@ -1422,6 +1422,20 @@ class _DroppedBarcodes:
         self._first = None
 
 
+# Frames in a row with no stamps between frames that end an episode of them (Ruling R38;
+# final review I-2): 60, one minute at one frame a second (INTERVAL_US). Ended at the first
+# clean frame, an episode under a cause that hits every other frame was two WARNINGs a
+# frame hit, twice Task 1.7's per-frame line, and the likely causes are intermittent: a
+# drain that gives up under load, or something else driving the line now and then. With
+# this, any pattern of stamps gives at most two lines in 61 frames, under 2,900 a day at
+# the very worst against Task 1.7's 86,400, and a cause gone quiet is reported ended a
+# minute late, which the end line says. Shorter, the bound grows (20 frames, Task 1.15's
+# EXTRAPOLATION_WARN_FRAMES, would allow about 8,200 a day); longer, an operator watching
+# the journal waits longer to learn that the cause has stopped, for no fewer lines from a
+# cause that keeps going.
+BETWEEN_CLEAN_FRAMES = 60
+
+
 class _StampsBetweenFrames:
     """The journal of the stamps on GPIO17 that a frame found between frames and the
     backend discarded (`FrameStamp.between`; spec §2.5 step 4).
@@ -1436,11 +1450,13 @@ class _StampsBetweenFrames:
 
     EDGE-TRIGGERED (the user, 2026-11-20, "Edge-trigger it"). Task 1.7 gave a WARNING for
     every frame that had any, and a cause that lasts, such as a drain that gives up on
-    every frame, is one a frame, 86,400 a day. An episode is a run of consecutive frames
-    with stamps between. Its first frame is one WARNING, in Task 1.7's text, and its end
-    one more, at the first frame with none or at `close()`, with the frames and the
-    stamps it held. One frame alone, as the RP1 backend's carried misread is
-    (wl_sync/rp1/backend.py:1504-1512), is an episode of one: two lines, not a flood.
+    every frame, is one a frame, 86,400 a day. An episode begins at a frame with stamps
+    between, and ends at the BETWEEN_CLEAN_FRAMES-th frame in a row with none (Ruling R38),
+    so frames hit now and then, fewer than that apart, are one episode. Its first frame is
+    one WARNING, in Task 1.7's text, and its end one more, at that clean frame or at
+    `close()`, with the frames it held and their stamps. One frame alone, as the RP1
+    backend's carried misread is (wl_sync/rp1/backend.py:1504-1512), is an episode of
+    one: two lines, not a flood.
 
     BOTH LINES ARE WARNINGS, as Task 1.15's extrapolation episode's are
     (wl_sync/rp1/backend.py:1628-1630): the journal filtered at WARNING (`journalctl -p
@@ -1452,21 +1468,27 @@ class _StampsBetweenFrames:
     def __init__(self) -> None:
         self._stamps = 0  # this run's, in every episode
         self._frames = 0
-        # The open episode: its first value (None when there is none), its last, how many
-        # frames it has held, and their stamps.
+        # The open episode: its first value (None when there is none), the last value
+        # with stamps, how many frames had them and how many stamps, and the clean
+        # frames in a row since.
         self._first: int | None = None
         self._last = 0
         self._count = 0
         self._held = 0
+        self._clean = 0
 
     def frame(self, value: int, between: int) -> None:
         """The frame `value` just driven, and the stamps it found between frames."""
         if not between:
-            if self._first is not None:
+            if self._first is None:
+                return
+            self._clean += 1
+            if self._clean == BETWEEN_CLEAN_FRAMES:
                 log.warning(
-                    "stamps on GPIO17 between frames ended before barcode %d: %d stamp(s) "
-                    "discarded, before %d frame(s) in a row, barcodes %d to %d",
-                    value, self._held, self._count, self._first, self._last,
+                    "stamps on GPIO17 between frames ended: none in the %d frames up to "
+                    "barcode %d; the episode discarded %d stamp(s), before %d frame(s) "
+                    "of barcodes %d to %d",
+                    self._clean, value, self._held, self._count, self._first, self._last,
                 )
                 self._first = None
             return
@@ -1484,12 +1506,13 @@ class _StampsBetweenFrames:
         self._last = value
         self._count += 1
         self._held += between
+        self._clean = 0
 
     def close(self) -> None:
         if self._first is not None:
             log.warning(
-                "capture stopped with stamps on GPIO17 between frames still coming: %d "
-                "stamp(s) discarded, before %d frame(s) in a row, barcodes %d to %d",
+                "capture stopped during an episode of stamps on GPIO17 between frames: "
+                "%d stamp(s) discarded, before %d frame(s) of barcodes %d to %d",
                 self._held, self._count, self._first, self._last,
             )
             self._first = None
@@ -1545,18 +1568,23 @@ class _RateKeeper:
     calibration or the crystal, which nothing in this process changes, and the process
     keeps its rate whatever they say.
 
-    A GATE THAT NEVER OPENS IS ONE WARNING, per process (final review M4; the user,
-    2026-11-20, "One WARNING per process"). With no pair gated, `si()` stays None, the
-    file is never written, and every start repeats "no calibration file" while the
-    README tells the operator to wait: the expected cause is a timesyncd that never sets
-    STA_PLL, unverified until bench B7 (deploy/README.md, "Before first boot"). So once
-    narrow pairs have spanned CALIBRATION_WRITE_EVERY_S on MONO, the hour the first
-    write waits for, with none gated, the WARNING names every condition that held a pair
+    A GATE THAT HAS NOT OPENED IN AN HOUR IS ONE WARNING, per process (final review M4;
+    the user, 2026-11-20, "One WARNING per process"). With no pair gated, `si()` stays
+    None and no file is written, and until this line every start repeated "no
+    calibration file" while the README told the operator to wait. The cause that does not
+    clear by itself is a timesyncd that never sets STA_PLL, unverified until bench B7
+    (deploy/README.md, "Before first boot"); others do, as NTP synchronising late does.
+    So once narrow pairs have spanned CALIBRATION_WRITE_EVERY_S on MONO, the hour the
+    first write waits for, with none gated, the WARNING says that there is no rate yet,
+    and that a gate opening later still writes the file (final review I-1, Ruling R38):
+    the estimator takes every pair as before, and this changes nothing it does. The span
+    runs from the first narrow pair to the latest, however few lie between; the line
+    gives their count. It names every condition that held a pair
     (`calibration.gate_holds`), each with its count, the most frequent first. All of
     them, not the most frequent alone: NTP's first sync can hold the first minutes and
     the PLL the rest, and the line must name both. One gated pair, at any time before,
-    means the gate opens, and the WARNING never comes; after it, a gate held again is
-    the baseline's matter, not this line's.
+    means the gate has opened, and the WARNING never comes; after it, a gate held again
+    is the baseline's matter, not this line's.
     """
 
     def __init__(
@@ -1624,8 +1652,9 @@ class _RateKeeper:
         # for conditions first seen at one pair (calibration.gate_holds).
         log.warning(
             "no clock pair has passed the PIO rate gate in %.0f s of narrow pairs, %d of "
-            "them, held by %s: this process measures no PIO rate and writes no "
-            'calibration for the next start (deploy/README.md, "The PIO rate file")',
+            "them, held by %s: so this process has no PIO rate yet, and no calibration "
+            "for the next start; if the gate opens later, one is written once an hour of "
+            'pairs has passed it (deploy/README.md, "The PIO rate file")',
             span_s,
             self._narrow,
             ", ".join(f"{held} ({n} of them)" for held, n in self._held.most_common()),

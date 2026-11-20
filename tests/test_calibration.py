@@ -143,7 +143,7 @@ def test_the_gate_is_open_at_exactly_the_offset_limit():
     )),
 ])
 def test_the_gate_names_every_condition_that_holds_it(known, kernel, expected):
-    """Final review M4: a gate that never opens is named in the journal by what held it,
+    """Final review M4: a gate shut for an hour is named in the journal by what held it,
     so each of si_gate's conditions but the bracket's has a name, and a narrow pair is
     gated exactly when none holds."""
     assert gate_holds(known, kernel) == expected

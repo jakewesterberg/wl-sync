@@ -223,21 +223,25 @@ the ERRORs. Advice that names `python -m wl_sync.bench stamps` means the checks 
 
 **Stamps between frames are a WARNING an episode** *(added 2026-11-20)*. On one count a
 stamp on GPIO17 that came before a frame's lead edge, or before its window, is discarded,
-and the frame keeps its `B`. The first frame of a run of frames that have such stamps logs
+and the frame keeps its `B`. The first frame that has such stamps opens an episode and logs
 
     N stamps on GPIO17 between frames, before barcode V, discarded: late stamps of the frame before, a fit that has drifted, or something else driving the barcode line
 
-and the run ends, at the first frame with none, with
+The episode ends only after 60 frames in a row with none, a minute
+(`BETWEEN_CLEAN_FRAMES`), so frames hit now and then, less than a minute apart, are one
+episode. Its end is
 
-    stamps on GPIO17 between frames ended before barcode V: N stamp(s) discarded, before F frame(s) in a row, barcodes V1 to V2
+    stamps on GPIO17 between frames ended: none in the 60 frames up to barcode V; the episode discarded N stamp(s), before F frame(s) of barcodes V1 to V2
 
-or, if capture stops first, `capture stopped with stamps on GPIO17 between frames still
-coming: N stamp(s) discarded, before F frame(s) in a row, barcodes V1 to V2`
-(`wl_sync/cli.py:1462-1495`). Both are WARNINGs, so `journalctl -u wl-sync -p warning`
-shows every episode's start and end. Each run's end logs `stamps on GPIO17 between frames:
-N discarded this run, before F frame(s)` (`:1496-1500`). Until 2026-11-20 the first line
-came once for every frame that had any, so a drain that gave up on every frame gave one a
-second. A lone misread stamp, after the stamp FIFO lost a word, is an episode of one frame.
+where F counts the frames that had stamps, not the frames from V1 to V2. If capture stops
+first, it ends with `capture stopped during an episode of stamps on GPIO17 between frames:
+N stamp(s) discarded, before F frame(s) of barcodes V1 to V2`
+(`wl_sync/cli.py:1480-1517`). Both are WARNINGs, so `journalctl -u wl-sync -p warning`
+shows every episode's start and end; an end comes a minute after the last stamp it counts.
+Each run's end logs `stamps on GPIO17 between frames: N discarded this run, before F
+frame(s)` (`:1519-1523`). Until 2026-11-20 the first line came once for every frame that
+had any, so a drain that gave up on every frame gave one a second. A lone misread stamp,
+after the stamp FIFO lost a word, is an episode of one frame.
 
 **A desynced stamp stream is an ERROR, and stamping goes on** *(added 2026-11-20)*. When
 the stamp machine's FIFO fills and the drain runs between a pair's two pushes, one word is
@@ -590,7 +594,7 @@ repository's unit that is `/data/rig1/.wl-sync-pio-rate` (`deploy/wl-sync.servic
 `wl_sync/cli.py:516-549`). The unit installed on wl-rig-sync0 writes `/data/rig0` instead,
 as read on the box on 2026-11-07, so that box's file is `/data/rig0/.wl-sync-pio-rate`.
 The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
-reaches an hour, and every hour after (`wl_sync/cli.py:1685-1709`). A file is used only on
+reaches an hour, and every hour after (`wl_sync/cli.py:1714-1738`). A file is used only on
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
 and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:262-285`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
@@ -623,13 +627,16 @@ that this process's rate cannot be kept for the next start (`wl_sync/cli.py:542-
 Later starts take the newest file. During a run, a WARNING that the calibration "most
 likely came from other hardware", or that this process measures a rate more than 1 ppm
 from the one it applies, changes nothing in that run: the process keeps the rate it
-started with (`wl_sync/cli.py:1634-1683`).
+started with (`wl_sync/cli.py:1663-1712`).
 
 If an hour of pairs passes with none gated, the journal has, once a process, `no clock
 pair has passed the PIO rate gate in S s of narrow pairs, N of them, held by <conditions>:
-...` (`wl_sync/cli.py:1603-1632`) *(added 2026-11-20)*. It means no rate file will come
-from this process, however long it runs, so waiting longer does not help. If it names `no
-STA_PLL`, bench B7, which logs whether timesyncd sets STA_PLL, is the check.
+...` (`wl_sync/cli.py:1631-1661`) *(added 2026-11-20)*. It means that no pair has passed
+the gate in the hour, so this process has no rate yet and has written no rate file. If the
+gate opens later, the file is written once an hour of pairs has passed it, as in step 2,
+so a condition that clears by itself, such as NTP synchronising late, needs only more
+time. If it names `no STA_PLL`, the gate will not open by itself: bench B7, which logs
+whether timesyncd sets STA_PLL, is the check.
 
 ## Before first boot
 

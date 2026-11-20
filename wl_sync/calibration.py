@@ -99,7 +99,7 @@ HELD_OFFSET = f"the kernel's offset over {KERNEL_OFFSET_MAX_NS / 1e6:g} ms"
 def gate_holds(ntp_known: bool | None, kernel: KernelNtp | None) -> tuple[str, ...]:
     """Every condition, of NTP's state and the kernel's, that closes the gate, in
     si_gate's order: empty when only the bracket is left to judge. Named so a gate that
-    never opens can say why (wl_sync/cli.py `_RateKeeper`)."""
+    has not opened in an hour can say why (wl_sync/cli.py `_RateKeeper`)."""
     held = []
     if ntp_known is None:
         held.append(HELD_NTP_UNKNOWN)

@@ -99,7 +99,7 @@ STAMP_TEST_HIGH_US = 1_000
 # for the end of the idle a lead must follow, so the first frame must rise more than
 # IDLE_MIN_US, 0.4 s, after it or no decoder finds it (wl_sync/barcode.py:37, :128). The
 # first frame comes later still: run() begins only once the backend exists
-# (wl_sync/cli.py:1886-1888, :457).
+# (wl_sync/cli.py:1915-1917, :457).
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
@@ -139,8 +139,8 @@ REACQUIRE_FRAMES = 3
 # slope's error times the time since. The largest slope error the box runs on without a word
 # is a calibrated seed's, which the line keeps below FIT_FREE_SLOPE_PAIRS and again after
 # each R19 restart (wl_sync/clockmap.py:47, :193-202): within RAW_RATIO_WITNESS_PPB,
-# 5 ppm, of the ratio measured live, or a WARNING says it is not (wl_sync/cli.py:1511,
-# :1634-1654). At one frame a second (INTERVAL_US, wl_sync/barcode.py:36), 5 ppm carries E
+# 5 ppm, of the ratio measured live, or a WARNING says it is not (wl_sync/cli.py:1534,
+# :1663-1683). At one frame a second (INTERVAL_US, wl_sync/barcode.py:36), 5 ppm carries E
 # 100 us, the whole of the spec's +-100 us budget (spec §3,
 # docs/superpowers/specs/2026-10-30-one-clock-design.md:517), in 100 / 5 = 20 frames. A
 # fitted slope is far better, so there the WARNING comes early, the side to err on. With no
@@ -522,7 +522,7 @@ class Rp1Backend:
 
         # BOTH MACHINES ARE CONFIGURED HERE, BEFORE THE FIRST SEGMENT, and enabled when
         # capture starts (`start_strobed_capture`). main() builds the backend before run()
-        # (wl_sync/cli.py:1886-1888), and run() names the timebase in the first header
+        # (wl_sync/cli.py:1915-1917), and run() names the timebase in the first header
         # (:565-575), so the start-up test's result reaches every segment. Configuring runs
         # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:90, :153), and
         # a disabled machine pushes nothing, so no code word reaches a FIFO before a
@@ -530,7 +530,7 @@ class Rp1Backend:
         failure = self._configure(pio_index)
         if failure:
             # THE BOX RECORDS ANYWAY (Task 1.16; the user's rulings of 2026-11-20). Until
-            # then this raised, nothing above caught it (wl_sync/cli.py:1885-1896), and
+            # then this raised, nothing above caught it (wl_sync/cli.py:1914-1925), and
             # under Restart=always (deploy/wl-sync.service:30-31) the unit crash-looped.
             # With no capture machine there is no program for a stamp machine to run on
             # (pio/wlsync_pio.c:168-169), so B is read in software and E counts MONO:
@@ -626,7 +626,7 @@ class Rp1Backend:
         lib = self._lib
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
         # pio/wlsync_pio.c:175-177, :197-202) must not stop the capture machine, and
-        # raising here would: nothing above catches it (wl_sync/cli.py:1885-1896). The
+        # raising here would: nothing above catches it (wl_sync/cli.py:1914-1925). The
         # process records split instead, with the errno in the ERROR below.
         stamps = lib.wlsync_start_stamp(
             program.WRAP_TARGET, program.WRAP, program.ENTRY,
