@@ -65,7 +65,8 @@ through them turned up two more, and both are fixed:
   without a sound. `check_health()` did not look at that path either. There is now a
   word-pump thread. Its decisions live in `WordPump` (`wl_sync/rp1/pio_capture.py`):
   - a full FIFO is held as an error and capture continues;
-  - a desync, or a failing consumer, stops the pump.
+  - a desync, or a failing consumer, stops the pump (a desync no longer does since Task
+    1.20, 2026-11-20: §3).
   `check_health()` reports both. `tests/test_rp1_backend.py` drives that glue against a
   stand-in for libpiolib.
 - **The loop was not 1 Hz on hardware.** A frame holds the pin for 200 ms, and the loop
@@ -111,7 +112,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:544-551`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:565-572`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
 (libwlsync_pio is version N, and this wl-sync needs 3: rebuild ...)` names the rebuild.
 
@@ -174,7 +175,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses to use a shim that is not version 3, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:544-551`, `wl_sync/rp1/backend.py:254`).
+   (`deploy/README.md:565-572`, `wl_sync/rp1/backend.py:254`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -192,23 +193,23 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
 7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
-   strobe (`wl_sync/rp1/backend.py:856-861`). The strobe is tested every 2 PIO cycles (1 µs), so
+   strobe (`wl_sync/rp1/backend.py:858-863`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
    the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
    1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
-   previous one (`wl_sync/rp1/backend.py:862-863`).
+   previous one (`wl_sync/rp1/backend.py:864-865`).
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
 (`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
-latched count, inverted (`wl_sync/rp1/pio_capture.py:81`) and handed on as it is (`:272`).
+latched count, inverted (`wl_sync/rp1/pio_capture.py:275`) and handed on as it is (`:467`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
-`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:956-972`),
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:958-974`),
 so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
@@ -296,6 +297,11 @@ left, so no further panel connector fits. One fix-up came with it:
   other paths keep recording. Exiting instead would let `Restart=always` bring capture back
   with a fresh state machine within about two seconds. That was not chosen; reconsider it
   if bench day shows desyncs.
+  *[2026-11-20, Task 1.20, built on `one-clock-p1`, not merged: it no longer does. The word
+  pump pairs the stream again and goes on. It writes only the pairs the drain's own counts
+  prove are one strobe's two words, and drops and counts every other word, as a `desync`
+  L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:165-301`;
+  `deploy/README.md:268-287`).]*
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
     out, so a thread could still be inside piolib.
@@ -307,6 +313,8 @@ left, so no further panel connector fits. One fix-up came with it:
     a stop's cause could be overwritten. This was not reproduced. The edge pump's hand-off is
     locked (`EdgePump.take_error`, `fe5a13d`).
   - A desync refuses the valid pairs that came before the slip in the same batch.
+    *[2026-11-20, Task 1.20, on `one-clock-p1`, not merged: fixed. The pairs before the slip
+    that the drain's counts prove are written; the rest are dropped and counted.]*
   None changes what a healthy day records.
 - ~~**wl-xcon's Asks 1 and 2** (session id readable by a rig host, and `_02` on a subject
   change) are open. They reverse the continuous-recording design's "a day is one session"

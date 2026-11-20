@@ -1321,26 +1321,32 @@ def test_a_gap_forced_final_by_the_stop_is_journalled_but_not_written(tmp_path):
     assert _losses(_segment(writer, path)) == []
 
 
-def test_a_desync_is_written_after_the_last_word_with_its_window_open(tmp_path):
-    """The pairing slips, the batch is refused, and the word pump stops: no code word
-    follows the loss in this process, so its window has no end. Four entries refused are
-    at least two strobes, none of them recorded."""
+def test_a_desync_is_written_after_the_last_word_before_it_and_the_words_after_follow(
+    tmp_path,
+):
+    """The drain finds the FIFO full, and while it pops, strobe 5's data word finds room
+    and its counter does not. The data word is dropped: at least one strobe, in an L record
+    at the last code word before it, its window open. Until Task 1.20 the word pump
+    stopped there and no code word followed; now 6 does, after the record."""
     backend, writer, path = _recording(tmp_path, [])
     backend.request.now = 10_000
-    assert backend.words.handle(_words((1_000, 0x8001), (2_000, 0x0001)))
-    slipped = _words((3_000, 0x0002), (4_000, 0x0003))[1:] + [0x0004]
-    assert backend.words.handle(slipped) is False
+    full = _words((1_000, 0x8001), (2_000, 0x0001), (3_000, 0x0002), (4_000, 0x0003))
+    assert backend.words.handle(full, fifo_was_full=True, level_after=1)
+    assert backend.words.handle([0x0004] + _words((6_000, 0x0005)), level_after=0)
 
     records = _segment(writer, path)
     assert records == [
         CodeWord(tick_us=1_000, word=0x8001),
         CodeWord(tick_us=2_000, word=0x0001),
+        CodeWord(tick_us=3_000, word=0x0002),
+        CodeWord(tick_us=4_000, word=0x0003),
         Loss(
-            tick_us=2_000, path="W", gpio=None, count=2, bound="at_least",
-            cause="desync", before_us=2_000, after_us=None,
+            tick_us=4_000, path="W", gpio=None, count=1, bound="at_least",
+            cause="desync", before_us=4_000, after_us=None,
         ),
+        CodeWord(tick_us=6_000, word=0x0005),
     ]
-    assert "pairing has slipped" in str(backend.words.error)
+    assert "1 desync(s) this run" in str(backend.words.error)
 
 
 def test_a_full_fifo_writes_no_loss_record(tmp_path):
@@ -1383,7 +1389,7 @@ def test_every_loss_record_keeps_the_order_its_path_has_under_the_reorder_window
     stream inverts. Number 7 never comes (unaccounted, final only after later edges are
     written). GPIO20's own numbers jump (an overflow), its event buffered behind a later
     GPIO21 edge; GPIO21 rises twice (a pair). The word pump records two words, then
-    slips (a desync)."""
+    slips (a desync), and goes on."""
     reads = [
         [_ev(1, 26, 1, True, 40_000), _ev(2, 27, 1, True, 40_003),
          _ev(3, 26, 2, False, 41_000), _ev(5, 26, 3, True, 42_000)],
@@ -1399,7 +1405,9 @@ def test_every_loss_record_keeps_the_order_its_path_has_under_the_reorder_window
     backend.pump(50_000, 50_100)
     assert backend.words.handle(_words((45_000, 0x0001)))
     backend.pump(60_000)
-    assert backend.words.handle(_words((61_000, 0x0002))[1:] + [0x0003]) is False
+    # A counter right behind 45 000's, where the counts say no word can be lost: dropped,
+    # a desync, and the pump goes on (Task 1.20).
+    assert backend.words.handle(_words((61_000, 0x0002))[1:] + [0x0003]) is True
     backend.pump(70_001)
     records = _segment(writer, path)
 
@@ -1663,10 +1671,11 @@ def test_a_word_loss_record_that_cannot_be_made_is_dropped_and_the_words_go_on(
             pio_capture, "CaptureLoss", lambda *a, **k: CaptureLoss(*a, **k, gpio=3)
         )
         slipped = _words((3_000, 0x0002), (4_000, 0x0003))[1:] + [0x0004]
-        assert backend.words.handle(slipped) is False
+        assert backend.words.handle(slipped) is True  # since Task 1.20 it goes on
 
     assert _segment(writer, path) == [
         CodeWord(tick_us=1_000, word=0x8001), CodeWord(tick_us=2_000, word=0x0001),
+        CodeWord(tick_us=4_000, word=0x0003),
     ]
     assert len(_refusals(caplog)) == 2
     assert isinstance(backend.words.error, pio_capture.DesyncError)
@@ -1786,7 +1795,7 @@ def test_an_edge_pump_places_edges_through_the_timebase_it_is_given():
 
 def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     """Review Focus 3. A fit update between two GPIO20 edges maps the second 3 counts
-    before the first. Each line's E records are in tick order (wl_sync/log.py:485-488), so
+    before the first. Each line's E records are in tick order (wl_sync/log.py:489-492), so
     it is delivered at the first one's tick. GPIO21's edge at that same 497 has no edge
     of its own line before it, and lands where it is mapped. A third GPIO20 edge mapped to
     498 is still behind the 500 delivered, so it is delivered at 500 too: the guard keeps
@@ -1988,7 +1997,7 @@ def test_a_loss_written_ahead_of_an_edge_keeps_its_lines_order(tmp_path):
     """Ruling R30. GPIO20's own numbers jump from 1 to 4, after the map moved: its edge
     at 40 100 us is mapped to 497, behind the 500 of the line's edge before it, and is
     held there at 500. The overflow's record goes just before it at its tick
-    (wl_sync/log.py:490-491). Mapped again on its own, the record took 497, and the line
+    (wl_sync/log.py:494-495). Mapped again on its own, the record took 497, and the line
     read E@500, L@497, E@500."""
     timebase = _Timebase()
     backend = _PumpedThrough(

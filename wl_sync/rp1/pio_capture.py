@@ -28,11 +28,13 @@ FIFO_WORD_BITS = 32
 class DesyncError(ValueError):
     """The FIFO stream stopped being a sequence of (data, counter) pairs.
 
-    Raised rather than repaired for code words: once the pairing slips, every later
-    word is attributed to the wrong half, so a batch that cannot be trusted must not be
-    quietly turned into plausible timestamps. Stamps are paired again instead, and the
-    stamp pump holds this to report it (`pair_stamps`, `StampPump`): a stamp is not a
-    record, and B is written only from one a frame's rises vouch for.
+    `pair_fifo` raises it: it pairs one batch alone, and cannot repair a slip. Both
+    pumps pair the stream again instead and HOLD this to report it, each by its own
+    rule. Stamps are paired again on the bits (`pair_stamps`, `StampPump`), because a
+    stamp is not a record, and B is written only from one a frame's rises vouch for.
+    Code words are records with no such check, so they are paired again only where the
+    drain's own counts prove the pairing, and every word that cannot be proven is
+    dropped and counted (`CodeWordPairer`, `WordPump`; Task 1.20).
     """
 
 
@@ -92,7 +94,7 @@ def pair_stamps(
 
     WHAT THE LAYOUT TELLS APART. A data word is `in pins, 16`, shifted in from the left
     into an ISR that every push clears, so its bits above the window are always clear
-    (wl_sync/rp1/program.py:55-61, :87-101). A push to a full FIFO is dropped and still
+    (wl_sync/rp1/program.py:55-61, :88-102). A push to a full FIFO is dropped and still
     clears the ISR (RP2040 datasheet §3.4.6.2 [unverified on RP1]), so a lost push leaves
     no bits behind for the next data word. A counter is ~P, so its upper half is set
     unless P lies within 2**16 us, 65.5 ms, before its 71.6-min wrap. A word with bits above
@@ -137,6 +139,166 @@ def pair_stamps(
         else:
             break  # a data word, its counter not drained yet
     return stamps, list(words[index:]), slips
+
+
+# The capture machine's RX FIFO: both 4-deep FIFOs joined (pio/wlsync_pio.c:138).
+RX_FIFO_WORDS = 8
+
+_DATA, _COUNTER = "data", "counter"
+
+
+class _Word:
+    """One word read from the FIFO, as `CodeWordPairer` knows it."""
+
+    __slots__ = ("value", "closed", "half", "decided")
+
+    def __init__(self, value: int, closed: bool) -> None:
+        self.value = value
+        # No push between this word and the next one read was dropped: proven.
+        self.closed = closed
+        # _DATA or _COUNTER where proven, None where not.
+        self.half: str | None = None
+        # Written in a pair, or dropped; a word not yet decided is the batch's last.
+        self.decided = False
+
+
+class CodeWordPairer:
+    """The word machine's FIFO stream as code words, PAIRED AGAIN AFTER A LOST WORD, AND
+    NEVER WRONGLY (Task 1.20; the user's ruling, 2026-11-20). `feed` takes each batch the
+    drain read and returns, in stream order, ("word", tick, data) for each pair it proves
+    is one strobe's two words, and ("lost", strobes) for the words it drops.
+
+    WHY THE STAMP RULE IS NOT ENOUGH. `pair_stamps` pairs again on the bits: a word with
+    bits above the window is a counter. A stamp is checked again by its frame's rises; a
+    code word has no check of its own, and the bits miss two words lost in a row. When a
+    strobe's counter and the next strobe's data word are both dropped, the stream still
+    reads data, counter, data, counter, and a pairing by position, or by the bits, writes
+    one strobe's code at the next one's tick: a wrong W, which nothing downstream can see.
+
+    WHAT THE DRAIN'S COUNTS PROVE, from four facts, none of them about timing:
+      1. The FIFO holds RX_FIFO_WORDS, 8, and `push noblock` drops a word only when it
+         holds 8 (RP2040 datasheet §3.4.6, PUSH; RP1's PIO is documented compatible).
+      2. Only the drain pops it, on one thread. It reads the level, pops every word the
+         level showed, and reads the level again when it popped any
+         (wl_sync/rp1/backend.py:1007-1012). So the stream is every word the FIFO took,
+         in order.
+      3. Each strobe pushes its data word, then its counter, and nothing is pushed between
+         them (wl_sync/rp1/program.py:88-102).
+      4. A push that is taken clears the ISR, and `in pins, 16` fills bits 0-15 of it
+         (wl_sync/rp1/program.py:55-61): a data word pushed straight after a taken push
+         has no bits above the window. The box's window is those 16 lines
+         (wl_sync/pins.py:11), and capture refuses any other
+         (wl_sync/rp1/backend.py:891-899).
+
+    When the n-th word the FIFO ever took went in, it held n words less those popped. That
+    word was not in the FIFO when the drain before the one that read it looked, so every
+    pop before that look came first. Counting only those pops, the FIFO held at most
+
+        its position in its batch + 1 + the previous batch's size
+
+    words with it in, or only position + 1 when it came after the previous drain's last
+    pop: the level that drain read after popping (`level_after`) is how many came before.
+    When that is less than 8, the FIFO had room for the next push, so by 1 the next push
+    was taken, and by 2 it is the next word read: none was lost between them. Such a word
+    is CLOSED.
+
+    A word is a counter when it has bits above the window and the word before it is
+    closed: by 4, a data word there has none. Across a closed word the halves alternate,
+    by 3, so a word behind a closed data word is a counter, and one behind a closed
+    counter a data word. A pair is written only when its data word is closed and its
+    counter is a counter by these rules. Then the two are consecutive pushes, the second a
+    counter, so by 3 they are one strobe's data word and counter. Nothing else is written,
+    so no pair is written across a lost word, and no counter is out of order with its
+    neighbours. The datasheet's word on a DROPPED push, that it clears the ISR too
+    (unverified on RP1, `pair_stamps`), is not needed: the word after a lost one is never
+    taken for a counter by its bits.
+
+    WHAT IS DROPPED. Every word not in a written pair: a lone data word or counter, and
+    pairs the counts cannot prove, as when the drain popped a full FIFO while strobes came.
+    Each unbroken run of dropped words is at least half its length in strobes, rounded up,
+    since a strobe's two words are consecutive. That is reported as each batch ends, and
+    before the next pair is written, so the loss sits after every code word written before
+    it; a run that goes on into the next batch reports only the strobes it adds.
+
+    THE WINDOW BEFORE P'S WRAP. For 65.5 ms before each 71.6-min wrap a counter, ~P, has no
+    bits above the window, so none there is found by its bits. In a stream that has lost
+    nothing, the last counter before the window carries the phase through it, and every
+    pair is written. After a word lost in the window there is nothing to find the phase by
+    until the first counter after the wrap: every pair until then is dropped and counted,
+    and none is written wrong.
+    """
+
+    def __init__(self, data_count: int, fifo_words: int = RX_FIFO_WORDS) -> None:
+        if not 1 <= data_count < FIFO_WORD_BITS:
+            raise ValueError(f"data_count must be 1..{FIFO_WORD_BITS - 1}, got {data_count}")
+        self._above = ~((1 << data_count) - 1)
+        self._fifo_words = fifo_words
+        # The previous batch's size, which its drain read as the level, and the level it
+        # read after popping: None when it popped nothing, or did not say.
+        self._previous = 0
+        self._after: int | None = None
+        self._last: _Word | None = None
+        # The run of dropped words now open, and the strobes already reported for it.
+        self._run = 0
+        self._reported = 0
+
+    @property
+    def pending(self) -> bool:
+        """The last word read waits for the next batch: a data word, maybe, whose counter
+        the drain has not read yet."""
+        last = self._last
+        return last is not None and not last.decided
+
+    def feed(
+        self, batch: Sequence[int], level_after: int | None = None
+    ) -> list[tuple]:
+        out: list[tuple] = []
+        for position, value in enumerate(batch):
+            # A word in after the previous drain's last pop has every pop of it behind it.
+            popping = self._after is None or position < self._after
+            held = position + 1 + (self._previous if popping else 0)
+            word = _Word(value, closed=held < self._fifo_words)
+            last = self._last
+            if last is not None and last.closed:
+                if value & self._above:
+                    # Two counters in a row cannot be pushed: something is not as proven.
+                    word.half = None if last.half == _COUNTER else _COUNTER
+                elif last.half is not None:
+                    word.half = _DATA if last.half == _COUNTER else _COUNTER
+            if (
+                word.half == _COUNTER
+                and not last.decided
+                and last.half != _COUNTER
+                and not last.value & self._above
+            ):
+                self._end_run(out)
+                out.append(("word", (~value) & 0xFFFF_FFFF, last.value))
+                last.decided = word.decided = True
+            elif last is not None and not last.decided:
+                self._drop(last)
+            self._last = word
+        last = self._last
+        if last is not None and not last.decided and not (
+            last.closed and last.half != _COUNTER and not last.value & self._above
+        ):
+            self._drop(last)  # it cannot be a data word: nothing will pair it
+        self._report(out)
+        self._previous, self._after = len(batch), level_after
+        return out
+
+    def _drop(self, word: _Word) -> None:
+        word.decided = True
+        self._run += 1
+
+    def _report(self, out: list[tuple]) -> None:
+        due = (self._run + 1) // 2 - self._reported
+        if due > 0:
+            out.append(("lost", due))
+            self._reported += due
+
+    def _end_run(self, out: list[tuple]) -> None:
+        self._report(out)
+        self._run = self._reported = 0
 
 
 class WordsDroppedError(RuntimeError):
@@ -184,40 +346,56 @@ class WordPump:
 
     Three failures, and they are not treated alike:
 
-      * A FULL FIFO means words MAY have been dropped. If whole pairs went, the stream
-        is still intact and every later event is good, so capture CONTINUES, as it does
-        after a dropped edge. If a single word went, the next batch desyncs, below.
-      * A DESYNC means the pairing has slipped, and every later word would be read as
-        the wrong half: plausible timestamps for events that never happened. The pump
-        STOPS. The whole batch is refused, because it cannot be trusted either.
+      * A FULL FIFO means words MAY have been dropped. It is held, and capture CONTINUES,
+        as it does after a dropped edge. What it cost is found by the pairing, below.
+      * A DESYNC means words the pairing cannot prove whole (`CodeWordPairer`). They are
+        DROPPED AND COUNTED, and capture CONTINUES (Task 1.20; the user's ruling,
+        2026-11-20). Until then a desync stopped the pump, refused its whole batch, and
+        no code word was captured for the rest of the process, though the fault, a full
+        FIFO and a drain between a pair's two pushes, had passed. A pair read across a
+        lost word would be a plausible event that never happened, so the pairer writes
+        only pairs it proves, and none can be wrong: the proof is its docstring.
       * A FAILING CONSUMER means records are not being kept. The pump STOPS.
 
     `delivered_through` is how far it has delivered, as a raw `now_us()` reading (see
     `handle`), for the run loop's roll barrier. None until the first drain that can say.
 
-    A DESYNC ALSO GOES TO `on_loss`, as a CaptureLoss, for its L record in the segment
-    (wl_sync.log.Loss): the strobes in the refused batch, at least half its entries
-    rounded up, since a strobe pushes two. Nothing of this path follows it, because the
-    pump stops, so its window has no end. A FULL FIFO DOES NOT: it MAY have dropped
-    words, and if no strobe came while it was full nothing was lost, so its count cannot
-    be bounded below by one. The held error, and so the journal, is unchanged for both.
-    `on_loss` raises only when the sink behind it fails: then the failure is held, the
-    desync its context. A report the Recorder cannot make into a record it drops itself
-    (wl_sync.service.Recorder._on_loss), and the desync stays the held error.
+    A DESYNC GOES TO `on_loss`, as a CaptureLoss, for its L record in the segment
+    (wl_sync.log.Loss): at least the strobes dropped, before the next code word, so the
+    record sits after the last code word written before the loss. It is held as a
+    DesyncError with the run's count (`desyncs`), so check_health reports it, an ERROR an
+    episode (wl_sync/cli.py:1247-1266). A FULL FIFO GOES TO NO L RECORD: it MAY have
+    dropped words, and if no strobe came while it was full nothing was lost, so its count
+    cannot be bounded below by one. `on_loss` raises only when the sink behind it fails:
+    then the failure is held, the desync its context, and the pump stops. A report the
+    Recorder cannot make into a record it drops itself (wl_sync.service.Recorder._on_loss),
+    and the desync stays the held error.
     """
 
     def __init__(
-        self, on_word: Callable[[int, int], None], data_count: int, on_loss=None
+        self,
+        on_word: Callable[[int, int], None],
+        data_count: int,
+        on_loss=None,
+        fifo_words: int = RX_FIFO_WORDS,
     ) -> None:
         self._on_word = on_word
         self._on_loss = on_loss
-        self._data_count = data_count
+        self._pairer = CodeWordPairer(data_count, fifo_words)
         # The held error, written on the pump's thread and taken on the run loop's
         # (`take_error`): both under `_held`, so a take cannot clear one held between its
         # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:994-1004).
         self._held = threading.Lock()
         self.error: BaseException | None = None
         self.delivered_through: int | None = None
+        self._desyncs = 0
+
+    @property
+    def desyncs(self) -> int:
+        """How many losses the pairing has found and paired again after, this process:
+        one for each L record it reported."""
+        with self._held:
+            return self._desyncs
 
     def fail(self, error: BaseException) -> None:
         """Hold `error`, over anything held: the latest failure is the one to report."""
@@ -235,16 +413,25 @@ class WordPump:
         entries: Sequence[int],
         fifo_was_full: bool = False,
         polled_at: int | None = None,
+        level_after: int | None = None,
     ) -> bool:
-        """Deliver one drained batch. Returns False when the pump should stop.
+        """Deliver one drained batch. Returns False when the pump should stop: only for a
+        consumer that fails, since Task 1.20.
 
-        `polled_at` is `now_us()` read just before the drain that produced `entries`. The
-        drain passes it only when it read every word the FIFO held when it looked: an even
-        level, with no half pair left behind. Every strobe more than WORDS_LAG_US before
-        that reading had both its words in the FIFO by then, so once this batch is
-        delivered, so is every strobe at or before `polled_at - WORDS_LAG_US - 1`, and
-        `delivered_through` moves there. The allowance means the rule does not depend on
-        how long the shim takes to read the level.
+        `entries` is every word the FIFO held when the drain looked, and `level_after` the
+        level it read after popping them (wl_sync/rp1/backend.py:1007-1012): the counts
+        the pairing's proof is made of (`CodeWordPairer`).
+
+        `polled_at` is `now_us()` read just before the drain that produced `entries`. Every
+        strobe more than WORDS_LAG_US before that reading had both its words in the FIFO
+        by then, so once this batch is delivered, so is every strobe at or before
+        `polled_at - WORDS_LAG_US - 1`, and `delivered_through` moves there; one dropped
+        is reported by then. The allowance means the rule does not depend on how long the
+        shim takes to read the level. It moves only when no word waits for the next
+        batch (`CodeWordPairer.pending`): a data word whose counter is not in yet, as
+        before, when the drain left an odd word behind. In the window before P's wrap, a
+        counter after a loss waits there too, and holds the mark until the next strobe: a
+        roll in between waits out its barrier and names the path (wl_sync/cli.py:368-392).
 
         "Before" is on the box clock, where the reading is from, not by the words' own
         ticks, which count P. In a split process the box clock is MONO, which P drifts
@@ -256,24 +443,32 @@ class WordPump:
             self.fail(WordsDroppedError(
                 "the PIO RX FIFO was full when drained: event codes may have been lost"
             ))  # recorded, and we keep going
-        try:
-            events = pair_fifo(entries, self._data_count)
-        except DesyncError as error:
-            self.fail(error)
-            if self._on_loss is not None:
-                strobes = (len(entries) + 1) // 2
-                try:
-                    self._on_loss(CaptureLoss("desync", strobes, "at_least"))
-                except BaseException as failure:  # noqa: BLE001 - check_health's
-                    self.fail(failure)  # a failing consumer, the desync its context
-            return False
-        for tick, word in events:
+        for item in self._pairer.feed(entries, level_after):
+            if item[0] == "lost":
+                strobes = item[1]
+                with self._held:
+                    self._desyncs += 1
+                    desyncs = self._desyncs
+                self.fail(DesyncError(
+                    f"the code-word FIFO may have dropped a word, so at least {strobes} "
+                    f"strobe(s) whose data/counter pairing cannot be proven are left out, "
+                    f"with an L record in the segment: paired again from the next pair "
+                    f"proven whole, and capture goes on; {desyncs} desync(s) this run"
+                ))
+                if self._on_loss is not None:
+                    try:
+                        self._on_loss(CaptureLoss("desync", strobes, "at_least"))
+                    except BaseException as failure:  # noqa: BLE001 - check_health's
+                        self.fail(failure)  # a failing consumer, the desync its context
+                        return False
+                continue
+            _, tick, word = item
             try:
                 self._on_word(tick, word)
             except BaseException as error:  # noqa: BLE001 - surfaced by check_health
                 self.fail(error)
                 return False
-        if polled_at is not None:
+        if polled_at is not None and not self._pairer.pending:
             self.delivered_through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF
         return True
 
@@ -289,17 +484,18 @@ class StampPump:
 
     A FULL FIFO is held, as WordPump holds it, and the pump CONTINUES.
 
-    A DESYNC IS HELD AND THE PUMP CONTINUES, where WordPump stops (Task 1.15; the user's
-    ruling on final review I1, 2026-11-20). The stream is paired again on the counter
-    where the slip shows (`pair_stamps`), and the desync counted (`desyncs`). Until then a
-    desync stopped this pump, and every later B was dropped for the rest of the process,
-    though the fault, a full FIFO and a drain between a pair's two pushes, had passed. The
-    word pump refuses its batch and stops because a code word is a record, and a word
-    read as the wrong half would be a plausible event that never happened. A stamp is not
-    a record: B is written only from a stamp a frame's own rises align on
-    (wl_sync/clockmap.py:329-341), so the one stamp a slip can misread is refused there
-    unless its frame lies within 65.5 ms before P's wrap (`pair_stamps`), and a stamp lost
-    in it is a missed stamp, whose frame is dropped as an unstamped lead is.
+    A DESYNC IS HELD AND THE PUMP CONTINUES (Task 1.15; the user's ruling on final review
+    I1, 2026-11-20). The stream is paired again on the counter where the slip shows
+    (`pair_stamps`), and the desync counted (`desyncs`). Until then a desync stopped this
+    pump, and every later B was dropped for the rest of the process, though the fault, a
+    full FIFO and a drain between a pair's two pushes, had passed. The word pump goes on
+    too since Task 1.20, by a stricter rule (`CodeWordPairer`): a code word is a record,
+    and a word read as the wrong half would be a plausible event that never happened, so
+    it writes only pairs the drain's counts prove. A stamp is not a record: B is written
+    only from a stamp a frame's own rises align on (wl_sync/clockmap.py:329-341), so the
+    one stamp a slip can misread is refused there unless its frame lies within 65.5 ms
+    before P's wrap (`pair_stamps`), and a stamp lost in it is a missed stamp, whose
+    frame is dropped as an unstamped lead is.
     It is held as WordPump holds its desync, so check_health reports it, an ERROR once per
     desync (wl_sync/cli.py:1247-1266). No L record: stamps are not written, and the L
     format's paths are W and E (wl_sync/log.py:419-420).
@@ -357,7 +553,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py:1006-1037), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:1017-1049), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

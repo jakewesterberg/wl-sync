@@ -133,6 +133,7 @@ idle:                           ; ENTRY = offset + 11
 ;      divergence stops the box rather than corrupting timestamps. Items 1-3 remain
 ;      open because they are about SEMANTICS at runtime, which no encoder check sees.
 ;   5. `push noblock` DROPS on a full FIFO. With events seconds apart and an 8-deep
-;      FIFO this should never fire, and pair_fifo will raise DesyncError if a single
-;      word is lost — but a whole pair lost is invisible, so the bench run must
-;      check the FIFO overflow flag directly to satisfy "zero dropped words".
+;      FIFO this should never fire, and the word pump drops and counts every pair it
+;      cannot prove whole after a lost word (pio_capture.CodeWordPairer) — but a whole
+;      pair lost is invisible, so the bench run must check the FIFO overflow flag
+;      directly to satisfy "zero dropped words".

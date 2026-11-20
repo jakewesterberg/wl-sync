@@ -745,9 +745,10 @@ def test_a_loss_found_after_later_edges_sits_at_the_highest_edge_tick():
 
 
 def test_a_word_loss_with_nothing_after_it_follows_the_last_word():
-    """A desync stops the word pump, so no word follows the loss and its window has no
-    end. It lies after everything the path delivered: the last word opens the window, and
-    the record sits at that word's tick."""
+    """A desync is reported before any code word after it (Task 1.20; until then the word
+    pump stopped there), so its window has no end when it is written. It lies after
+    everything the path delivered: the last word opens the window, and the record sits
+    at that word's tick."""
     backend, sink, recorder = _word_recorder()
     backend.set_now_us(10_000)
     backend.inject_word(1_000, 0x8001)

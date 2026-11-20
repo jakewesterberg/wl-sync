@@ -103,7 +103,7 @@ STAMP_TEST_HIGH_US = 1_000
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
-# edge (wl_sync/rp1/pio_capture.py:146-151); this leaves room for the syscalls either side,
+# edge (wl_sync/rp1/pio_capture.py:308-313); this leaves room for the syscalls either side,
 # and stays well inside the pulse.
 STAMP_TEST_SETTLE_US = 100
 # The start-up test's two failures of the pulse, as the journal gives them (Task 1.16): the
@@ -513,8 +513,10 @@ class Rp1Backend:
         self._fit_anchor_raw_ns: int | None = None
         self._unpaired_frames = 0
         self._extrapolating = False
-        # Set when `close` has given the run's stamp summary (`_summarise_stamps`).
+        # Set when `close` has given the run's stamp summary (`_summarise_stamps`), and its
+        # word summary (`_summarise_words`).
         self._summarised = False
+        self._words_summarised = False
         # "" when the stamp machine passed its start-up test, and otherwise why it did not
         # (`_test_stamp_machine`), or why no machine could run (`_configure`); `bench
         # stamps` reads it, and refuses a process that has a reason.
@@ -736,7 +738,7 @@ class Rp1Backend:
         so this thread reads the test machine's FIFO, as it opened the block.
 
         IT WITNESSES THE RISE, not merely a stamp (Ruling R29). The idle `jmp pin` tests the
-        level (wl_sync/rp1/program.py:99), so a PIO that saw GPIO17 high while it is low
+        level (wl_sync/rp1/program.py:100), so a PIO that saw GPIO17 high while it is low
         would capture at the enable, and one that saw it inverted would stamp the fall.
         Neither stamps a rise, and on one count each would lose every B, yet each has a
         stamp in the FIFO by the time the pulse ends. So what the FIFO holds before the
@@ -928,7 +930,7 @@ class Rp1Backend:
         # it, so the first burst of more than four codes filled the FIFO and `push
         # noblock` discarded every later word without a sound. The pump thread is what
         # makes the strobed path a capture path at all.
-        self._words = WordPump(on_word, data_count, on_loss)
+        self._words = WordPump(on_word, data_count, on_loss, fifo_words=_RX_FIFO_WORDS)
         if not self._split:
             # The same program, so the same data window and the same pair check.
             self._stamp_pump = StampPump(data_count)
@@ -973,21 +975,29 @@ class Rp1Backend:
 
     def drain(self) -> bool:
         """Move whatever the FIFO holds through the word pump. Returns False when the
-        word drain should stop. Called from ONE thread, the pump's own.
+        word drain should stop: only for a consumer that fails, since Task 1.20. Called
+        from ONE thread, the pump's own.
 
-        Reads an even number of words only. The FIFO can be caught mid-pair, and a
-        batch cut between a data word and its counter would make `pair_fifo` raise on
-        a stream that is in fact intact -- so the odd tail is left for the next drain.
+        EVERY WORD, THEN THE LEVEL AGAIN (Task 1.20). Until then this read an even number
+        of words and left an odd tail for the next drain, because `pair_fifo` pairs one
+        batch alone. The pump now pairs across batches, carrying a data word whose counter
+        is not in yet, and pairs again after a lost word only where these counts prove it
+        (`CodeWordPairer`): the level read before popping is how many words the batch
+        holds, and the level read after is how many came while they were popped. The
+        second read is made only when a word was popped, so an empty poll costs what it
+        did. Read in even numbers, a word lost alone would have shifted the stream against
+        the reads for good, as it did the stamp drain's (`drain_stamps`).
 
-        Fullness is checked BEFORE draining. `push noblock` drops silently, `pair_fifo`
-        catches a single lost word but not a lost pair, and Task 5b Step 3 requires zero
-        dropped words -- so a full FIFO is the only honest witness. It is HELD by the
-        pump, not raised: see `WordPump` for why capture continues past it.
+        Fullness is checked BEFORE draining. `push noblock` drops silently, a lost pair
+        leaves no trace in the stream, and Task 5b Step 3 requires zero dropped words --
+        so a full FIFO is the only honest witness. It is HELD by the pump, not raised: see
+        `WordPump` for why capture continues past it.
 
-        The clock is read BEFORE the FIFO is looked at, and handed over only when no half
-        pair is left behind: that is how far this drain can say the pump has delivered
-        (`WordPump.handle`), which a roll waits on. It is `now_us()`, the box clock a roll's
-        boundary is read from: the fit's P on one count, MONO in a split process.
+        The clock is read BEFORE the FIFO is looked at, and handed over at every look: it
+        is how far this drain can say the pump has delivered, which a roll waits on, and
+        the pump moves its mark only when no word waits for the next batch
+        (`WordPump.handle`). It is `now_us()`, the box clock a roll's boundary is read
+        from: the fit's P on one count, MONO in a split process.
         """
         lib = self._lib
         if self._sm is None or self._words is None:
@@ -998,9 +1008,10 @@ class Rp1Backend:
         # The level is a witness too: a FIFO that filled between the flag's sample and
         # this read holds every word it can, and any push into it was dropped.
         full = full or level >= _RX_FIFO_WORDS
-        entries = [lib.wlsync_sm_get(self._sm) for _ in range(level - level % 2)]
+        entries = [lib.wlsync_sm_get(self._sm) for _ in range(level)]
+        level_after = lib.wlsync_sm_rx_level(self._sm) if level else None
         return self._words.handle(
-            entries, fifo_was_full=full, polled_at=None if level % 2 else polled_at
+            entries, fifo_was_full=full, polled_at=polled_at, level_after=level_after
         )
 
     def drain_stamps(self) -> bool:
@@ -1014,9 +1025,10 @@ class Rp1Backend:
         end that `emit_pulses` compares it with is mapped through the fit. It is what
         now_us() reads on one count, the only mode whose stamp machine runs.
 
-        EVERY WORD, NOT AN EVEN NUMBER (Task 1.15). `drain` leaves an odd tail for the
-        next drain because `pair_fifo` pairs one batch alone. The stamp pump pairs across
-        batches: it carries a data word whose counter has not come (`pair_stamps`). So this
+        EVERY WORD, NOT AN EVEN NUMBER (Task 1.15). `drain` left an odd tail for the
+        next drain, until Task 1.20, because `pair_fifo` pairs one batch alone. The stamp
+        pump pairs across batches: it carries a data word whose counter has not come
+        (`pair_stamps`). So this
         reads every word the FIFO holds, and the mark is handed over at every look: every
         word the FIFO held then is read, and a data word carried had no counter in it, so
         its edge came within a pair's 5.5 us of the look, or its counter was lost. Read in
@@ -1052,10 +1064,11 @@ class Rp1Backend:
 
         EACH DRAIN STOPS ALONE. A failure of the stamp drain stops it and leaves the word
         drain running: the event codes are records, and the box records anyway. A desync
-        of the stamps stops nothing since Task 1.15: the stamp pump pairs the stream again
-        and goes on (`StampPump`). A desync or a failure of the word drain stops it and
-        leaves the stamp drain running (Ruling R16): on one count B is the stamp, so a
-        stamp drain that stopped with the words would drop every later B. The thread
+        stops neither: since Task 1.15 the stamp pump pairs its stream again and goes on
+        (`StampPump`), and since Task 1.20 the word pump does (`WordPump`). A failure of
+        the word drain, or of its consumer, stops it and leaves the stamp drain running
+        (Ruling R16): on one count B is the stamp, so a stamp drain that stopped with the
+        words would drop every later B. The thread
         ends early only when both have stopped; with no stamp drain, as in a split
         process, that is when the word drain stops, as before the stamp machine existed.
         check_health reports each.
@@ -1075,11 +1088,11 @@ class Rp1Backend:
             self._words.fail(error)
 
     def _pump_codes(self) -> None:
-        """One word drain, unless it has stopped. A False return, a desync's or a failing
-        consumer's, has already held its error in the word pump (`WordPump.handle`); a
-        drain that raises is held here. Either way the word drain stops, and alone. The
-        error is held before the stop is set, and check_health reads the stop before it
-        takes the error, so no call reports the stop before its cause.
+        """One word drain, unless it has stopped. A False return, a failing consumer's,
+        has already held its error in the word pump (`WordPump.handle`); a desync returns
+        True since Task 1.20. A drain that raises is held here. Either way the word drain
+        stops, and alone. The error is held before the stop is set, and check_health reads
+        the stop before it takes the error, so no call reports the stop before its cause.
         """
         if self._word_drain_stopped.is_set():
             return
@@ -1758,7 +1771,22 @@ class Rp1Backend:
                 if sm is not None:
                     self._lib.wlsync_sm_set_enabled(sm, 0)
             self._lib.wlsync_pio_close()
+        self._summarise_words()
         self._summarise_stamps()
+
+    def _summarise_words(self) -> None:
+        """The run's end, in either mode (Task 1.20): the word stream's desyncs, as
+        `_summarise_stamps` gives the stamp stream's. None when capture never started a
+        word pump. Once: a second close says nothing again."""
+        pump = self._words
+        if pump is None or self._words_summarised:
+            return
+        self._words_summarised = True
+        if pump.desyncs:
+            log.info("event-code capture: %d desync(s) this run, each resynchronised",
+                     pump.desyncs)
+        else:
+            log.info("event-code capture: 0 desync(s) this run")
 
     def _summarise_stamps(self) -> None:
         """The run's end, on one count (Task 1.15): the stamp stream's desyncs, beside

@@ -521,7 +521,7 @@ def test_frames_in_a_row_with_stamps_between_are_one_episode_of_two_warnings(
     stamps between frames, 65 in all: one WARNING at the first, in Task 1.7's text, and one
     at the BETWEEN_CLEAN_FRAMES-th clean frame after them, giving the frames and the
     stamps. Both WARNINGs, as Task 1.15's episode lines are, so a journal filtered at
-    WARNING shows every end of a start it shows (wl_sync/rp1/backend.py:1628-1630). One a
+    WARNING shows every end of a start it shows (wl_sync/rp1/backend.py:1641-1643). One a
     frame was 86,400 a day."""
     backend = _StampsBetween({n: n for n in range(2, 12)})
     wire, written = _dropping(tmp_path, backend, 11 + K, caplog)
@@ -568,7 +568,7 @@ def test_an_episode_ends_after_exactly_between_clean_frames_frames(tmp_path, cap
 
 def test_one_carried_misread_is_one_episode_of_one_frame(tmp_path, caplog):
     """Task 1.15's carry: a misread after a lost stamp word is counted between frames once,
-    at one frame (tests/test_rp1_backend.py:3023-3026). That is one episode: one WARNING
+    at one frame (tests/test_rp1_backend.py:3122-3125). That is one episode: one WARNING
     to open it and one to close it, a minute later."""
     backend = _StampsBetween({5: 1})
     wire, _ = _dropping(tmp_path, backend, 5 + K, caplog)
@@ -596,7 +596,7 @@ def test_two_episodes_of_stamps_between_frames_give_two_pairs(tmp_path, caplog):
 
 def test_an_episode_of_stamps_between_frames_open_at_shutdown_is_closed(tmp_path, caplog):
     """As Task 1.15's extrapolation episode is closed at close()
-    (wl_sync/rp1/backend.py:1777-1794): the run's end closes the episode, with what it
+    (wl_sync/rp1/backend.py:1805-1822): the run's end closes the episode, with what it
     held, then the totals."""
     backend = _StampsBetween({3: 2, 4: 5})
     wire, _ = _dropping(tmp_path, backend, 4, caplog)

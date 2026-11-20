@@ -90,18 +90,24 @@ def test_a_full_fifo_is_recorded_but_capture_CONTINUES():
     assert isinstance(pump.error, WordsDroppedError)
 
 
-def test_a_desync_stops_the_word_pump_and_is_held():
-    """A single lost word slips the pairing, and from then on every data word is read
-    as a counter and every counter as a data word. Those are plausible timestamps for
-    events that never happened, so the pump stops rather than recording them."""
-    from wl_sync.rp1.pio_capture import WordPump
+def test_a_desync_no_longer_stops_the_word_pump_and_is_held_and_counted():
+    """THIS TEST PINNED THAT A DESYNC STOPPED THE PUMP, and it no longer does (Task 1.20;
+    the user's ruling, 2026-11-20). Until then the batch was refused and no code word
+    was captured for the rest of the process. Now the word that cannot be paired is
+    dropped and counted, the pairs proven whole are delivered, and the pump goes on.
 
-    seen = []
-    pump = WordPump(on_word=lambda t, w: seen.append(w), data_count=DATA)
+    10's counter where a data word belongs, first in the stream, has no word before it
+    to prove it a counter, so it is dropped: one strobe, in an L record. 20's pair is
+    proven (its counter has bits above the window, and no push between it and its data
+    word can have been dropped), and is delivered. The last word waits for its counter."""
+    pump, got = _pumped()
     slipped = stream((10, 1), (20, 2))[1:] + [0]
-    assert pump.handle(slipped) is False
-    assert seen == []
-    assert isinstance(pump.error, DesyncError)
+    assert pump.handle(slipped) is True
+    assert got == [("L", 1), ("W", 20, 2)]
+    error = pump.take_error()
+    assert isinstance(error, DesyncError)
+    assert "1 desync(s) this run" in str(error) and "capture goes on" in str(error)
+    assert pump.desyncs == 1
 
 
 def test_a_failing_word_consumer_stops_the_pump_and_is_held():
@@ -130,6 +136,329 @@ def test_a_word_pumps_held_error_is_taken_once_and_a_failure_is_held_over_it():
     pump.fail(OSError("EIO"))
     assert isinstance(pump.take_error(), OSError)
     assert pump.error is None
+
+
+# --- Task 1.20: the word pump pairs the stream again after a desync ---------------------
+#
+# Each scenario is one the FIFO can make: 8 words deep, a push that finds it full is
+# dropped, and the drain reads the level, pops that many words one at a time, then reads
+# the level again (`level_after`). A word can be lost only where the drain's own counts
+# say the FIFO could have been full.
+
+
+def _counter(tick):
+    return (~tick) & 0xFFFF_FFFF
+
+
+def _pumped():
+    """A WordPump whose code words and loss reports land in one list, in stream order."""
+    from wl_sync.rp1.pio_capture import WordPump
+
+    got = []
+    pump = WordPump(
+        on_word=lambda tick, word: got.append(("W", tick, word)),
+        data_count=DATA,
+        on_loss=lambda loss: got.append(("L", loss.count)),
+    )
+    return pump, got
+
+
+FOUR = stream((10, 1), (20, 2), (30, 3), (40, 4))  # a full FIFO: 8 words
+DELIVERED_FOUR = [("W", 10, 1), ("W", 20, 2), ("W", 30, 3), ("W", 40, 4)]
+
+
+def test_a_lost_counter_word_costs_its_strobe_and_capture_goes_on():
+    """The drain finds the FIFO full and pops slowly. After its first pop, strobe 5's data
+    word finds room and its counter, pushed 2 us later, does not: a lone data word. Strobe
+    6 comes after the last pop. The data word is dropped and counted, one strobe in an L
+    record just before the next code word, and 6 and 7 are written."""
+    pump, got = _pumped()
+    assert pump.handle(FOUR, fifo_was_full=True, level_after=1) is True  # 5's data in
+    assert pump.handle([5] + stream((60, 6), (70, 7)), level_after=0) is True
+    assert got == DELIVERED_FOUR + [("L", 1), ("W", 60, 6), ("W", 70, 7)]
+    assert pump.desyncs == 1
+    assert "1 desync(s) this run" in str(pump.take_error())
+
+
+def test_a_lost_data_word_costs_its_strobe_and_capture_goes_on():
+    """The other lone word: strobe 5's data word finds the FIFO full, and the drain pops
+    before its counter comes. The counter lands where a data word belongs, is dropped and
+    counted, and 6 and 7 are written."""
+    pump, got = _pumped()
+    assert pump.handle(FOUR, fifo_was_full=True, level_after=1) is True  # 5's counter in
+    assert pump.handle([_counter(50)] + stream((60, 6), (70, 7)), level_after=0) is True
+    assert got == DELIVERED_FOUR + [("L", 1), ("W", 60, 6), ("W", 70, 7)]
+    assert pump.desyncs == 1
+
+
+def test_two_lost_words_the_bits_cannot_show_write_no_wrong_code_word():
+    """THE CASE A RESYNC ON THE BITS ALONE GETS WRONG. While the drain pops a full FIFO,
+    strobe 5's data word finds room, its counter and strobe 6's data word do not, and
+    strobe 6's counter does. The stream reads data, counter, data, counter: no slip
+    shows, and pairing by position, or on the bits as the stamp pump does, writes 5's
+    code at 6's tick. Both words came while the FIFO could have been full, so neither
+    pairing can be proven, and both are dropped: at least one strobe, in an L record."""
+    pump, got = _pumped()
+    assert pump.handle(FOUR, fifo_was_full=True, level_after=2) is True  # 5's data, 6's counter
+    assert pump.handle([5, _counter(60)] + stream((70, 7)), level_after=0) is True
+    assert ("W", 60, 5) not in got, "5's code written at 6's tick"
+    assert got == DELIVERED_FOUR + [("L", 1), ("W", 70, 7)]
+
+
+def test_the_valid_pairs_before_a_slip_in_the_same_batch_are_delivered():
+    """Until Task 1.20 a desync refused its whole batch, the pairs before the slip
+    included (docs/next-session.md §3, the fourth minor finding). The drain finds 6 words
+    and pops slowly: strobe 4 comes whole, then 5's data word finds the FIFO full and its
+    counter finds room. 4's data word came with room behind it for one more word, so its
+    counter is the next push, and the pair is proven and delivered. 5's counter is
+    dropped and counted, and 6 is written."""
+    pump, got = _pumped()
+    assert pump.handle(stream((10, 1), (20, 2), (30, 3)), level_after=3) is True
+    batch = stream((40, 4)) + [_counter(50)] + stream((60, 6))
+    assert pump.handle(batch, level_after=0) is True
+    assert got == DELIVERED_FOUR + [("L", 1), ("W", 60, 6)]
+
+
+def test_the_mark_waits_for_a_data_word_carried_to_the_next_batch():
+    """The drain reads every word the FIFO holds, so a batch can end on a data word whose
+    counter is not in yet. It is carried, and the mark does not move while it is: as
+    before, a drain that left half a pair behind says nothing. The counter comes with the
+    next batch, and the mark moves."""
+    from wl_sync.rp1.pio_capture import WORDS_LAG_US
+
+    pump, got = _pumped()
+    assert pump.handle(stream((10, 1)) + [2], polled_at=5_000) is True
+    assert got == [("W", 10, 1)] and pump.delivered_through is None
+    assert pump.handle([_counter(20)], polled_at=6_000) is True
+    assert got == [("W", 10, 1), ("W", 20, 2)]
+    assert pump.delivered_through == 6_000 - WORDS_LAG_US - 1
+
+
+WRAP = 1 << 32
+
+
+def test_a_clean_stream_through_the_window_before_the_wrap_is_written_whole():
+    """For 65.5 ms before P's wrap a counter has no bits above the window, so the bits
+    cannot say it is one (`pair_stamps`). A stream that has lost nothing is paired through
+    it all the same: where no push can have been dropped, a counter follows its data word
+    and a data word follows a counter, so the last counter before the window carries the
+    phase through it, and the first after the wrap has its bits again."""
+    ticks = [WRAP - (1 << 16) - 10_000, WRAP - 40_000, WRAP - 30_000, WRAP - 100, 500, 1_000]
+    pump, got = _pumped()
+    for k, tick in enumerate(ticks):
+        assert pump.handle(stream((tick % WRAP, k)), level_after=0) is True
+    assert got == [("W", tick % WRAP, k) for k, tick in enumerate(ticks)]
+    assert pump.desyncs == 0
+
+
+def test_a_desync_in_the_window_before_the_wrap_drops_until_the_first_counter_after_it():
+    """In the window a desync leaves nothing to find the phase by, since no counter there
+    has bits above the window. Everything from it to the first counter after the wrap is
+    dropped and counted, and nothing is written wrong: a pairing by position would read
+    5's data word with 6's as its counter, a tick in the window that no strobe had.
+
+    Strobe 0 is before the window. 1-4 fill the FIFO, in the window, all after the drain
+    popped 0, so no word between them can have been lost and 0's counter carries the
+    phase to them. While the drain pops them, 5's data word finds room and its counter
+    does not. 6 and 7, in the window, cannot be paired with nothing to fix the phase;
+    8, after the wrap, is."""
+    base = WRAP - 60_000
+    window = [(base + 1_000 * k) % WRAP for k in range(1, 8)]
+    pump, got = _pumped()
+    assert pump.handle(stream((WRAP - (1 << 16) - 5_000, 0)), level_after=0) is True
+    assert pump.handle(stream(*[(window[k], k + 1) for k in range(4)]), level_after=1)
+    assert pump.handle(
+        [5] + stream((window[5], 6), (window[6], 7), (2_000, 8)), level_after=0
+    ) is True
+    written = [item for item in got if item[0] == "W"]
+    assert written == [
+        ("W", WRAP - (1 << 16) - 5_000, 0),
+        ("W", window[0], 1), ("W", window[1], 2), ("W", window[2], 3),
+        ("W", window[3], 4), ("W", 2_000, 8),
+    ]
+    assert sum(item[1] for item in got if item[0] == "L") == 3  # strobes 5, 6 and 7
+    assert ("W", _counter(6), 5) not in got, "5's code at a tick no strobe had"
+
+
+def test_where_the_counts_and_the_bits_disagree_nothing_is_paired_by_alternation():
+    """A word with bits above the window right behind a counter, where the drain's counts
+    say no word between them can have been lost. The program cannot push a counter after
+    a counter (wl_sync/rp1/program.py:88-102), and a data word pushed after a taken push
+    has no such bits (`CodeWordPairer`, fact 4): a fact the proof rests on did not hold.
+    The pairer then trusts neither word's half, and carries no phase on from them.
+    Outside the window the next counter's bits find it again at once; inside it, nothing
+    is paired until they can.
+
+    Here the stray word is 7's data word with a bit above the window, and 7's counter and
+    8's words are in the window. Carried on from the stray word as a counter, 7's counter
+    would be read as a data word and 8's data word as its counter: 7's counter written
+    as a code, at a tick no strobe had."""
+    pump, got = _pumped()
+    before = WRAP - (1 << 16) - 5_000
+    batch = stream((before, 0)) + [0x0001_0007] + [_counter(WRAP - 1_000)] + stream(
+        (WRAP - 500, 8)
+    )
+    assert pump.handle(batch) is True
+    assert ("W", _counter(8), _counter(WRAP - 1_000)) not in got, got
+    assert [item for item in got if item[0] == "W"] == [("W", before, 0)], got
+    assert pump.desyncs == 1
+
+
+# The fuzz: the capture machine and the word drain on one timeline.
+
+def _through_the_fifo(rng, events, slow, starved):
+    """Run `events`, (time_us, tick, data) strobes, through the FIFO as the box has it,
+    and return the batches the drain hands the pump: each a list of (push, word), `push`
+    being the word's place among every word the program pushed, with its `level_after`.
+
+    The program pushes a strobe's data word, then 2 us later its counter
+    (wl_sync/rp1/program.py:88-102: 4 cycles at 2 MHz). The FIFO is 8 words, and a push
+    that finds it full is dropped (`push noblock`). The drain reads the level, pops that
+    many words one call at a time, each call taking its own time, then reads the level
+    again when it popped any (Rp1Backend.drain). A share `slow` of its calls are slower
+    than a strobe, which is how a word is left alone, and a share `starved` of its polls
+    come milliseconds late, which is how the FIFO fills."""
+    pushes = []
+    for at, tick, data in events:
+        pushes += [(at + 1.0, data), (at + 3.0, _counter(tick))]
+    fifo, batches, pushed = [], [], 0
+
+    def run_until(now):
+        nonlocal pushed
+        while pushed < len(pushes) and pushes[pushed][0] < now:
+            if len(fifo) < 8:
+                fifo.append((pushed, pushes[pushed][1]))
+            pushed += 1
+
+    now = 0.0
+    while pushed < len(pushes) or fifo:
+        late = rng.random() < starved
+        now += rng.uniform(2_000, 20_000) if late else rng.uniform(0, 1_500)
+        run_until(now)
+        level, batch, level_after = len(fifo), [], None
+        for _ in range(level):
+            now += rng.uniform(4, 40) if rng.random() < slow else rng.uniform(0.3, 3)
+            run_until(now)
+            batch.append(fifo.pop(0))
+        if level:
+            now += rng.uniform(0.3, 3)
+            run_until(now)
+            level_after = len(fifo)
+        batches.append((batch, level_after))
+    return batches
+
+
+def _fuzzed_strobes(rng, near_wrap):
+    """40-80 strobes, in bursts 6-15 us apart and gaps up to 3 ms, each with its own code,
+    then one more 200 ms after the rest. Near the wrap, P starts up to 30 ms before the
+    65.5 ms window, so the run crosses the window and the wrap."""
+    count = rng.randrange(40, 81)
+    base = (WRAP - (1 << 16) - rng.randrange(30_000) if near_wrap
+            else rng.randrange(1_000_000, WRAP - 1_000_000_000))
+    codes = rng.sample(range(1 << DATA), count + 1)
+    bursty = rng.uniform(0.2, 0.8)
+    at, events = 10.0, []
+    for k in range(count):
+        at += rng.uniform(6, 15) if rng.random() < bursty else rng.uniform(20, 3_000)
+        events.append((at, (base + int(at)) % WRAP, codes[k]))
+    at += 200_000
+    events.append((at, (base + int(at)) % WRAP, codes[count]))
+    return events
+
+
+def _bits_only(words):
+    """The stamp pump's rule applied to code words (`pair_stamps`): a word with bits above
+    the window is a counter, and anything else pairs with the word after it. The
+    reference the fuzz measures itself against."""
+    paired, index = [], 0
+    above = ~((1 << DATA) - 1)
+    while index + 1 < len(words):
+        if words[index] & above:
+            index += 1
+            continue
+        paired.append((_counter(words[index + 1]), words[index]))
+        index += 2
+    return paired
+
+
+def _closed(batches, fifo_words=8):
+    """Each word's closed flag by the pairer's rule (`CodeWordPairer`), from the batch
+    sizes and levels alone, for the fuzz to check against the pushes themselves."""
+    flags, previous, after = [], 0, None
+    for batch, level_after in batches:
+        for position in range(len(batch)):
+            popping = after is None or position < after
+            flags.append(position + 1 + (previous if popping else 0) < fifo_words)
+        previous, after = len(batch), level_after
+    return flags
+
+
+FUZZ_RUNS = 2_000
+
+
+@pytest.mark.parametrize("near_wrap", [False, True], ids=["far", "near-wrap"])
+def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wrap):
+    """Fuzzed over the strobes' spacing, the drain's pace and its starvation, so over every
+    way the FIFO loses words: lone data words, lone counters, whole pairs, and runs the
+    bits cannot show. FUZZ_RUNS runs each, far from P's wrap and across it, each run with
+    its own share of slow calls (0-40%) and late polls (0-8%).
+
+    THE LEMMA, against the pushes themselves: after every word the counts call closed, the
+    next word read is the next one pushed. THE RULE: every code word written is a strobe's
+    own code at its own tick, each once and in order, so no wrong W. Every word read and
+    not written is counted, at least a strobe for each two in a row, and never more
+    strobes than were lost. The pump never stops, and the strobe 200 ms after each run's
+    last is written. And the fuzz bites: the stamp pump's rule writes wrong code words on
+    these same streams."""
+    import random
+
+    from wl_sync.rp1.pio_capture import WordPump
+
+    rng = random.Random(120 + near_wrap)
+    totals = dict.fromkeys(
+        ("strobes", "written", "lost_reported", "words_dropped", "whole_dropped",
+         "runs_with_a_loss", "bits_only_wrong"), 0)
+    for case in range(FUZZ_RUNS):
+        events = _fuzzed_strobes(rng, near_wrap)
+        batches = _through_the_fifo(rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08))
+        pushes = [push for batch, _ in batches for push, _ in batch]
+        words = [word for batch, _ in batches for _, word in batch]
+        for k, closed in enumerate(_closed(batches)):
+            if closed and k + 1 < len(pushes):
+                assert pushes[k + 1] == pushes[k] + 1, (case, k, "a closed word lost one")
+
+        code_at = {tick: data for _, tick, data in events}
+        order = {tick: k for k, (_, tick, _) in enumerate(events)}
+        written, lost = [], []
+        pump = WordPump(
+            on_word=lambda tick, word: written.append((tick, word)),
+            data_count=DATA,
+            on_loss=lambda loss: lost.append(loss.count),
+        )
+        for batch, level_after in batches:
+            assert pump.handle([w for _, w in batch], level_after=level_after) is True
+        wrong = [(t, w) for t, w in written if code_at.get(t) != w]
+        assert wrong == [], (case, wrong)
+        positions = [order[t] for t, _ in written]
+        assert positions == sorted(set(positions)), (case, positions)
+        assert written[-1] == (events[-1][1], events[-1][2]), (case, "capture did not go on")
+        dropped = len(words) - 2 * len(written)
+        assert sum(lost) <= len(events) - len(written), (case, lost)
+        assert 2 * sum(lost) >= dropped, (case, lost, dropped)
+        assert all(count >= 1 for count in lost)
+        assert pump.desyncs == len(lost)
+
+        taken = set(pushes)
+        whole = {k for k in range(len(events)) if {2 * k, 2 * k + 1} <= taken}
+        totals["whole_dropped"] += len(whole) - len(written)
+        totals["bits_only_wrong"] += sum(code_at.get(t) != w for t, w in _bits_only(words))
+        totals["runs_with_a_loss"] += len(taken) < 2 * len(events)
+        totals["strobes"] += len(events)
+        totals["written"] += len(written)
+        totals["lost_reported"] += sum(lost)
+        totals["words_dropped"] += dropped
+    print(f"\n{'near-wrap' if near_wrap else 'far'}: {totals}")
+    assert totals["words_dropped"] > 1_000 and totals["bits_only_wrong"] > 100, totals
 
 
 # --- The stamp machine's pump (Task 1.10) -------------------------------------------------

@@ -67,6 +67,13 @@ class _FakeShim:
     pop for a word to be left alone; `stamp_gate`, an Event, holds the stamp drain at its
     first call until it is set, as a pump the GIL keeps from running.
 
+    SM 0'S FIFO IS RP1'S TOO since Task 1.20: `word_depth` words, 8, joined as the shim
+    configures it (pio/wlsync_pio.c:138), a word pushed to it full dropped and counted in
+    `word_dropped`, and `wlsync_sm_rx_full` reading it full as it reads SM 1's, or when
+    `full` is set. `word_gate`, an Event, holds the word drain at its first call until it
+    is set, and `word_held` is set once a drain waits there. Together they make the fault
+    a desync comes from: a full FIFO, and a drain that pops between a pair's two pushes.
+
     Like piolib, its encoders answer correctly only once a PIO block is open -- piolib's
     read the CURRENT block -- so a backend that checks its encodings too early is refused
     here exactly as it would be on the box.
@@ -83,6 +90,10 @@ class _FakeShim:
         self.stamp_dropped = 0
         self.between_words = None
         self.stamp_gate: threading.Event | None = None
+        self.word_depth = rp1._RX_FIFO_WORDS
+        self.word_dropped = 0
+        self.word_gate: threading.Event | None = None
+        self.word_held = threading.Event()
         self.test_fifo: list[int] = []
         self.drains = 0
         self.log: list[str] = []
@@ -224,13 +235,20 @@ class _FakeShim:
         return sorted(sm for sm in self.enabled if self.jmp_pins.get(sm) == pin)
 
     def push(self, entries) -> None:
-        with self._lock:
-            self.fifo.extend(entries)
+        self.push_to(0, entries)
 
     def push_stamps(self, entries) -> None:
         self.push_to(1, entries)
 
     def push_to(self, sm, entries) -> None:
+        if sm == 0:
+            with self._lock:
+                for word in entries:
+                    if len(self.fifo) < self.word_depth:
+                        self.fifo.append(word)
+                    else:
+                        self.word_dropped += 1
+            return
         if sm != 1:
             with self._lock:
                 self._fifo_of(sm).extend(entries)
@@ -261,8 +279,14 @@ class _FakeShim:
             return 1 if self.stamp_full or full else 0
         if sm == 2:
             return 0
+        gate = self.word_gate
+        if gate is not None:
+            self.word_held.set()
+            gate.wait(timeout=5)
         self.drains += 1  # the first call of every drain
-        return 1 if self.full else 0
+        with self._lock:
+            full = len(self.fifo) >= self.word_depth
+        return 1 if self.full or full else 0
 
     def wlsync_sm_rx_level(self, sm):
         self._witness("rx_level", sm)
@@ -314,6 +338,24 @@ def _started(lib, on_word):
     backend = Rp1Backend()
     backend.start_strobed_capture(0, DATA, DATA, on_word)
     return backend
+
+
+def _lose_a_counters_data_word(lib):
+    """The fault a code-word desync comes from, as the FIFO makes it (Task 1.20). The word
+    drain is held while strobes 10-40 fill the FIFO, so strobe 50's data word finds it full
+    and is dropped. One drain then pops all eight, and only then does 50's counter come,
+    alone, where a data word belongs. Returns once it is in the FIFO."""
+    gate = threading.Event()
+    lib.word_held.clear()
+    lib.word_gate = gate
+    assert lib.word_held.wait(1), "the word drain never came to the gate"
+    lib.push(stream((10, 1), (20, 2), (30, 3), (40, 4)) + [5])
+    assert lib.word_dropped == 1, "50's data word found room"
+    drains = lib.drains
+    lib.word_gate = None
+    gate.set()
+    assert _until(lambda: lib.drains >= drains + 2)  # the held drain has popped all eight
+    lib.push([(~50) & 0xFFFFFFFF])
 
 
 def test_capture_starts_at_the_programs_entry(lib):
@@ -680,7 +722,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
     lib, gpiod, view, monkeypatch
 ):
     """Ruling R29: the test witnesses the rise. The idle `jmp pin` tests the level
-    (wl_sync/rp1/program.py:99), so a PIO that sees GPIO17 high while it is low captures
+    (wl_sync/rp1/program.py:100), so a PIO that sees GPIO17 high while it is low captures
     as soon as the test machine is enabled, and one that sees it inverted stamps the fall
     as well. Neither stamps the rise, and on one count each would lose every B, yet by
     the time the pulse ends each has put a stamp in the FIFO.
@@ -742,7 +784,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         backend.close()
     # The settle that lets a stamp at the enable land before it is discarded, and the
     # read after the rise: more than the 5.5 us a pair takes
-    # (wl_sync/rp1/pio_capture.py:146-151), and well inside the pulse.
+    # (wl_sync/rp1/pio_capture.py:308-313), and well inside the pulse.
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
@@ -1223,19 +1265,67 @@ def test_a_full_fifo_reaches_check_health_and_capture_continues(lib):
         backend.close()
 
 
-def test_a_desynced_stream_is_reported_and_then_reported_as_stopped(lib):
-    """The word drain stops on a desync. check_health() says why once, and from then on
-    says that it is not running, so the journal shows both what happened and that the
-    event codes are not coming back on their own."""
-    backend = _started(lib, lambda tick, word: None)
+def test_a_desynced_stream_is_reported_once_and_capture_goes_on(lib, caplog):
+    """THIS TEST PINNED THAT THE WORD DRAIN STOPPED ON A DESYNC, and was reported stopped
+    from then on. Since Task 1.20 (the user's ruling, 2026-11-20) it goes on: the counter
+    left alone is dropped and counted, check_health says so once, nothing is reported
+    stopped, and the strobes after it are captured. The run's end gives the count."""
+    import logging
+
+    seen = []
+    backend = _started(lib, lambda tick, word: seen.append((tick, word)))
     try:
-        lib.push(stream((10, 1))[1:] + [0])  # one word lost: the pairing has slipped
+        _lose_a_counters_data_word(lib)
+        lib.push(stream((60, 6)))
+        assert _until(lambda: seen[-1:] == [(60, 6)]), seen
+        assert seen == [(10, 1), (20, 2), (30, 3), (40, 4), (60, 6)]
         first = _next_complaint(backend)
-        assert first is not None and "pairing has slipped" in first, first
-        second = _next_complaint(backend)
-        assert second is not None and "event-code capture stopped" in second, second
+        assert first is not None and "1 desync(s) this run" in first, first
+        assert "capture goes on" in first and "event-code capture" in first, first
+        assert _next_complaint(backend, timeout=0.2) is None, "reported twice, or stopped"
+        lib.push(stream((70, 7)))
+        assert _until(lambda: seen[-1:] == [(70, 7)]), seen
+    finally:
+        with caplog.at_level(logging.INFO, logger=rp1.log.name):
+            backend.close()
+    assert "event-code capture: 1 desync(s) this run, each resynchronised" in [
+        r.getMessage() for r in caplog.records
+    ]
+
+
+def test_a_clean_run_ends_with_a_count_of_no_word_desyncs(lib, caplog):
+    """The run's end says how many desyncs the word stream had, as the stamp stream's
+    does (`_summarise_stamps`), in either mode: a clean run says none."""
+    import logging
+
+    backend = _started(lib, lambda tick, word: None)
+    with caplog.at_level(logging.INFO, logger=rp1.log.name):
+        backend.close()
+        backend.close()  # once: a second close says nothing again
+    lines = [r.getMessage() for r in caplog.records]
+    assert lines.count("event-code capture: 0 desync(s) this run") == 1, lines
+
+
+def test_the_word_drain_reads_every_word_and_then_the_level_again(lib):
+    """Until Task 1.20 the drain read an even number of words and left the odd one for
+    the next drain. The pump now pairs across batches, so the drain reads every word, and
+    reads the level again after popping: how many came while it popped is half of what
+    the pairing's proof is made of (`CodeWordPairer`). An empty poll reads it once."""
+    seen = []
+    backend = _started(lib, lambda tick, word: seen.append(word))
+    try:
+        calls = len(lib.fifo_calls)
+        lib.push(stream((10, 1)) + [2])  # 20's counter not in yet
+        assert _until(lambda: lib.fifo == [])
+        assert _until(lambda: seen == [1])
+        lib.push([(~20) & 0xFFFFFFFF])
+        assert _until(lambda: seen == [1, 2])
     finally:
         backend.close()
+    ours = [call for call, sm, _ in lib.fifo_calls[calls:] if sm == 0]
+    first = ours.index("get")
+    assert ours[first - 1:first + 4] == ["rx_level", "get", "get", "get", "rx_level"], ours
+    assert ours[-2:] == ["rx_full", "rx_level"], ours  # close's last poll, which was empty
 
 
 def test_close_delivers_what_the_fifo_held_before_the_state_machine_stops(lib):
@@ -1444,7 +1534,7 @@ def gpiod(monkeypatch):
     lead, that go unstamped. `stray_before_lead_us` maps a frame to a stray stamp pushed
     that many us before its lead's. `leads` gives each frame's lead-edge stamp as
     pushed. `data_word(frame, rise)` is the data word a stamp's pair carries, GPIO0-15 as
-    the stamp machine reads them (wl_sync/rp1/program.py:89), 0 unless a test says, and
+    the stamp machine reads them (wl_sync/rp1/program.py:90), 0 unless a test says, and
     `lost_words` maps a (frame, rise) to the word of its pair the FIFO loses, 0 the data
     and 1 the counter: a stream left with one word alone (Task 1.15)."""
     import sys
@@ -1625,14 +1715,15 @@ def test_every_barcode_frame_decodes_not_just_the_first(lib, gpiod, monkeypatch)
 def test_a_dead_edge_path_does_not_hide_a_failing_event_code_path(lib, gpiod):
     """check_health() raised at the FIRST problem. Once the edge thread had died, every
     call stopped at "edge capture thread stopped" and never looked at the event codes
-    again, so a desync after it went unreported for the rest of the day."""
+    again, so a desync after it went unreported for the rest of the day. Since Task 1.20
+    the desync stops nothing, and it is still reported."""
     backend = _started(lib, lambda tick, word: None)
     try:
         backend.start_edge_capture([20, 21], lambda gpio, level, tick: None)
         gpiod.edge_failure = OSError("EIO")
         assert _until(lambda: not backend._edge_thread.is_alive())
-        lib.push(stream((10, 1))[1:] + [0])  # and then the pairing slips
-        assert _until(backend._words_stopped)
+        _lose_a_counters_data_word(lib)  # and then the pairing slips
+        assert _until(lambda: backend._words.desyncs == 1)
 
         with pytest.raises(RuntimeError) as raised:
             backend.check_health()
@@ -1949,7 +2040,9 @@ def test_a_capture_path_that_has_stopped_is_not_waited_for(lib, gpiod, caplog):
             assert set(backend.delivered_through()) == {"event-code capture"}
             assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S
 
-            lib.push(stream((10, 1))[1:] + [0])  # the pairing slips: the word drain stops
+            # A drain that fails stops the word drain; since Task 1.20 a desync does not.
+            lib.get_failures[0] = OSError("EIO")
+            lib.push(stream((10, 1)))
             assert _until(backend._words_stopped)
             assert backend.delivered_through() == {}
             assert barrier() < cli.ROLL_BARRIER_TIMEOUT_S
@@ -2498,15 +2591,18 @@ def _recording_on(tmp_path):
 
 
 def test_a_desync_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
+    """The lone counter is dropped, and its strobe is an L record after the last code word
+    before it. Until Task 1.20 the word drain stopped there, and nothing followed; now the
+    code words after it do."""
     from wl_sync.log import CodeWord, Loss, read_log
 
     backend, recorder, close_sink, path = _recording_on(tmp_path)
     recorder.capture_codes(0, DATA, DATA)
     try:
-        lib.push(stream((10, 1), (20, 2)))
-        assert _until(lambda: lib.fifo == [] and lib.drains > 2)
-        lib.push(stream((30, 3), (40, 4))[1:] + [5])  # one word lost: the pairing slips
-        assert _until(backend._words_stopped)
+        _lose_a_counters_data_word(lib)
+        lib.push(stream((60, 6)))
+        assert _until(lambda: backend._words.desyncs == 1 and lib.fifo == [])
+        assert _until(lambda: backend.delivered_through().get("event-code capture"))
     finally:
         backend.close()
         close_sink()
@@ -2515,10 +2611,13 @@ def test_a_desync_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
     assert records == [
         CodeWord(tick_us=10, word=1),
         CodeWord(tick_us=20, word=2),
+        CodeWord(tick_us=30, word=3),
+        CodeWord(tick_us=40, word=4),
         Loss(
-            tick_us=20, path="W", gpio=None, count=2, bound="at_least",
-            cause="desync", before_us=20, after_us=None,
+            tick_us=40, path="W", gpio=None, count=1, bound="at_least",
+            cause="desync", before_us=40, after_us=None,
         ),
+        CodeWord(tick_us=60, word=6),
     ]
 
 
@@ -3394,18 +3493,22 @@ def test_falling_back_after_capture_started_is_refused(lib, gpiod, path):
 # stamp, so a word drain that took the stamp drain with it would drop every later B.
 
 
-def test_a_desynced_word_stream_stops_the_word_drain_and_frames_are_still_stamped(
+def test_a_desynced_word_stream_stops_neither_drain_and_frames_are_still_stamped(
     lib, gpiod, crystals
 ):
+    """THIS TEST PINNED THAT A DESYNC STOPPED THE WORD DRAIN, leaving the stamp drain
+    alone (Ruling R16). Since Task 1.20 it stops neither: after it both machines are
+    drained, the frame is stamped, and piolib keeps its one caller."""
     from wl_sync.backend import FrameStamp
     from wl_sync.barcode import encode
 
     crystals()
     backend = _started(lib, lambda tick, word: None)
     try:
-        lib.push(stream((10, 1))[1:] + [0])  # one word lost: the pairing has slipped
+        _lose_a_counters_data_word(lib)
+        assert _until(lambda: backend._words.desyncs == 1)
         complaint = _next_complaint(backend)
-        assert complaint is not None and "event-code capture" in complaint, complaint
+        assert complaint is not None and "1 desync(s) this run" in complaint, complaint
         held = len(lib.fifo_calls)  # the desync is held: its drain's calls are all made
         calls = len(lib.calls)
         stamp = backend.emit_pulses(17, encode(1000))
@@ -3414,7 +3517,7 @@ def test_a_desynced_word_stream_stops_the_word_drain_and_frames_are_still_stampe
         after, during = lib.fifo_calls[held:], lib.calls[calls:]
     finally:
         backend.close()
-    assert after and {sm for _, sm, _ in after} == {1}, sorted(set(after))
+    assert {sm for _, sm, _ in after} == {0, 1}, sorted(set(after))
     # piolib keeps one caller, the pump's thread (spec §2.1).
     assert during and {thread for _, thread in during} == {"wl-sync-words"}
 
@@ -3444,9 +3547,9 @@ def test_a_word_drain_that_raises_stops_alone(lib, gpiod, crystals):
 
 
 def test_a_failing_consumer_stops_the_word_drain_alone(lib, gpiod, crystals):
-    """drain() returns False for a consumer that raises, as for a desync
-    (wl_sync/rp1/pio_capture.py:270-275): the records are not being kept. The word drain
-    stops, and the stamp drain goes on."""
+    """drain() returns False for a consumer that raises (`WordPump.handle`), and since
+    Task 1.20 for nothing else: the records are not being kept. The word drain stops, and
+    the stamp drain goes on."""
     from wl_sync.backend import FrameStamp
     from wl_sync.barcode import encode
 
@@ -3480,7 +3583,8 @@ def test_a_stopped_word_drain_is_reported_on_every_check_and_left_out_of_deliver
 
     backend = _started(lib, lambda tick, word: None)
     try:
-        lib.push(stream((10, 1))[1:] + [0])
+        lib.get_failures[0] = OSError("EIO")  # since Task 1.20 a desync stops nothing
+        lib.push(stream((10, 1)))
         assert _until(lambda: "event-code capture" not in backend.delivered_through())
         kinds = []
         for _ in range(2):
@@ -3492,14 +3596,15 @@ def test_a_stopped_word_drain_is_reported_on_every_check_and_left_out_of_deliver
     finally:
         backend.close()
     assert all("event-code capture: stopped" in k for k in kinds), kinds
-    assert "event-code capture: DesyncError" in kinds[0], kinds
-    assert "event-code capture: DesyncError" not in kinds[1], "the desync reported twice"
+    assert "event-code capture: OSError" in kinds[0], kinds
+    assert "event-code capture: OSError" not in kinds[1], "the failure reported twice"
 
 
 def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
-    """The stamp drain is stopped here by a read that fails. Until Task 1.15 a desync
-    stopped it; a desync no longer does (`StampPump`), and a drain that raises is now the
-    one way, beside the thread's own end."""
+    """Both drains are stopped here by a read that fails. Until Task 1.15 a desync
+    stopped the stamp drain, and until Task 1.20 the word drain; a desync now stops
+    neither (`StampPump`, `WordPump`), and a drain that raises is the one way, beside the
+    thread's own end."""
     from wl_sync.backend import CaptureDegraded
 
     backend = _started(lib, lambda tick, word: None)
@@ -3508,7 +3613,8 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
         return sum(1 for call, sm, _ in lib.fifo_calls if call == "rx_full" and sm == 1)
 
     try:
-        lib.push(stream((10, 1))[1:] + [0])  # the word drain stops
+        lib.get_failures[0] = OSError("EIO")  # the word drain stops; a desync would not
+        lib.push(stream((10, 1)))
         assert _until(lambda: "event-code capture" not in backend.delivered_through())
         drains = stamp_drains() + 3
         assert _until(lambda: stamp_drains() >= drains)
@@ -4278,14 +4384,13 @@ def test_check_health_reads_a_stopped_word_drain_before_it_takes_its_cause(lib):
     no call reports the stop before its cause. Here the pump does both just as the stop
     is read: taken the other way round, the call saw the stop and not the cause."""
     from wl_sync.backend import CaptureDegraded
-    from wl_sync.rp1.pio_capture import DesyncError
 
     backend = _started(lib, lambda tick, word: None)
     read = backend._words_stopped
 
     def words_stopped():
         if not backend._word_drain_stopped.is_set():
-            backend._words.error = DesyncError("the pairing has slipped")  # the pump's hold
+            backend._words.error = OSError("EIO")  # the pump's hold
             backend._word_drain_stopped.set()  # and then its stop
         return read()
 
@@ -4295,7 +4400,8 @@ def test_check_health_reads_a_stopped_word_drain_before_it_takes_its_cause(lib):
             backend.check_health()
     finally:
         backend.close()
-    stopped = {"event-code capture: DesyncError", "event-code capture: stopped"}
+    # A drain that raised: since Task 1.20 a desync stops nothing.
+    stopped = {"event-code capture: OSError", "event-code capture: stopped"}
     assert stopped <= raised.value.kinds, raised.value.kinds
 
 

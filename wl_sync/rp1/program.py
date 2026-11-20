@@ -63,8 +63,9 @@ def encode_in_pins(bit_count: int) -> int:
 
 def encode_push_noblock() -> int:
     """`push noblock`. Blocking would stall the machine and stop the counter, so a
-    full FIFO drops instead. `pair_fifo` raises on a single lost word; a lost PAIR is
-    invisible, so the bench run checks the RX overflow flag directly."""
+    full FIFO drops instead. The word pump drops and counts what it cannot prove paired
+    after a lost word (`pio_capture.CodeWordPairer`); a lost PAIR is invisible, so the
+    bench run checks the RX overflow flag directly."""
     return _PUSH
 
 
@@ -109,5 +110,5 @@ WRAP = 12
 # `in pins` runs this many cycles after the `jmp pin` that saw the strobe (the taken jump
 # at 11, then the jmp x-- at 0, then `in pins` at 1), so the data lines are read this
 # long after the strobe was seen. What the task PC must hold, and for how long after
-# raising the strobe, is start_strobed_capture's contract (wl_sync/rp1/backend.py:856-863).
+# raising the strobe, is start_strobed_capture's contract (wl_sync/rp1/backend.py:858-865).
 DATA_SAMPLE_CYCLES = 2
