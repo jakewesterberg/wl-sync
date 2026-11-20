@@ -26,11 +26,11 @@ label (`gpioinfo`):
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
 is for a process that records `"split"` alone (below). Such a process writes the flag into
-every header (`wl_sync/rp1/backend.py:687`; `wl_sync/cli.py:553-561`, `:570`), and N is
+every header (`wl_sync/rp1/backend.py:701`; `wl_sync/cli.py:553-561`, `:570`), and N is
 the loopback's median "lead edge after its logged tick" (`docs/next-session.md`, Step B),
 in whole µs, read from a segment whose header says `"split"`. On one count the backend
 stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
-not used, with a WARNING (`wl_sync/rp1/backend.py:411`; `wl_sync/cli.py:553-561`). There
+not used, with a WARNING (`wl_sync/rp1/backend.py:424`; `wl_sync/cli.py:553-561`). There
 the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:91`), the edge input's
 own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
 process that falls back to `"split"` would write it into every header. With no split
@@ -131,7 +131,7 @@ see the rise, the journal has
     the stamp machine's start-up test failed (<cause>): this process records timebase split, with B and E on CLOCK_MONOTONIC and W on RP1's crystal, until a restart passes it
 
 and the box records anyway, with its barcodes timed as before the one-clock build
-(`wl_sync/rp1/backend.py:622-635`). A pass logs `the stamp machine saw GPIO17 rise at
+(`wl_sync/rp1/backend.py:636-649`). A pass logs `the stamp machine saw GPIO17 rise at
 start-up` instead. `<cause>` is one of:
 
 - `the stamp machine did not start (errno N)`. EBUSY (16) is a PIO block with no free
@@ -147,7 +147,7 @@ start-up` instead. `<cause>` is one of:
   one pulse.)
 - `the test could not run (...)`, with the error.
 
-(`wl_sync/rp1/backend.py:623`, `:771`, `:112-118`, `:783-786`.) On a failure the box drives
+(`wl_sync/rp1/backend.py:637`, `:785`, `:112-118`, `:797-800`.) On a failure the box drives
 GPIO17 twice, 1 ms high each and 0.5 s apart; no decoder takes either for a frame. To tell
 them apart, stop the
 service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
@@ -156,7 +156,7 @@ service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
 
 It builds the backend as the unit does, so it repeats the start-up test first. A test that
 fails again prints `start-up test failed (<cause>)`, runs no frame, and exits 1
-(`wl_sync/bench.py:334-341`). A test that passes is followed by 60 of the box's own
+(`wl_sync/bench.py:341-348`). A test that passes is followed by 60 of the box's own
 frames, one a second (`--frames N` for more; S.4 ran 300). It passes when every lead edge
 is stamped, every later rising edge is accounted for, and nothing is stamped between
 frames (`wl_sync/bench.py:203-206`). Then `sudo systemctl start wl-sync`: a process whose
@@ -175,7 +175,7 @@ run fails by design. A count of 0 means that machine did not run, or the pulls d
 reach the pins. The start-up test sees a box that refuses the sync enable (above), but not
 a refusal of the production machines' own enable after the test's was obeyed: that one is
 invisible to the shim (`pio/wlsync_pio.c:207-210`), and only these toggles see it. It is
-the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:950-957`): the mask holds only
+the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:964-971`): the mask holds only
 machines the shim claimed, so it would be a transient failure of RP1's firmware, and
 every `B` of that process would be dropped with its ERROR until a restart. The toggles
 also need a passing test. A failed test's cause tells a refused sync enable from a PIO
@@ -190,10 +190,10 @@ capture machine cannot be configured, the journal has, once, at start
 
     event-code capture cannot run (<cause>): this process records timebase split with no W records, and B and E on CLOCK_MONOTONIC, until a restart starts the capture machine
 
-(`wl_sync/rp1/backend.py:516-534`). `<cause>` is the load's own message (`libwlsync_pio not
+(`wl_sync/rp1/backend.py:530-548`). `<cause>` is the load's own message (`libwlsync_pio not
 found (...)`, or `libwlsync_pio is version N, and this wl-sync needs 3: rebuild ...`, which
 names the rebuild), `opening PIO block 0 failed: errno N`, or `the capture machine did not
-start (errno N)` (`wl_sync/rp1/backend.py:568`, `:572`, `:605`). If the capture machine
+start (errno N)` (`wl_sync/rp1/backend.py:582`, `:586`, `:619`). If the capture machine
 was configured and cannot be enabled when capture starts, in a split process, it is
 
     event-code capture could not start (enabling the state machine failed: errno N): this process records no W records, and B and E go on, on CLOCK_MONOTONIC, until a restart starts the capture machine
@@ -202,14 +202,16 @@ and on one count, where the shim's one errno needs a closed block and is not exp
 
     the capture and stamp machines could not start (enabling the state machines failed: errno 19): this process records no W and no B records, and E goes on, extrapolated from the sync enable, until a restart starts them
 
-(`wl_sync/rp1/backend.py:897-910`). Either way the health check holds one episode for the
+(`wl_sync/rp1/backend.py:911-924`). Either way the health check holds one episode for the
 run, `capture degraded, still recording: event-code capture did not start (<cause>): no
-code word is recorded in this process` (`wl_sync/rp1/backend.py:1321-1327`). The segments
+code word is recorded in this process` (`wl_sync/rp1/backend.py:1335-1341`). The segments
 say `"split"` (or the one-count value they had), with no `W` records, and nothing in them
 says `W` is missing: the journal is the only witness (`wl_sync/log.py:222-233`). Three
 start-up checks stay fatal, and still restart the unit every second: a GPIO chip that is
 not RP1's bank (nothing could be recorded), piolib's encodings disagreeing with this
 package's, and an impossible `clk_sys` (either would put wrong ticks in every `W`).
+`bench stamps` refuses such a process, printing `event-code capture cannot run (<cause>):
+this process records split, and has no stamps to count` (`wl_sync/bench.py:334-340`).
 
 **A dropped barcode is a journal ERROR, and only that** *(added 2026-11-19)*. On one count a
 frame whose lead edge was not stamped has no `B` record, and no `L` record either. Every
@@ -234,7 +236,7 @@ health check fell between the two; found by the same check, only the desync is g
 edge's stamp was lost has its own `barcode N dropped` ERROR, and the frames after it are
 stamped. Each run's end on one count logs `barcode stamping: N desync(s) this run, each
 resynchronised`, or `barcode stamping: 0 desync(s) this run`
-(`wl_sync/rp1/backend.py:1748-1752`). Until 2026-11-20 a desync stopped the stamp drain,
+(`wl_sync/rp1/backend.py:1762-1766`). Until 2026-11-20 a desync stopped the stamp drain,
 and every later frame was dropped until a restart. `barcode stamping stopped` now means
 the drain itself failed, with its cause in the same ERROR, and a restart starts it again.
 
@@ -244,9 +246,9 @@ When no pair comes for 20 frames, or for 20 frames' time, the journal has
 
     the RAW->P fit's last lead-edge pair is S s old, F frame(s) ago: E ticks and roll boundaries are extrapolated from it, drifting from P by the fit's slope error, until a lead edge is matched again
 
-once, at WARNING (`wl_sync/rp1/backend.py:1653-1658`), or, when no pair has come since
+once, at WARNING (`wl_sync/rp1/backend.py:1667-1672`), or, when no pair has come since
 capture started, `the RAW->P fit has had no lead-edge pair since capture started S s ago,
-F frame(s): ...` (`:1645-1651`). The edges are still written. Their error grows with the
+F frame(s): ...` (`:1659-1665`). The edges are still written. Their error grows with the
 pair's age, by at most 5 ppm of it on a calibrated box before its slope is fitted, which is
 100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`, `wl_sync/rp1/backend.py:135-151`). The
 episode ends with
@@ -402,7 +404,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 18. The strobe and code lines, which the task PC drives for the capture program: hold the code
     at least 2.5 µs after raising the strobe, keep the strobe high at least 1 µs and low at
     least 1 µs, and rise at least 6 µs after the previous rise (the contract in
-    `wl_sync/rp1/backend.py:842-849`).
+    `wl_sync/rp1/backend.py:856-863`).
 
 ## Setting up the OS, once per box
 
@@ -509,9 +511,14 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
        sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig
 
    Rebuild and reinstall the shim whenever `pio/wlsync_pio.c` changes. The backend reads
-   `wlsync_shim_version` at start and refuses a shim of another version, naming this
-   step. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed. It starts the
-   program at its entry. Version 3 (2026-11-07): `wlsync_start_stamp` and `wlsync_enable_in_sync`
+   `wlsync_shim_version` at start and refuses to use a shim of another version, naming this
+   step. *Since 2026-11-20 the unit then stays active:* the process records split with no
+   `W`, and the journal's `event-code capture cannot run (libwlsync_pio is version N, and
+   this wl-sync needs 3: rebuild and reinstall it with pio/build-shim.sh ...)` names the
+   rebuild (above, "A process that cannot capture code words"). A shim that says 3 and
+   lacks a function reads `libwlsync_pio reports version 3 but lacks a function ...`, and
+   ends the same way. Version 2 (2026-11-07): `entry` added, `wlsync_encode_jmp` removed.
+   It starts the program at its entry. Version 3 (2026-11-07): `wlsync_start_stamp` and `wlsync_enable_in_sync`
    added, so a second state machine can stamp the barcode output.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
@@ -563,7 +570,7 @@ reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is us
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
 and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:235-258`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
-RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1696-1697`;
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1710-1711`;
 `wl_sync/log.py:217-233`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**

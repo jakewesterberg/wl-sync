@@ -72,9 +72,9 @@ class BarcodeGenerator:
 # reading behind the last, mod 2^32, is held, and beyond it, it is a forward gap. On one
 # count `now_us()` is RAW through the fit, and only the fit moves back:
 #   * a pair moves it to a lead in the window, LEAD_STAMP_TOLERANCE (1 ms) from a narrow
-#     bracket (wl_sync/rp1/backend.py:1490, :1515-1516; wl_sync/clockmap.py:395-397);
+#     bracket (wl_sync/rp1/backend.py:1504, :1529-1530; wl_sync/clockmap.py:395-397);
 #   * an R19 restart, to a lead within `reach` of the bracket, IDLE_MIN_US, 0.4 s
-#     (wl_sync/rp1/backend.py:1570; wl_sync/clockmap.py:321, :381-383);
+#     (wl_sync/rp1/backend.py:1584; wl_sync/clockmap.py:321, :381-383);
 #   * either, by up to half a narrow bracket more, 50 us, since the pair's RAW is its
 #     middle. Restarts come REACQUIRE_FRAMES frames apart, seconds, so a held step back
 #     is caught up before the next.
@@ -100,7 +100,7 @@ class _BoxClock:
     "at or before" would send it a whole wrap back. In a split process W ticks come from
     the RP1 crystal while `now_us()` follows NTP-slewed CLOCK_MONOTONIC, and the two
     diverge by ppm times run length. On one count `now_us()` is RAW mapped to P through
-    the fit (wl_sync/rp1/backend.py:642-659), so a tick can lead it by the fit's error,
+    the fit (wl_sync/rp1/backend.py:656-673), so a tick can lead it by the fit's error,
     and one stamped just before the fit steps back leads the held `now()` by up to the
     step, under STEP_BACK_MAX_US. Nearest tolerates up to +-2^31 us (35.8 min), roughly
     500 days of continuous running at 50 ppm.

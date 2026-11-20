@@ -234,7 +234,16 @@ def _load_shim() -> ctypes.CDLL:
             "it on the box with pio/build-shim.sh and install it (deploy/README.md)."
         ) from error
     _check_shim_version(lib)
-    _declare(lib)
+    try:
+        _declare(lib)
+    except AttributeError as error:
+        # A .so that reports this version and lacks an export, as one hand-built from
+        # another tree might. A shim that cannot be loaded, so the process records split
+        # with no W (`_configure`; Ruling R37).
+        raise PiolibError(
+            f"libwlsync_pio reports version {_SHIM_VERSION} but lacks a function this "
+            f"wl-sync binds ({error}): " + _REBUILD
+        ) from error
     return lib
 
 
@@ -243,6 +252,13 @@ def _load_shim() -> ctypes.CDLL:
 # arguments without a sound. 1 is the unversioned original; 2: `entry` added,
 # `wlsync_encode_jmp` removed; 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added.
 _SHIM_VERSION = 3
+
+
+# How every refusal of the shim ends: the rebuild that fixes it.
+_REBUILD = (
+    "rebuild and reinstall it with pio/build-shim.sh "
+    "(deploy/README.md, step 2: piolib, compiled into this repository's shim)"
+)
 
 
 def _check_shim_version(lib: ctypes.CDLL) -> None:
@@ -255,10 +271,7 @@ def _check_shim_version(lib: ctypes.CDLL) -> None:
     check then fails with errno 22. That is cryptic; this check turns it into the rebuild
     instruction, and guards later changes whose shifted arguments might pass validation.
     """
-    rebuild = (
-        "rebuild and reinstall it with pio/build-shim.sh "
-        "(deploy/README.md, step 2: piolib, compiled into this repository's shim)"
-    )
+    rebuild = _REBUILD
     version_of = getattr(lib, "wlsync_shim_version", None)
     if version_of is None:
         raise PiolibError(
@@ -468,8 +481,9 @@ class Rp1Backend:
         # Why this process records no W, or "" while it can (Task 1.16): the capture
         # machine could not be configured, or the PIO could not be reached at all (here),
         # or it could not be enabled (`start_strobed_capture`). Fixed once set, and read
-        # by check_health, which reports it on every call. This thread's.
-        self._capture_failure = ""
+        # by check_health, which reports it on every call, and by `bench stamps`, which
+        # names it. Written on this thread only.
+        self.capture_failure = ""
         # Set by `apply_calibration`: the scale it returned has left the backend.
         self._calibrated = False
         # RAW -> P (wl_sync.clockmap.RawToP), made at the sync enable. None before it, so
@@ -523,7 +537,7 @@ class Rp1Backend:
             # split, whose header stays true of a segment without W (wl_sync/log.py,
             # `timebase`). No field or record says W is missing; this ERROR and the health
             # check's episode do (`check_health`).
-            self._capture_failure = failure
+            self.capture_failure = failure
             self.stamp_test_failure = failure
             log.error(
                 "event-code capture cannot run (%s): this process records timebase split "
@@ -882,7 +896,7 @@ class Rp1Backend:
                 f"{data_base}..{data_base + data_count - 1}, strobe {strobe_pin}"
             )
         self._started = True
-        if self._capture_failure:
+        if self.capture_failure:
             # No machine to enable. The origin is taken here, as `_start_split` takes it,
             # so B and E count from capture's start in every split process.
             self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
@@ -893,7 +907,7 @@ class Rp1Backend:
             else:
                 self._start_one_count()
         except PiolibError as error:
-            self._capture_failure = str(error)
+            self.capture_failure = str(error)
             if self._split:
                 log.error(
                     "event-code capture could not start (%s): this process records no "
@@ -1319,10 +1333,10 @@ class Rp1Backend:
             ))
         # On every call, as a dead thread is, so the run loop holds one episode for the
         # run (wl_sync/cli.py:1251-1271), beside the start's ERROR (Task 1.16).
-        if self._started and self._capture_failure:
+        if self._started and self.capture_failure:
             problems.append((
                 "event-code capture: did not start",
-                f"event-code capture did not start ({self._capture_failure}): no code word "
+                f"event-code capture did not start ({self.capture_failure}): no code word "
                 "is recorded in this process",
             ))
         if problems:

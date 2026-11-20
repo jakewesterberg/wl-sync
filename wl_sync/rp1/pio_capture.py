@@ -357,7 +357,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py:992-1023), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:1006-1037), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

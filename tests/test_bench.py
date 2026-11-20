@@ -334,6 +334,7 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
 
     class _Box:
         stamp_test_failure = ""  # the start-up test passed
+        capture_failure = ""
 
         def __init__(self, **kwargs):
             built.append(self)
@@ -403,19 +404,26 @@ def test_the_stamps_command_builds_starts_and_closes_the_backend_and_exits_on_th
     capsys.readouterr()
 
 
+@pytest.mark.parametrize("cause", ["test", "capture"])
 def test_the_stamps_command_reports_a_failed_start_up_test_and_runs_no_frame(
-    monkeypatch, capsys
+    monkeypatch, capsys, cause
 ):
     """A process whose stamp machine failed its start-up test records split, where B is
     the clock read before each frame and nothing is stamped: run, every frame would count
-    as stamped, and the run would pass on stamps it never saw."""
+    as stamped, and the run would pass on stamps it never saw. A process with no PIO
+    machine at all (Task 1.16) is refused too, and named for its own cause, the shim, the
+    block or the capture machine, which the backend also gives as its test's failure
+    (Task 1.16's review, Minor 1; Ruling R37)."""
     from wl_sync import bench
     from wl_sync.rp1 import backend as rp1
 
     built = []
+    reason = {"test": "no stamp when GPIO17 rose",
+              "capture": "opening PIO block 0 failed: errno 2"}[cause]
 
     class _Box:
-        stamp_test_failure = "no stamp when GPIO17 rose"
+        stamp_test_failure = reason
+        capture_failure = reason if cause == "capture" else ""
 
         def __init__(self, **kwargs):
             built.append(self)
@@ -446,9 +454,9 @@ def test_the_stamps_command_reports_a_failed_start_up_test_and_runs_no_frame(
     [box] = built
     assert box.emitted == [] and box.started == []
     assert box.closed
+    said = "start-up test failed" if cause == "test" else "event-code capture cannot run"
     assert capsys.readouterr().out.splitlines() == [
-        "start-up test failed (no stamp when GPIO17 rose): this process records split, "
-        "and has no stamps to count"
+        f"{said} ({reason}): this process records split, and has no stamps to count"
     ]
 
 
@@ -518,6 +526,7 @@ def test_a_sigterm_ends_the_stamps_command_closed_and_summarised(monkeypatch, ca
 
     class _Box:
         stamp_test_failure = ""  # the start-up test passed
+        capture_failure = ""
 
         def __init__(self, **kwargs):
             built.append(self)

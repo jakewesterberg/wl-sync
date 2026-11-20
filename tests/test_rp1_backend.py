@@ -676,22 +676,45 @@ def test_with_a_spare_stamp_pin_the_test_still_reads_gpio17(lib):
 
 @pytest.mark.parametrize("view", ["stuck-high", "inverted"])
 def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
-    lib, gpiod, view
+    lib, gpiod, view, monkeypatch
 ):
     """Ruling R29: the test witnesses the rise. The idle `jmp pin` tests the level
     (wl_sync/rp1/program.py:99), so a PIO that sees GPIO17 high while it is low captures
     as soon as the test machine is enabled, and one that sees it inverted stamps the fall
     as well. Neither stamps the rise, and on one count each would lose every B, yet by
-    the time the pulse ends each has put a stamp in the FIFO."""
-    enable = lib.wlsync_sm_set_enabled
+    the time the pulse ends each has put a stamp in the FIFO.
+
+    Both views stamp at EVERY enable of the test machine: the sync enable, which the first
+    pulse runs on and whose verdict decides between one count and split, and the plain
+    one, which the diagnostic second pulse runs on (Task 1.16). Until Task 1.16's fix round
+    only the plain enable stamped, so a build that skipped the first pulse's discard
+    passed here (Task 1.16's review, Important 1). Each pulse's verdict is asserted:
+    both find no stamp of the rise."""
+    stamp_of_the_enable = [0, (~3) & 0xFFFF_FFFF]
+    enable, enable_in_sync = lib.wlsync_sm_set_enabled, lib.wlsync_enable_in_sync
 
     def enable_seeing_high(sm, on):  # GPIO17 is low, and this view sees it high
         result = enable(sm, on)
         if on and sm == lib.test_sm:
-            lib.push_to(sm, [0, (~3) & 0xFFFF_FFFF])
+            lib.push_to(sm, stamp_of_the_enable)
         return result
 
+    def enable_in_sync_seeing_high(mask):
+        result = enable_in_sync(mask)
+        if lib.test_sm is not None and mask >> lib.test_sm & 1:
+            lib.push_to(lib.test_sm, stamp_of_the_enable)
+        return result
+
+    verdicts = []
+    rise_stamped = Rp1Backend._rise_stamped
+
+    def witnessed(self, test):
+        verdicts.append(rise_stamped(self, test))
+        return verdicts[-1]
+
+    monkeypatch.setattr(Rp1Backend, "_rise_stamped", witnessed)
     lib.wlsync_sm_set_enabled = enable_seeing_high
+    lib.wlsync_enable_in_sync = enable_in_sync_seeing_high
     gpiod.pio_sees_barcode = False  # nothing stamped at the rise
     if view == "inverted":
         request = gpiod.request_lines
@@ -711,6 +734,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         gpiod.request_lines = request_inverted
     backend = Rp1Backend()
     try:
+        assert verdicts == [False, False]  # the first pulse alone fails the test
         assert backend.stamp_test_failure == _BLIND
         assert _is_split(backend)
     finally:
@@ -1025,6 +1049,27 @@ def test_a_version_2_shim_is_refused(monkeypatch):
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
     with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 3"):
         rp1._load_shim()
+
+
+def test_a_version_3_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
+    gpiod, monkeypatch, caplog
+):
+    """A .so that reports version 3 but lacks an export, as one hand-built from another
+    tree might (Task 1.16's review, Minor 4; Ruling R37). ctypes raised AttributeError
+    from `_declare`, which `_configure` did not catch, so the unit crash-looped. Now it is
+    a shim that cannot be loaded: the process records split with no W, and the ERROR
+    names the symbol and the rebuild."""
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
+    with pytest.raises(rp1.PiolibError, match=r"wlsync_pio_open.*pio/build-shim\.sh"):
+        rp1._load_shim()
+    backend = Rp1Backend()
+    try:
+        assert _is_split(backend) and backend.capture_failure
+        [error] = _errors(caplog)
+        assert error.startswith("event-code capture cannot run (libwlsync_pio reports ")
+    finally:
+        backend.close()
 
 
 def test_a_shim_of_the_current_version_is_accepted():
