@@ -149,7 +149,7 @@ could. The first frame is reported as not checkable, by design. Without the jump
 so, which was checked on the box. *(Amended 2026-11-19, for the one-clock build.)* What the
 lead-edge offset it prints means depends on the segment's `timebase`. With shim v3 this run
 normally records one count, `"rp1-pio-si"` or `"rp1-pio"`, and there the offset is "E's
-constant (B6)", the edge input's own offset (`wl_sync/bench.py:103`): record it here as B6,
+constant (B6)", the edge input's own offset (`wl_sync/bench.py:91`): record it here as B6,
 and do not pass it as `--barcode-delay-us` (`deploy/README.md:27-37`). Only on a segment
 whose header says `"split"` is it the software latency between the logged tick and the pin
 rising, the barcode delay the flag takes. Without such a segment, leave `barcode_delay_us`

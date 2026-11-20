@@ -135,6 +135,33 @@ def test_the_lead_edge_offset_is_reported_as_es_constant_with_its_spread(tmp_pat
     assert "p50" in summary and "p99 " in summary and "p99.9" in summary
 
 
+@pytest.mark.parametrize(
+    "timebase, label",
+    [
+        ("rp1-pio-si", "lead edge after its logged tick, E's constant (B6):"),
+        ("rp1-pio", "lead edge after its logged tick, E's constant (B6):"),
+        ("split", "lead edge after its logged tick, the barcode delay to pass as "
+                  "--barcode-delay-us:"),
+        ("fake", "lead edge after its logged tick (timebase fake; only a split segment's "
+                 "is a --barcode-delay-us):"),
+        (None, "lead edge after its logged tick (no timebase in the header; only a split "
+               "segment's is a --barcode-delay-us):"),
+    ],
+    ids=["rp1-pio-si", "rp1-pio", "split", "fake", "none"],
+)
+def test_the_lead_edge_offset_is_labelled_by_the_segments_timebase(tmp_path, timebase, label):
+    """Final review M9. On one count the median is E's constant: B is the lead edge's own
+    stamp, so there is no barcode delay. On split it is exactly what deploy/README.md:27-37
+    tells the operator to pass as --barcode-delay-us, which the one-count label told them
+    not to. Any other timebase, or none, is neither, and says where the flag's value
+    comes from."""
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, timebase=timebase), LOOP_GPIO)
+
+    assert f"  {label} median 60 us" in report.summary()
+
+
 def test_a_loopback_with_no_edges_says_the_wire_is_missing(tmp_path):
     from wl_sync.bench import loopback
 

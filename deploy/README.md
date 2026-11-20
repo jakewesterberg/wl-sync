@@ -31,7 +31,7 @@ the loopback's median "lead edge after its logged tick" (`docs/next-session.md`,
 in whole µs, read from a segment whose header says `"split"`. On one count the backend
 stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
 not used, with a WARNING (`wl_sync/rp1/backend.py:383`; `wl_sync/cli.py:553-561`). There
-the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:103`), the edge input's
+the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:91`), the edge input's
 own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
 process that falls back to `"split"` would write it into every header. With no split
 measurement, leave the flag out, and a split process's headers say `null`, unmeasured.
@@ -145,10 +145,10 @@ service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
 
 It builds the backend as the unit does, so it repeats the start-up test first. A test that
 fails again prints `start-up test failed (<cause>)`, runs no frame, and exits 1
-(`wl_sync/bench.py:318-325`). A test that passes is followed by 60 of the box's own
+(`wl_sync/bench.py:334-341`). A test that passes is followed by 60 of the box's own
 frames, one a second (`--frames N` for more; S.4 ran 300). It passes when every lead edge
 is stamped, every later rising edge is accounted for, and nothing is stamped between
-frames (`wl_sync/bench.py:187-190`). Then `sudo systemctl start wl-sync`: a process whose
+frames (`wl_sync/bench.py:203-206`). Then `sudo systemctl start wl-sync`: a process whose
 test passes records one count again.
 
 If the test passes and the frames still get no stamp, spike S.3b's pull toggles show

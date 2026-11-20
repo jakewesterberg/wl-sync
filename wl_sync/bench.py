@@ -79,6 +79,22 @@ class LoopbackReport:
         return bool(self.edge_count and self.matched and not self.missing
                     and not self.unexpected and not self.dropped)
 
+    def _offset_meaning(self) -> str:
+        """What the lead offset's median is, by timebase (final review M9). On one count
+        B is the lead edge's own stamp, so the offset is the edge input's, E's constant
+        (B6), and no barcode delay (wl_sync/log.py:170-176). On split B is a software
+        tick read before the frame goes out, and the median is the barcode delay that
+        deploy/README.md:27-37 has the operator pass as --barcode-delay-us
+        (wl_sync/log.py:177-184). Any other timebase, or none, is not a split
+        process's, so it is named and the flag's value pointed at a split segment."""
+        if self.timebase in ONE_COUNT_TIMEBASES:
+            return ", E's constant (B6)"
+        if self.timebase == "split":
+            return ", the barcode delay to pass as --barcode-delay-us"
+        named = ("no timebase in the header" if self.timebase is None
+                 else f"timebase {self.timebase}")
+        return f" ({named}; only a split segment's is a --barcode-delay-us)"
+
     def summary(self) -> str:
         lines = [f"loopback on GPIO{self.gpio}: {'PASS' if self.passed else 'FAIL'}",
                  f"  barcodes logged {len(self.emitted)}, edges recorded {self.edge_count}"]
@@ -100,7 +116,7 @@ class LoopbackReport:
                          f"{self.dropped}")
         if self.lead_offsets_us:
             offsets = self.lead_offsets_us
-            line = (f"  lead edge after its logged tick, E's constant (B6): median "
+            line = (f"  lead edge after its logged tick{self._offset_meaning()}: median "
                     f"{median(offsets):.0f} us, max {max(offsets)} us")
             if len(offsets) >= 2:
                 # n=1000 gives 999 cut points: index 499 is p50, 989 p99, 998 p99.9.
