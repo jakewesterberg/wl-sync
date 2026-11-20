@@ -448,15 +448,21 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
 
 ## The PIO rate file, once per install or board
 
-*(Added 2026-11-19, for the one-clock build.)* On the RP1 backend every tick is scaled to
-SI µs by one rate, fixed for the process. Each process takes it at start from
-`.wl-sync-pio-rate` in its `--out` directory, `/data/rig0/.wl-sync-pio-rate` under the unit
-(`wl_sync/cli.py:514-547`). The box writes the file itself: once its own baseline of
-NTP-disciplined clock pairs reaches an hour, and every hour after
-(`wl_sync/cli.py:1550-1574`). A file is used only on the board whose serial it names, and
-only if its rate is within ±200 ppm of RP1's crystal (`wl_sync/calibration.py:228-248`).
-A process that records `"split"` neither applies nor writes one
-(`wl_sync/rp1/backend.py:1415-1416`).
+*(Added 2026-11-19, for the one-clock build.)* On one count the RP1 backend scales every
+tick by one rate, fixed for the process. Taken from a usable rate file, it makes the ticks
+SI µs, and the header says `"rp1-pio-si"`; with none it is 1, the ticks count RP1's
+crystal, and the header says `"rp1-pio"` (`wl_sync/log.py:206-216`). Each process looks
+for the file at start, as `.wl-sync-pio-rate` in its `--out` directory: under this
+repository's unit that is `/data/rig1/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
+`wl_sync/cli.py:514-547`). The unit installed on wl-sync-rig0 writes `/data/rig0` instead,
+as read on the box on 2026-11-07, so that box's file is `/data/rig0/.wl-sync-pio-rate`.
+The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
+reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is used only on
+the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
+and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:235-258`). A process that
+records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1415-1416`;
+`wl_sync/log.py:217-226`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**
 
@@ -479,7 +485,7 @@ share one rate, RP1's crystal's, which is not SI. The journal says so at start:
     no usable PIO rate calibration (<why>): ticks count RP1's crystal, timebase rp1-pio, until a later start finds one
 
 `<why>` is `no calibration file`, an unreadable file, another board's, a rate outside
-±200 ppm, or `this board's serial cannot be read`. Without a serial a WARNING also says
+±200 ppm, a P/RAW ratio outside ±1000 ppm, or `this board's serial cannot be read`. Without a serial a WARNING also says
 that this process's rate cannot be kept for the next start (`wl_sync/cli.py:540-546`).
 Later starts take the newest file. During a run, a WARNING that the calibration "most
 likely came from other hardware", or that this process measures a rate more than 1 ppm

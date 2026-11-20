@@ -881,7 +881,7 @@ def run(
                 )
             # THE BOX CLOCK IS READ EVERY FRAME, kept or dropped. It counts a wrap of the
             # 32-bit counter only if it is read at least once per 2^32 us less 1 s
-            # (wl_sync/service.py:115-117), and on a quiet rig record_barcode was what read
+            # (wl_sync/service.py:118-120), and on a quiet rig record_barcode was what read
             # it: an episode of drops longer than about 71.6 min would lose a wrap, and
             # every later tick would be placed 4294.967296 s early.
             recorder.now()
@@ -1435,7 +1435,7 @@ class _RateKeeper:
     NTP-disciplined MONO, and kept in the calibration file (spec §2.2, "Persisting it").
 
     IT NEVER CHANGES THIS PROCESS'S RATE. The Recorder took its scale at the start and
-    keeps it (wl_sync/service.py:262-264). What is measured here is for the next start,
+    keeps it (wl_sync/service.py:279-281). What is measured here is for the next start,
     and for two witnesses in the journal.
 
     THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),
@@ -1450,7 +1450,7 @@ class _RateKeeper:
     an hour longer than the failed one, though the file holds nothing that long.
 
     NOTHING IS WRITTEN WITHOUT THE BOARD'S SERIAL. A file is applied only on the board it
-    names (wl_sync/calibration.py:241-245), so one written without it could never be used.
+    names (wl_sync/calibration.py:248-252), so one written without it could never be used.
 
     A WRITE THAT FAILS IS AN ERROR ONCE PER EPISODE, AND THE BOX RECORDS ON: the file is
     for the next start, and a full disk or a read-only root must not stop this one. Once
