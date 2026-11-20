@@ -93,27 +93,33 @@ status:
     30, with 0 between, and the depth check passed. The shim is version 5
     (Ruling R42), so a build from before fix round 3 is refused, naming the
     rebuild; v5 built and passed the same check on the box, 2026-11-20. All of
-    it is merged and pushed with main (origin/main 23ad849, 1165 tests).
+    it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
+    1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
+    wl_sync/rp1/harness.py), is built on the one-clock-p1 branch (1261 tests),
+    not yet reviewed, merged or run on the box. B3b's short highs come from a
+    register writer that sets and clears one spare pin's GPIOn_CTRL.OUTOVER
+    through /dev/gpiomem0, confined to the harness.
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
     answers (docs/pending-wl-preproc-amendments.md:425-427); note 8 is
     queued. The box has 77a1f5a installed under --fake (2026-11-20), and runs
     it from the user's next restart; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
-    Bench day, in the order of docs/next-session.md:113-210:
+    Bench day, in the order of docs/next-session.md:113-272:
     rebuild the shim (version 5); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
     task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
-    --fake also waits for bench B3a and B3b, on a no-wire harness whose
-    design the user ruled on, 2026-11-20, and which is built next
-    (docs/superpowers/plans/2026-11-07-one-clock.md:2004-2006). Once the unit
+    --fake also waits for bench B3a and B3b, whose no-wire harness is built
+    (Task 1.21) and is reviewed next, then run on the box over ssh, probe,
+    B3a, then B3b, each with the user's go-ahead
+    (docs/superpowers/plans/2026-11-07-one-clock.md:2007-2010). Once the unit
     runs the RP1 backend: run it 1 h, then restart it once, between sessions,
     so it applies a PIO rate (deploy/README.md). Before layout: the task PC
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "db85e3d"
+  describes: "ffb41ee"
 
 runs_on: [rig/sync]
 builds_on: [dws]
