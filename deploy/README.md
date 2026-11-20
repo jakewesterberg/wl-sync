@@ -426,8 +426,13 @@ the NVMe.
 
        sudo hostnamectl set-hostname wl-rig-sync0
        sudo tailscale set --hostname=wl-rig-sync0
+       sudo sed -i 's/wl-sync-rig0/wl-rig-sync0/g' /etc/hosts
        # then: rename the node in the Tailscale admin console if it does not follow,
        # and update any ~/.ssh/config Host entries that say wl-sync-rig0
+
+   `hostnamectl` does not touch `/etc/hosts`: until its `127.0.1.1` line names the
+   new hostname, every `sudo` warns "unable to resolve host". Seen on the real
+   rename, 2026-11-20.
 
 
    `wl-sync` itself does not need Tailscale, so it is not in `wl.yaml`.
