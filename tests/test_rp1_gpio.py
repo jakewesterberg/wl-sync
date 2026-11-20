@@ -1795,7 +1795,7 @@ def test_an_edge_pump_places_edges_through_the_timebase_it_is_given():
 
 def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     """Review Focus 3. A fit update between two GPIO20 edges maps the second 3 counts
-    before the first. Each line's E records are in tick order (wl_sync/log.py:489-492), so
+    before the first. Each line's E records are in tick order (wl_sync/log.py:492-495), so
     it is delivered at the first one's tick. GPIO21's edge at that same 497 has no edge
     of its own line before it, and lands where it is mapped. A third GPIO20 edge mapped to
     498 is still behind the 500 delivered, so it is delivered at 500 too: the guard keeps
@@ -1997,7 +1997,7 @@ def test_a_loss_written_ahead_of_an_edge_keeps_its_lines_order(tmp_path):
     """Ruling R30. GPIO20's own numbers jump from 1 to 4, after the map moved: its edge
     at 40 100 us is mapped to 497, behind the 500 of the line's edge before it, and is
     held there at 500. The overflow's record goes just before it at its tick
-    (wl_sync/log.py:494-495). Mapped again on its own, the record took 497, and the line
+    (wl_sync/log.py:497-498). Mapped again on its own, the record took 497, and the line
     read E@500, L@497, E@500."""
     timebase = _Timebase()
     backend = _PumpedThrough(

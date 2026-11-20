@@ -116,11 +116,11 @@ class OrderClamps:
 # No stamp at all up to the frame's end.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
 # The start of the cause for a lead the frame's rises align on, outside the lead edge's
-# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1533-1538),
+# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1654-1659),
 # which differs frame to frame, so the run loop tells the kind by this.
 STAMP_TOO_FAR_PREFIX = "the stamp lies "
 # No frame can be matched, because the stamp machine never started (Ruling R15; a guard
-# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1494-1505).
+# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1615-1626).
 STAMPS_NOT_STARTED = "the stamp machine did not start"
 STAMPS_STOPPED = "the stamp drain stopped"
 # The frame's stamps align on no lead: too few of them lie on the frame's own rises

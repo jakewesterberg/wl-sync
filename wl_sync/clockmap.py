@@ -107,7 +107,7 @@ class MonoRawTable:
 
     def add(self, mono_ns: int, raw_ns: int, *, provisional: bool = False) -> None:
         # A MONO that goes back would break `raw_of`'s search, but this runs on the edge
-        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1240-1243):
+        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1361-1364):
         # the box records anyway, so the reading is dropped. The caller may log it.
         if self._readings:
             last_mono, _ = self._readings[-1]
@@ -321,7 +321,7 @@ def match_lead_stamp(
     reach: int = IDLE_MIN_US,
 ) -> LeadStamp:
     """Spec §2.5 steps 2-5, by the frame's own rises (Ruling R26). `stamps` are unwrapped
-    and ascending, as the RP1 backend sorts them (wl_sync/rp1/backend.py:1526); nothing
+    and ascending, as the RP1 backend sorts them (wl_sync/rp1/backend.py:1647); nothing
     here sorts them. `bracket` is the lead edge's CPU bracket mapped to P, `end`
     the frame's end mapped to P, and `rises` where the frame's rising edges begin, in us
     from its start (`wl_sync.barcode.rises_us`).

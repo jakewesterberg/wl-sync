@@ -54,21 +54,31 @@ class _FakeShim:
     `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
     each sync enable, where the PIO's count starts (`crystals`), the last one winning.
     `refuse_sync` makes every sync enable a refused one (C-7): it returns 0, as the shim
-    does when piolib discards the refusal (pio/wlsync_pio.c:207-217), and runs nothing.
+    does when piolib discards the refusal (pio/wlsync_pio.c:247-257), and runs nothing.
     `sync_errno` and `open_result` are what the shim itself can return.
 
-    THE STAMP MACHINE'S FIFO IS RP1'S: `stamp_depth` words, 8, both 4-deep FIFOs joined as
-    the shim configures it (pio/wlsync_pio.c:192; `rp1._RX_FIFO_WORDS`). A word pushed to it
+    EVERY FIFO IS RP1'S: `fifo_depth`, 8, a way (pio_rp1.c:985 at utils b57c48e), joined, so
+    `stamp_depth`, `word_depth` and `test_depth` are 16, and `wlsync_rx_fifo_depth` gives 16,
+    as the shim does (Ruling R40; until then the fake used the backend's own constant, 8,
+    and could not show a depth the backend did not assume, review M5). A test sets a depth
+    of its own to model a join that did not take; `level_wrap` makes every level read
+    modulo it, as a level field too narrow for the joined depth would, and
+    `level_failures[sm]` holds the errnos the next level reads of `sm` return, negated, as
+    the shim's checked read returns a failed one, None for a read that goes through
+    (pio/wlsync_pio.c, `wlsync_sm_rx_level`).
+
+    THE STAMP MACHINE'S FIFO: `stamp_depth` words, joined as
+    the shim configures it (pio/wlsync_pio.c:232). A word pushed to it
     full is dropped, as `push noblock` drops it, and counted in `stamp_dropped`, and
     `wlsync_sm_rx_full` reads it full, as `pio_sm_is_rx_fifo_full` reads FSTAT
-    (pio/wlsync_pio.c:231). Until Task 1.15 it was unbounded (final review M11), so the
+    (pio/wlsync_pio.c:308). Until Task 1.15 it was unbounded (final review M11), so the
     fault that desynced the stream could not be built here. `between_words`, when set, is
     called between the two words of every pair pushed to it, which is where a drain must
     pop for a word to be left alone; `stamp_gate`, an Event, holds the stamp drain at its
     first call until it is set, as a pump the GIL keeps from running.
 
-    SM 0'S FIFO IS RP1'S TOO since Task 1.20: `word_depth` words, 8, joined as the shim
-    configures it (pio/wlsync_pio.c:138), a word pushed to it full dropped and counted in
+    SM 0'S FIFO TOO since Task 1.20: `word_depth` words, joined as the shim
+    configures it (pio/wlsync_pio.c:178), a word pushed to it full dropped and counted in
     `word_dropped`, and `wlsync_sm_rx_full` reading it full as it reads SM 1's, or when
     `full` is set. `word_gate`, an Event, holds the word drain at its first call until it
     is set, and `word_held` is set once a drain waits there. Together they make the fault
@@ -86,11 +96,15 @@ class _FakeShim:
         self.full = False
         self.stamp_fifo: list[int] = []
         self.stamp_full = False
-        self.stamp_depth = rp1._RX_FIFO_WORDS
+        self.fifo_depth = 8
+        self.stamp_depth = 2 * self.fifo_depth
+        self.test_depth = 2 * self.fifo_depth
+        self.level_wrap: int | None = None
+        self.level_failures: dict[int, list[int]] = {}
         self.stamp_dropped = 0
         self.between_words = None
         self.stamp_gate: threading.Event | None = None
-        self.word_depth = rp1._RX_FIFO_WORDS
+        self.word_depth = 2 * self.fifo_depth
         self.word_dropped = 0
         self.word_gate: threading.Event | None = None
         self.word_held = threading.Event()
@@ -225,6 +239,10 @@ class _FakeShim:
             self.disabled.append(sm)
         return 0
 
+    def sm_enabled_never(self, sm) -> bool:
+        """`sm` was never enabled, alone or in sync."""
+        return (sm, True) not in self.enables
+
     @property
     def testing(self) -> bool:
         """The test machine is running: what GPIO17 does now is the start-up test's pulse."""
@@ -248,6 +266,12 @@ class _FakeShim:
                         self.fifo.append(word)
                     else:
                         self.word_dropped += 1
+            return
+        if sm == 2:
+            with self._lock:
+                for word in entries:
+                    if len(self.test_fifo) < self.test_depth:
+                        self.test_fifo.append(word)
             return
         if sm != 1:
             with self._lock:
@@ -290,8 +314,16 @@ class _FakeShim:
 
     def wlsync_sm_rx_level(self, sm):
         self._witness("rx_level", sm)
+        failures = self.level_failures.get(sm)
+        errno = failures.pop(0) if failures else None  # None: this read goes through
+        if errno is not None:
+            return -errno
         with self._lock:
-            return len(self._fifo_of(sm))
+            level = len(self._fifo_of(sm))
+        return level % self.level_wrap if self.level_wrap else level
+
+    def wlsync_rx_fifo_depth(self):
+        return 2 * self.fifo_depth
 
     def wlsync_sm_get(self, sm):
         self._witness("get", sm)
@@ -340,22 +372,27 @@ def _started(lib, on_word):
     return backend
 
 
+# The strobes that fill the fake's word FIFO, 16 words joined (`_FakeShim`), in
+# `_lose_a_counters_data_word`: what is delivered before the lone counter.
+FILLING = [(10 * k, k) for k in range(1, 9)]
+
+
 def _lose_a_counters_data_word(lib):
     """The fault a code-word desync comes from, as the FIFO makes it (Task 1.20). The word
-    drain is held while strobes 10-40 fill the FIFO, so strobe 50's data word finds it full
-    and is dropped. One drain then pops all eight, and only then does 50's counter come,
-    alone, where a data word belongs. Returns once it is in the FIFO."""
+    drain is held while the strobes of FILLING fill the FIFO, so strobe 90's data word finds
+    it full and is dropped. One drain then pops all of it, and only then does 90's counter
+    come, alone, where a data word belongs. Returns once it is in the FIFO."""
     gate = threading.Event()
     lib.word_held.clear()
     lib.word_gate = gate
     assert lib.word_held.wait(1), "the word drain never came to the gate"
-    lib.push(stream((10, 1), (20, 2), (30, 3), (40, 4)) + [5])
-    assert lib.word_dropped == 1, "50's data word found room"
+    lib.push(stream(*FILLING) + [9])
+    assert lib.word_dropped == 1, "90's data word found room"
     drains = lib.drains
     lib.word_gate = None
     gate.set()
-    assert _until(lambda: lib.drains >= drains + 2)  # the held drain has popped all eight
-    lib.push([(~50) & 0xFFFFFFFF])
+    assert _until(lambda: lib.drains >= drains + 2)  # the held drain has popped them all
+    lib.push([(~90) & 0xFFFFFFFF])
 
 
 def test_capture_starts_at_the_programs_entry(lib):
@@ -604,7 +641,7 @@ def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
     """A disable that fails after a pass fails the test too: the block refused a call the
     production machines need, and the test machine may still be running. Since Task 1.16
     the test machine is enabled through the sync enable, whose one errno is the shim's
-    own (pio/wlsync_pio.c:211-217); this test enabled it through wlsync_sm_set_enabled
+    own (pio/wlsync_pio.c:251-257); this test enabled it through wlsync_sm_set_enabled
     until then."""
     if on:
         lib.sync_errno[0x4] = 19
@@ -626,21 +663,25 @@ def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
 
 def test_the_test_pulse_is_one_the_decoders_reject(lib, gpiod, monkeypatch):
     """One rise and one fall, STAMP_TEST_HIGH_US apart: the line is low again a quarter
-    of LEAD in, where a lead must still be high (wl_sync/barcode.py:40, :135-136)."""
+    of LEAD in, where a lead must still be high (wl_sync/barcode.py:40, :135-136). Since
+    Ruling R40 the depth check's burst follows it (`_measure_fifo_depth`): depth/2 + 1
+    pulses of STAMP_TEST_SETTLE_US, and the decoder rejects the whole of it too."""
     from wl_sync.barcode import FRAME_US, IDLE_MIN_US, decode_edges
 
     monkeypatch.setattr(rp1, "time", gpiod.clock)
     Rp1Backend().close()
-    (rise_ns, high), (fall_ns, low) = gpiod.sets
+    (rise_ns, high), (fall_ns, low), *burst = gpiod.sets
     assert (high, low) == (1, 0)
     assert rp1.STAMP_TEST_HIGH_US == 1_000
     assert (fall_ns - rise_ns) / 1_000 == pytest.approx(rp1.STAMP_TEST_HIGH_US, abs=20)
     assert (fall_ns - rise_ns) / 1_000 < 2_500
+    assert [level for _, level in burst] == [1, 0] * (lib.test_depth // 2 + 1)
+    assert (burst[-1][0] - rise_ns) / 1_000 < 10_000, "the burst outlasts a quarter LEAD"
     # The idle before it is known, and the record runs a frame past it, so the decoder
     # does test it as a lead.
-    rise_us, fall_us = rise_ns // 1_000, fall_ns // 1_000
-    edges = [(rise_us, 1), (fall_us, 0), (rise_us + 2 * FRAME_US, 0)]
-    assert decode_edges(edges, start_us=rise_us - IDLE_MIN_US) == []
+    edges = [(ns // 1_000, level) for ns, level in gpiod.sets]
+    edges.append((rise_ns // 1_000 + 2 * FRAME_US, 0))
+    assert decode_edges(edges, start_us=rise_ns // 1_000 - IDLE_MIN_US) == []
 
 
 def test_the_first_frame_decodes_after_the_test_pulse(lib, gpiod, monkeypatch):
@@ -662,7 +703,10 @@ def test_the_first_frame_decodes_after_the_test_pulse(lib, gpiod, monkeypatch):
     for ns, level in gpiod.sets:
         if not edges or edges[-1][1] != level:
             edges.append((ns // 1000, level))
-    (_, high), (fall_us, low), (lead_us, _) = edges[:3]
+    # The test's pulse, then the depth check's burst (`_measure_fifo_depth`), then the frame.
+    startup = 2 * (1 + lib.test_depth // 2 + 1)
+    (_, high), (_, low) = edges[:2]
+    fall_us, lead_us = edges[startup - 1][0], edges[startup][0]
     assert (high, low) == (1, 0)
     barcodes = decode_edges(edges, start_us=edges[0][0] - IDLE_MIN_US)
     assert barcodes[0].value == 1000 and barcodes[0].start_us == lead_us
@@ -682,9 +726,11 @@ def test_the_test_machines_stamp_never_reaches_a_frame(lib, gpiod, crystals):
         backend.close()
     assert first.between == 0
     assert first.tick == gpiod.leads[1]
+    # The test's rise, then the depth check's (`_measure_fifo_depth`): all to SM 2.
     test_stamps = [p for sm, p in gpiod.pushes if sm == 2]
-    assert len(test_stamps) == 1 and gpiod.pushes[0] == (2, test_stamps[0])
-    assert {sm for sm, _ in gpiod.pushes[1:]} == {1}
+    rises = 1 + lib.test_depth // 2 + 1
+    assert len(test_stamps) == rises and gpiod.pushes[:rises] == [(2, p) for p in test_stamps]
+    assert {sm for sm, _ in gpiod.pushes[rises:]} == {1}
     drained = {sm for _, sm, thread in lib.fifo_calls if thread == "wl-sync-words"}
     assert 2 not in drained and 1 in drained
 
@@ -784,7 +830,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         backend.close()
     # The settle that lets a stamp at the enable land before it is discarded, and the
     # read after the rise: more than the 5.5 us a pair takes
-    # (wl_sync/rp1/pio_capture.py:308-313), and well inside the pulse.
+    # (wl_sync/rp1/pio_capture.py:349-354), and well inside the pulse.
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
@@ -809,8 +855,8 @@ def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch
 
     lib.wlsync_enable_in_sync, lib.wlsync_sm_rx_level = enable_in_sync, rx_level
     Rp1Backend().close()
-    (rise_ns, _), _ = gpiod.sets
-    discard, read = at["reads"]
+    (rise_ns, _), *_ = gpiod.sets
+    discard, read = at["reads"][:2]  # then the depth's reads (`_measure_fifo_depth`)
     settle_ns = rp1.STAMP_TEST_SETTLE_US * 1_000
     assert discard - at["enabled"] >= settle_ns
     assert discard < rise_ns and read - rise_ns >= settle_ns
@@ -819,7 +865,7 @@ def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch
 @pytest.mark.parametrize("fault", ["encoders", "clk_sys"])
 def test_a_block_that_cannot_be_trusted_closes_before_raising(lib, fault, monkeypatch):
     """The shim's open overwrites the block it holds without closing it
-    (pio/wlsync_pio.c:40-56), so a caller that retried would leak a block a try. These
+    (pio/wlsync_pio.c:76-93), so a caller that retried would leak a block a try. These
     two still raise (Task 1.16, the user's ruling on its Q3): an encoding that disagrees
     would put wrong ticks in every W, and an impossible clk_sys would scale every tick by
     it. A capture machine that cannot be configured no longer raises: see below."""
@@ -968,7 +1014,7 @@ def test_machines_that_cannot_be_enabled_in_sync_record_on_without_w_or_b(
     lib, gpiod, caplog
 ):
     """On one count, at capture's start. The shim returns an errno here only with no block
-    open (pio/wlsync_pio.c:211-217), which a backend that opened one does not reach; if
+    open (pio/wlsync_pio.c:251-257), which a backend that opened one does not reach; if
     it did, the process records on: E through the fit, extrapolated, and every B dropped
     as not stamped, with W reported by the health check."""
     from wl_sync.backend import STAMPS_NOT_STARTED, CaptureDegraded, FrameStamp
@@ -1088,7 +1134,7 @@ def test_a_shim_without_a_version_is_refused_with_how_to_rebuild_it(monkeypatch)
 def test_a_shim_of_another_version_is_refused(monkeypatch):
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 1)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 3"):
+    with pytest.raises(rp1.PiolibError, match=r"version 1.*needs 4"):
         rp1._load_shim()
 
 
@@ -1097,19 +1143,30 @@ def test_a_version_2_shim_is_refused(monkeypatch):
     symbol, not with the rebuild instruction."""
     shim = types.SimpleNamespace(wlsync_shim_version=lambda: 2)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
-    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 3"):
+    with pytest.raises(rp1.PiolibError, match=r"version 2.*needs 4"):
         rp1._load_shim()
 
 
-def test_a_version_3_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
+def test_a_version_3_shim_is_refused(monkeypatch):
+    """Version 3's level read could not fail visibly: piolib's returned 0 on a failed
+    ioctl (pio_rp1.c:591-598 at utils b57c48e), the low read the word pump's proof
+    cannot survive. Version 4's returns the errno (Ruling R40), and a version 3 shim
+    is refused with the rebuild."""
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
+    monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
+    with pytest.raises(rp1.PiolibError, match=r"version 3.*needs 4.*build-shim"):
+        rp1._load_shim()
+
+
+def test_a_version_4_shim_missing_a_symbol_is_refused_with_how_to_rebuild_it(
     gpiod, monkeypatch, caplog
 ):
-    """A .so that reports version 3 but lacks an export, as one hand-built from another
+    """A .so that reports version 4 but lacks an export, as one hand-built from another
     tree might (Task 1.16's review, Minor 4; Ruling R37). ctypes raised AttributeError
     from `_declare`, which `_configure` did not catch, so the unit crash-looped. Now it is
     a shim that cannot be loaded: the process records split with no W, and the ERROR
     names the symbol and the rebuild."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
     monkeypatch.setattr(rp1.ctypes, "CDLL", lambda name: shim)
     with pytest.raises(rp1.PiolibError, match=r"wlsync_pio_open.*pio/build-shim\.sh"):
         rp1._load_shim()
@@ -1126,7 +1183,7 @@ def test_a_shim_of_the_current_version_is_accepted():
     """Coverage: pins the accepting side of the version check, which passed against the
     sources when it was added. Without it, a check that refused every shim, the current
     one included, would fail only on the box."""
-    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 3)
+    shim = types.SimpleNamespace(wlsync_shim_version=lambda: 4)
     assert rp1._check_shim_version(shim) is None
 
 
@@ -1276,15 +1333,15 @@ def test_a_desynced_stream_is_reported_once_and_capture_goes_on(lib, caplog):
     backend = _started(lib, lambda tick, word: seen.append((tick, word)))
     try:
         _lose_a_counters_data_word(lib)
-        lib.push(stream((60, 6)))
-        assert _until(lambda: seen[-1:] == [(60, 6)]), seen
-        assert seen == [(10, 1), (20, 2), (30, 3), (40, 4), (60, 6)]
+        lib.push(stream((100, 10)))
+        assert _until(lambda: seen[-1:] == [(100, 10)]), seen
+        assert seen == FILLING + [(100, 10)]
         first = _next_complaint(backend)
         assert first is not None and "1 desync(s) this run" in first, first
         assert "capture goes on" in first and "event-code capture" in first, first
         assert _next_complaint(backend, timeout=0.2) is None, "reported twice, or stopped"
-        lib.push(stream((70, 7)))
-        assert _until(lambda: seen[-1:] == [(70, 7)]), seen
+        lib.push(stream((110, 11)))
+        assert _until(lambda: seen[-1:] == [(110, 11)]), seen
     finally:
         with caplog.at_level(logging.INFO, logger=rp1.log.name):
             backend.close()
@@ -1326,6 +1383,177 @@ def test_the_word_drain_reads_every_word_and_then_the_level_again(lib):
     first = ours.index("get")
     assert ours[first - 1:first + 4] == ["rx_level", "get", "get", "get", "rx_level"], ours
     assert ours[-2:] == ["rx_full", "rx_level"], ours  # close's last poll, which was empty
+
+
+# --- Fix round 1 (Ruling R40): a checked level read, and the FIFO's depth measured ------
+
+
+def test_a_word_drain_whose_level_read_fails_is_held_and_capture_goes_on(lib):
+    """The shim's level read says when it fails (version 4), where piolib's read 0
+    (pio_rp1.c:591-598 at utils b57c48e). A drain whose look fails pops nothing and pairs
+    nothing: check_health says so, nothing stops, and the next look reads the words."""
+    seen = []
+    backend = _started(lib, lambda tick, word: seen.append((tick, word)))
+    try:
+        lib.level_failures[0] = [5]
+        assert _until(lambda: not lib.level_failures[0])
+        complaint = _next_complaint(backend)
+        assert complaint is not None and "level could not be read (errno 5)" in complaint
+        assert "that drain read nothing" in complaint, complaint
+        lib.push(stream((10, 1)))
+        assert _until(lambda: seen == [(10, 1)]), seen
+        assert _next_complaint(backend, timeout=0.2) is None, "reported twice, or stopped"
+    finally:
+        backend.close()
+
+
+def test_a_word_drain_whose_level_after_popping_fails_drops_what_it_popped(lib, tmp_path):
+    """The look read the level and the words were popped, but the read after them failed:
+    nothing is paired from that drain (Ruling R40). Its strobe is dropped, an L record
+    counts it, and the next strobe is written."""
+    from wl_sync.log import CodeWord, Loss, read_log
+
+    backend, recorder, close_sink, path = _recording_on(tmp_path)
+    recorder.capture_codes(0, DATA, DATA)
+    try:
+        gate = threading.Event()
+        lib.word_held.clear()
+        lib.word_gate = gate
+        assert lib.word_held.wait(1)
+        lib.push(stream((10, 1)))
+        lib.level_failures[0] = [None, 5]  # the look reads; the read after popping fails
+        lib.word_gate = None
+        gate.set()
+        assert _until(lambda: backend._words.desyncs == 1)
+        complaint = _next_complaint(backend)
+        assert complaint is not None and "level could not be read (errno 5)" in complaint
+        lib.push(stream((20, 2)))
+        assert _until(lambda: lib.fifo == [] and backend.delivered_through().get(
+            "event-code capture", 0) > 0)
+        assert _until(lambda: lib.drains > 5)
+    finally:
+        backend.close()
+        close_sink()
+    _, records = read_log(path)
+    assert records == [
+        Loss(tick_us=records[0].tick_us, path="W", gpio=None, count=1, bound="at_least",
+             cause="desync", before_us=None, after_us=None),
+        CodeWord(tick_us=20, word=2),
+    ]
+
+
+def test_a_stamp_drain_whose_level_read_fails_is_held_and_stamping_goes_on(
+    lib, gpiod, crystals
+):
+    """The stamp drain read a failed level as 0 and handed its mark over, past stamps still
+    in the FIFO. Now it holds the failure, reads nothing, moves no mark, and goes on."""
+    from wl_sync.barcode import encode
+
+    crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        lib.level_failures[1] = [5]
+        assert _until(lambda: not lib.level_failures[1])
+        complaint = _next_complaint(backend)
+        assert complaint is not None and "stamp FIFO's level could not be read" in complaint
+        stamp = backend.emit_pulses(17, encode(1000))
+        assert stamp.tick == gpiod.leads[1]
+        assert not backend._stamp_pump.stopped
+    finally:
+        backend.close()
+
+
+def test_the_rx_fifo_depth_is_measured_at_start_up_and_counted_on(lib):
+    """piolib gives RP1 8 words a way (pio_rp1.c:985 at utils b57c48e), the shim joins
+    them, so 16; the start-up check fills the test machine's FIFO and reads every level
+    to 16 (`_measure_fifo_depth`), and the pumps count on 16. Until Ruling R40 the backend
+    assumed 8 from RP2040's numbers."""
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert backend._rx_depth == backend._rx_words == 16
+        assert backend._words._pairer._fifo_words == 16
+        assert not _is_split(backend) and not backend.capture_failure
+        levels = [call for call, sm, _ in lib.fifo_calls if sm == 2 and call == "rx_level"]
+        assert len(levels) >= 2 + 1 + 16 // 2 + 1, levels
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("fault", ["join", "wrap", "read"])
+def test_a_fifo_not_as_deep_as_counted_on_is_a_capture_fault_with_no_w(lib, caplog, fault):
+    """A FIFO whose join did not take holds 8; a level field that wraps at 16 reads a full
+    FIFO as empty; a level read that fails while the FIFO is measured leaves its depth
+    unknown. Each would let the pump call a word closed after a dropped push, and write a
+    wrong W. So each is a capture fault, as Task 1.16 handles one (Ruling R40): the box
+    records split with no W, with the ERROR, and no capture machine is enabled."""
+    if fault == "join":
+        lib.test_depth = 8
+    elif fault == "wrap":
+        lib.level_wrap = 16
+    else:
+        lib.level_failures[2] = [None, None, None, 5]  # the rise's reads, then the depth's
+    seen = []
+    backend = Rp1Backend()
+    try:
+        assert _is_split(backend) and backend.capture_failure
+        [error] = _errors(caplog)
+        assert error.startswith("event-code capture cannot run (the RX FIFO"), error
+        assert "no W records" in error
+        backend.start_strobed_capture(0, DATA, DATA, lambda t, w: seen.append((t, w)))
+        lib.push(stream((10, 1)))
+        time.sleep(0.05)
+        assert seen == [] and lib.sm_enabled_never(0)
+    finally:
+        backend.close()
+
+
+def test_a_block_whose_level_cannot_be_read_runs_no_capture_machine(lib, caplog):
+    """The first read of the capture machine's level, at configuration, fails: W would be
+    dropped at every drain, or counted on a read that cannot be trusted. A capture fault,
+    found before the first segment (Task 1.16's form)."""
+    lib.level_failures[0] = [5]
+    backend = Rp1Backend()
+    try:
+        assert _is_split(backend) and "cannot be measured" in backend.capture_failure
+        [error] = _errors(caplog)
+        assert error.startswith("event-code capture cannot run (the capture machine's RX FIFO")
+    finally:
+        backend.close()
+
+
+def test_a_process_whose_stamp_test_fails_counts_on_the_per_direction_depth(lib, gpiod):
+    """A blind start-up test leaves the depth unmeasured: the process records split, with W,
+    and the word pump counts on piolib's per-direction depth, 8, the least the FIFO holds
+    whether or not the join took. Told less than the FIFO holds, the pump errs safe
+    (tests/test_pio_capture.py, the told-less fuzz case)."""
+    gpiod.pio_sees_barcode = False
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        assert _is_split(backend) and not backend.capture_failure
+        assert backend._rx_words == 8 and backend._words._pairer._fifo_words == 8
+    finally:
+        backend.close()
+
+
+def test_a_data_word_left_waiting_at_close_is_counted(lib, tmp_path):
+    """The last drain finds a data word whose counter it will not read: its strobe is lost,
+    and since fix round 1 counted in an L record (review M2)."""
+    from wl_sync.log import CodeWord, Loss, read_log
+
+    backend, recorder, close_sink, path = _recording_on(tmp_path)
+    recorder.capture_codes(0, DATA, DATA)
+    try:
+        lib.push(stream((10, 1)) + [2])
+        assert _until(lambda: lib.fifo == [] and lib.drains > 3)
+    finally:
+        backend.close()
+        close_sink()
+    _, records = read_log(path)
+    assert records == [
+        CodeWord(tick_us=10, word=1),
+        Loss(tick_us=10, path="W", gpio=None, count=1, bound="at_least", cause="desync",
+             before_us=10, after_us=None),
+    ]
 
 
 def test_close_delivers_what_the_fifo_held_before_the_state_machine_stops(lib):
@@ -1751,15 +1979,17 @@ def test_a_chip_too_small_for_the_capture_pins_is_refused(lib, gpiod):
         Rp1Backend(chip_path="/dev/gpiochip4")
 
 
-def test_a_fifo_found_holding_eight_words_counts_as_full(lib):
+def test_a_fifo_found_holding_its_depth_counts_as_full(lib):
     """Fullness was sampled once, before reading, so a FIFO that filled between that
-    sample and the read went unwitnessed. Eight words waiting IS a full joined FIFO,
-    and any push into it was dropped, so the level is a witness as well."""
+    sample and the read went unwitnessed. A FIFO holding its depth IS full, and any push
+    into it was dropped, so the level is a witness as well. The depth is the one measured
+    at start-up, 16 joined on RP1, not the 8 this test once held (Ruling R40)."""
     seen = []
     backend = _started(lib, lambda tick, word: seen.append(word))
     try:
-        lib.push(stream((10, 1), (20, 2), (30, 3), (40, 4)))
-        assert _until(lambda: len(seen) == 4)
+        assert backend._rx_words == 16
+        lib.push(stream(*FILLING))
+        assert _until(lambda: len(seen) == 8)
         complaint = _next_complaint(backend)
         assert complaint is not None and "FIFO was full" in complaint, complaint
     finally:
@@ -2600,7 +2830,7 @@ def test_a_desync_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
     recorder.capture_codes(0, DATA, DATA)
     try:
         _lose_a_counters_data_word(lib)
-        lib.push(stream((60, 6)))
+        lib.push(stream((100, 10)))
         assert _until(lambda: backend._words.desyncs == 1 and lib.fifo == [])
         assert _until(lambda: backend.delivered_through().get("event-code capture"))
     finally:
@@ -2608,16 +2838,12 @@ def test_a_desync_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path):
         close_sink()
 
     _, records = read_log(path)
-    assert records == [
-        CodeWord(tick_us=10, word=1),
-        CodeWord(tick_us=20, word=2),
-        CodeWord(tick_us=30, word=3),
-        CodeWord(tick_us=40, word=4),
+    assert records == [CodeWord(tick_us=tick, word=word) for tick, word in FILLING] + [
         Loss(
-            tick_us=40, path="W", gpio=None, count=1, bound="at_least",
-            cause="desync", before_us=40, after_us=None,
+            tick_us=80, path="W", gpio=None, count=1, bound="at_least",
+            cause="desync", before_us=80, after_us=None,
         ),
-        CodeWord(tick_us=60, word=6),
+        CodeWord(tick_us=100, word=10),
     ]
 
 
@@ -2995,7 +3221,9 @@ def _health_kinds(backend):
 def test_a_full_stamp_fifo_and_a_lone_counter_desync_the_stream_and_b_recovers(
     lib, gpiod, crystals, caplog
 ):
-    """Final review I1's trigger, end to end on RP1's 8-word FIFO (M11a). The pump is
+    """Final review I1's trigger, end to end on an 8-word FIFO (M11a), as RP1's would be
+    were its join not to take: the scenario is built on that depth, and the fake's is 16
+    since Ruling R40, so it is set here. The pump is
     starved through frame 3, so its stamps fill the FIFO, and rise 4's pair is dropped
     whole. At rise 5 the drain runs at last, between the pair's two pushes: the data word
     was dropped, and the counter lands alone. The next batch desyncs. Until Task 1.15 that
@@ -3008,6 +3236,7 @@ def test_a_full_stamp_fifo_and_a_lone_counter_desync_the_stream_and_b_recovers(
 
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
+    lib.stamp_depth = 8
     gate = threading.Event()
     full_pairs = []
 

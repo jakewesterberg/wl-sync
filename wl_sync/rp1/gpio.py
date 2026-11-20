@@ -737,10 +737,10 @@ class EdgePump:
     count it is MappedTimebase, whose map moves while the pump runs: its table with each
     (MONO, RAW) reading, its fit with each lead-edge pair.
 
-    EACH LINE IN TICK ORDER (wl_sync/log.py:489-492). A map that moved between two edges
+    EACH LINE IN TICK ORDER (wl_sync/log.py:492-495). A map that moved between two edges
     on one line can put the second before the first, so the second is delivered at the
     first one's tick, and an L record written just before it takes that tick too
-    (wl_sync/log.py:494-495). Only for edges stamped within _GUARD_REACH_NS of each other,
+    (wl_sync/log.py:497-498). Only for edges stamped within _GUARD_REACH_NS of each other,
     which says why (Ruling R30). Each such edge is counted, `order_clamped`, and the
     furthest one was moved, `order_clamp_max_us`, for the run's summary (final review M2;
     the user, 2026-11-20, "Count, summary only"). Silent, a clamp hid how far the map had

@@ -24,10 +24,46 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 
 #include "piolib.h"
+#include "rp1_pio_if.h"
 
 static PIO g_pio;
+/* The block's device descriptor, piolib's own, for the checked level read
+ * (wlsync_sm_rx_level); -1 when it could not be found and proven. */
+static int g_fd = -1;
+
+/* THE START OF piolib's PRIVATE RP1 HANDLE, struct rp1_pio_handle (pio_rp1.c:82-89 at
+ * utils b57c48e): the public struct pio_instance, the device's name, then the descriptor.
+ * piolib exports no way to the descriptor, and its own level read cannot fail visibly
+ * (wlsync_sm_rx_level), so the shim reads it here. Only `fd` is read, and only after the
+ * block is known to be RP1's; it is then PROVEN to be this block's device, by its device
+ * number, before it is used (`find_fd`), so a layout that has moved finds nothing rather
+ * than another file. */
+struct wlsync_rp1_handle_prefix {
+    struct pio_instance base;
+    const char *devname;
+    int fd;
+};
+
+static int find_fd(unsigned index)
+{
+    char path[32];
+    struct stat device, held;
+    if (strcmp(g_pio->chip->name, "rp1") != 0)
+        return -1;
+    snprintf(path, sizeof(path), "/dev/pio%u", index); /* as pio_rp1.c:945 names it */
+    int fd = ((const struct wlsync_rp1_handle_prefix *)g_pio)->fd;
+    if (fd < 0 || stat(path, &device) != 0 || fstat(fd, &held) != 0)
+        return -1;
+    if (!S_ISCHR(held.st_mode) || held.st_rdev != device.st_rdev)
+        return -1;
+    return fd;
+}
 /* Where wlsync_start_capture's pio_add_program put the program, and how long it is, kept
  * so that wlsync_start_stamp starts a second machine on the SAME loaded copy. g_loaded is
  * the state "a program is loaded": it is set only once pio_add_program has succeeded and
@@ -52,6 +88,7 @@ int wlsync_pio_open(unsigned index)
     pio_select(pio);
     g_pio = pio;
     g_loaded = 0; /* a block just opened holds none of this shim's program yet */
+    g_fd = find_fd(index);
     return 0;
 }
 
@@ -61,6 +98,7 @@ void wlsync_pio_close(void)
         pio_close(g_pio);
         g_pio = NULL;
         g_loaded = 0;
+        g_fd = -1;
     }
 }
 
@@ -82,8 +120,10 @@ uint32_t wlsync_clk_sys_hz(void) { return clock_get_hz(clk_sys); }
  * (wl_sync/rp1/backend.py, _SHIM_VERSION) reads this and refuses a shim of another
  * version rather than call it with the wrong arguments. 1 was the unversioned original;
  * 2: `entry` added to wlsync_start_capture, `wlsync_encode_jmp` removed;
- * 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added. */
-#define WLSYNC_SHIM_VERSION 3
+ * 3: `wlsync_start_stamp` and `wlsync_enable_in_sync` added;
+ * 4: `wlsync_sm_rx_level` returns int, the level or a negative errno, and
+ *    `wlsync_rx_fifo_depth` added (Task 1.20, Ruling R40). */
+#define WLSYNC_SHIM_VERSION 4
 int wlsync_shim_version(void) { return WLSYNC_SHIM_VERSION; }
 
 /*
@@ -225,8 +265,45 @@ int wlsync_sm_set_enabled(unsigned sm, int enabled)
     return pio_get_error(g_pio) ? -EIO : 0;
 }
 
-/* The three calls the word pump makes on every drain. None of them blocks: piolib
- * notes that a blocking call holds the whole RP1 firmware interface until it returns. */
-unsigned wlsync_sm_rx_level(unsigned sm) { return pio_sm_get_rx_fifo_level(g_pio, sm); }
+/* The calls the pumps make on every drain. None of them blocks: piolib notes that a
+ * blocking call holds the whole RP1 firmware interface until it returns. */
+
+/* The RX FIFO's level, or a negative errno: A LEVEL READ THAT CAN FAIL VISIBLY (Task 1.20,
+ * Ruling R40). piolib's own, pio_sm_get_rx_fifo_level, discards its ioctl's result and
+ * returns a level that starts at 0 (pio_rp1.c:591-598 at utils b57c48e), and its ioctl
+ * wrapper never sets the error pio_get_error reads (:247-260). So a failed read was a
+ * level of 0, and a level read low is the one thing the word pump's proof cannot survive
+ * (wl_sync/rp1/pio_capture.py, CodeWordPairer). This issues the same message itself
+ * (PIO_IOC_SM_FIFO_STATE), with the level seeded to a value no FIFO holds, and refuses an
+ * answer that left it there or that contradicts its own empty flag, which piolib's own
+ * empty test reads from the same message (pio_rp1.c:573-580). */
+int wlsync_sm_rx_level(unsigned sm)
+{
+    if (g_pio == NULL)
+        return -ENODEV;
+    if (g_fd < 0)
+        return -EBADF;
+    struct rp1_pio_sm_fifo_state_args args = {
+        .sm = (uint16_t)sm, .tx = 0, .level = 0xFFFF, .empty = 0xFF, .full = 0xFF,
+    };
+    if (ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args) < 0)
+        return errno > 0 ? -errno : -EIO;
+    if (args.level == 0xFFFF || args.empty > 1 || (args.empty != 0) != (args.level == 0))
+        return -EIO;
+    return args.level;
+}
+
+/* The depth of the RX FIFO of every machine this shim configures: piolib's per-direction
+ * depth for the block (piolib.h:300-303; RP1's is 8, pio_rp1.c:985 at utils b57c48e),
+ * doubled, because both configure functions join the TX FIFO into the RX one (above,
+ * sm_config_set_fifo_join). That the join took, and that the level reads the doubled
+ * depth, is the backend's start-up check (backend.py, _check_fifo_depth). */
+int wlsync_rx_fifo_depth(void)
+{
+    if (g_pio == NULL)
+        return -ENODEV;
+    return (int)pio_get_fifo_depth(g_pio) * 2;
+}
+
 int wlsync_sm_rx_full(unsigned sm) { return pio_sm_is_rx_fifo_full(g_pio, sm) ? 1 : 0; }
 uint32_t wlsync_sm_get(unsigned sm) { return pio_sm_get(g_pio, sm); }

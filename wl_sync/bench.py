@@ -162,7 +162,7 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
             # On a one-count segment the run loop logs a `B` for every frame it emits
             # unless the frame's lead edge went unstamped (wl_sync/cli.py:880-884); a
             # "split" process's `B` is a software tick, read for every frame
-            # (wl_sync/rp1/backend.py:1398-1401), so a frame with none there is not a drop.
+            # (wl_sync/rp1/backend.py:1519-1522), so a frame with none there is not a drop.
             (report.dropped if one_count else report.unexpected).append(frame.value)
     for index, barcode in enumerate(barcodes):
         if barcode.value in seen:
@@ -176,7 +176,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1532-1540),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1653-1661),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -344,7 +344,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         backend.close()
         return 1
     if backend.stamp_test_failure:
-        # The process is split (wl_sync/rp1/backend.py:1398-1401): each frame's B is the
+        # The process is split (wl_sync/rp1/backend.py:1519-1522): each frame's B is the
         # clock read before it, and nothing is stamped or matched. Were it run, every frame
         # would count as stamped (`stamp_run`), and it would pass on stamps never seen.
         print(f"start-up test failed ({backend.stamp_test_failure}): this process records "

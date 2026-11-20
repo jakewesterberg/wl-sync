@@ -33,6 +33,11 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 - **Note 7:** the one-clock build: two new `timebase` values, `"split"` kept as a fallback,
   and dropped `B`s.
 
+*Added 2026-11-20, not yet delivered:*
+
+- **Note 8:** a `desync` `L` record no longer ends a process's code words: `W` records follow
+  it, and its count is what the box dropped.
+
 ---
 
 # ANSWERED — 1. The pinned wl-sync cannot read today's logs
@@ -365,7 +370,7 @@ both are given.
 | `buffer_overflow` | the numbers missing from the line's own count: exact | the line's event before the gap, to the event that showed it | just before that event, at its tick |
 | `coalesced` | 1: the least a pair at one level can mean | the pair | just before the pair's second event, at its tick |
 | `unaccounted` | the request numbers missing that nothing explains | the events numbered just below and just above the gap | the highest `E` tick written when its window closed, 20 to 40 ms after the read that showed it |
-| `desync` | the strobes in the refused batch | the last code word recorded, to empty: the word pump stops, so every later strobe in that process is lost too, uncounted | the last code word's tick. Before any code word, the box clock's tick when the record is made, with the window empty at both ends |
+| `desync` | the strobes in the refused batch *[2026-11-20: no longer; see note 8, not yet delivered]* | the last code word recorded, to empty: the word pump stops, so every later strobe in that process is lost too, uncounted *[2026-11-20: it goes on, and `W` records follow; note 8]* | the last code word's tick. Before any code word, the box clock's tick when the record is made, with the window empty at both ends |
 | `fifo_full` | — | — | **reserved**: not written by this version, because a full FIFO may have dropped nothing. It is in the format so that your reader already accepts it once a box can write it, from the PIO's overflow flag; its tick and window will be defined then |
 
 **The window has two exceptions,** each by microseconds, both from the kernel's IRQ-thread race
@@ -477,3 +482,41 @@ captured (its capture machine could not run); nothing in the segment says so, on
 
 The definitions are the `process_uuid`, `barcode_delay_us` and `timebase` docstrings, and the
 `BarcodeEmitted` docstring, in wl-sync's `wl_sync/log.py`.
+
+# NOTE — 8. A `desync` `L` record no longer ends a process's code words (2026-11-20, not an ask)
+
+**Not yet delivered.** It is wl-sync Task 1.20 and its review's fix round, built on wl-sync's
+`one-clock-p1` branch: not merged and not deployed. It corrects note 6's table of what each cause
+means, in its `desync` row (above). The claims about wl-sync were checked against the commit that
+adds this note.
+
+**The format is unchanged.** No field, record type or cause is added. A `desync` record has the
+shape note 6 gave it: path `W`, no GPIO, `at_least`, `before_us` optional, `after_us` empty, at
+`before_us` when that is given (wl-sync `wl_sync/log.py:390`).
+
+**What changes is what it means** (wl-sync `wl_sync/log.py:461-474`):
+
+1. **`W` records follow it.** The box no longer stops capturing code words at a desync. It pairs
+   the FIFO's stream again and goes on, so a session's `W` records go on after a `desync` record,
+   later in the same stream and in tick order. A reader that treated a `W` after a `desync` as
+   impossible, as note 6's text implied, should not.
+2. **It counts the strobes the box dropped.** The box writes a code word only when its own FIFO
+   counts prove the data word and the counter are one strobe's. Every other word it read is
+   dropped, and the record counts at least the strobes they belong to: half of each unbroken run
+   of dropped words, rounded up. Whole strobes the FIFO itself dropped leave no trace and are not
+   counted, so the count stays `at_least`. Since the fix round it also counts the words of a drain
+   whose FIFO level could not be read after they were popped, and a data word still waiting for
+   its counter when capture stops.
+3. **One run can give several records.** A run of dropped words that goes on across several
+   drains gives a record at each, each counting only the strobes it adds, so the counts of
+   `desync` records with no `W` between them add.
+4. **Its window.** It opens at the last `W` before the loss (`before_us`) and is open in the
+   record, as before. The first `W` after it in the stream is the first code word known to follow
+   the loss.
+5. **No `W` is a misreading across a lost word.** Before this change, two words lost in a row left
+   a stream that still read data, counter, data, counter, and the box wrote one strobe's code at
+   the next one's tick, with no record at all. That can no longer happen on a box whose FIFO
+   depth and level reads are as the box checks them at start-up; a box where they are not records
+   `"split"` with no `W`, as note 7's last paragraph describes, with a journal ERROR.
+
+The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.

@@ -110,11 +110,34 @@ The box is `wl-rig-sync0`, a CM5 Lite running Raspberry Pi OS Lite (trixie) from
 NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, and
 `deploy/README.md`). `ssh wl-rig-sync0` reaches it over the tailnet.
 
-**Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
+**Before anything runs the box, rebuild and install the shim, version 4** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:565-572`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:589-596`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
-(libwlsync_pio is version N, and this wl-sync needs 3: rebuild ...)` names the rebuild.
+(libwlsync_pio is version N, and this wl-sync needs 4: rebuild ...)` names the rebuild.
+*[2026-11-20: version 4, Task 1.20's fix round (Ruling R40): a level read that can fail
+visibly, and the FIFO's depth from piolib.]*
+
+**The conditions the no-wrong-`W` proof rests on, which only silicon can confirm** *(added
+2026-11-20; Task 1.20's review, B-1 to B-5; Ruling R40)*. The word pump writes a code word only
+when the drain's own FIFO counts prove it whole (`wl_sync/rp1/pio_capture.py:170-335`). The
+proof holds given these:
+- **B-1. The FIFO's depth and join.** The start-up check now measures it
+  (`deploy/README.md:301-311`): the start-up INFO `the RX FIFO holds 16 words,
+  measured at start-up: the code-word pairing counts on 16` says it passed. Confirm by hand
+  once too: stop draining SM 0, send at least 20 strobes, and read the level. It must read 16.
+- **B-2. The level read is exact.** With a known strobe train and a deliberately slow drain,
+  compare each batch's length and level-after with the words actually received.
+- **B-3. A failed level read.** Count the journal's `level could not be read (errno E)` lines
+  over a long run: whether RP1's firmware ever answers the FIFO-state message with a failure
+  during capture.
+- **B-4. The cost of each call.** Time `rx_level` and `get` on RP1, which sets how often a full
+  FIFO is popped while strobes come, and so how much the pairing drops to stay safe.
+- **B-5. Nothing else pops SM 0.** The kernel does not check a machine's claim on a pop or a
+  level read, so another process holding `/dev/pio0` could pop the FIFO. One wl-sync process,
+  and no other piolib user, on the box.
+- And note for the day (the review's M7): piolib's own pop panics on a failed ioctl, which the
+  fatal-errors switch does not stop, so a failed pop may end the process. Not changed here.
 
 **The one-clock plan's bench section is the checklist for what follows**
 (`docs/superpowers/plans/2026-11-07-one-clock.md:1868`): P0, then B1 to B10. *(Added
@@ -173,9 +196,9 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
-   shim; the backend refuses to use a shim that is not version 3, and records split with no
+   shim; the backend refuses to use a shim that is not version 4, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:565-572`, `wl_sync/rp1/backend.py:254`).
+   (`deploy/README.md:589-596`, `wl_sync/rp1/backend.py:262`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -193,23 +216,23 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
 7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
-   strobe (`wl_sync/rp1/backend.py:858-863`). The strobe is tested every 2 PIO cycles (1 µs), so
+   strobe (`wl_sync/rp1/backend.py:963-968`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
    the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
    1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
-   previous one (`wl_sync/rp1/backend.py:864-865`).
+   previous one (`wl_sync/rp1/backend.py:969-970`).
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
 (`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
-latched count, inverted (`wl_sync/rp1/pio_capture.py:275`) and handed on as it is (`:467`).
+latched count, inverted (`wl_sync/rp1/pio_capture.py:298`) and handed on as it is (`:548`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
-`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:958-974`),
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:1063-1079`),
 so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
@@ -300,8 +323,8 @@ left, so no further panel connector fits. One fix-up came with it:
   *[2026-11-20, Task 1.20, built on `one-clock-p1`, not merged: it no longer does. The word
   pump pairs the stream again and goes on. It writes only the pairs the drain's own counts
   prove are one strobe's two words, and drops and counts every other word, as a `desync`
-  L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:165-301`;
-  `deploy/README.md:268-287`).]*
+  L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:170-335`;
+  `deploy/README.md:268-288`).]*
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
     out, so a thread could still be inside piolib.
@@ -347,7 +370,7 @@ left, so no further panel connector fits. One fix-up came with it:
 
 - **Code words and barcodes are timed by different clocks, and NTP slews one of them.**
   - Code-word ticks come from RP1's PIO counter, which runs off the crystal and is joined to
-    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:408-412`).
+    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:418-422`).
   - Barcode (`B`) and edge ticks come from `CLOCK_MONOTONIC`, which follows NTP's frequency
     correction.
   - On the box NTP was applying **−6.5 ppm** (`timedatectl timesync-status`), so the two paths

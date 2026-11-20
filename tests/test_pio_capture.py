@@ -304,12 +304,82 @@ def test_where_the_counts_and_the_bits_disagree_nothing_is_paired_by_alternation
     assert pump.desyncs == 1
 
 
+# --- Fix round 1 (Ruling R40): a level read that fails, and the run's count ---------------
+
+
+def test_a_level_read_that_fails_at_the_look_pairs_nothing_and_is_held():
+    """A look whose level read failed popped nothing, so the stream is as if it had not
+    happened: the next batch's words came after the last look that read, and are counted
+    from it. piolib's own read returned 0 on a failure (pio_rp1.c:591-598 at utils
+    b57c48e), and a look counted as an empty one would call the next batch's first words
+    closed when they are not. Here the drain popped a full FIFO and could not say what
+    came while it popped; then a look failed; then two words lost in a row. Counted from
+    an empty look, 5's code would be written at 6's tick."""
+    from wl_sync.rp1.pio_capture import WORDS_LAG_US, LevelReadError
+
+    pump, got = _pumped()
+    assert pump.handle(FOUR, fifo_was_full=True, polled_at=5_000) is True
+    assert pump.handle([], polled_at=9_000, level_error=5) is True
+    error = pump.take_error()
+    assert isinstance(error, LevelReadError) and "errno 5" in str(error), error
+    assert pump.delivered_through == 5_000 - WORDS_LAG_US - 1, "a failed look moved the mark"
+    assert pump.handle([5, _counter(60)] + stream((70, 7)), level_after=0) is True
+    assert ("W", 60, 5) not in got, got
+    assert [item for item in got if item[0] == "W"] == DELIVERED_FOUR, got
+
+
+def test_a_level_read_that_fails_after_popping_drops_the_batch_and_counts_it():
+    """The look read the level and the words were popped, but the level after them could
+    not be read: nothing is paired from that drain (Ruling R40), its words are dropped and
+    counted, at least half of them in strobes, and the drain goes on. With nothing known
+    of what came while they were popped, the next batch is counted as if all of it came
+    then, and errs safe."""
+    from wl_sync.rp1.pio_capture import LevelReadError
+
+    pump, got = _pumped()
+    assert pump.handle(FOUR, polled_at=5_000, level_error=5) is True
+    assert got == [("L", 4)] and pump.delivered_through is None
+    assert isinstance(pump.take_error(), LevelReadError)
+    assert pump.handle(stream((50, 5)), level_after=0) is True  # in while 4 words popped
+    assert pump.handle(stream((60, 6)), level_after=0) is True
+    assert got == [("L", 4), ("L", 1), ("W", 60, 6)]
+    assert pump.desyncs == 1, "one run of dropped words, reported twice, is one desync"
+
+
+def test_a_desync_held_is_not_displaced_by_a_later_full_fifo():
+    """The desync's ERROR carries the run's count and says the FIFO may have dropped a word,
+    so a full FIFO found before check_health takes it adds nothing, and is not held over it
+    (review M4). Held alone, a full FIFO still is."""
+    from wl_sync.rp1.pio_capture import WordsDroppedError
+
+    pump, got = _pumped()
+    assert pump.handle(FOUR, fifo_was_full=True, level_after=1)
+    assert pump.handle([_counter(50)] + stream((60, 6)), level_after=0)
+    assert pump.handle(stream((70, 7)), fifo_was_full=True, level_after=0)
+    assert isinstance(pump.take_error(), DesyncError)
+    assert pump.handle(stream((80, 8)), fifo_was_full=True, level_after=0)
+    assert isinstance(pump.take_error(), WordsDroppedError)
+
+
+def test_a_word_still_waiting_when_capture_stops_is_counted():
+    """At the last drain a data word can wait for a counter that will not be read: its
+    strobe is lost. `finish` drops it and counts it (review M2), and says nothing when
+    nothing waits."""
+    pump, got = _pumped()
+    assert pump.handle(stream((10, 1)) + [2]) is True
+    assert got == [("W", 10, 1)]
+    assert pump.finish() is True
+    assert got == [("W", 10, 1), ("L", 1)] and pump.desyncs == 1
+    assert pump.finish() is True and got[-1] == ("L", 1) and len(got) == 2
+
+
 # The fuzz: the capture machine and the word drain on one timeline.
 
-def _through_the_fifo(rng, events, slow, starved):
+def _through_the_fifo(rng, events, slow, starved, depth=8, fails=0.0):
     """Run `events`, (time_us, tick, data) strobes, through the FIFO as the box has it,
     and return the batches the drain hands the pump: each a list of (push, word), `push`
-    being the word's place among every word the program pushed, with its `level_after`.
+    being the word's place among every word the program pushed, with its `level_after`
+    and the errno of a level read that failed, or None.
 
     The program pushes a strobe's data word, then 2 us later its counter
     (wl_sync/rp1/program.py:88-102: 4 cycles at 2 MHz). The FIFO is 8 words, and a push
@@ -317,7 +387,9 @@ def _through_the_fifo(rng, events, slow, starved):
     many words one call at a time, each call taking its own time, then reads the level
     again when it popped any (Rp1Backend.drain). A share `slow` of its calls are slower
     than a strobe, which is how a word is left alone, and a share `starved` of its polls
-    come milliseconds late, which is how the FIFO fills."""
+    come milliseconds late, which is how the FIFO fills. The FIFO holds `depth` words, and
+    a share `fails` of level reads fail (Ruling R40): a look that fails pops nothing, and a
+    read after popping that fails leaves the batch with no level after it."""
     pushes = []
     for at, tick, data in events:
         pushes += [(at + 1.0, data), (at + 3.0, _counter(tick))]
@@ -326,16 +398,23 @@ def _through_the_fifo(rng, events, slow, starved):
     def run_until(now):
         nonlocal pushed
         while pushed < len(pushes) and pushes[pushed][0] < now:
-            if len(fifo) < 8:
+            if len(fifo) < depth:
                 fifo.append((pushed, pushes[pushed][1]))
             pushed += 1
 
     now = 0.0
+    # No read fails once the last strobe, 200 ms after the rest, is due, so the fuzz can
+    # ask that it is written: a failure on its own drain would drop it, by the rule.
+    calm = events[-1][0] - 1_000
     while pushed < len(pushes) or fifo:
         late = rng.random() < starved
         now += rng.uniform(2_000, 20_000) if late else rng.uniform(0, 1_500)
         run_until(now)
-        level, batch, level_after = len(fifo), [], None
+        failing = fails if now < calm else 0.0
+        if rng.random() < failing:
+            batches.append(([], None, 5))  # the look's read failed: nothing popped
+            continue
+        level, batch, level_after, error = len(fifo), [], None, None
         for _ in range(level):
             now += rng.uniform(4, 40) if rng.random() < slow else rng.uniform(0.3, 3)
             run_until(now)
@@ -343,8 +422,11 @@ def _through_the_fifo(rng, events, slow, starved):
         if level:
             now += rng.uniform(0.3, 3)
             run_until(now)
-            level_after = len(fifo)
-        batches.append((batch, level_after))
+            if rng.random() < failing:
+                error = 5
+            else:
+                level_after = len(fifo)
+        batches.append((batch, level_after, error))
     return batches
 
 
@@ -383,21 +465,35 @@ def _bits_only(words):
 
 def _closed(batches, fifo_words=8):
     """Each word's closed flag by the pairer's rule (`CodeWordPairer`), from the batch
-    sizes and levels alone, for the fuzz to check against the pushes themselves."""
+    sizes and levels alone, for the fuzz to check against the pushes themselves. A look
+    whose read failed is passed over; a batch whose level after failed leaves none."""
     flags, previous, after = [], 0, None
-    for batch, level_after in batches:
+    for batch, level_after, error in batches:
+        if error is not None and not batch:
+            continue
         for position in range(len(batch)):
             popping = after is None or position < after
             flags.append(position + 1 + (previous if popping else 0) < fifo_words)
-        previous, after = len(batch), level_after
+        previous, after = len(batch), None if error is not None else level_after
     return flags
 
 
 FUZZ_RUNS = 2_000
 
 
-@pytest.mark.parametrize("near_wrap", [False, True], ids=["far", "near-wrap"])
-def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wrap):
+FUZZ_CASES = {
+    # name: (near the wrap, the FIFO's depth, the depth the pump is told, read failures)
+    "far": (False, 8, 8, 0.0),
+    "near-wrap": (True, 8, 8, 0.0),
+    "joined-16": (False, 16, 16, 0.0),
+    "told-less-than-real": (False, 16, 8, 0.0),
+    "level-reads-fail": (False, 8, 8, 0.03),
+    "near-wrap-level-reads-fail": (True, 8, 8, 0.03),
+}
+
+
+@pytest.mark.parametrize("case_name", list(FUZZ_CASES))
+def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(case_name):
     """Fuzzed over the strobes' spacing, the drain's pace and its starvation, so over every
     way the FIFO loses words: lone data words, lone counters, whole pairs, and runs the
     bits cannot show. FUZZ_RUNS runs each, far from P's wrap and across it, each run with
@@ -409,21 +505,29 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wra
     not written is counted, at least a strobe for each two in a row, and never more
     strobes than were lost. The pump never stops, and the strobe 200 ms after each run's
     last is written. And the fuzz bites: the stamp pump's rule writes wrong code words on
-    these same streams."""
+    these same streams.
+
+    Fix round 1 (Ruling R40) adds RP1's joined depth, 16 (pio_rp1.c:985 at utils b57c48e,
+    doubled); a pump told less than the real depth, which errs safe; and level reads that
+    fail, 3% of them, at the look and after popping, each handed to the pump as the drain
+    hands it (`level_error`)."""
     import random
 
     from wl_sync.rp1.pio_capture import WordPump
 
-    rng = random.Random(120 + near_wrap)
+    near_wrap, depth, told, fails = FUZZ_CASES[case_name]
+    rng = random.Random(f"120-{case_name}")
     totals = dict.fromkeys(
         ("strobes", "written", "lost_reported", "words_dropped", "whole_dropped",
          "runs_with_a_loss", "bits_only_wrong"), 0)
     for case in range(FUZZ_RUNS):
         events = _fuzzed_strobes(rng, near_wrap)
-        batches = _through_the_fifo(rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08))
-        pushes = [push for batch, _ in batches for push, _ in batch]
-        words = [word for batch, _ in batches for _, word in batch]
-        for k, closed in enumerate(_closed(batches)):
+        batches = _through_the_fifo(
+            rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08), depth, fails
+        )
+        pushes = [push for batch, _, _ in batches for push, _ in batch]
+        words = [word for batch, _, _ in batches for _, word in batch]
+        for k, closed in enumerate(_closed(batches, told)):
             if closed and k + 1 < len(pushes):
                 assert pushes[k + 1] == pushes[k] + 1, (case, k, "a closed word lost one")
 
@@ -434,9 +538,13 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wra
             on_word=lambda tick, word: written.append((tick, word)),
             data_count=DATA,
             on_loss=lambda loss: lost.append(loss.count),
+            fifo_words=told,
         )
-        for batch, level_after in batches:
-            assert pump.handle([w for _, w in batch], level_after=level_after) is True
+        for batch, level_after, error in batches:
+            assert pump.handle(
+                [w for _, w in batch], level_after=level_after, level_error=error
+            ) is True
+        assert pump.finish() is True
         wrong = [(t, w) for t, w in written if code_at.get(t) != w]
         assert wrong == [], (case, wrong)
         positions = [order[t] for t, _ in written]
@@ -446,7 +554,7 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wra
         assert sum(lost) <= len(events) - len(written), (case, lost)
         assert 2 * sum(lost) >= dropped, (case, lost, dropped)
         assert all(count >= 1 for count in lost)
-        assert pump.desyncs == len(lost)
+        assert (pump.desyncs >= 1) == bool(lost) and pump.desyncs <= len(lost)
 
         taken = set(pushes)
         whole = {k for k in range(len(events)) if {2 * k, 2 * k + 1} <= taken}
@@ -457,8 +565,35 @@ def test_after_any_loss_the_fifo_can_make_no_code_word_is_written_wrong(near_wra
         totals["written"] += len(written)
         totals["lost_reported"] += sum(lost)
         totals["words_dropped"] += dropped
-    print(f"\n{'near-wrap' if near_wrap else 'far'}: {totals}")
-    assert totals["words_dropped"] > 1_000 and totals["bits_only_wrong"] > 100, totals
+    print(f"\n{case_name}: {totals}")
+    assert totals["words_dropped"] > 500 and totals["bits_only_wrong"] > 20, totals
+
+
+def test_a_pump_told_a_deeper_fifo_than_the_real_one_writes_wrong_code_words():
+    """WHY THE DEPTH IS MEASURED AT START-UP (Ruling R40). The proof's first fact is the
+    FIFO's depth, and only one error of it breaks the proof: a pump told more than the FIFO
+    holds calls words closed after which a push was dropped. Here the FIFO is 8 deep, as
+    RP1's is unjoined (pio_rp1.c:985 at utils b57c48e), and the pump is told 16, as it would
+    be were the join assumed and not taken. It writes wrong code words: the backend's
+    start-up check (Rp1Backend._measure_fifo_depth) is what keeps that off the box."""
+    import random
+
+    from wl_sync.rp1.pio_capture import WordPump
+
+    rng = random.Random("told-more")
+    wrong = 0
+    for _ in range(400):
+        events = _fuzzed_strobes(rng, False)
+        code_at = {tick: data for _, tick, data in events}
+        written = []
+        pump = WordPump(on_word=lambda t, w: written.append((t, w)), data_count=DATA,
+                        fifo_words=16)
+        for batch, level_after, error in _through_the_fifo(
+            rng, events, rng.uniform(0, 0.4), rng.uniform(0, 0.08), 8
+        ):
+            pump.handle([w for _, w in batch], level_after=level_after, level_error=error)
+        wrong += sum(code_at.get(t) != w for t, w in written)
+    assert wrong > 0
 
 
 # --- The stamp machine's pump (Task 1.10) -------------------------------------------------
