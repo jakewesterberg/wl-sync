@@ -193,6 +193,17 @@ FOOTPRINT_DCDC_SIP6 = "Converter_DCDC:Converter_DCDC_TRACO_TMR-1-xxxx_Single_THT
 # 17.0 x 11.0 mm, through-hole and hand-solderable like the TMA the NI-side fallback
 # already uses. NOT the same footprint as that TMA: the TMR 1 is SIP-6 on a different
 # pin pattern (2.54 / 5.08 / 2.54 / 2.54 mm), so they are not interchangeable in layout.
+# U63's EN 55032 class A input filter (layout task L1, 2026-11-20) -- the three packages
+# Traco's own filter table names for the TMR 1-05xx row: C1 "1210", C2 "1808", L1 "SR0302"
+# (TMR 1(SM) Series "EMI Consideration", rev. 2021-12-15, p.1; see place_iso_5v_supply()).
+FOOTPRINT_C_1210 = "Capacitor_SMD:C_1210_3225Metric"
+FOOTPRINT_C_1808 = "Capacitor_SMD:C_1808_4520Metric"
+FOOTPRINT_L_0302 = "Inductor_SMD:L_Ferrocore_DLG-0302"  # stock KiCad land pattern for a
+# 3.0 x 2.8 x 2.5 mm "0302" drum inductor: two 1.4 x 3.0 mm pads on 2.2 mm centres. That is
+# the Bourns SDR0302 datasheet's own "Recommended Layout" exactly (two 3.0 x 1.4 mm pads,
+# 0.8 mm apart -> 2.2 mm centres), and the SDR0302's body is 3.0 x 2.8 x 2.5 mm, so the
+# Ferrocore-named footprint is the right one for the Bourns part fitted here. Compared pad
+# by pad against both documents, not taken from the name.
 FOOTPRINT_SOT23 = "Package_TO_SOT_SMD:SOT-23"
 FOOTPRINT_BNC = BNC_DUAL_FOOTPRINT  # FINDING F6, 2026-08-15.
 # Was Connector_Coaxial:BNC_PanelMountable_Vertical, whose connector axis is PERPENDICULAR
@@ -358,6 +369,57 @@ RHS_STIM_BUF_NET = "RHS_STIM_ISO_BUF"   # buffer output -> LED cathode
 X_STIMBUF, Y_STIMBUF = GRID(300), GRID(120)
 
 RHS_STIM_CHANNEL = (RHS_STIM_BUF_NET, "RHS_STIM_OUT")  # inbound: source=the LOCAL BUFFER
+
+# ---------------------------------------------------------------------------
+# U63's EN 55032 class A input filter -- layout task L1, 2026-11-20.
+#
+# SOURCE. The TMR 1 datasheet (rev. 2026-10-08, p.3, "EMC Specifications") claims
+# "EN 55032 class A (with external filter)" and points at "External filter proposal:
+# www.tracopower.com/tmr1-emc-filter/". That address serves Traco's one-page application
+# note "TMR 1(SM) Series -- EMI Consideration", rev. 2021-12-15
+# (https://www.tracopower.com/sites/default/files/products/application_notes/
+# tmr1_tmr1sm_emc_consideration.pdf). Its figure "Suggested filter to comply with EN 55032
+# Conducted Emissions Class A limits -- Single output models" draws:
+#
+#     + o----+----L1----[+Vin   +Vout]
+#            |
+#           C1
+#            |
+#     - o----+----------[-Vin   -Vout]
+#            |                    |
+#            +---------C2---------+
+#
+# and its table "Suggested components ..." gives, on the row "TMR 1-05xx":
+#     C1 = 4.7 uF / 50 V, 1210 X7R
+#     C2 = 220 pF / 2 kV, 1808 X7R
+#     L1 = 4.7 uH / 1.2 A, SR0302
+# Values, ratings, dielectric and packages below are that row, unaltered. Recorded in
+# hardware/datasheet-params.toml [tmr_1_0511] (emc_filter_*).
+#
+# THREE THINGS THE FIGURE FIXES, AND THIS BLOCK FOLLOWS:
+#   - C1 is on the SOURCE side of L1, across the incoming +5V/DGND.
+#   - Nothing sits between L1 and +Vin. So the converter's +Vin is a NEW net, alone with
+#     L1 and the PWR_FLAG its power_in pin needs (see ISO5V_VIN_FLAG_REF).
+#   - C2 CROSSES THE ISOLATION BARRIER: -Vin to -Vout, DGND to ISO_5V_RTN. That is what
+#     Traco draw, it is the common-mode element of the filter, and it is why they rate it
+#     2 kV against the converter's own 1500 VDC isolation test voltage. It also adds
+#     220 pF to the 50 pF the converter itself already couples between DGND and the Intan
+#     reference. Drawn as specified; the trade is recorded in parametric-audit.md.
+#
+# Refdes minted out of band (this sheet's counters are pinned and its ranges spent, same
+# mechanism as C155/C156/C158/U75 here): C161/C162 are one and two past the whole board's
+# maximum (C160), L1 is the board's first inductor, and #PWR12 is one past the board's
+# last PWR_FLAG (#PWR11, power.kicad_sch) -- all read from the committed sheets and
+# hardware/breakout/netlist-contract.json as of main 91efdf6.
+# ---------------------------------------------------------------------------
+ISO5V_FILTER_L_REF = "L1"
+ISO5V_FILTER_L_VALUE = "4.7uH/1.2A"
+ISO5V_FILTER_C1_REF = "C161"
+ISO5V_FILTER_C1_VALUE = "4.7uF/50V"
+ISO5V_FILTER_C2_REF = "C162"
+ISO5V_FILTER_C2_VALUE = "220pF/2kV"
+ISO5V_VIN_FLAG_PRIOR_MAX = 11   # the board's last #PWR before this sheet's own #PWR12
+Y_ISO5V_FILTER = GRID(20 + 30.48)  # second satellite row under the converter
 
 
 # ---------------------------------------------------------------------------
@@ -649,6 +711,10 @@ def place_iso_5v_supply(sch, refs):
     its 80 mAp-p reflected ripple goes back into +5V (Traco claim EN 55032 class A only
     WITH an external filter).
 
+    THAT EXTERNAL FILTER IS NOW DRAWN (layout task L1, 2026-11-20): L1, C161 and C162,
+    Traco's own published network for the TMR 1-05xx. See the ISO5V_FILTER_* block at the
+    top of this file. The 50 pF and the PFM spectrum remain layout's problem.
+
     PIN MAP VERIFIED pin-by-pin against the datasheet's own Pinout table (TMR 1 series,
     rev. 2019-10-07, p.4): 1 = -Vin (GND), 2 = +Vin (Vcc), 4 = +Vout, 5 = no pin,
     6 = -Vout. The stock KiCad symbol agrees; both were checked, neither assumed.
@@ -663,7 +729,8 @@ def place_iso_5v_supply(sch, refs):
         "Converter_DCDC_Isolated", "TMR_1-0511", ref, "TMR 1-0511", X_LDO, Y_LDO,
         footprint=FOOTPRINT_DCDC_SIP6,
     )
-    lbl(sch, X_LDO, Y_LDO, pins, "2", "+5V")         # +Vin (Vcc), non-isolated side
+    vin_net = f"{ref}_VIN"  # +Vin, downstream of the filter inductor -- see below
+    lbl(sch, X_LDO, Y_LDO, pins, "2", vin_net)       # +Vin (Vcc), non-isolated side, via L1
     lbl(sch, X_LDO, Y_LDO, pins, "1", "DGND")        # -Vin (GND), non-isolated side
     lbl(sch, X_LDO, Y_LDO, pins, "4", "ISO_5V")      # +Vout, Intan side
     lbl(sch, X_LDO, Y_LDO, pins, "6", "ISO_5V_RTN")  # -Vout, Intan side -- see NT4 below
@@ -705,11 +772,51 @@ def place_iso_5v_supply(sch, refs):
     # current; this part draws it in 220 kHz pulses and pushes 80 mAp-p of reflected
     # ripple back into +5V. Local bulk plus HF bypass on the primary side is the minimum
     # the datasheet's own external-filter note implies.
+    #
+    # As of the filter below (2026-11-20) these two sit on the SOURCE side of L1, in
+    # parallel with the filter's own C1 -- they are still netted +5V/DGND, and +Vin is no
+    # longer +5V. Left where they were on purpose: Traco's figure draws no capacitor
+    # between L1 and +Vin, and moving these there would turn the published L-C into a
+    # C-L-C that Traco did not test. Upstream they only add to C1.
     c3 = two_pin(sch, "Device", "C", "C", "10uF", X_LDO + GRID(30.48), Y_LDO + GRID(15.24), "+5V", "DGND", footprint=FOOTPRINT_C_BULK, ref="C155")
     c4 = two_pin(sch, "Device", "C", "C", "100nF", X_LDO + GRID(45.72), Y_LDO + GRID(15.24), "+5V", "DGND", footprint=FOOTPRINT_C_SMALL, ref="C156")
+
+    # EN 55032 class A INPUT FILTER -- Traco's own, for the TMR 1-05xx. See the
+    # ISO5V_FILTER_* block at the top of this file for the source, the figure and the
+    # table row; nothing here is chosen, only placed.
+    #   C1: across the incoming supply, on the source side of L1.
+    #   L1: in series, +5V -> +Vin.
+    #   C2: -Vin to -Vout, ACROSS THE BARRIER (DGND <-> ISO_5V_RTN). On ISO_5V_RTN, the
+    #       converter's own -Vout net, not on INTAN_GND: Traco draw it at the converter's
+    #       pins, and NT4 exists precisely so this part's HF currents close at the part.
+    fc1 = two_pin(sch, "Device", "C", "C", ISO5V_FILTER_C1_VALUE, X_LDO + GRID(15.24), Y_ISO5V_FILTER,
+                  "+5V", "DGND", footprint=FOOTPRINT_C_1210, ref=ISO5V_FILTER_C1_REF)
+    fl1 = two_pin(sch, "Device", "L", "L", ISO5V_FILTER_L_VALUE, X_LDO, Y_ISO5V_FILTER,
+                  "+5V", vin_net, footprint=FOOTPRINT_L_0302, ref=ISO5V_FILTER_L_REF)
+    fc2 = two_pin(sch, "Device", "C", "C", ISO5V_FILTER_C2_VALUE, X_LDO + GRID(30.48), Y_ISO5V_FILTER,
+                  "DGND", "ISO_5V_RTN", footprint=FOOTPRINT_C_1808, ref=ISO5V_FILTER_C2_REF)
+    # PWR_FLAG on the new +Vin net: Device:L's pins are passive, so nothing on this net is
+    # power_out-typed and ERC's power_pin_not_driven fires on the converter's +Vin
+    # (power_in). The identical situation, and the identical answer, as ISO_P15_FILT /
+    # ISO_N15_FILT behind their ferrites in gen_breakout_power.py's build().
+    assert sch.ref_counters.get("#PWR", 0) == 0, (
+        f"this sheet had no PWR_FLAG before the filter's; found "
+        f"{sch.ref_counters.get('#PWR', 0)} -- re-derive the out-of-band mint below"
+    )
+    sch.ref_counters["#PWR"] = ISO5V_VIN_FLAG_PRIOR_MAX
+    sch.power_flag(vin_net, X_LDO + GRID(45.72), Y_ISO5V_FILTER)
+    for line_idx, line in enumerate([
+        "U63 INPUT FILTER (EN 55032 class A) -- Traco 'TMR 1(SM) Series, EMI Consideration',",
+        "rev. 2021-12-15, row TMR 1-05xx: C1 4.7uF/50V 1210 X7R (C161), L1 4.7uH/1.2A",
+        "SR0302 (L1), C2 220pF/2kV 1808 X7R (C162). C2 CROSSES THE BARRIER, -Vin to -Vout",
+        "(DGND to ISO_5V_RTN), as Traco draw it. Place all three at the converter's pins.",
+    ]):
+        sch.text(line, X_LDO, Y_ISO5V_FILTER + GRID(12.7) + line_idx * NOTE_DY)
+
     refs["iso5v_supply"] = ref
     refs["iso5v_cap"] = [c1, c2]
     refs["iso5v_input_cap"] = [c3, c4]
+    refs["iso5v_input_filter"] = {"C1": fc1, "L1": fl1, "C2": fc2, "vin_net": vin_net}
 
 
 # ---------------------------------------------------------------------------

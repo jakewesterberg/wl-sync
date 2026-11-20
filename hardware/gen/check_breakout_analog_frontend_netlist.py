@@ -245,6 +245,70 @@ def _check_bnc_shell_bonds(nets: dict[str, list[Node]], values: dict[str, str]) 
     )
 
 
+# RULING R2 (hardware/breakout/parametric-audit.md, "R2 -- J19 DB37 shell floats"), built
+# 2026-11-20. Restated here from the ruling and the stock footprint, not imported from the
+# generator: "fit a selectable resistor position between the shell and AGND -- 0 ohm /
+# 10 ohm / DNP, populated at bring-up".
+ACCESIO_CONNECTOR_VALUE_MARKER = "ACCES I/O USB-AO16-8A mating DB37"
+ACCESIO_SHELL_NET = "ACCESIO_SHELL"
+ACCESIO_SHELL_PIN = "SH"       # Connector_Dsub DSUB-37 "...Housed_MountingHolesOffset11.32mm":
+                               # its two shell/mounting pads are both named "SH"
+ACCESIO_SHELL_R_VALUE = "0R/10R"
+
+
+def _check_accesio_shell(nets: dict[str, list[Node]], values: dict[str, str],
+                         dnp_refs: set[str] | None) -> str:
+    """The DB37's metal shell lands on its OWN net, and that net reaches AGND through
+    exactly one resistor position, which is DNP -- ruling R2.
+
+    What each assertion rules out:
+      - the shell pin on no net at all: the as-built state, the one connector shell on
+        this board that landed nowhere;
+      - the shell merged into ACCESIO_AGND or AGND: a bond committed in copper, which is
+        the decision the ruling deliberately leaves to bring-up (the cable runs to a
+        separate mains-powered PC);
+      - anything else on the shell net: it is one connector pin and one resistor pad;
+      - the position populated by default: DNP is the ruling's default, 0R and 10R are
+        its bring-up options, and the value string must say so for the BOM.
+    """
+    conn = [r for r, v in values.items() if v.startswith(ACCESIO_CONNECTOR_VALUE_MARKER)]
+    check(len(conn) == 1, f"expected exactly 1 ACCESIO DB37 connector, found {conn}")
+    j_ref = conn[0]
+    shell_nets = sorted(name for name, nl in nets.items()
+                        if any(n.ref == j_ref and n.pin == ACCESIO_SHELL_PIN for n in nl))
+    check(
+        shell_nets == [ACCESIO_SHELL_NET],
+        f"{j_ref} shell (pin {ACCESIO_SHELL_PIN!r}) expected on its own net "
+        f"{ACCESIO_SHELL_NET!r}, found {shell_nets or 'no net at all'} -- ruling R2: the "
+        f"shell gets a net of its own and ONE selectable resistor position to AGND",
+    )
+    r_ref = _find_bridging_resistor(nets, ACCESIO_SHELL_NET, "AGND")
+    on_shell = sorted((n.ref, n.pin) for n in nets[ACCESIO_SHELL_NET])
+    check(
+        {ref for ref, _pin in on_shell} == {j_ref, r_ref} and len(on_shell) == 2,
+        f"{ACCESIO_SHELL_NET}: expected exactly {j_ref}'s shell pin and one pad of {r_ref}, "
+        f"found {on_shell} -- anything else on this net is a second bond nobody chose",
+    )
+    check(
+        values.get(r_ref) == ACCESIO_SHELL_R_VALUE,
+        f"{r_ref} (DB37 shell position) should carry the value note "
+        f"{ACCESIO_SHELL_R_VALUE!r} -- the ruling's two populate options -- found "
+        f"{values.get(r_ref)!r}",
+    )
+    if dnp_refs is not None:
+        check(
+            r_ref in dnp_refs,
+            f"{r_ref} (DB37 shell position) must be DNP by default -- ruling R2 leaves "
+            f"the shell bond to bring-up; populated in the drawing, it is a bond in copper",
+        )
+    return (
+        f"DB37 shell (ruling R2): {j_ref} pin {ACCESIO_SHELL_PIN!r} on its own net "
+        f"{ACCESIO_SHELL_NET}, one resistor position {r_ref} ({ACCESIO_SHELL_R_VALUE!r}) "
+        f"to AGND"
+        + (", DNP." if dnp_refs is not None else " (DNP state not checked: no DNP data supplied).")
+    )
+
+
 def _check_header_pin_roles(
     nets: dict[str, list[Node]], raw_net: str, mid_net: str, div_net: str,
     raw_pin: str, div_pin: str, mid_pin: str, label: str,
@@ -602,6 +666,7 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str],
     summary = []
     summary.append(_check_16_contract_nets(nets))
     summary.append(_check_bnc_shell_bonds(nets, values))
+    summary.append(_check_accesio_shell(nets, values, dnp_refs))
     summary.append(_check_misc_leg_symmetry(nets, values))
     summary.append(_check_no_direct_agnd_reference(nets, values))
     summary.append(_check_photodiode_tia_topology(nets, values, dnp_refs))
@@ -781,6 +846,31 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str],
     flattened["A_MIC"] = list(flattened["A_MIC_S1"])
     msg = _assert_fails(flattened, good_values, "DISTINCT op-amp units", "mic filter's 2nd Sallen-Key section collapsed onto the 1st (2nd order, not 4th)", dnp_refs=good_dnp)
     results.append(f"Mic filter silently de-featured from 4th order to 2nd order: caught -- {msg}")
+
+    # (7) Ruling R2, the as-built defect verbatim: the DB37 shell on no net at all.
+    conn = next(r for r, v in good_values.items() if v.startswith(ACCESIO_CONNECTOR_VALUE_MARKER))
+    floating = copy.deepcopy(good_nets)
+    floating[ACCESIO_SHELL_NET] = [n for n in floating[ACCESIO_SHELL_NET] if n.ref != conn]
+    msg = _assert_fails(floating, good_values, "no net at all", f"{conn} shell pin dropped from {ACCESIO_SHELL_NET}", dnp_refs=good_dnp)
+    results.append(f"DB37 shell floating (ruling R2's original defect): caught -- {msg}")
+
+    # (8) Ruling R2: the shell bonded straight to AGND -- the decision the ruling leaves to
+    # bring-up, made in copper instead. (Merging it into ACCESIO_AGND is caught too, but
+    # earlier and by a different check: _check_bnc_shell_bonds() counts that bundle's
+    # connector pins and finds 20, not 19.)
+    merged = copy.deepcopy(good_nets)
+    shell_node = next(n for n in good_nets[ACCESIO_SHELL_NET] if n.ref == conn)
+    merged[ACCESIO_SHELL_NET] = [n for n in merged[ACCESIO_SHELL_NET] if n != shell_node]
+    merged["AGND"] = merged["AGND"] + [shell_node]
+    msg = _assert_fails(merged, good_values, "expected on its own net", f"{conn} shell wired directly to AGND", dnp_refs=good_dnp)
+    results.append(f"DB37 shell hard-bonded to AGND: caught -- {msg}")
+
+    # (9) Ruling R2: the shell position populated by default. Only meaningful when DNP
+    # data was supplied -- without it the check does not look, and says so.
+    if good_dnp is not None:
+        r_shell = _find_bridging_resistor(good_nets, ACCESIO_SHELL_NET, "AGND")
+        msg = _assert_fails(good_nets, good_values, "must be DNP by default", f"{r_shell} no longer DNP", dnp_refs=set(good_dnp) - {r_shell})
+        results.append(f"DB37 shell position populated by default ({r_shell}): caught -- {msg}")
 
     return results
 

@@ -421,6 +421,20 @@ X_MIC_SPARE = GRID(225)   # spare 4th quad channel, tied off
 X_ACCESIO = GRID(20)
 Y_ACCESIO = GRID(410)
 X_ACCESIO_BONDR = GRID(70)
+DB37_SHELL_PIN = "SH"  # the stock DSUB-37 footprint's own name for its two shell pads --
+# stated here rather than imported from gen_wl_sync_lib.py, the same per-generator
+# independence every pin map on this sheet already follows.
+# RULING R2 (parametric-audit.md, "R2 -- J19 DB37 shell floats"), built 2026-11-20: one
+# resistor POSITION between the DB37's metal shell and AGND, DNP by default.
+#
+# Refdes minted out of band, the same way as TIA_TRIM_REFS above and for the same reason:
+# this sheet's counters are pinned and its R range (R27-R77) is fully spent, so an
+# ordinary next_ref("R") would collide with a sibling. R224 is one past the whole board's
+# maximum (R223, hardware/breakout/netlist-contract.json as of main 91efdf6).
+ACCESIO_SHELL_NET = "ACCESIO_SHELL"
+ACCESIO_SHELL_R_REF = "R224"
+ACCESIO_SHELL_R_VALUE = "0R/10R"  # the ruling's two populate options; the part is DNP
+Y_ACCESIO_SHELLR = GRID(Y_ACCESIO + 15.24)  # below the AGND-bundle bond resistor, same column
 
 X_NOTE1, Y_NOTE1 = GRID(240), GRID(20)
 X_NOTE2, Y_NOTE2 = GRID(240), GRID(90)
@@ -741,6 +755,17 @@ def place_accesio_block(sch):
     genuinely unused by this task's 16-source contract and are marked no_connect --
     ACCESIO_AO16_DB37M's pins are typed passive (a generic connector), so (unlike INA105's
     own library-typed NC pin) an explicit marker IS needed here or ERC flags them unconnected.
+
+    THE SHELL (ruling R2, built 2026-11-20). The connector's metal shell -- footprint pads
+    "SH", symbol pin "SH" (gen_wl_sync_lib.py's own DB37_SHELL_PIN) -- carried no net at
+    all, while every BNC shell on this board lands deliberately. It now lands on its own
+    net, ACCESIO_SHELL, with ONE resistor position (R224) from there to AGND. The position
+    is DNP: the ruling is "0 ohm / 10 ohm / DNP, populated at bring-up", because the cable
+    runs to a separate mains-powered eye-tracker PC and whether to bond its shield here is
+    a decision the bench makes, not the drawing. The shell is a SEPARATE net from the
+    19-pin ACCESIO_AGND bundle on purpose: that bundle is the DAC's signal return and is
+    already bonded through its own 10R above; the shell is the cable's screen. Joining
+    them on the board would decide the question the ruling leaves open.
     """
     ref = sch.next_ref("J")
     pins = sch.place(
@@ -759,6 +784,17 @@ def place_accesio_block(sch):
         sch, "Device", "R", "R", "10", X_ACCESIO_BONDR, Y_ACCESIO, "ACCESIO_AGND", "AGND",
         footprint=FOOTPRINT_R,
     )
+    lbl(sch, X_ACCESIO, Y_ACCESIO, pins, DB37_SHELL_PIN, ACCESIO_SHELL_NET)
+    two_pin(
+        sch, "Device", "R", "R", ACCESIO_SHELL_R_VALUE, X_ACCESIO_BONDR, Y_ACCESIO_SHELLR,
+        ACCESIO_SHELL_NET, "AGND", footprint=FOOTPRINT_R, dnp=True, ref=ACCESIO_SHELL_R_REF,
+    )
+    for line_idx, line in enumerate([
+        f"{ACCESIO_SHELL_R_REF}: DB37 shell to AGND -- DNP. Ruling R2 (parametric-audit.md):",
+        "fit 0R or 10R at bring-up, or leave open. The shell is the cable's screen and",
+        "is NOT the ACCESIO_AGND bundle, which has its own 10R bond above.",
+    ]):
+        sch.text(line, X_ACCESIO_BONDR + GRID(12.7), Y_ACCESIO_SHELLR + line_idx * NOTE_DY)
     return ref
 
 

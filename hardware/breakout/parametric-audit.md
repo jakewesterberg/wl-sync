@@ -797,6 +797,19 @@ or reversed without touching the board. The eye-tracker cable runs to a separate
 mains-powered PC, which is a materially different situation from the battery-powered booth
 sensors, so committing that bond in copper now would be guessing. One pad, one resistor.
 
+> **BUILT 2026-11-20** (layout task L1; commit `hw: U63's EN 55032 input filter, J19's shell
+> resistor position (R2), and U3/U4's PowerPAD on INTAN_GND (R3)`, branch `breakout-layout`,
+> on main `91efdf6`). The symbol `ACCESIO_AO16_DB37M` has a 38th pin, `SH` — the name the
+> stock `DSUB-37 ... Housed_MountingHolesOffset11.32mm` footprint gives its two shell pads
+> (`hardware/gen/gen_wl_sync_lib.py`, `DB37_SHELL_PIN`). `J19`'s shell lands on its own net,
+> `ACCESIO_SHELL`, with one position **`R224`** (0603, value `0R/10R`, **DNP**) from there to
+> `AGND` (`hardware/gen/gen_breakout_analog_frontend.py`, `place_accesio_block()`). The shell
+> is deliberately *not* joined to the 19-pin `ACCESIO_AGND` bundle, which is the DAC's signal
+> return and keeps its own 10 Ω bond: joining them on the board would decide the question
+> this ruling leaves to bring-up. Pinned by `check_breakout_analog_frontend_netlist.py`
+> (`_check_accesio_shell`, three negative controls) and by
+> `tests/hardware/test_netlist.py::test_db37_shell_has_one_selectable_bond`.
+
 ### R3 — LDO thermal pads carry no net — **RULED 2026-08-16**
 
 `U3` and `U4` pad 9 (the PowerPAD) has no net. Both datasheets permit "left open", but both
@@ -808,6 +821,18 @@ preferred option. It removes the layout ambiguity of a large unnetted pad beneat
 pitch part, gives both regulators a thermal path, and prevents an accidental connection to
 whatever plane passes underneath. Dissipation is modest (~0.16 W and ~0.07 W), so this is
 about determinism rather than heat.
+
+> **BUILT 2026-11-20** (layout task L1; the same commit as R2 above). Both hand-built
+> symbols, `TPS7A4901` and `TPS7A3001`, have a ninth pin, `PowerPAD`, typed passive, numbered
+> `9` to match the exposed pad of `Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm`
+> (`hardware/gen/gen_wl_sync_lib.py`, `TPS7A49_PINS`). `place_tps7a49_family()` in
+> `hardware/gen/gen_breakout_power.py` ties it to the regulator's own ground net, so `U3`
+> pin 9 and `U4` pin 9 are both on `INTAN_GND`, the net each part's pin 4 is on. Re-read
+> against the datasheets before building rather than taken from this ruling: TI SBVS121E
+> p.4 and SBVS125D p.4, "Pin Functions", PowerPAD — "Must either be left open or tied to
+> ground. Solder to the printed-circuit-board (PCB) plane to enhance thermal performance."
+> Pinned by `check_breakout_power_netlist.py` (`_check_ldo_powerpads`, two negative controls)
+> and by `tests/hardware/test_netlist.py::test_ldo_powerpads_on_their_own_ground`.
 
 ## 4. Verified correct
 

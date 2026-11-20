@@ -148,6 +148,17 @@ BNC_DUAL_SOURCING = ("031-6575", "Amphenol RF", "1")
 # genuinely is a one-off, not because the rule was too hard to write.
 ONE_OFF_SOURCING = {
     "J1": ("GENERIC - not a locked MPN", "Sullins/TE/Molex/Amphenol/Wurth", "1"),
+    # Layout task L1, 2026-11-20. U63's EN 55032 class A input filter: three parts whose
+    # RATINGS are the design (a 2 kV capacitor across an isolation barrier, a 50 V one on a
+    # 5 V rail, a 1.2 A inductor), so each is a locked MPN and a re-export that blanked
+    # them would turn "220pF/2kV" back into something a buyer reads as an ordinary 220 pF.
+    # Values and packages: Traco "TMR 1(SM) Series -- EMI Consideration", rev. 2021-12-15,
+    # p.1, row TMR 1-05xx (hardware/datasheet-params.toml [tmr_1_0511]).
+    "C161": ("C3225X7R1H475K250AB", "TDK", "1"),
+    "C162": ("C1808C221KGRACTU", "KEMET", "1"),
+    "L1": ("SDR0302-4R7ML", "Bourns", "1"),
+    # Ruling R2's DB37 shell position: DNP by default, so Qty 0, with both populate options.
+    "R224": ("DNP (RC0603JR-070RL or RC0603FR-0710RL)", "Yageo", "0"),
 }
 
 # Backstop: the total number of rows carrying ANY sourcing data. Catches a row losing its
@@ -155,7 +166,9 @@ ONE_OFF_SOURCING = {
 # row, bump this deliberately -- same pinned-baseline idiom as check_breakout_power_netlist
 # .py's own RAIL_BYPASS_EXPECTED and this board's own ERC warning count.
 # 19 since 2026-10-18: J57, the task-PC line-out's dual BNC (line-out-and-pfi-copy.md).
-SOURCED_ROW_COUNT = 19
+# 23 since 2026-11-20: C161, C162, L1 (U63's input filter) and R224 (ruling R2's DB37
+# shell position) -- layout task L1; see ONE_OFF_SOURCING above.
+SOURCED_ROW_COUNT = 23
 
 
 def _sourcing(row: dict[str, str]) -> tuple[str, str, str]:

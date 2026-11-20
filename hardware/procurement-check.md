@@ -159,6 +159,59 @@ each side, zero only-in-raw, zero only-in-order.**
 
 ---
 
+**Addendum, 2026-11-20 — layout task L1: `U63`'s input filter, and ruling R2's shell
+position.** Four new component references, each its own row in both CSVs (none folds into
+an existing row: every Value is new).
+
+| Ref | Value | Footprint | Order code | Per board | For 5 boards | Populate |
+|---|---|---|---|---|---|---|
+| `C161` | `4.7uF/50V` | `Capacitor_SMD:C_1210_3225Metric` | TDK `C3225X7R1H475K250AB` | 1 | 5 | yes |
+| `C162` | `220pF/2kV` | `Capacitor_SMD:C_1808_4520Metric` | KEMET `C1808C221KGRACTU` | 1 | 5 | yes |
+| `L1` | `4.7uH/1.2A` | `Inductor_SMD:L_Ferrocore_DLG-0302` | Bourns `SDR0302-4R7ML` | 1 | 5 | yes |
+| `R224` | `0R/10R` | `Resistor_SMD:R_0603_1608Metric` | Yageo `RC0603JR-070RL` (0 Ω) or `RC0603FR-0710RL` (10 Ω) | 0 | a few of each | **DNP** |
+
+*Where the values come from.* `C161`/`L1`/`C162` are C1/L1/C2 of the network Traco publish
+for EN 55032 class A on the TMR 1-05xx: *TMR 1(SM) Series — EMI Consideration*, rev.
+2021-12-15, p.1, table row "TMR 1-05xx" — "4.7 μF / 50 V, 1210 X7R", "220 pF / 2 kV, 1808
+X7R", "4.7 μH / 1.2 A, SR0302". Recorded with its URL and hash in
+`hardware/datasheet-params.toml`, `[tmr_1_0511]`, `emc_filter_*`. `R224` is ruling R2
+(`hardware/breakout/parametric-audit.md`): "0 Ω / 10 Ω / DNP, populated at bring-up".
+
+*Part choices.*
+- **`C161`, TDK `C3225X7R1H475K250AB`** — 4.7 µF ±10 %, 50 V, X7R, 1210: Traco's row
+  exactly. Murata `GRM32ER71H475KA88L` is the same specification, but Octopart and a mirrored
+  Murata sheet both showed it not recommended for new designs on the day, so the TDK part
+  is the one locked.
+- **`C162`, KEMET `C1808C221KGRACTU`** — 220 pF ±10 %, 2000 V, X7R, 1808: Traco's row
+  exactly. **The 2 kV rating is the design**, because this capacitor is across `U63`'s
+  isolation barrier (−Vin to −Vout). Neighbouring part numbers differ in ways that matter:
+  `C1808C221KHRACTU` is 3 kV, `C1808C222KGRACTU` is 2.2 nF.
+- **`L1`, Bourns `SDR0302-4R7ML`** — Traco give only a package, "SR0302", so this is an
+  equivalent chosen here, not a part they name. Bourns SDR0302 datasheet p.1: 4.7 µH ±20 %,
+  I rms 1.2 A (40 °C rise), I sat 1.35 A (10 % drop), R DC 0.15 Ω max, 3.0 × 2.8 × 2.5 mm —
+  Traco's 4.7 µH / 1.2 A in the 0302 outline. `U63`'s input current is about 0.26 A at full
+  load (1 W / 76 % / 5 V), so the part runs at roughly a fifth of its rating.
+- **`R224`** — both options are 0603 thick-film commodity parts; any equivalent serves.
+
+*Distributor evidence, and its limits.* All four were found on DigiKey regional product pages
+through web search on 2026-11-20 — search-result-level evidence, the same class this file's
+own fix round 1 used, **not** an authenticated stock lookup: `C3225X7R1H475K250AB` (DigiKey
+product 2733161, listed Active, 12-week manufacturer lead), `C1808C221KGRACTU` (2235394,
+12-week manufacturer lead), `SDR0302-4R7ML` (1970211, listed Active; one regional page
+showed a 23-week manufacturer lead and Bürklin 16 weeks), `RC0603JR-070RL` (726675) and
+`RC0603FR-0710RL` (726879). **`L1` is the one to check first**: a 23-week factory lead means
+the order depends on distributor stock. If it is out, any 4.7 µH inductor of at least 1.2 A
+on the same 0302 land pattern serves the same published role; the land pattern is two
+1.4 × 3.0 mm pads on 2.2 mm centres.
+
+*Hand-solder constraint (spec §10.1).* All three filter parts are larger than 0603 and none
+is leadless in the QFN sense, so the stated constraint holds. `C161` (1210) and `C162` (1808)
+are ordinary chip capacitors. **`L1` is the awkward one:** its terminals are on the underside
+of a 3.0 mm drum, and Bourns' recommended pads extend only about 0.4 mm beyond the body on
+each side (pads span 3.6 mm against a 2.8 ± 0.3 mm body). Solderable with a fine tip or hot
+air, but it is not a part to tack on from one end like a chip capacitor. It is Traco's own
+package choice, kept so the published filter is the one built.
+
 ## 1. How the BOM was produced, and two tooling findings worth recording
 
 ```

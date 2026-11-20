@@ -528,6 +528,25 @@ edges toward `INTAN_GND`; the part is PFM, so its spectrum spreads with load rat
 sitting at one filterable tone; and it reflects 80 mAp-p back into `+5V`, for which Traco
 claim EN 55032 class A **only with an external filter**.
 
+> **That filter is drawn as of 2026-11-20** (layout task L1; commit `hw: U63's EN 55032 input
+> filter, J19's shell resistor position (R2), and U3/U4's PowerPAD on INTAN_GND (R3)`, branch
+> `breakout-layout`, on main `91efdf6`). It is Traco's own network for the TMR 1-05xx, from
+> the "External filter proposal" the datasheet links at its EMC Specifications (p.3): the
+> application note *TMR 1(SM) Series — EMI Consideration*, rev. 2021-12-15, p.1.
+>
+> | Traco | Value, rating, package (table row "TMR 1-05xx") | On the board | Nets |
+> |---|---|---|---|
+> | C1 | 4.7 µF / 50 V, 1210 X7R | `C161` | `+5V` – `DGND`, on the source side of L1 |
+> | L1 | 4.7 µH / 1.2 A, SR0302 | `L1` | `+5V` – `U63_VIN` (U63's +Vin), in series |
+> | C2 | 220 pF / 2 kV, 1808 X7R | `C162` | `DGND` – `ISO_5V_RTN` (−Vin to −Vout) |
+>
+> **C2 crosses the isolation barrier**, as Traco draw it, and adds 220 pF to the converter's
+> own 50 pF between `DGND` and the Intan reference. It is drawn as published because the
+> class A claim belongs to the published network; depopulating `C162` is the bench lever if
+> the Intan domain objects. The 50 pF, the PFM spectrum and the placement of all three parts
+> at the converter's pins remain layout's. Source and part choices:
+> `hardware/datasheet-params.toml` `[tmr_1_0511]`, `emc_filter_*`.
+
 | Rail | Source |
 |---|---|
 | Sync box 5 V / 5 A | Its own official USB-C PD supply, panel cutout. Separate from the board's +5 V rail. Substituting is a false economy on a CM5-class board |

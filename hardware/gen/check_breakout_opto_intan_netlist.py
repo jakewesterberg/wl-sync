@@ -112,6 +112,17 @@ ISO5V_SUPPLY_VALUE = "TMR 1-0511"  # FINDING F5, 2026-08-16 -- was LD1117S50TR_S
 # see gen_breakout_opto_intan.py's own place_iso_5v_supply() for why that matters.
 BAT54S_VALUE = "BAT54S"
 
+# U63's EN 55032 class A INPUT FILTER -- layout task L1, 2026-11-20. Restated here from
+# Traco's own document, never imported from the generator: "TMR 1(SM) Series -- EMI
+# Consideration", rev. 2021-12-15, p.1 (the "External filter proposal" the TMR 1 datasheet
+# links from its EMC Specifications, p.3). Figure "Suggested filter to comply with EN 55032
+# Conducted Emissions Class A limits -- Single output models": C1 across the input on the
+# source side of L1; L1 in series with +Vin; C2 from -Vin to -Vout. Table row "TMR 1-05xx":
+# C1 4.7 uF / 50 V 1210 X7R, C2 220 pF / 2 kV 1808 X7R, L1 4.7 uH / 1.2 A SR0302.
+ISO5V_FILTER_L_VALUE = "4.7uH/1.2A"
+ISO5V_FILTER_C1_VALUE = "4.7uF/50V"
+ISO5V_FILTER_C2_VALUE = "220pF/2kV"
+
 ACSL6400_CH_PINS = {
     0: ("1", "2", "14"),
     1: ("3", "4", "13"),
@@ -162,7 +173,10 @@ ALL_SOURCE_NETS = {c[0] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[0]}  # 
 ALL_OUTBOUND_FINAL = {c[1] for c in OUTBOUND_CHANNELS} | {STIM_TRIG_CHANNEL[1]}  # INTAN-side finals
 
 NON_ISOLATED_RAILS = {"+5V", "+3V3", "+12V", "-12V", "AGND", "DGND"}
-ISOLATED_RAILS = {"ISO_5V", "INTAN_GND"}
+ISOLATED_RAILS = {"ISO_5V", "INTAN_GND", "ISO_5V_RTN"}  # ISO_5V_RTN (the converter's own
+# -Vout, joined to INTAN_GND at NT4) added 2026-11-20: the input filter's C2 lands on it,
+# and a barrier-crossing part on a net this set did not list would have been invisible to
+# _check_domain_pin_disjoint() rather than declared.
 # RHS_STIM_OUT is the DGND-side (non-isolated) name for the inbound channel's own output
 # -- NOT part of the isolated net set. RHS_STIM_RAW is the Intan-side (isolated) name for
 # its own source, upstream of the LED.
@@ -386,7 +400,51 @@ def _check_iso5v_supply(nets: dict[str, list[Node]], values: dict[str, str]) -> 
     explicitly that neither input pin has drifted back onto an isolated 12 V rail.
     Returns (summary, own_refs)."""
     ref = _single_ref(values, ISO5V_SUPPLY_VALUE)
-    check(any(n.ref == ref and n.pin == "2" for n in nets.get("+5V", [])), f"{ref} pin 2 (+Vin) not found on +5V")
+    # +Vin is NOT on +5V any more (layout task L1, 2026-11-20): Traco's filter puts L1 in
+    # series, so pin 2 sits on a net of its own and reaches +5V only through that
+    # inductor. Both halves are asserted -- on its own net, AND that net is L1's far side
+    # -- because "pin 2 not on +5V" alone would also pass with the converter unpowered.
+    vin_nets = sorted(name for name, nl in nets.items() if any(n.ref == ref and n.pin == "2" for n in nl))
+    check(len(vin_nets) == 1, f"{ref} pin 2 (+Vin) expected on exactly one net, found {vin_nets}")
+    vin_net = vin_nets[0]
+    check(
+        vin_net != "+5V",
+        f"{ref} pin 2 (+Vin) is directly on +5V -- the EN 55032 class A input filter's "
+        f"series inductor (L1) has been bypassed; Traco's figure puts L1 between the "
+        f"supply and +Vin",
+    )
+    l_ref = _single_ref(values, ISO5V_FILTER_L_VALUE)
+    c1_ref = _single_ref(values, ISO5V_FILTER_C1_VALUE)
+    c2_ref = _single_ref(values, ISO5V_FILTER_C2_VALUE)
+
+    def _nets_of(part: str) -> list[str]:
+        return sorted(name for name, nl in nets.items() if any(n.ref == part for n in nl))
+
+    check(
+        _nets_of(l_ref) == sorted(["+5V", vin_net]),
+        f"filter inductor {l_ref} ({ISO5V_FILTER_L_VALUE}) should be in SERIES between +5V "
+        f"and {ref}'s +Vin net {vin_net!r}, found it on {_nets_of(l_ref)}",
+    )
+    on_vin = sorted((n.ref, n.pin) for n in nets[vin_net] if not n.ref.startswith("#"))
+    check(
+        on_vin == sorted([(l_ref, n.pin) for n in nets[vin_net] if n.ref == l_ref] + [(ref, "2")])
+        and len(on_vin) == 2,
+        f"{vin_net}: expected exactly {l_ref} and {ref} pin 2, found {on_vin} -- Traco's "
+        f"figure draws NOTHING between L1 and +Vin; a capacitor here turns the published "
+        f"L-C into a C-L-C that was not what was tested",
+    )
+    check(
+        _nets_of(c1_ref) == ["+5V", "DGND"],
+        f"filter capacitor C1 {c1_ref} ({ISO5V_FILTER_C1_VALUE}) should be across the "
+        f"incoming supply, +5V to DGND, on the SOURCE side of L1; found it on {_nets_of(c1_ref)}",
+    )
+    check(
+        _nets_of(c2_ref) == ["DGND", "ISO_5V_RTN"],
+        f"filter capacitor C2 {c2_ref} ({ISO5V_FILTER_C2_VALUE}) should run -Vin to -Vout, "
+        f"DGND to ISO_5V_RTN, as Traco draw it; found it on {_nets_of(c2_ref)} -- on "
+        f"INTAN_GND instead of ISO_5V_RTN its HF current returns through NT4 and the Intan "
+        f"reference rather than closing at the converter",
+    )
     check(any(n.ref == ref and n.pin == "1" for n in nets.get("DGND", [])), f"{ref} pin 1 (-Vin) not found on DGND")
     check(any(n.ref == ref and n.pin == "4" for n in nets.get("ISO_5V", [])), f"{ref} pin 4 (+Vout) not found on ISO_5V")
     check(any(n.ref == ref and n.pin == "6" for n in nets.get("ISO_5V_RTN", [])), f"{ref} pin 6 (-Vout) not found on ISO_5V_RTN")
@@ -414,9 +472,13 @@ def _check_iso5v_supply(nets: dict[str, list[Node]], values: dict[str, str]) -> 
         )
     return (
         f"ISO_5V's own source ({ref}, {ISO5V_SUPPLY_VALUE!r}, isolated DC/DC): +Vin on "
-        f"+5V, -Vin on DGND, +Vout on ISO_5V, -Vout on INTAN_GND -- and no pin on "
-        f"ISO_P12/ISO_N12, so its input current does not load the isolated module.",
-        {ref},
+        f"{vin_net} (from +5V through {l_ref}), -Vin on DGND, +Vout on ISO_5V, -Vout on "
+        f"ISO_5V_RTN (tied to INTAN_GND at NT4) -- and no pin on ISO_P12/ISO_N12, so its "
+        f"input current does not load the isolated module. EN 55032 class A input filter "
+        f"(Traco EMI Consideration, TMR 1-05xx row): C1 {c1_ref} {ISO5V_FILTER_C1_VALUE} "
+        f"+5V/DGND, L1 {l_ref} {ISO5V_FILTER_L_VALUE} in series, C2 {c2_ref} "
+        f"{ISO5V_FILTER_C2_VALUE} DGND/ISO_5V_RTN.",
+        {ref, l_ref, c1_ref, c2_ref},
     )
 
 
@@ -482,7 +544,8 @@ def _check_all_bncs(nets: dict[str, list[Node]], values: dict[str, str]) -> tupl
     ), all_bnc_refs
 
 
-def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, str], own_refs: set[str], barrier_refs: set[str]) -> str:
+def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, str], own_refs: set[str], barrier_refs: set[str],
+                               extra_non_isolated_nets: frozenset[str] = frozenset()) -> str:
     """The Intan-isolated domain must be PIN-DISJOINT from every non-isolated rail and
     source/RHS_STIM_OUT net, except the ACSL-6400/6420 packages themselves, straddling
     by design (module docstring, risk 2).
@@ -506,7 +569,10 @@ def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, st
     Task 7's or Task 10c's own, separately-reviewed designs.
     """
     isolated_nodes = {(ref, pin) for name in ISOLATED_NETS for n in nets.get(name, []) if (ref := n.ref) in own_refs for pin in (n.pin,)}
-    non_isolated_nodes = {(ref, pin) for name in NON_ISOLATED_NETS for n in nets.get(name, []) if (ref := n.ref) in own_refs for pin in (n.pin,)}
+    # `extra_non_isolated_nets`: the converter's own +Vin net behind the filter inductor --
+    # non-isolated, but named after the converter's refdes, so discovered by the caller
+    # rather than listed in NON_ISOLATED_NETS.
+    non_isolated_nodes = {(ref, pin) for name in NON_ISOLATED_NETS | extra_non_isolated_nets for n in nets.get(name, []) if (ref := n.ref) in own_refs for pin in (n.pin,)}
     isolated_refs = {ref for ref, _pin in isolated_nodes}
     non_isolated_refs = {ref for ref, _pin in non_isolated_nodes}
     straddling = isolated_refs & non_isolated_refs
@@ -515,8 +581,8 @@ def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, st
         straddling == barrier_refs,
         f"unexpected straddling references, among opto-intan.kicad_sch's own {len(own_refs)} "
         f"components, between the Intan-isolated domain and non-isolated rails: "
-        f"{straddling - barrier_refs or 'none'} (expected only the 2 barrier packages "
-        f"{sorted(barrier_refs)}); missing expected straddlers: {barrier_refs - straddling or 'none'}",
+        f"{straddling - barrier_refs or 'none'} (expected only the {len(barrier_refs)} "
+        f"barrier parts {sorted(barrier_refs)}); missing expected straddlers: {barrier_refs - straddling or 'none'}",
     )
     check(
         isolated_refs | non_isolated_refs <= own_refs,
@@ -525,8 +591,8 @@ def _check_domain_pin_disjoint(nets: dict[str, list[Node]], values: dict[str, st
     return (
         f"Intan-isolated domain (ISO_5V/INTAN_GND/all *_INTAN nets/RHS_STIM_RAW) is "
         f"pin-disjoint from every non-isolated rail/*_BUF/source net/RHS_STIM_OUT, among "
-        f"opto-intan.kicad_sch's own {len(own_refs)} components, except the 2 barrier "
-        f"packages {sorted(barrier_refs)}, straddling by design."
+        f"opto-intan.kicad_sch's own {len(own_refs)} components, except the "
+        f"{len(barrier_refs)} barrier parts {sorted(barrier_refs)}, straddling by design."
     )
 
 
@@ -628,9 +694,18 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
     # ACSL packages and Task 7's own IH1215D do. Listing it explicitly keeps this an
     # EXACT set comparison: an unexpected straddler is still a failure, and a missing
     # expected one is too.
-    iso5v_supply_ref = next(iter(supply_refs))
+    #
+    # FOUR as of layout task L1 (2026-11-20): the input filter's C2 runs -Vin to -Vout,
+    # DGND to ISO_5V_RTN, because that is where Traco's own EN 55032 figure draws it. It
+    # is a deliberate, 2 kV-rated crossing and is listed for the same reason the converter
+    # is -- so the comparison stays exact. The filter's other two parts (L1, C1) are in
+    # own_refs and must NOT straddle; this check is what holds them to that.
+    iso5v_supply_ref = _single_ref(values, ISO5V_SUPPLY_VALUE)
+    filter_c2_ref = _single_ref(values, ISO5V_FILTER_C2_VALUE)
+    vin_net = _node_net(nets, iso5v_supply_ref, "2")
     summary.append(_check_domain_pin_disjoint(
-        nets, values, own_refs, {pkg_a_ref, pkg_b_ref, iso5v_supply_ref}))
+        nets, values, own_refs, {pkg_a_ref, pkg_b_ref, iso5v_supply_ref, filter_c2_ref},
+        extra_non_isolated_nets=frozenset({vin_net})))
 
     # ISO_P12 deliberately NOT listed any more (finding F5): this sheet no longer
     # consumes it at all, which is the whole point of the change. Asserting its presence
@@ -739,6 +814,41 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     # "pin 2", which finding F6 turned into "pin 2 or pin 4 depending on which port".
     msg = _assert_fails(no_shell, good_values, "shell is not on INTAN_GND", f"{bnc_ref_on_barcode}'s own shell dropped from INTAN_GND")
     results.append(f"BNC shell disconnected from INTAN_GND ({bnc_ref_on_barcode}, BARCODE_INTAN): caught -- {msg}")
+
+    # (8) Input filter, the pre-L1 state verbatim: the converter's +Vin straight on +5V,
+    # the series inductor bypassed.
+    supply = _single_ref(good_values, ISO5V_SUPPLY_VALUE)
+    vin_net = _node_net(good_nets, supply, "2")
+    bypassed = copy.deepcopy(good_nets)
+    vin_node = next(n for n in good_nets[vin_net] if n.ref == supply)
+    bypassed[vin_net] = [n for n in bypassed[vin_net] if n != vin_node]
+    bypassed["+5V"] = bypassed["+5V"] + [vin_node]
+    msg = _assert_fails(bypassed, good_values, "has been bypassed", f"{supply} +Vin moved back onto +5V")
+    results.append(f"Input filter inductor bypassed ({supply} +Vin directly on +5V): caught -- {msg}")
+
+    # (9) Input filter C2 returned to INTAN_GND instead of the converter's own -Vout net.
+    c2 = _single_ref(good_values, ISO5V_FILTER_C2_VALUE)
+    moved_c2 = copy.deepcopy(good_nets)
+    c2_node = next(n for n in good_nets["ISO_5V_RTN"] if n.ref == c2)
+    moved_c2["ISO_5V_RTN"] = [n for n in moved_c2["ISO_5V_RTN"] if n != c2_node]
+    moved_c2["INTAN_GND"] = moved_c2["INTAN_GND"] + [c2_node]
+    msg = _assert_fails(moved_c2, good_values, "should run -Vin to -Vout", f"{c2} moved from ISO_5V_RTN to INTAN_GND")
+    results.append(f"Input filter C2 on INTAN_GND instead of ISO_5V_RTN ({c2}): caught -- {msg}")
+
+    # (10) A capacitor added between L1 and +Vin -- the "obvious improvement" that turns
+    # Traco's published L-C into an untested C-L-C.
+    extra = copy.deepcopy(good_nets)
+    extra[vin_net] = extra[vin_net] + [Node("CDBG98", "1", "", "passive")]
+    extra["DGND"] = extra["DGND"] + [Node("CDBG98", "2", "", "passive")]
+    msg = _assert_fails(extra, good_values, "NOTHING between L1 and +Vin", f"a capacitor added on {vin_net}")
+    results.append(f"Capacitor added between L1 and +Vin: caught -- {msg}")
+
+    # (11) Filter value drift: C2 fitted as an ordinary 220pF -- the value survives, the
+    # 2 kV rating that lets it sit across a 1500 VDC barrier does not.
+    derated = dict(good_values)
+    derated[c2] = "220pF"
+    msg = _assert_fails(good_nets, derated, f"{ISO5V_FILTER_C2_VALUE!r}", f"{c2} value drift {ISO5V_FILTER_C2_VALUE}->220pF")
+    results.append(f"Input filter C2 loses its 2 kV rating ({c2}): caught -- {msg}")
 
     return results
 

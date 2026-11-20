@@ -324,7 +324,18 @@ def place_tps7a49_family(sch, symname, footprint, x, y, in_net, gnd_net, out_net
     if not used" -- both datasheets, verbatim; EN must NOT float, so tying it somewhere
     is mandatory, not optional), GND to `gnd_net`, OUT to `out_net`. NC (pin 3) and DNC
     (pin 7) are marked no_connect -- DNC in particular must not reach any net, "not even
-    GND or IN" (both datasheets, verbatim). Returns (ref, fb_net, nrss_net) so the caller
+    GND or IN" (both datasheets, verbatim).
+
+    THE POWERPAD (pin 9) IS TIED TO `gnd_net` -- ruling R3 (hardware/breakout/
+    parametric-audit.md, "R3 -- LDO thermal pads carry no net"), built 2026-11-20. Both
+    datasheets permit exactly two things for it, "left open or tied to ground" (SBVS121E
+    p.4, SBVS125D p.4, "Pin Functions"), and ask for it to be soldered to a plane. It is
+    tied to the SAME net as the regulator's own GND pin (pin 4) -- INTAN_GND for both
+    instances on this board -- so the pad under each part is the ground it already
+    references, not whichever plane passes beneath it. See gen_wl_sync_lib.py's own
+    TPS7A49_PINS comment for the pin itself.
+
+    Returns (ref, fb_net, nrss_net) so the caller
     can wire up fb_divider() and the NR/SS cap against nets scoped to this specific
     instance (each regulator's FB/NR-SS node is internal and instance-specific, unlike
     IN/GND/OUT which are shared contract or stage nets).
@@ -333,7 +344,8 @@ def place_tps7a49_family(sch, symname, footprint, x, y, in_net, gnd_net, out_net
     pins = sch.place("wl-sync", symname, ref, symname, x, y, footprint=footprint)
     fb_net = f"{ref}_FB"
     nrss_net = f"{ref}_NRSS"
-    for num, net in (("1", out_net), ("2", fb_net), ("4", gnd_net), ("5", in_net), ("6", nrss_net), ("8", in_net)):
+    for num, net in (("1", out_net), ("2", fb_net), ("4", gnd_net), ("5", in_net), ("6", nrss_net), ("8", in_net),
+                     ("9", gnd_net)):
         px, py = pin_pos(x, y, pins[num])
         sch.label(net, px, py)
     for num in ("3", "7"):

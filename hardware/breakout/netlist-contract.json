@@ -162,6 +162,8 @@
     "C158": "100nF",
     "C159": "100nF",
     "C160": "100nF",
+    "C161": "4.7uF/50V",
+    "C162": "220pF/2kV",
     "D1": "SS14",
     "D2": "SS14",
     "D3": "SS14",
@@ -255,6 +257,7 @@
     "J55": "Chassis fan 4",
     "J56": "Chassis earth stud",
     "J57": "Dual panel BNC: Line-out L (task PC AO 0) | Line-out R (task PC AO 1)",
+    "L1": "4.7uH/1.2A",
     "NT1": "NetTie_2",
     "NT2": "NetTie_2",
     "NT3": "NetTie_2",
@@ -482,6 +485,7 @@
     "R221": "100",
     "R222": "100",
     "R223": "100",
+    "R224": "0R/10R",
     "TP1": "+12V",
     "TP2": "-12V",
     "TP3": "+5V",
@@ -621,6 +625,7 @@
       ["C155", "1", "", "passive"],
       ["C156", "1", "", "passive"],
       ["C157", "1", "", "passive"],
+      ["C161", "1", "", "passive"],
       ["D3", "1", "K_1", "passive"],
       ["D4", "2", "K_2", "passive"],
       ["D5", "2", "K_2", "passive"],
@@ -643,6 +648,7 @@
       ["D22", "2", "K_2", "passive"],
       ["D45", "2", "K_2", "passive"],
       ["D46", "2", "K_2", "passive"],
+      ["L1", "1", "1_1", "passive"],
       ["R24", "1", "", "passive"],
       ["R122", "1", "", "passive"],
       ["R124", "1", "", "passive"],
@@ -691,7 +697,6 @@
       ["U13", "14", "VCC_14", "power_in"],
       ["U15", "20", "VCC_20", "power_in"],
       ["U62", "1", "+Vin_1", "power_in"],
-      ["U63", "2", "+VIN_2", "power_in"],
       ["U65", "4", "VDD1_4", "power_in"],
       ["U69", "3", "Clr_3", "input"],
       ["U69", "16", "VCC_16", "power_in"],
@@ -910,6 +915,10 @@
       ["U20", "2", "-_2", "passive"],
       ["U21", "2", "-_2", "passive"]
     ],
+    "ACCESIO_SHELL": [
+      ["J19", "SH", "SHELL_SH", "passive"],
+      ["R224", "1", "", "passive"]
+    ],
     "ACC_TRIG": [
       ["J7", "22", "GPIO25_22", "passive"],
       ["R118", "1", "", "passive"],
@@ -1028,6 +1037,7 @@
       ["R75", "2", "", "passive"],
       ["R77", "2", "", "passive"],
       ["R193", "1", "", "passive"],
+      ["R224", "2", "", "passive"],
       ["U16", "1", "REF_1", "passive"],
       ["U17", "1", "REF_1", "passive"],
       ["U18", "1", "REF_1", "passive"],
@@ -2059,6 +2069,8 @@
       ["C156", "2", "", "passive"],
       ["C157", "2", "", "passive"],
       ["C160", "2", "", "passive"],
+      ["C161", "2", "", "passive"],
+      ["C162", "1", "", "passive"],
       ["D4", "1", "A_1", "passive"],
       ["D5", "1", "A_1", "passive"],
       ["D6", "1", "A_1", "passive"],
@@ -2902,7 +2914,9 @@
       ["TP7", "1", "1_1", "passive"],
       ["U2", "6", "0V_6", "power_out"],
       ["U3", "4", "GND_4", "power_in"],
+      ["U3", "9", "PowerPAD_9", "passive"],
       ["U4", "4", "GND_4", "power_in"],
+      ["U4", "9", "PowerPAD_9", "passive"],
       ["U39", "1", "REF_1", "passive"],
       ["U41", "1", "REF_1", "passive"],
       ["U43", "1", "REF_1", "passive"],
@@ -2949,6 +2963,7 @@
     "ISO_5V_RTN": [
       ["C137", "2", "", "passive"],
       ["C138", "2", "", "passive"],
+      ["C162", "2", "", "passive"],
       ["NT4", "1", "1_1", "passive"],
       ["U63", "6", "-VOUT_6", "power_out"]
     ],
@@ -3668,6 +3683,10 @@
     "U4_NRSS": [
       ["C18", "1", "", "passive"],
       ["U4", "6", "NR/SS_6", "passive"]
+    ],
+    "U63_VIN": [
+      ["L1", "2", "2_2", "passive"],
+      ["U63", "2", "+VIN_2", "power_in"]
     ],
     "U69_CEXT": [
       ["C149", "2", "", "passive"],

@@ -444,9 +444,21 @@ SYM_TA5M = build_symbol(
 #    J1's Female with a Female-Female cable (manual p.7, "Optional Accessories").
 # ---------------------------------------------------------------------------
 _db37_left = [(str(n), "AGND") for n in range(1, 20)]  # pins 1-19, all AGND (Table 6-1)
+# RULING R2 (parametric-audit.md, "R2 -- J19 DB37 shell floats"), built 2026-11-20: the
+# connector's metal shell gets a schematic pin, so its pads carry a net instead of none.
+# The pin NUMBER is "SH" because that is what the footprint this symbol is placed on calls
+# them -- Connector_Dsub:DSUB-37_Pins_Horizontal_P2.77x2.84mm_EdgePinOffset9.90mm_Housed_
+# MountingHolesOffset11.32mm has exactly two `(pad "SH" thru_hole circle ...)` entries, the
+# two mounting/shell holes, read from the stock .kicad_mod rather than assumed. One symbol
+# pin maps to both pads, which is right: they are one piece of metal.
+#
+# It is the 19th row of the RIGHT column, which had 18. The left column already had 19, so
+# the row count -- and with it every existing pin's position -- does not move.
+DB37_SHELL_PIN = "SH"
 _db37_right = (
     [(str(20 + i), f"DAC{i}") for i in range(16)]  # pins 20-35 -> DAC0..DAC15
     + [("36", "A_IN0"), ("37", "A_IN1")]
+    + [(DB37_SHELL_PIN, "SHELL")]
 )
 SYM_ACCESIO = build_symbol(
     "ACCESIO_AO16_DB37M",
@@ -534,12 +546,22 @@ SYM_PI5_HEADER = build_symbol(
 #    "the shared TPS7A49/TPS7A30 DGN pinout"). DNC (7) genuinely must not be routed to any
 #    net, "not even GND or IN" (both datasheets, verbatim) -- placed via sch.no_connect(),
 #    same as NC (3, "left open or tied to GND" -- left open here, the simpler of the two
-#    datasheet-sanctioned options). The PowerPAD exposed thermal pad is deliberately NOT
-#    given a schematic pin: both datasheets sanction leaving it electrically open, and
-#    inventing a pin for it here would assert a specific footprint pad-9 numbering this
-#    hand-built symbol has no real footprint to verify against yet -- left as a layout-
-#    stage note (see the Footprint property below) for whichever task lays out the
-#    breakout board's PCB.
+#    datasheet-sanctioned options).
+#
+#    THE POWERPAD IS PIN 9, AS OF RULING R3 (parametric-audit.md, "R3 -- LDO thermal pads
+#    carry no net"), built 2026-11-20. It was originally left without a schematic pin,
+#    because both datasheets sanction leaving it open and this symbol then had no
+#    footprint to verify a pad number against. Both reasons have gone. The pad number is
+#    read from the footprint this symbol names -- Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_
+#    EP1.57x1.89mm carries one `(pad "9" smd ...)`, the exposed pad -- and an unnetted pad
+#    under a 0.65 mm-pitch part is a layout ambiguity, not a neutral default. Both
+#    datasheets give it the same two instructions in "Pin Functions" (SBVS121E p.4 for
+#    the TPS7A49, SBVS125D p.4 for the TPS7A30, whose wording differs only in "GND" for
+#    "ground" and a dropped article). The TPS7A49's: "Must either be left open or tied to
+#    ground. Solder to the printed-circuit-board (PCB) plane to enhance thermal
+#    performance." Typed PASSIVE,
+#    because TI give it no I/O type (the table's I/O column is a dash) and it is not a
+#    supply pin: the regulator's ground current returns through pin 4.
 # ---------------------------------------------------------------------------
 TPS7A49_FOOTPRINT = "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"  # generic
 # HVSSOP-8-1EP -- TI's own DGN package is this JEDEC outline; the exact TI DGN0008[B/D/G]
@@ -549,7 +571,8 @@ TPS7A49_FOOTPRINT = "Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm"  # gen
 # hardware/README.md flags its own footprint-confidence gaps rather than left silent.
 TPS7A49_PINS = {
     "left": [("1", "OUT", "power_out"), ("2", "FB", "input"),
-             ("3", "NC", "no_connect"), ("4", "GND", "power_in")],
+             ("3", "NC", "no_connect"), ("4", "GND", "power_in"),
+             ("9", "PowerPAD", "passive")],
     "right": [("8", "IN", "power_in"), ("7", "DNC", "no_connect"),
               ("6", "NR/SS", "passive"), ("5", "EN", "input")],
 }
@@ -1032,11 +1055,16 @@ _SYMBOL_NAMES = [
 # gen_wl_sync_footprints.py's retired section 4.
 _EXPECTED_PIN_COUNTS = {
     "MDR68_Male": [68], "MiniXLR_TA4M": [4], "MiniXLR_TA5M": [5],
-    "ACCESIO_AO16_DB37M": [37], "RaspberryPi5_GPIO_Header": [40],
-    "TPS7A4901": [8], "TPS7A3001": [8], "ADG1206YRUZ": [28],
+    "ACCESIO_AO16_DB37M": [38], "RaspberryPi5_GPIO_Header": [40],
+    "TPS7A4901": [9], "TPS7A3001": [9], "ADG1206YRUZ": [28],
     "ACSL6400": [16], "ACSL6420": [16],
     "BNC_Dual_RA_Isolated": [2, 2],
 }
+# Pins whose NUMBER is a footprint pad NAME rather than a position in the 1..N run. Only
+# the DB37's shell (ruling R2): its footprint calls the shell pads "SH". They are counted
+# in _EXPECTED_PIN_COUNTS above and excluded from the contiguity check below, by name --
+# so a pin that is neither numbered in the run nor listed here still fails.
+_NAMED_PINS = {"ACCESIO_AO16_DB37M": {DB37_SHELL_PIN}}
 
 
 def self_check() -> None:
@@ -1063,8 +1091,10 @@ def self_check() -> None:
                     f"{unit_index} -- two units sharing a pad"
                 )
                 seen[num] = unit_index
-        total = sum(expected_per_unit)
-        numbers = sorted(seen, key=int)
+        named = _NAMED_PINS.get(name, set())
+        assert named <= set(seen), f"{name}: named pin(s) {sorted(named - set(seen))} are missing"
+        total = sum(expected_per_unit) - len(named)
+        numbers = sorted((n for n in seen if n not in named), key=int)
         assert numbers == [str(i) for i in range(1, total + 1)], (
             f"{name}: pin numbers {numbers} are not a contiguous 1..{total} run across "
             f"{len(expected_per_unit)} unit(s)"

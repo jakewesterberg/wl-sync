@@ -582,6 +582,10 @@ RAIL_VOLTS = {
     # rather than merged into it, so the switcher's return current reaches the Intan
     # reference through one controlled tie. Same net at 0 V for every purpose here.
     "ISO_5V_RTN": 0.0,
+    # U63_VIN: the F5 converter's own +Vin, downstream of the series inductor (L1) of
+    # Traco's EN 55032 class A input filter (layout task L1, 2026-11-20). It is +5V
+    # through 4.7 uH and 0.15 ohm, so +5 V for every purpose here.
+    "U63_VIN": 5.0,
     "ISO_P12": 12.0, "ISO_N12": -12.0,
     "ISO_P15_RAW": 15.0, "ISO_P15_FILT": 15.0,
     "ISO_N15_RAW": -15.0, "ISO_N15_FILT": -15.0,
@@ -1986,7 +1990,17 @@ def _iso_5v_drawn_from(nodes, values) -> str | None:
     ]
     if len(sources) != 1:
         return None
-    nets_of = _part_nets(nodes).get(sources[0], set())
+    nets_of = set(_part_nets(nodes).get(sources[0], set()))
+    # One hop further through a SERIES element on the supply's own pins. Needed since
+    # layout task L1 (2026-11-20): the converter's +Vin now reaches +5V through the input
+    # filter's inductor, so its own nets no longer include a candidate rail directly, and
+    # without this hop the function returned None and the check below stopped on its own
+    # "would pass vacuously" guard. A series element is a two-terminal part with neither
+    # pin on a ground -- the same definition `_series_graph()` uses -- so a decoupling
+    # capacitor cannot carry this walk onto a rail the supply does not draw from.
+    for ref, two in _two_terminal_passive_refs(nodes).items():
+        if len(two) == 2 and not (two & GROUND_NETS) and (two & nets_of):
+            nets_of |= two
     for candidate in ("ISO_P12", "ISO_N12", "+5V", "+12V"):
         if candidate in nets_of:
             return candidate
@@ -2608,3 +2622,161 @@ def test_panel_outputs_fires_on_missing_series_resistance(nodes, values):
     corrupted["RWD_DLVR"] = list(nodes["RWD_DLVR"]) + [(victim_ref, victim_pad, "", "passive")]
     with pytest.raises(AssertionError, match=r"no series resistance between them"):
         _check_panel_outputs_have_one_driver_and_series_r(corrupted, values)
+
+
+# ===========================================================================
+# LAYOUT TASK L1 (2026-11-20): three schematic gaps closed before layout.
+#
+# A blind layout trial found three places where the drawing left layout to guess: an
+# isolated converter whose datasheet-required input filter was not drawn, a connector
+# shell with no net, and two exposed pads with no net. Each is pinned here against the
+# committed snapshot, so it holds in CI, where no KiCad exists and the per-sheet checkers
+# under hardware/gen/ never run.
+#
+# Sources, restated rather than imported from any generator:
+#   - U63 filter: Traco "TMR 1(SM) Series -- EMI Consideration", rev. 2021-12-15, p.1,
+#     figure "Single output models" and table row "TMR 1-05xx" -- C1 4.7 uF / 50 V across
+#     the input on the source side of L1, L1 4.7 uH / 1.2 A in series with +Vin, C2
+#     220 pF / 2 kV from -Vin to -Vout. Recorded in datasheet-params.toml [tmr_1_0511].
+#   - J19 shell: hardware/breakout/parametric-audit.md, ruling R2.
+#   - U3/U4 PowerPAD: the same file, ruling R3; TI SBVS121E p.4 and SBVS125D p.4.
+# ===========================================================================
+
+U63_FILTER_VALUES = {"C1": "4.7uF/50V", "L1": "4.7uH/1.2A", "C2": "220pF/2kV"}
+
+
+def _nets_of_ref(nodes, ref: str) -> set[str]:
+    return {name for name, nl in nodes.items() if any(r == ref for r, _p, _pf, _t in nl)}
+
+
+def _net_of_pin(nodes, ref: str, pin: str) -> set[str]:
+    return {name for name, nl in nodes.items() if any(r == ref and p == pin for r, p, _pf, _t in nl)}
+
+
+def _check_u63_input_filter(nodes, values, params) -> None:
+    rec = params["tmr_1_0511"]
+    # The values on the board are the values on record, and the record is Traco's row.
+    assert (rec["emc_filter_c1_uf"], rec["emc_filter_c1_v"]) == (4.7, 50.0)
+    assert (rec["emc_filter_l1_uh"], rec["emc_filter_l1_a"]) == (4.7, 1.2)
+    assert (rec["emc_filter_c2_pf"], rec["emc_filter_c2_v"]) == (220.0, 2000.0)
+    assert rec["emc_filter_c2_v"] >= rec["isolation_vdc"], (
+        "the filter's C2 crosses the converter's isolation barrier and must be rated at "
+        "least the converter's own isolation test voltage"
+    )
+
+    supply = [r for r, v in values.items() if v == rec["part"]]
+    assert len(supply) == 1, f"expected exactly one {rec['part']}, found {supply}"
+    u = supply[0]
+    part = {}
+    for role, value in U63_FILTER_VALUES.items():
+        refs = [r for r, v in values.items() if v == value]
+        assert len(refs) == 1, f"expected exactly one {value!r} (filter {role}), found {refs}"
+        part[role] = refs[0]
+
+    vin = _net_of_pin(nodes, u, "2")
+    assert len(vin) == 1 and vin != {"+5V"}, (
+        f"{u} +Vin is on {sorted(vin)} -- it must sit behind the filter inductor, not "
+        f"directly on +5V"
+    )
+    (vin_net,) = vin
+    assert _nets_of_ref(nodes, part["L1"]) == {"+5V", vin_net}, (
+        f"filter L1 ({part['L1']}) must be in series between +5V and {u}'s +Vin"
+    )
+    assert {r for r, _p, _pf, _t in nodes[vin_net]} == {u, part["L1"]}, (
+        f"{vin_net} must carry only {part['L1']} and {u}: Traco's figure draws nothing "
+        f"between L1 and +Vin"
+    )
+    assert _nets_of_ref(nodes, part["C1"]) == {"+5V", "DGND"}, (
+        f"filter C1 ({part['C1']}) must be across the incoming supply, +5V to DGND"
+    )
+    assert _nets_of_ref(nodes, part["C2"]) == {"DGND", "ISO_5V_RTN"}, (
+        f"filter C2 ({part['C2']}) must run -Vin to -Vout: DGND to ISO_5V_RTN"
+    )
+    assert _net_of_pin(nodes, u, "1") == {"DGND"} and _net_of_pin(nodes, u, "6") == {"ISO_5V_RTN"}, (
+        f"{u}'s -Vin/-Vout are no longer on DGND/ISO_5V_RTN, so C2 is no longer across them"
+    )
+
+
+def test_u63_input_filter(nodes, values, params):
+    _check_u63_input_filter(nodes, values, params)
+
+
+def test_u63_input_filter_fires_when_the_inductor_is_bypassed(nodes, values, params):
+    """The pre-L1 board verbatim: the converter's +Vin straight on +5V."""
+    u = next(r for r, v in values.items() if v == params["tmr_1_0511"]["part"])
+    (vin_net,) = _net_of_pin(nodes, u, "2")
+    corrupted = dict(nodes)
+    pin = next(n for n in nodes[vin_net] if n[0] == u)
+    corrupted[vin_net] = [n for n in nodes[vin_net] if n != pin]
+    corrupted["+5V"] = list(nodes["+5V"]) + [pin]
+    with pytest.raises(AssertionError, match=r"behind the filter inductor"):
+        _check_u63_input_filter(corrupted, values, params)
+
+
+def test_u63_input_filter_fires_when_c2_leaves_the_converter_return(nodes, values, params):
+    c2 = next(r for r, v in values.items() if v == U63_FILTER_VALUES["C2"])
+    corrupted = dict(nodes)
+    pin = next(n for n in nodes["ISO_5V_RTN"] if n[0] == c2)
+    corrupted["ISO_5V_RTN"] = [n for n in nodes["ISO_5V_RTN"] if n != pin]
+    corrupted["INTAN_GND"] = list(nodes["INTAN_GND"]) + [pin]
+    with pytest.raises(AssertionError, match=r"-Vin to -Vout"):
+        _check_u63_input_filter(corrupted, values, params)
+
+
+J19_VALUE_MARKER = "ACCES I/O USB-AO16-8A mating DB37"
+
+
+def _check_db37_shell_has_one_selectable_bond(nodes, values) -> None:
+    conn = [r for r, v in values.items() if v.startswith(J19_VALUE_MARKER)]
+    assert len(conn) == 1, f"expected exactly one ACCESIO DB37, found {conn}"
+    j = conn[0]
+    shell = _net_of_pin(nodes, j, "SH")
+    assert shell == {"ACCESIO_SHELL"}, (
+        f"{j}'s shell is on {sorted(shell) or 'no net at all'} -- ruling R2 gives it its "
+        f"own net, with one selectable resistor position to AGND"
+    )
+    others = {r for r, _p, _pf, _t in nodes["ACCESIO_SHELL"]} - {j}
+    assert len(others) == 1, f"ACCESIO_SHELL should carry {j} and one resistor, found {sorted(others)}"
+    (r,) = others
+    assert r.startswith("R") and _nets_of_ref(nodes, r) == {"ACCESIO_SHELL", "AGND"}, (
+        f"{r} should be the one position between the shell and AGND"
+    )
+    assert values[r] == "0R/10R", (
+        f"{r} should carry the ruling's two populate options as its value, found {values[r]!r}"
+    )
+
+
+def test_db37_shell_has_one_selectable_bond(nodes, values):
+    _check_db37_shell_has_one_selectable_bond(nodes, values)
+
+
+def test_db37_shell_fires_when_the_shell_floats(nodes, values):
+    """The as-built board verbatim: the shell pad with no net."""
+    corrupted = dict(nodes)
+    corrupted["ACCESIO_SHELL"] = [n for n in nodes["ACCESIO_SHELL"] if n[1] != "SH"]
+    with pytest.raises(AssertionError, match=r"no net at all"):
+        _check_db37_shell_has_one_selectable_bond(corrupted, values)
+
+
+def _check_ldo_powerpads_on_their_own_ground(nodes, values) -> None:
+    ldos = sorted(r for r, v in values.items() if v in ("TPS7A4901", "TPS7A3001"))
+    assert len(ldos) == 2, f"expected the TPS7A4901/TPS7A3001 pair, found {ldos}"
+    for u in ldos:
+        pad, gnd = _net_of_pin(nodes, u, "9"), _net_of_pin(nodes, u, "4")
+        assert pad == {"INTAN_GND"}, (
+            f"{u} ({values[u]}) PowerPAD is on {sorted(pad) or 'no net at all'} -- ruling "
+            f"R3 ties it to INTAN_GND; the datasheet permits only open or ground"
+        )
+        assert pad == gnd, f"{u} PowerPAD on {sorted(pad)} but its GND pin on {sorted(gnd)}"
+
+
+def test_ldo_powerpads_on_their_own_ground(nodes, values):
+    _check_ldo_powerpads_on_their_own_ground(nodes, values)
+
+
+def test_ldo_powerpads_fires_when_a_pad_has_no_net(nodes, values):
+    """The as-built board verbatim: pad 9 with no net."""
+    corrupted = dict(nodes)
+    corrupted["INTAN_GND"] = [n for n in nodes["INTAN_GND"] if not (n[0] == "U4" and n[1] == "9")]
+    with pytest.raises(AssertionError, match=r"U4 .*no net at all"):
+        _check_ldo_powerpads_on_their_own_ground(corrupted, values)

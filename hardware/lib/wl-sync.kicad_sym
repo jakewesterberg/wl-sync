@@ -1513,6 +1513,16 @@
 					(effects (font (size 1.27 1.27)))
 				)
 			)
+			(pin passive line
+				(at 29.209999999999997 -22.86 180)
+				(length 3.81)
+				(name "SHELL"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "SH"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
 		)
 		(embedded_fonts no)
 	)
@@ -2016,7 +2026,7 @@
 		(in_pos_files yes)
 		(duplicate_pin_numbers_are_jumpers no)
 		(property "Reference" "U"
-			(at -25.4 7.62 0)
+			(at -25.4 8.89 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -2026,7 +2036,7 @@
 			)
 		)
 		(property "Value" "TPS7A4901"
-			(at -25.4 -7.62 0)
+			(at -25.4 -8.89 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -2081,8 +2091,8 @@
 		)
 		(symbol "TPS7A4901_0_1"
 			(rectangle
-				(start -25.4 5.08)
-				(end 25.4 -5.08)
+				(start -25.4 6.35)
+				(end 25.4 -6.35)
 				(stroke
 					(width 0.254)
 					(type default)
@@ -2094,7 +2104,7 @@
 		)
 		(symbol "TPS7A4901_1_1"
 			(pin power_out line
-				(at -29.209999999999997 3.81 0)
+				(at -29.209999999999997 5.08 0)
 				(length 3.81)
 				(name "OUT"
 					(effects (font (size 1.27 1.27)))
@@ -2104,7 +2114,7 @@
 				)
 			)
 			(pin input line
-				(at -29.209999999999997 1.27 0)
+				(at -29.209999999999997 2.54 0)
 				(length 3.81)
 				(name "FB"
 					(effects (font (size 1.27 1.27)))
@@ -2114,7 +2124,7 @@
 				)
 			)
 			(pin no_connect line
-				(at -29.209999999999997 -1.27 0)
+				(at -29.209999999999997 0.0 0)
 				(length 3.81)
 				(name "NC"
 					(effects (font (size 1.27 1.27)))
@@ -2124,7 +2134,7 @@
 				)
 			)
 			(pin power_in line
-				(at -29.209999999999997 -3.81 0)
+				(at -29.209999999999997 -2.54 0)
 				(length 3.81)
 				(name "GND"
 					(effects (font (size 1.27 1.27)))
@@ -2133,8 +2143,18 @@
 					(effects (font (size 1.27 1.27)))
 				)
 			)
+			(pin passive line
+				(at -29.209999999999997 -5.08 0)
+				(length 3.81)
+				(name "PowerPAD"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "9"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
 			(pin power_in line
-				(at 29.209999999999997 3.81 180)
+				(at 29.209999999999997 5.08 180)
 				(length 3.81)
 				(name "IN"
 					(effects (font (size 1.27 1.27)))
@@ -2144,7 +2164,7 @@
 				)
 			)
 			(pin no_connect line
-				(at 29.209999999999997 1.27 180)
+				(at 29.209999999999997 2.54 180)
 				(length 3.81)
 				(name "DNC"
 					(effects (font (size 1.27 1.27)))
@@ -2154,7 +2174,7 @@
 				)
 			)
 			(pin passive line
-				(at 29.209999999999997 -1.27 180)
+				(at 29.209999999999997 0.0 180)
 				(length 3.81)
 				(name "NR/SS"
 					(effects (font (size 1.27 1.27)))
@@ -2164,7 +2184,7 @@
 				)
 			)
 			(pin input line
-				(at 29.209999999999997 -3.81 180)
+				(at 29.209999999999997 -2.54 180)
 				(length 3.81)
 				(name "EN"
 					(effects (font (size 1.27 1.27)))
@@ -2186,7 +2206,7 @@
 		(in_pos_files yes)
 		(duplicate_pin_numbers_are_jumpers no)
 		(property "Reference" "U"
-			(at -25.4 7.62 0)
+			(at -25.4 8.89 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -2196,7 +2216,7 @@
 			)
 		)
 		(property "Value" "TPS7A3001"
-			(at -25.4 -7.62 0)
+			(at -25.4 -8.89 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -2251,8 +2271,8 @@
 		)
 		(symbol "TPS7A3001_0_1"
 			(rectangle
-				(start -25.4 5.08)
-				(end 25.4 -5.08)
+				(start -25.4 6.35)
+				(end 25.4 -6.35)
 				(stroke
 					(width 0.254)
 					(type default)
@@ -2264,7 +2284,7 @@
 		)
 		(symbol "TPS7A3001_1_1"
 			(pin power_out line
-				(at -29.209999999999997 3.81 0)
+				(at -29.209999999999997 5.08 0)
 				(length 3.81)
 				(name "OUT"
 					(effects (font (size 1.27 1.27)))
@@ -2274,7 +2294,7 @@
 				)
 			)
 			(pin input line
-				(at -29.209999999999997 1.27 0)
+				(at -29.209999999999997 2.54 0)
 				(length 3.81)
 				(name "FB"
 					(effects (font (size 1.27 1.27)))
@@ -2284,7 +2304,7 @@
 				)
 			)
 			(pin no_connect line
-				(at -29.209999999999997 -1.27 0)
+				(at -29.209999999999997 0.0 0)
 				(length 3.81)
 				(name "NC"
 					(effects (font (size 1.27 1.27)))
@@ -2294,7 +2314,7 @@
 				)
 			)
 			(pin power_in line
-				(at -29.209999999999997 -3.81 0)
+				(at -29.209999999999997 -2.54 0)
 				(length 3.81)
 				(name "GND"
 					(effects (font (size 1.27 1.27)))
@@ -2303,8 +2323,18 @@
 					(effects (font (size 1.27 1.27)))
 				)
 			)
+			(pin passive line
+				(at -29.209999999999997 -5.08 0)
+				(length 3.81)
+				(name "PowerPAD"
+					(effects (font (size 1.27 1.27)))
+				)
+				(number "9"
+					(effects (font (size 1.27 1.27)))
+				)
+			)
 			(pin power_in line
-				(at 29.209999999999997 3.81 180)
+				(at 29.209999999999997 5.08 180)
 				(length 3.81)
 				(name "IN"
 					(effects (font (size 1.27 1.27)))
@@ -2314,7 +2344,7 @@
 				)
 			)
 			(pin no_connect line
-				(at 29.209999999999997 1.27 180)
+				(at 29.209999999999997 2.54 180)
 				(length 3.81)
 				(name "DNC"
 					(effects (font (size 1.27 1.27)))
@@ -2324,7 +2354,7 @@
 				)
 			)
 			(pin passive line
-				(at 29.209999999999997 -1.27 180)
+				(at 29.209999999999997 0.0 180)
 				(length 3.81)
 				(name "NR/SS"
 					(effects (font (size 1.27 1.27)))
@@ -2334,7 +2364,7 @@
 				)
 			)
 			(pin input line
-				(at 29.209999999999997 -3.81 180)
+				(at 29.209999999999997 -2.54 180)
 				(length 3.81)
 				(name "EN"
 					(effects (font (size 1.27 1.27)))

@@ -260,7 +260,7 @@ RAIL_BYPASS_EXPECTED = {
                                    # moved from this pair to +12V/AGND (33/33 -> 34/32).
                                    # See gen_breakout_comparators.py's own "THE SECOND
                                    # DESTROY-HARDWARE CONSTRAINT".
-    ("+5V", "DGND"): 18,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
+    ("+5V", "DGND"): 19,          # C5, C6 -- entry bulk+small (power.kicad_sch); + 6 from
                                    # taskpc-digital.kicad_sch's own +5V-powered ICs (Task 8);
                                    # + 1 from pi-interface.kicad_sch's own trigger buffer
                                    # (Task 9); + 1 from opto-intan.kicad_sch's own
@@ -288,7 +288,13 @@ RAIL_BYPASS_EXPECTED = {
                                    # not stylistic. 15 -> 17; + 1 (C157) from finding
                                    # F4's own second trigger buffer (U74,
                                    # pi-interface.kicad_sch), one decoupler per IC
-                                   # as always. 17 -> 18.
+                                   # as always. 17 -> 18; + 1 (C161) from layout task
+                                   # L1 (2026-11-20): the 4.7 uF "C1" of Traco's own
+                                   # EN 55032 class A input filter for the TMR 1-05xx,
+                                   # across the incoming +5V/DGND on the source side of
+                                   # L1 (opto-intan.kicad_sch). 18 -> 19. That filter's
+                                   # C2 (C162) is DGND<->ISO_5V_RTN, not across this
+                                   # pair, and is correctly not counted here.
     ("+12V", "DGND"): 1,          # C9 -- U2/IH1215D primary-side bypass (was 2 before fix
                                    # round 1: U1's own CIN, now gone with U1, was the other)
     ("+3V3", "DGND"): 10,         # C7, C8 -- U1/LD1117S33TR output decouple+bulk
@@ -326,6 +332,49 @@ def _refs_on(nets: dict[str, list[Node]], net: str) -> set[str]:
 
 def _pins_on(nets: dict[str, list[Node]], net: str) -> set[tuple[str, str]]:
     return {(n.ref, n.pin) for n in nets.get(net, [])}
+
+
+# RULING R3 (hardware/breakout/parametric-audit.md, "R3 -- LDO thermal pads carry no
+# net"), built 2026-11-20. Stated here from the ruling and the two datasheets, not
+# imported from the generator: TI SBVS121E p.4 / SBVS125D p.4 "Pin Functions" allow the
+# PowerPAD exactly two states, "left open or tied to ground". The ruling picks the second.
+LDO_POWERPAD_PIN = "9"   # the exposed pad of Package_SO:HVSSOP-8-1EP_3x3mm_P0.65mm_EP1.57x1.89mm
+LDO_GND_PIN = "4"
+LDO_POWERPAD_PARTS = {"U3": "TPS7A4901", "U4": "TPS7A3001"}
+
+
+def _check_ldo_powerpads(nets: dict[str, list[Node]], values: dict[str, str]) -> str:
+    """Each isolated-supply LDO's PowerPAD (pin 9) is on INTAN_GND -- the same net as that
+    regulator's own GND pin -- and on nothing else.
+
+    Three ways this goes wrong, all checked: the pad has no net at all (the as-built state
+    the ruling closed -- an unnetted pad under a 0.65 mm-pitch part, free to touch whatever
+    plane passes beneath it); the pad lands on a net other than the regulator's own ground
+    (the datasheets permit ground and only ground); or the pad and pin 4 land on different
+    grounds, which would make the part's own body a second, uncontrolled tie between them.
+    """
+    for ref, value in LDO_POWERPAD_PARTS.items():
+        check(values.get(ref) == value, f"{ref}: expected Value {value!r}, found {values.get(ref)!r}")
+        pad_nets = sorted(name for name, nl in nets.items()
+                          if any(n.ref == ref and n.pin == LDO_POWERPAD_PIN for n in nl))
+        gnd_nets = sorted(name for name, nl in nets.items()
+                          if any(n.ref == ref and n.pin == LDO_GND_PIN for n in nl))
+        check(
+            pad_nets == ["INTAN_GND"],
+            f"{ref} ({value}) PowerPAD (pin {LDO_POWERPAD_PIN}) expected on INTAN_GND and "
+            f"nothing else, found {pad_nets or 'no net at all'} -- ruling R3 ties it to "
+            f"INTAN_GND; both datasheets permit only 'left open or tied to ground'",
+        )
+        check(
+            gnd_nets == pad_nets,
+            f"{ref} ({value}) PowerPAD is on {pad_nets} but its GND pin "
+            f"(pin {LDO_GND_PIN}) is on {gnd_nets} -- the pad must share the regulator's "
+            f"own ground, or the package itself bridges two grounds",
+        )
+    return (
+        f"LDO PowerPADs (ruling R3): {', '.join(LDO_POWERPAD_PARTS)} pin "
+        f"{LDO_POWERPAD_PIN} each on INTAN_GND, the same net as its own GND pin."
+    )
 
 
 def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
@@ -415,6 +464,8 @@ def verify(nets: dict[str, list[Node]], values: dict[str, str]) -> list[str]:
         nodes = [n for n in nets[net] if n.ref == "U2" and n.pin == pin]
         check(len(nodes) == 1, f"U2 pin {pin} expected on {net!r}, not found there: {nets[net]}")
     summary.append("U2 (isolated DC-DC) pin map confirmed: primary +12V/DGND, secondary raw ISO nodes.")
+
+    summary.append(_check_ldo_powerpads(nets, values))
 
     # --- Reverse-polarity diode orientation, D1 (+12V), D2 (-12V), and D3 (+5V, fix
     # round 1) -- worked through explicitly in gen_breakout_power.py's own
@@ -1081,6 +1132,22 @@ def self_test(good_nets: dict[str, list[Node]], good_values: dict[str, str]) -> 
     swapped_part["U4"] = "TPS7A4901"
     msg = _assert_fails(good_nets, swapped_part, "U4: expected Value", "U4 part mix-up")
     results.append(f"U4 part mix-up (TPS7A3001 -> TPS7A4901, a copy-paste-shaped bug): caught -- {msg}")
+
+    # Ruling R3, control 1: the as-built defect verbatim -- U4's PowerPAD carries no net.
+    no_pad = copy.deepcopy(good_nets)
+    no_pad["INTAN_GND"] = [n for n in no_pad["INTAN_GND"] if not (n.ref == "U4" and n.pin == LDO_POWERPAD_PIN)]
+    msg = _assert_fails(no_pad, good_values, "no net at all", "U4 PowerPAD left without a net")
+    results.append(f"U4 PowerPAD unnetted (ruling R3's original defect): caught -- {msg}")
+
+    # Ruling R3, control 2: the pad landed on the regulator's INPUT rail instead of its
+    # ground -- on the negative regulator that is -15 V on a pad the datasheet allows only
+    # open or grounded.
+    wrong_pad = copy.deepcopy(good_nets)
+    pad_node = next(n for n in good_nets["INTAN_GND"] if n.ref == "U4" and n.pin == LDO_POWERPAD_PIN)
+    wrong_pad["INTAN_GND"] = [n for n in wrong_pad["INTAN_GND"] if n != pad_node]
+    wrong_pad["ISO_N15_FILT"] = wrong_pad["ISO_N15_FILT"] + [pad_node]
+    msg = _assert_fails(wrong_pad, good_values, "expected on INTAN_GND and nothing else", "U4 PowerPAD moved onto ISO_N15_FILT")
+    results.append(f"U4 PowerPAD on the wrong net (ISO_N15_FILT): caught -- {msg}")
 
     # Bypass-cap negative control: drop one capacitor's two nodes from a rail pair
     # (simulating an accidental deletion in a future edit).

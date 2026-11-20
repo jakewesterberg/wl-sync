@@ -699,9 +699,15 @@ powerpad_handling = "leave open or tie to GND; solder to plane to enhance therma
 feeds = ["R3"]
 note = """TI designs these as a complementary pair with an IDENTICAL DGN pinout -- an
 audit suspicion that they had been copy-pasted in error was WRONG. Both verified against
-their own datasheets. The PowerPAD is pad 9 in the KiCad footprint and carries no net in
+their own datasheets. The PowerPAD is pad 9 in the KiCad footprint and carried no net in
 the as-built design; permitted, but tying it to INTAN_GND is preferred and removes a
-layout ambiguity under a 0.65 mm-pitch part."""
+layout ambiguity under a 0.65 mm-pitch part.
+
+BUILT 2026-11-20 (ruling R3, layout task L1): both symbols now have pin 9 "PowerPAD" and
+both are on INTAN_GND, the net each regulator's own GND pin (4) is on. Re-read against
+"Pin Functions" in both datasheets the same day (SBVS121E p.4, SBVS125D p.4): "Must
+either be left open or tied to ground. Solder to the printed-circuit-board (PCB) plane to
+enhance thermal performance." """
 
 [tma_0505s]
 part = "TMA-0505S"
@@ -766,6 +772,39 @@ derating_pct_per_k_above_85c = 5.0
 package = "SIP-6, through-hole"
 mtbf_h = 2800000.0
 pinout = "1 = -Vin (GND), 2 = +Vin (Vcc), 4 = +Vout, 5 = no pin, 6 = -Vout"
+
+# --- EN 55032 class A external input filter (layout task L1, 2026-11-20) ---------------
+# The datasheet itself gives no values. Its "EMC Specifications" (p.3) read "Conducted
+# Emissions: EN 55032 class A (with external filter) / FCC 47 Part 15 class A (with
+# external filter) / External filter proposal: www.tracopower.com/tmr1-emc-filter/". That
+# address redirects to the TMR 1 series page (tracopower.com/series/tmr-1?acat=
+# emc-consideration), whose "Application Notes" hold the document below -- the only one
+# of them about EMC; the other is characteristic curves. Every emc_filter_* value is its table
+# "Suggested components to comply with EN 55032 Conducted Emissions Class A limits", row
+# "TMR 1-05xx"; the topology is its figure "Suggested filter to comply with EN 55032
+# Conducted Emissions Class A limits -- Single output models". Both are on p.1 of 1.
+emc_filter_document = "Traco TMR 1(SM) Series -- EMI Consideration (application note)"
+emc_filter_revised = "2021-12-15"
+emc_filter_retrieved = "2026-11-20"
+emc_filter_url = "https://www.tracopower.com/sites/default/files/products/application_notes/tmr1_tmr1sm_emc_consideration.pdf"
+emc_filter_sha256 = "3fe8671f0052b555a298ae30b2b22fcb5095d514788bc536a8f53325ee56b0bb"
+emc_filter_claim = "EN 55032 Conducted Emissions Class A"
+emc_filter_table_row = "TMR 1-05xx"
+emc_filter_topology = "C1 across the input (+ to -) on the SOURCE side of L1; L1 in series, + to +Vin; nothing between L1 and +Vin; C2 from -Vin to -Vout, across the isolation barrier"
+emc_filter_c1 = "4.7 uF / 50 V, 1210 X7R"
+emc_filter_c1_uf = 4.7
+emc_filter_c1_v = 50.0
+emc_filter_c2 = "220 pF / 2 kV, 1808 X7R"
+emc_filter_c2_pf = 220.0
+emc_filter_c2_v = 2000.0
+emc_filter_l1 = "4.7 uH / 1.2 A, SR0302"
+emc_filter_l1_uh = 4.7
+emc_filter_l1_a = 1.2
+# What is fitted for each -- see hardware/breakout/breakout-bom-order.csv for sourcing.
+emc_filter_c1_fitted = "C161 -- TDK C3225X7R1H475K250AB (4.7 uF +/-10 %, 50 V, X7R, 1210)"
+emc_filter_c2_fitted = "C162 -- KEMET C1808C221KGRACTU (220 pF +/-10 %, 2 kV, X7R, 1808)"
+emc_filter_l1_fitted = "L1 -- Bourns SDR0302-4R7ML (4.7 uH +/-20 %, Irms 1.2 A, Isat 1.35 A, RDC 0.15 ohm max, 3.0 x 2.8 x 2.5 mm)"
+emc_filter_l1_fitted_source = "Bourns SDR0302 Series datasheet, 'Electrical Specifications' row SDR0302-4R7ML and 'Product Dimensions' / 'Recommended Layout', p.1 (https://www.bourns.com/docs/Product-Datasheets/SDR0302.pdf, retrieved 2026-11-20)"
 feeds = ["F5"]
 note = """F5's actual fix: replaces the LD1117S50 as the source of ISO_5V, moving that
 whole 63-91 mA digital branch OFF ISO_P12 (which it was overloading to 114-162% of the
@@ -791,7 +830,32 @@ with those INA105s, coupled across 50 pF of barrier capacitance, and that it is 
 switching frequency varies with load, so the spectrum spreads rather than sitting at a
 filterable tone. Reflected ripple is 80 mAp-p back into +5V, and EN 55032 class A is
 claimed only WITH AN EXTERNAL FILTER. Treat input filtering and the INTAN_GND return
-path as layout-stage requirements, not optional."""
+path as layout-stage requirements, not optional.
+
+THE EXTERNAL FILTER IS DRAWN AS OF 2026-11-20 (layout task L1): C161, L1, C162 on
+opto-intan.kicad_sch, to the emc_filter_* values above. Three things about it that a
+reader of the values alone would not know:
+
+  1. "SR0302" is a PACKAGE, not a part number Traco give in full. It is the 3.0 x 2.8 x
+     2.5 mm unshielded drum outline. The Bourns SDR0302-4R7ML fitted is that outline at
+     exactly the tabled 4.7 uH / 1.2 A (its Irms; its Isat is 1.35 A). It is an
+     equivalent chosen here, not a part Traco name.
+
+  2. C2 BRIDGES THE ISOLATION BARRIER, -Vin to -Vout: DGND to ISO_5V_RTN, which NT4 ties
+     to INTAN_GND. That is how Traco draw it and why they rate it 2 kV against the
+     converter's 1500 VDC. It adds 220 pF to the converter's own 50 pF max between DGND
+     and the Intan reference -- a 5.4x increase in that one path's coupling. Drawn as
+     published because the class A claim is for the published network; whether the Intan
+     domain tolerates it is a bench question, and depopulating C162 is the lever.
+
+  3. The pre-existing input capacitors C155 (10 uF) and C156 (100 nF) are still netted
+     +5V/DGND, so they now sit on the SOURCE side of L1, in parallel with C1. Traco's
+     figure has no capacitor between L1 and +Vin and none was added.
+
+The datasheet at `url` was re-fetched on 2026-11-20 and is now "Rev. October 8, 2026",
+not the 2019-10-07 revision this section was pinned from. Every value above the
+emc_filter_* block, and the Pinout table (p.4), was compared against the new revision and
+is unchanged; `revised` and `retrieved` are left as the record of what was first read."""
 
 [bat54s]
 part = "BAT54S"

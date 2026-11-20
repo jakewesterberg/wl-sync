@@ -365,6 +365,16 @@ Task 13 produced three files together, and they are not interchangeable:
   `power.kicad_sch` after the Task 13 lock, and the distributor checks for the new parts —
   both CSVs have since been regenerated against that same delta, so all three files agree.
 
+**Four rows added 2026-11-20 (layout task L1), in place, to both CSVs:** `C161`, `C162` and
+`L1` — `U63`'s EN 55032 input filter — and `R224`, audit ruling R2's DNP shell position on
+`J19`. Unlike this board's other passives, the three filter parts are **locked MPNs with
+their sourcing columns filled in the raw BOM too**, because their ratings are the design: a
+2 kV capacitor across an isolation barrier reads as an ordinary 220 pF once its part number
+is blank. `tests/hardware/test_bom_matches_netlist.py` pins all four rows
+(`ONE_OFF_SOURCING`), so the re-export hazard described above now covers them as well.
+`hardware/procurement-check.md`'s own 2026-11-20 addendum has the quantities and the
+distributor evidence.
+
 ## Toolchain
 
 - **KiCad 10.0.5 or later.** `kicad-cli version` prints the installed version.
@@ -400,7 +410,12 @@ Task 13 produced three files together, and they are not interchangeable:
   connector, and (Task 7) TPS7A4901/TPS7A3001 all reuse stock footprints — a bare 2×20 2.54mm
   THT header, KiCad's own `Connector_Dsub` DB37, and a generic `Package_SO` HVSSOP-8-1EP
   PowerPAD, respectively — rather than needing new ones, so only four `.kicad_mod` files
-  exist: MDR68, mini-XLR ×2, dual BNC. **`M12A_5` — symbol and footprint both — was deleted
+  exist: MDR68, mini-XLR ×2, dual BNC. **Two of those reused footprints have pads the
+  symbols did not name until 2026-11-20** (layout task L1, audit rulings R2 and R3): the
+  DB37's two shell pads, both called `SH`, and the HVSSOP's exposed pad `9`. The DB37
+  symbol now has a pin `SH` and both LDO symbols a pin `9` (`PowerPAD`), each numbered
+  from the stock `.kicad_mod` rather than assumed; see `hardware/breakout/parametric-audit.md`,
+  R2 and R3. **`M12A_5` — symbol and footprint both — was deleted
   2026-08-16 under ruling R1**: the Phoenix 1551833 the design procures terminates in AWG
   22-20 wire and mounts through the panel, so it has no PCB tails and the board carries a
   plain 5-way header instead. `hardware/breakout/sym-lib-table` and
@@ -957,7 +972,23 @@ reasoning. Its secondary return is a separate net, `ISO_5V_RTN`, joined to `INTA
 single net tie (`NT4`), the same idiom `FAN_RTN` uses. ERC forced that (two `power_output`
 pins on one net is a real `pin_to_pin` error) and it is the better answer regardless: the
 switching return reaches the Intan reference at one controlled point rather than across a
-plane shared with eight `INA105` difference amplifiers. `RHS_STIM_OUT`'s own inbound path gets the same series-resistor-plus-clamp input
+plane shared with eight `INA105` difference amplifiers.
+
+**Its input filter is drawn as of 2026-11-20** (layout task L1). Traco claim EN 55032 class A
+for this part only with an external filter, and publish the network: *TMR 1(SM) Series — EMI
+Consideration*, rev. 2021-12-15, p.1, the "External filter proposal" the datasheet links
+from its EMC Specifications (p.3). For the TMR 1-05xx it is `C161` (4.7 µF / 50 V, 1210 X7R)
+across `+5V`/`DGND` on the source side, `L1` (4.7 µH / 1.2 A) in series into a new net
+`U63_VIN`, and `C162` (220 pF / 2 kV, 1808 X7R) from −Vin to −Vout. Three consequences:
+`U63` pin 2 is no longer on `+5V`, so `U63_VIN` carries its own `PWR_FLAG` (`#PWR12`), for the
+reason `ISO_P15_FILT` does; **`C162` crosses the isolation barrier by design**, `DGND` to
+`ISO_5V_RTN`, and is the fourth declared straddler in
+`check_breakout_opto_intan_netlist.py` beside the two optocoupler packages and `U63` itself;
+and the older input capacitors `C155`/`C156` now sit upstream of `L1`, in parallel with
+`C161`, because Traco's figure draws nothing between `L1` and +Vin. Values, source and part
+choices are in `hardware/datasheet-params.toml`, `[tmr_1_0511]`, `emc_filter_*`.
+
+`RHS_STIM_OUT`'s own inbound path gets the same series-resistor-plus-clamp input
 protection every other panel input on this board carries, since it is a signal entering
 from off-board Intan equipment via its own BNC — its assumed logic sense (active-HIGH,
 TTL/CMOS-compatible) is flagged on-sheet as an assumption needing bench confirmation
