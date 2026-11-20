@@ -540,12 +540,14 @@ claim EN 55032 class A **only with an external filter**.
 > | L1 | 4.7 µH / 1.2 A, SR0302 | `L1` | `+5V` – `U63_VIN` (U63's +Vin), in series |
 > | C2 | 220 pF / 2 kV, 1808 X7R | `C162` | `DGND` – `ISO_5V_RTN` (−Vin to −Vout) |
 >
-> **C2 crosses the isolation barrier**, as Traco draw it, and adds 220 pF to the converter's
-> own 50 pF between `DGND` and the Intan reference. It is drawn as published because the
-> class A claim belongs to the published network; depopulating `C162` is the bench lever if
-> the Intan domain objects. The 50 pF, the PFM spectrum and the placement of all three parts
-> at the converter's pins remain layout's. Source and part choices:
-> `hardware/datasheet-params.toml` `[tmr_1_0511]`, `emc_filter_*`.
+> **C2 crosses the isolation barrier**, as Traco draw it. It takes the coupling between
+> `DGND` and the Intan reference from about 110 pF to about 330 pF: the two isolated
+> converters already contribute 60 pF (`U2`, IH1215D) and 50 pF (`U63`), and `C162` adds
+> 220 pF. **Ruled 2026-11-20 (`hardware/breakout/parametric-audit.md`, R4): fitted as Traco
+> publish, and decided at bring-up** by measuring Intan-input noise with `C162` fitted and
+> removed and keeping the quieter. The converter's own 50 pF, the PFM spectrum and the
+> placement of all three parts at the converter's pins remain layout's. Source and part
+> choices: `hardware/datasheet-params.toml` `[tmr_1_0511]`, `emc_filter_*`.
 
 | Rail | Source |
 |---|---|
@@ -946,6 +948,18 @@ parts library.
 > difficulty and is recorded here so it can be planned for — flux, a fine tip and magnification —
 > rather than met by surprise at the bench. Every other part on the board remains within the
 > stated constraint.
+
+> **A second documented exception, added 2026-11-20 (layout task L1).** `L1`, the 4.7 µH
+> inductor of `U63`'s input filter (Bourns `SDR0302-4R7ML`), meets the letter of the
+> constraint — it is larger than 0603 and is neither BGA nor QFN — but not its intent: it is
+> **bottom-terminated**. Its terminals are on the underside of a 3.0 × 2.8 mm drum, and
+> Bourns' recommended pads (two 3.0 × 1.4 mm, 0.8 mm apart; SDR0302 datasheet p.1) span
+> 3.6 mm against a 2.8 ± 0.3 mm body, leaving a toe of about 0.3–0.4 mm a side and less at
+> the top of the body tolerance. It cannot be tacked from one end like a chip part: plan for
+> hot air or a fine tip, flux, and solder on the pads first. The package is not chosen here;
+> it is the "SR0302" Traco's own EN 55032 filter table names, kept so the published network
+> is the one built. **Layout may lengthen each pad's outer toe by about 0.5 mm** — the
+> terminals sit under the body, so that eases soldering without changing the electrical land.
 
 ### 10.2 Lead time
 

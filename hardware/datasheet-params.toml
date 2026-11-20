@@ -802,6 +802,7 @@ emc_filter_l1_uh = 4.7
 emc_filter_l1_a = 1.2
 # What is fitted for each -- see hardware/breakout/breakout-bom-order.csv for sourcing.
 emc_filter_c1_fitted = "C161 -- TDK C3225X7R1H475K250AB (4.7 uF +/-10 %, 50 V, X7R, 1210)"
+emc_filter_c1_second_source = "KEMET C1210C475K5RACTU (4.7 uF +/-10 %, 50 V, X7R, 1210) -- the TDK part's lifecycle status is contested between sources; confirm at order"
 emc_filter_c2_fitted = "C162 -- KEMET C1808C221KGRACTU (220 pF +/-10 %, 2 kV, X7R, 1808)"
 emc_filter_l1_fitted = "L1 -- Bourns SDR0302-4R7ML (4.7 uH +/-20 %, Irms 1.2 A, Isat 1.35 A, RDC 0.15 ohm max, 3.0 x 2.8 x 2.5 mm)"
 emc_filter_l1_fitted_source = "Bourns SDR0302 Series datasheet, 'Electrical Specifications' row SDR0302-4R7ML and 'Product Dimensions' / 'Recommended Layout', p.1 (https://www.bourns.com/docs/Product-Datasheets/SDR0302.pdf, retrieved 2026-11-20)"
@@ -843,10 +844,15 @@ reader of the values alone would not know:
 
   2. C2 BRIDGES THE ISOLATION BARRIER, -Vin to -Vout: DGND to ISO_5V_RTN, which NT4 ties
      to INTAN_GND. That is how Traco draw it and why they rate it 2 kV against the
-     converter's 1500 VDC. It adds 220 pF to the converter's own 50 pF max between DGND
-     and the Intan reference -- a 5.4x increase in that one path's coupling. Drawn as
-     published because the class A claim is for the published network; whether the Intan
-     domain tolerates it is a bench question, and depopulating C162 is the lever.
+     converter's 1500 VDC. It takes the coupling between DGND and the Intan reference
+     from about 110 pF to about 330 pF, roughly 3x: this converter's 50 pF max
+     (isolation_capacitance_pf above) and the IH1215D's 60 pF max ([ih_series],
+     isolation_capacitance_pf -- U2, primary on +12V/DGND, secondary on INTAN_GND) are
+     already there, and C2 adds 220 pF. An earlier version of this note compared the
+     220 pF with this converter's 50 pF alone, which understated the starting point.
+     RULED 2026-11-20 (hardware/breakout/parametric-audit.md, R4): FITTED as published,
+     and decided at bring-up -- measure Intan-input noise with C162 fitted and removed,
+     keep the quieter.
 
   3. The pre-existing input capacitors C155 (10 uF) and C156 (100 nF) are still netted
      +5V/DGND, so they now sit on the SOURCE side of L1, in parallel with C1. Traco's

@@ -17,3 +17,11 @@ Per spec §9.6, to distinguish the reward remote from fourteen identical Intan B
 ## Configure NTP
 
 `timedatectl show -p NTPSynchronized` must report `yes`. The RTC covers power-off; NTP is what stops it drifting.
+
+## Measure Intan-input noise with `C162` fitted and removed
+
+Ruling R4 (`hardware/breakout/parametric-audit.md`, 2026-11-20). `C162` (220 pF / 2 kV, beside `U63` on the opto-Intan sheet) is fitted on every board as built. It is part of Traco's published EN 55032 class A filter, and it bridges the Intan isolation barrier: with it the `DGND`-to-Intan-reference coupling is about 330 pF, without it about 110 pF.
+
+On board 1, with the Intan system connected and the board running normally, record the noise at an Intan analog input twice: once with `C162` fitted, once with it removed. Keep whichever is quieter, and build the remaining boards the same way. Write the two measurements and the choice next to ruling R4, and if the choice is "removed", mark `C162` DNP in `hardware/gen/gen_breakout_opto_intan.py` so the drawing matches the boards.
+
+Nothing in the netlist, ERC or BOM can make this decision. It is the same kind of bring-up choice as `R224` on `J19`'s shell (ruling R2), which is also left to the bench: fit 0 Ω, 10 Ω, or nothing.

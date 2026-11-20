@@ -399,12 +399,16 @@ RHS_STIM_CHANNEL = (RHS_STIM_BUF_NET, "RHS_STIM_OUT")  # inbound: source=the LOC
 # THREE THINGS THE FIGURE FIXES, AND THIS BLOCK FOLLOWS:
 #   - C1 is on the SOURCE side of L1, across the incoming +5V/DGND.
 #   - Nothing sits between L1 and +Vin. So the converter's +Vin is a NEW net, alone with
-#     L1 and the PWR_FLAG its power_in pin needs (see ISO5V_VIN_FLAG_REF).
+#     L1 and the PWR_FLAG its power_in pin needs (see ISO5V_VIN_FLAG_PRIOR_MAX).
 #   - C2 CROSSES THE ISOLATION BARRIER: -Vin to -Vout, DGND to ISO_5V_RTN. That is what
 #     Traco draw, it is the common-mode element of the filter, and it is why they rate it
-#     2 kV against the converter's own 1500 VDC isolation test voltage. It also adds
-#     220 pF to the 50 pF the converter itself already couples between DGND and the Intan
-#     reference. Drawn as specified; the trade is recorded in parametric-audit.md.
+#     2 kV against the converter's own 1500 VDC isolation test voltage. It also raises
+#     the coupling between DGND and the Intan reference from about 110 pF to about 330 pF:
+#     this converter's 50 pF max and the IH1215D's 60 pF max (U2, power.kicad_sch;
+#     datasheet-params.toml [ih_series] and [tmr_1_0511], isolation_capacitance_pf) are
+#     already there, and C2 adds 220 pF. RULED 2026-11-20, hardware/breakout/
+#     parametric-audit.md "R4": FITTED as Traco publish, and decided at bring-up by
+#     measuring Intan-input noise with C162 fitted and removed.
 #
 # Refdes minted out of band (this sheet's counters are pinned and its ranges spent, same
 # mechanism as C155/C156/C158/U75 here): C161/C162 are one and two past the whole board's
@@ -713,11 +717,15 @@ def place_iso_5v_supply(sch, refs):
 
     THAT EXTERNAL FILTER IS NOW DRAWN (layout task L1, 2026-11-20): L1, C161 and C162,
     Traco's own published network for the TMR 1-05xx. See the ISO5V_FILTER_* block at the
-    top of this file. The 50 pF and the PFM spectrum remain layout's problem.
+    top of this file. The 50 pF and the PFM spectrum remain layout's problem. Whether
+    C162 STAYS fitted is a bring-up measurement -- parametric-audit.md, ruling R4.
 
     PIN MAP VERIFIED pin-by-pin against the datasheet's own Pinout table (TMR 1 series,
     rev. 2019-10-07, p.4): 1 = -Vin (GND), 2 = +Vin (Vcc), 4 = +Vout, 5 = no pin,
     6 = -Vout. The stock KiCad symbol agrees; both were checked, neither assumed.
+    RE-CHECKED 2026-11-20 against the revision now at the same URL, rev. 2026-10-08 --
+    the one the ISO5V_FILTER_* block at the top of this file cites for the EMC claim. The
+    Pinout table (still p.4) is unchanged; see datasheet-params.toml [tmr_1_0511]'s note.
 
     REFDES: the converter reuses the LDO's own reference, so no refdes moves. Its two new
     INPUT capacitors are minted OUT OF BAND (C155/C156) -- this sheet's C counter is
@@ -810,6 +818,8 @@ def place_iso_5v_supply(sch, refs):
         "rev. 2021-12-15, row TMR 1-05xx: C1 4.7uF/50V 1210 X7R (C161), L1 4.7uH/1.2A",
         "SR0302 (L1), C2 220pF/2kV 1808 X7R (C162). C2 CROSSES THE BARRIER, -Vin to -Vout",
         "(DGND to ISO_5V_RTN), as Traco draw it. Place all three at the converter's pins.",
+        "C162: FITTED. Ruling R4 (parametric-audit.md): at bring-up, measure Intan-input",
+        "noise with C162 fitted and removed, and keep the quieter.",
     ]):
         sch.text(line, X_LDO, Y_ISO5V_FILTER + GRID(12.7) + line_idx * NOTE_DY)
 

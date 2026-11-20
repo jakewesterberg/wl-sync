@@ -181,7 +181,16 @@ X7R", "4.7 μH / 1.2 A, SR0302". Recorded with its URL and hash in
 - **`C161`, TDK `C3225X7R1H475K250AB`** — 4.7 µF ±10 %, 50 V, X7R, 1210: Traco's row
   exactly. Murata `GRM32ER71H475KA88L` is the same specification, but Octopart and a mirrored
   Murata sheet both showed it not recommended for new designs on the day, so the TDK part
-  is the one locked.
+  is the one locked. **Its own lifecycle status is contested, so confirm it at order.**
+  DigiKey and Future Electronics listed it Active on 2026-11-20; the L1 review the same day
+  reports RS Components listing it discontinued, a TDK sheet naming it the "Recommended
+  Alternate" for a sibling part, and its ±20 % sibling `…M250AB` as not for new designs
+  (which this task's own search also saw on DigiKey). TDK's own product page returned 403
+  to the reviewer, so none of this is the manufacturer's word. **Second source if it is
+  out or withdrawn: KEMET `C1210C475K5RACTU`** — 4.7 µF ±10 %, 50 V, X7R, 1210, the same
+  rating in every term of Traco's row; DigiKey product 3095476, listed Active on
+  2026-11-20 (search-result-level evidence). Not `C1210X475K5RACTU`, which is a different
+  KEMET series with its own listing. Any part meeting "4.7 µF / 50 V, 1210 X7R" serves.
 - **`C162`, KEMET `C1808C221KGRACTU`** — 220 pF ±10 %, 2000 V, X7R, 1808: Traco's row
   exactly. **The 2 kV rating is the design**, because this capacitor is across `U63`'s
   isolation barrier (−Vin to −Vout). Neighbouring part numbers differ in ways that matter:
@@ -206,11 +215,16 @@ on the same 0302 land pattern serves the same published role; the land pattern i
 
 *Hand-solder constraint (spec §10.1).* All three filter parts are larger than 0603 and none
 is leadless in the QFN sense, so the stated constraint holds. `C161` (1210) and `C162` (1808)
-are ordinary chip capacitors. **`L1` is the awkward one:** its terminals are on the underside
-of a 3.0 mm drum, and Bourns' recommended pads extend only about 0.4 mm beyond the body on
-each side (pads span 3.6 mm against a 2.8 ± 0.3 mm body). Solderable with a fine tip or hot
-air, but it is not a part to tack on from one end like a chip capacitor. It is Traco's own
-package choice, kept so the published filter is the one built.
+are ordinary chip capacitors. **`L1` is the awkward one, and is now recorded as a spec §10.1
+exception beside the `MCP4728`:** it is bottom-terminated. Its terminals are on the underside
+of a 3.0 mm drum, and Bourns' recommended pads leave a toe of only about 0.3–0.4 mm on each
+side (pads span 3.6 mm against a 2.8 ± 0.3 mm body), less at the top of the tolerance.
+Solderable with a fine tip or hot air, but it is not a part to tack on from one end like a
+chip capacitor. It is Traco's own package choice, kept so the published filter is the one
+built. Layout may lengthen each pad's outer toe by about 0.5 mm to ease it.
+
+*`C162` is fitted, and is a bring-up decision (ruling R4, 2026-11-20).* Order it for every
+board. `hardware/assembly-checklist.md` has the measurement that decides whether it stays.
 
 ## 1. How the BOM was produced, and two tooling findings worth recording
 

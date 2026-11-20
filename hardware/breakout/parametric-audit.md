@@ -834,6 +834,60 @@ about determinism rather than heat.
 > Pinned by `check_breakout_power_netlist.py` (`_check_ldo_powerpads`, two negative controls)
 > and by `tests/hardware/test_netlist.py::test_ldo_powerpads_on_their_own_ground`.
 
+### R4 — `C162` bridges the Intan isolation barrier — **RULED 2026-11-20**
+
+`C162` is C2 of the input filter Traco publish for EN 55032 class A on the TMR 1-05xx
+(*TMR 1(SM) Series — EMI Consideration*, rev. 2021-12-15, p.1: figure "Single output
+models", table row "TMR 1-05xx", "220 pF / 2 kV, 1808 X7R"). The figure draws it from −Vin
+to −Vout, which on this board is `DGND` to `ISO_5V_RTN` — and `NT4` ties `ISO_5V_RTN` to
+`INTAN_GND`. It is the one part of layout task L1 that changes an isolation property, so it
+was put to the user rather than absorbed.
+
+**Ruling: fitted, as Traco publish; decide at bring-up.** On board 1, measure Intan-input
+noise with `C162` fitted and with it removed, and keep whichever is quieter. This is the
+reasoning ruling R2 used for `R224`: one part, a bench hour, and an answer instead of a
+guess. The measurement is a build step and is recorded in `hardware/assembly-checklist.md`.
+
+**The trade.** The converter's switching node drives common-mode current through its own
+barrier capacitance into the secondary, and that current must return to the primary.
+
+- *Fitted*, it returns locally — secondary, `C162`, primary — in a loop at the converter.
+  That is how the published network earns its class A conducted-emission claim. The cost is
+  a lower HF impedance between `DGND` and the Intan reference for **every** noise source on
+  `DGND`: thirty optocoupler LEDs switching, the sync module's and task PC's returns, the
+  external supply's common mode.
+- *Removed*, the Intan domain's HF isolation is what it was, and the class A claim is gone.
+  `C161` and `L1` still filter the 80 mAp-p differential ripple into `+5V`; what goes is the
+  common-mode suppression, and `U63`'s common-mode current then closes the long way, through
+  `INTAN_GND`, the BNC shells and the recording system's cables and earth.
+
+| Coupling, `DGND` to the Intan reference | `C162` removed | `C162` fitted |
+|---|---|---|
+| Capacitance | ≈ 110 pF | ≈ 330 pF |
+| \|Z\| at 220 kHz (`U63`'s typical switching frequency) | ≈ 6.6 kΩ | ≈ 2.2 kΩ |
+| \|Z\| at 10 MHz | ≈ 145 Ω | ≈ 48 Ω |
+| \|Z\| at 60 Hz | ≈ 24 MΩ | ≈ 8 MΩ |
+
+The 110 pF is the two isolated converters' own maxima: `U2` (IH1215D, primary `+12V`/`DGND`,
+secondary on `INTAN_GND`) at 60 pF and `U63` at 50 pF (`hardware/datasheet-params.toml`,
+`[ih_series]` and `[tmr_1_0511]`, `isolation_capacitance_pf`). The two optocoupler packages
+add a few pF more and are not counted. `C162` adds 220 pF, so the domain goes to about three
+times its former coupling. The impedances are 1/(2πfC) of those totals. **The earlier notes
+from this task said "220 pF on top of the converter's own 50 pF", which is true of `U63`'s
+path alone and understates the starting point; the L1 review caught it and the figures
+above replace it.**
+
+Neither state touches a safety rating. The converter's insulation is functional, not
+safety (TMR 1 datasheet, rev. 2026-10-08, p.3: "Insulation System: Functional Insulation";
+"Over Voltage Category: Not mains connected"), and `C162` is rated 2 kV against the
+converter's 1500 VDC isolation test voltage. At mains frequency the barrier stays in the
+megohms either way; only HF isolation changes.
+
+**What the drawing does.** `C162` is populated — not DNP — in `opto-intan.kicad_sch`, in
+both BOMs at quantity 1, and stays a declared barrier-straddling part in
+`check_breakout_opto_intan_netlist.py`. Removing it at the bench needs no board change.
+If bring-up settles on "removed", mark it DNP in the generator then, with the measurement.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

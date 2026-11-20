@@ -983,7 +983,10 @@ across `+5V`/`DGND` on the source side, `L1` (4.7 µH / 1.2 A) in series into a 
 `U63` pin 2 is no longer on `+5V`, so `U63_VIN` carries its own `PWR_FLAG` (`#PWR12`), for the
 reason `ISO_P15_FILT` does; **`C162` crosses the isolation barrier by design**, `DGND` to
 `ISO_5V_RTN`, and is the fourth declared straddler in
-`check_breakout_opto_intan_netlist.py` beside the two optocoupler packages and `U63` itself;
+`check_breakout_opto_intan_netlist.py` beside the two optocoupler packages and `U63` itself
+— it takes the `DGND`-to-Intan-reference coupling from about 110 pF to about 330 pF, and
+audit ruling R4 (2026-11-20) is that it is **fitted, and decided at bring-up** by measuring
+Intan-input noise with and without it (`hardware/assembly-checklist.md`);
 and the older input capacitors `C155`/`C156` now sit upstream of `L1`, in parallel with
 `C161`, because Traco's figure draws nothing between `L1` and +Vin. Values, source and part
 choices are in `hardware/datasheet-params.toml`, `[tmr_1_0511]`, `emc_filter_*`.
