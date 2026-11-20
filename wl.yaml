@@ -49,34 +49,29 @@ status:
     (2026-11-20; 1084 tests): a desynced stamp
     stream is paired again rather than stopped, and the journal says, once an
     episode, when the fit has gone 20 frames without a lead-edge pair, so
-    that E and roll boundaries are extrapolated. Task 1.16 (the user's
-    rulings, 2026-11-20) is built on branch one-clock-p1, reviewed, and its
-    review's fixes made; not yet merged (1096 tests). It closes two gaps: a shim, PIO block or capture
-    machine that cannot start no longer crash-loops the unit, and the
-    process records split with no W records, saying so in the journal; and
-    the start-up test enables its machine through the sync enable, so a box
-    that refuses that call records split (C-7). A refusal of the production
-    enable alone, after the test's was obeyed, is still not seen. Task 1.17
-    (the user's rulings, 2026-11-20) is built on one-clock-p1, reviewed,
-    and its review's fixes made; not yet merged (1122 tests): the WARNING
-    for stamps between frames is one an episode, which ends after a minute
-    of frames without them, with a closing WARNING giving its frames and
-    stamps; the
-    edge-order guard's clamps are counted for the run's summary (M2); and an
-    hour of narrow pairs with none gated by the rate gate is one WARNING per
-    process, naming what held it, and saying that a gate opening later
-    still writes the rate file (M4).
-    Task 1.18 (the user's rulings, 2026-11-20) is done on one-clock-p1,
-    not merged: the repository's unit writes /data/rig0, the first rig
-    box's folder, as the unit installed on wl-sync-rig0 does (the next box
-    writes rig1); and CodeWord.tick_us says what a W tick counts under each
-    timebase, where it is zero, and its limits (wl_sync/log.py:276-325).
+    that E and roll boundaries are extrapolated. Tasks 1.16-1.18 (the
+    user's rulings, 2026-11-20) are built, reviewed, their reviews' fixes
+    made, and merged and pushed with main (1122 tests). Task 1.16: a shim,
+    PIO block or capture machine that cannot start no longer crash-loops the
+    unit; the process records split with no W records, saying so in the
+    journal; and the start-up test enables its machine through the sync
+    enable, so a box that refuses that call records split (C-7). A refusal
+    of the production enable alone, after the test's was obeyed, is still
+    not seen. Task 1.17: the WARNING for stamps between frames is one an
+    episode, which ends after a minute of frames without them, with a
+    closing WARNING giving its frames and stamps; the edge-order guard's
+    clamps are counted for the run's summary (M2); and an hour of narrow
+    pairs with none gated by the rate gate is one WARNING per process,
+    naming what held it, and saying that a gate opening later still writes
+    the rate file (M4). Task 1.18: the repository's unit writes /data/rig0,
+    the first rig box's folder, as the unit installed on wl-rig-sync0 does
+    (the next box writes rig1); and CodeWord.tick_us says what a W tick
+    counts under each timebase, where it is zero, and its limits
+    (wl_sync/log.py:276-325).
   next: >-
-    Task 1.16's and Task 1.17's re-reviews, then their merge to main,
-    wait. Note 7 goes to
-    wl-preproc (docs/pending-wl-preproc-amendments.md), now with its line on
-    split segments without W. I1 is pushed, not deployed; a fit lost
-    beyond the restart's reach still drops every B
+    Note 7 goes to wl-preproc (docs/pending-wl-preproc-amendments.md), now
+    with its line on split segments without W. Nothing since 2026-11-07 is
+    deployed; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
     Bench day, in the order of docs/next-session.md:112-177:
     rebuild the shim (version 3); then GPIO17 looped to GPIO20, so the box
@@ -90,7 +85,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "b53daa7"
+  describes: "689729c"
 
 runs_on: [rig/sync]
 builds_on: [dws]
