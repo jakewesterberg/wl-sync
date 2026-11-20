@@ -105,8 +105,10 @@ def pair_stamps(
     WHAT IT CANNOT TELL APART, which is pair_fifo's blind spot too:
       * A lone data word, its counter dropped, pairs with the next data word read as a
         counter: one stamp at 0xFFFFFFFF less that 16-bit word, within 65.5 ms before P's
-        wrap. The slip shows at the next counter. Unwrapped near a frame anywhere else, it
-        lies before the frame and is counted between frames. Only a frame within those
+        wrap. The slip shows at the next counter. Unwrapped near a frame anywhere else,
+        it lies before the frame and is counted between frames, or, while P lies past
+        2**31, far past the frame's end, so it is carried and the next frame counts it
+        between frames (wl_sync/clockmap.py:276-281). Only a frame within those
         65.5 ms of the wrap could take it for its lead, and only if the frame's other rises
         align on it, each within LEAD_STAMP_TOLERANCE (wl_sync/clockmap.py:329-341), and
         the 16-bit word happens to put it there: that B would be up to 1 ms off.
@@ -355,7 +357,7 @@ class StampPump:
 
         `polled_at` is the P count read just before the drain looked at the FIFO. The
         stamp drain reads every word the FIFO holds and passes it at every look
-        (wl_sync/rp1/backend.py `drain_stamps`), where WordPump's is passed only when its
+        (wl_sync/rp1/backend.py:855-886), where WordPump's is passed only when its
         drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
         is compared with is a P count. Every stamp it marks is queued, however the stream
         was paired: a data word carried to the next batch had no counter in the FIFO at

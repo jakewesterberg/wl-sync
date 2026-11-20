@@ -287,7 +287,7 @@ class BarcodeEmitted:
     `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
     (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
     stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
-    ended (wl_sync/rp1/backend.py:1281, :1375). In a split process, and before the
+    ended (wl_sync/rp1/backend.py:1281, :1377). In a split process, and before the
     build, it is the clock sampled BEFORE the frame is emitted (:1173-1176): reading it
     after emission would put this box's own alignment record 200 ms behind every device
     it is aligning.

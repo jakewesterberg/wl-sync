@@ -220,8 +220,8 @@ def test_a_lone_data_word_costs_its_stamp_and_one_stamp_just_short_of_the_wrap()
 
 def _fuzzed_streams(cases):
     """`cases` streams of 6-12 stamps a few ms to a few s apart, P well clear of its wrap,
-    each with its own data words, one word lost at random, and cut into the even batches a
-    drain reads."""
+    each with its own data words, one word lost at random, and cut into batches of any
+    size, as the stamp drain reads them."""
     import random
 
     rng = random.Random(115)
@@ -234,14 +234,12 @@ def _fuzzed_streams(cases):
         words = stream(*events)
         lost = rng.randrange(len(words))
         del words[lost]
+        # The stamp drain reads every word the FIFO holds, so a batch can end anywhere,
+        # a data word whose counter is not in it yet included.
         batches, at = [], 0
-        while len(words) - at >= 2:
-            size = 2 * rng.randrange(1, 5)
-            batches.append(words[at:at + size])
+        while at < len(words):
+            batches.append(words[at:at + rng.randrange(1, 8)])
             at += len(batches[-1])
-            if len(batches[-1]) % 2:  # the drain reads an even number of words
-                batches[-1].pop()
-                at -= 1
         yield events, lost, batches
 
 

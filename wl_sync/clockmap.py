@@ -321,8 +321,8 @@ def match_lead_stamp(
     reach: int = IDLE_MIN_US,
 ) -> LeadStamp:
     """Spec §2.5 steps 2-5, by the frame's own rises (Ruling R26). `stamps` are unwrapped
-    and ascending, as the RP1 backend sorts them (wl_sync/rp1/backend.py `_lead_stamp`);
-    nothing here sorts them. `bracket` is the lead edge's CPU bracket mapped to P, `end`
+    and ascending, as the RP1 backend sorts them (wl_sync/rp1/backend.py:1344); nothing
+    here sorts them. `bracket` is the lead edge's CPU bracket mapped to P, `end`
     the frame's end mapped to P, and `rises` where the frame's rising edges begin, in us
     from its start (`wl_sync.barcode.rises_us`).
 

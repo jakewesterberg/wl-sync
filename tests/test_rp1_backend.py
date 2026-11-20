@@ -687,7 +687,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         backend.close()
     # The settle that lets a stamp at the enable land before it is discarded, and the
     # read after the rise: more than the 5.5 us a pair takes
-    # (wl_sync/rp1/pio_capture.py:144-149), and well inside the pulse.
+    # (wl_sync/rp1/pio_capture.py:146-151), and well inside the pulse.
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
@@ -2512,8 +2512,8 @@ def test_a_desynced_stamp_stream_is_reported_once_and_later_frames_are_stamped(
     seen = []
     backend = _started(lib, lambda tick, word: seen.append(word))
     try:
-        # 10's data word lost, so the pairing slipped; then 20's pair, whole. 20's counter
-        # waits in the FIFO for the next pair, as the drain reads an even number of words.
+        # 10's data word lost, so the pairing slipped; then 20's pair, whole. The drain
+        # reads all three words: 10 is taken at the slip, and 20's pair after it.
         lib.push_stamps(stream((10, 0))[1:] + stream((20, 0)))
         first = _next_complaint(backend)
         assert first is not None and "barcode stamping" in first, first
@@ -2628,12 +2628,17 @@ def test_after_a_lone_word_the_stamp_drains_mark_still_moves(lib):
         backend.close()
 
 
-@pytest.mark.parametrize("case", range(12))
-def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(lib, gpiod, crystals, case):
+@pytest.mark.parametrize("case", range(8))
+@pytest.mark.parametrize("far", [False, True], ids=["p-near-0", "p-past-2**31"])
+def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(
+    lib, gpiod, crystals, far, case
+):
     """Fuzzed over the phase of the lost word: the data or the counter word of one rise of
     frame 2, 3 or 4, chosen at random, with GPIO0-15 carrying a different code at every
-    stamp. A misread stamp lies before its frame and is counted between frames, a lost
-    one costs at most its own frame's B, and every frame after is stamped at its lead."""
+    stamp, and with P near 0 or past 2**31. A misread stamp lies before its frame, or,
+    with P past 2**31, far past its end, and either way is counted between frames, once.
+    A lost one costs at most its own frame's B, and every frame after is stamped at its
+    lead."""
     import random
 
     from wl_sync.barcode import encode
@@ -2645,11 +2650,15 @@ def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(lib, gpiod, crystals, c
     gpiod.data_word = lambda k, r: (k * 7919 + r * 104_729) & 0xFFFF
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
+    if far:  # P past 2**31, where unwrap_near puts the misread after the frame
+        clock.advance((2**31 + 100_000_000) * 1_000)
     try:
-        stamps, _ = _frames(backend, clock, gpiod, 7)
+        stamps, traces = _frames(backend, clock, gpiod, 7)
     finally:
         backend.close()
-    lost = (frame, rise, gpiod.lost_words[(frame, rise)])
+    lost = (frame, rise, gpiod.lost_words[(frame, rise)], far)
+    if far:
+        assert gpiod.leads[1] > 2**31
     assert _wrong(stamps, gpiod) == [], lost
     # The frame loses its B only when the word lost was its lead's counter, its stamp.
     kept = (rise, lost[2]) != (0, 1)
@@ -2657,8 +2666,13 @@ def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(lib, gpiod, crystals, c
     assert [stamp.tick for stamp in stamps[frame:]] == [
         gpiod.leads[k] for k in range(frame + 1, 8)
     ], lost
-    # In phase again by then: no frame's stamps reach the next.
-    assert [stamp.between for stamp in stamps[frame + 1:]] == [0] * (6 - frame), lost
+    # In phase again by then: no frame's stamps reach the next. Past 2**31 the misread is
+    # carried, so the frame after the one that queued it may count it.
+    settled = frame + 1 + far
+    assert [stamp.between for stamp in stamps[settled:]] == [0] * (7 - settled), lost
+    if far and lost[2] == 1:  # a lone data word: its misread is carried, never matched
+        assert any(trace.lead.leftover and max(trace.lead.leftover) >= 0xFFFF_0000
+                   for trace in traces[frame - 1:frame + 1]), lost
     assert backend._stamp_pump.desyncs == 1 and not backend._stamp_pump.stopped, lost
 
 
@@ -3075,7 +3089,7 @@ def test_a_word_drain_that_raises_stops_alone(lib, gpiod, crystals):
 
 def test_a_failing_consumer_stops_the_word_drain_alone(lib, gpiod, crystals):
     """drain() returns False for a consumer that raises, as for a desync
-    (wl_sync/rp1/pio_capture.py:268-273): the records are not being kept. The word drain
+    (wl_sync/rp1/pio_capture.py:270-275): the records are not being kept. The word drain
     stops, and the stamp drain goes on."""
     from wl_sync.backend import FrameStamp
     from wl_sync.barcode import encode
@@ -3558,31 +3572,32 @@ def test_a_line_more_than_a_frame_behind_p_drops_every_frame_and_never_restarts(
     of them, so each frame's stamps are carried whole into the next.
 
     Task 1.15: the B rule is unchanged, and nothing restarts. The journal now says, once,
-    that E is extrapolated: 25 frames rather than 15, so that 22 go unpaired, past
-    EXTRAPOLATION_WARN_FRAMES."""
+    that E is extrapolated: the run is EXTRAPOLATION_WARN_FRAMES + 5 frames, so that K + 2
+    go unpaired after the first three (15 frames before, when K did not exist)."""
     import logging
 
     from wl_sync.backend import STAMP_NOT_SEEN
 
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    count = k + 5
     restarted = _restarted_at(monkeypatch)
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
-    gpiod.frame_stamp_offset_us.update({k: 210_000 for k in range(4, 26)})
+    gpiod.frame_stamp_offset_us.update({n: 210_000 for n in range(4, count + 1)})
     try:
         with caplog.at_level(logging.WARNING, logger=rp1.log.name):
-            stamps, traces = _frames(backend, clock, gpiod, 25)
+            stamps, traces = _frames(backend, clock, gpiod, count)
     finally:
         backend.close()
     wrong = _wrong(stamps, gpiod)
     assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
-    assert [stamp.tick for stamp in stamps[3:]] == [None] * 22
+    assert [stamp.tick for stamp in stamps[3:]] == [None] * (count - 3)
     assert restarted == [] and _restarts(caplog) == []
     # Frame 5 on: only the frame before's stamps, carried, lie up to the end.
-    assert {stamps[k - 1].missed for k in range(5, 26)} == {STAMP_NOT_SEEN}
-    assert all(traces[k - 1].lead.between > 1 for k in range(5, 26))
-    assert rp1.EXTRAPOLATION_WARN_FRAMES < 22
+    assert {stamps[n - 1].missed for n in range(5, count + 1)} == {STAMP_NOT_SEEN}
+    assert all(traces[n - 1].lead.between > 1 for n in range(5, count + 1))
     [(age, frames)] = _extrapolation_warnings(caplog)
-    assert frames == rp1.EXTRAPOLATION_WARN_FRAMES and abs(age - frames) < 0.5, age
+    assert frames == k and abs(age - frames) < 0.5, age
     assert len(_extrapolated_to_the_end(caplog)) == 1, "the episode stayed open"
 
 
@@ -3628,6 +3643,23 @@ _TO_THE_END = re.compile(
     r"capture stopped (\d+) frame\(s\) after the RAW->P fit's last lead-edge pair: E "
     r"ticks and roll boundaries were extrapolated from a pair (\d+\.\d) s old to the end "
     r"of the run"
+)
+
+
+_NEVER_PAIRED = re.compile(
+    r"the RAW->P fit has had no lead-edge pair since capture started (\d+\.\d) s ago, "
+    r"(\d+) frame\(s\): E ticks and roll boundaries are extrapolated from the sync "
+    r"enable, drifting from P by the fit's slope error, until a lead edge is matched"
+)
+_FIRST_PAIR = re.compile(
+    r"the RAW->P fit took its first lead-edge pair after (\d+) frame\(s\) without one: "
+    r"E ticks and roll boundaries had been extrapolated from the sync enable, "
+    r"(\d+\.\d) s before it"
+)
+_NEVER_PAIRED_TO_THE_END = re.compile(
+    r"capture stopped (\d+) frame\(s\) after it started, with no lead-edge pair for the "
+    r"RAW->P fit: E ticks and roll boundaries were extrapolated from the sync enable, "
+    r"(\d+\.\d) s before, to the end of the run"
 )
 
 
@@ -3705,6 +3737,66 @@ def test_a_run_that_ends_while_e_is_extrapolated_says_so_at_close(
     assert len(_extrapolation_warnings(caplog)) == 1
     [(frames, age)] = _extrapolated_to_the_end(caplog)
     assert frames == k + 1 and k + 1 < age < k + 2.5, (frames, age)
+
+
+def test_before_the_first_pair_the_journal_names_the_sync_enable_not_a_pair(
+    lib, gpiod, crystals, caplog
+):
+    """Final review of Task 1.15, Minor 4. With the PIO blind from the first frame the
+    line runs from the origin, the sync enable, and no pair exists to be "last": the
+    WARNING says capture started S s ago, and the first pair's line says it is the first.
+    Neither line of an episode after a pair is given."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, k + 4, blind=range(1, k + 2))
+    finally:
+        backend.close()
+    [started] = _warnings_matching(caplog, _NEVER_PAIRED)
+    assert int(started.group(2)) == k and abs(float(started.group(1)) - k) < 1.5, started
+    [first] = _warnings_matching(caplog, _FIRST_PAIR)
+    assert int(first.group(1)) == k + 1, first.group(0)
+    assert _extrapolation_warnings(caplog) == [] and _paired_again(caplog) == []
+    assert stamps[-1].tick == gpiod.leads[k + 4]
+
+
+def test_a_run_with_no_pair_at_all_says_so_at_close(lib, gpiod, crystals, caplog):
+    """The same, still open when capture stops."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            _frames(backend, clock, gpiod, k + 1, blind=range(1, k + 2))
+    finally:
+        backend.close()
+    assert len(_warnings_matching(caplog, _NEVER_PAIRED)) == 1
+    [end] = _warnings_matching(caplog, _NEVER_PAIRED_TO_THE_END)
+    assert int(end.group(1)) == k + 1, end.group(0)
+    assert _extrapolated_to_the_end(caplog) == []
+
+
+def test_a_clean_run_ends_with_a_count_of_no_desyncs(lib, gpiod, crystals, caplog):
+    """Final review of Task 1.15, Minor 4's polish: with none, the run-end INFO gives the
+    count alone, as nothing was resynchronised."""
+    import logging
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        _frames(backend, clock, gpiod, 2)
+    finally:
+        with caplog.at_level(logging.INFO, logger=rp1.log.name):
+            backend.close()
+    summaries = [record.getMessage() for record in caplog.records
+                 if record.getMessage().startswith("barcode stamping: ")]
+    assert summaries == ["barcode stamping: 0 desync(s) this run"], summaries
 
 
 def test_an_r19_restart_ends_the_extrapolation_episode(lib, gpiod, crystals, caplog):

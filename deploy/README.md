@@ -175,17 +175,22 @@ device recorded the frame; this log has no B for it`, and a run of more than one
 end logs `barcodes: E emitted, D dropped this run`. `journalctl -u wl-sync -p err` shows
 the ERRORs. Advice that names `python -m wl_sync.bench stamps` means the checks above.
 
-**A desynced stamp stream is one ERROR, and stamping goes on** *(added 2026-11-20)*. When
+**A desynced stamp stream is an ERROR, and stamping goes on** *(added 2026-11-20)*. When
 the stamp machine's FIFO fills and the drain runs between a pair's two pushes, one word is
 left alone and the pairing slips. The journal has
 
     capture degraded, still recording: barcode stamping: the stamp FIFO lost a word, so its data/counter pairing slipped (a counter, 0x..., where a data word belongs): resynchronised on that counter, and stamping goes on; a frame whose lead edge's stamp was lost is dropped; N desync(s) this run
 
-once for each desync (`wl_sync/rp1/pio_capture.py:378-384`). A `WordsDroppedError`
-line for the full FIFO may come just before it. A frame whose lead edge's stamp was lost has
-its own `barcode N dropped` ERROR, and the frames after it are stamped. Each run's end on
-one count logs `barcode stamping: N desync(s) this run, each resynchronised`
-(`wl_sync/rp1/backend.py:1582-1583`). Until 2026-11-20 a desync stopped the stamp drain,
+(`wl_sync/rp1/pio_capture.py:380-385`). Like every health ERROR it is given once an
+episode: desyncs found in consecutive health checks, a second apart, share one line, and
+N, the run's count so far, says how many there have been. The full FIFO behind a desync
+has its own line, `barcode stamping: the stamp machine's RX FIFO was full when drained:
+barcode stamps may have been lost` (`wl_sync/rp1/pio_capture.py:369-372`), only when a
+health check fell between the two; found by the same check, only the desync is given. A frame whose lead
+edge's stamp was lost has its own `barcode N dropped` ERROR, and the frames after it are
+stamped. Each run's end on one count logs `barcode stamping: N desync(s) this run, each
+resynchronised`, or `barcode stamping: 0 desync(s) this run`
+(`wl_sync/rp1/backend.py:1602-1606`). Until 2026-11-20 a desync stopped the stamp drain,
 and every later frame was dropped until a restart. `barcode stamping stopped` now means
 the drain itself failed, with its cause in the same ERROR, and a restart starts it again.
 
@@ -195,19 +200,24 @@ When no pair comes for 20 frames, or for 20 frames' time, the journal has
 
     the RAW->P fit's last lead-edge pair is S s old, F frame(s) ago: E ticks and roll boundaries are extrapolated from it, drifting from P by the fit's slope error, until a lead edge is matched again
 
-once, at WARNING (`wl_sync/rp1/backend.py:1488-1493`). The edges are still written. Their
-error grows with the pair's age, by at most 5 ppm of it on a calibrated box before its
-slope is fitted, which is 100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`,
-`wl_sync/rp1/backend.py:125-141`). The episode ends with
+once, at WARNING (`wl_sync/rp1/backend.py:1508-1513`), or, when no pair has come since
+capture started, `the RAW->P fit has had no lead-edge pair since capture started S s ago,
+F frame(s): ...` (`:1500-1506`). The edges are still written. Their error grows with the
+pair's age, by at most 5 ppm of it on a calibrated box before its slope is fitted, which is
+100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`, `wl_sync/rp1/backend.py:125-141`). The
+episode ends with
 
     a lead-edge pair reached the RAW->P fit again after F frame(s) without one: E ticks and roll boundaries had been extrapolated from a pair up to S s old
 
-or, if capture stops first, with `capture stopped F frame(s) after the RAW->P fit's last
-lead-edge pair: ...` (`:1467-1472`, `:1585-1592`). Both are WARNINGs, so `journalctl -u
-wl-sync -p warning` shows every episode's start and end. An episode that runs on while the
-`barcode N dropped` ERRORs say `their stamps lay outside the lead edges' windows` is a fit
-lost for good: the box does not restart itself (the user, 2026-11-20), and a restart
-between sessions starts a new fit at the sync enable.
+or `the RAW->P fit took its first lead-edge pair after F frame(s) without one: ...`
+(`:1476-1481`, `:1469-1474`). If capture stops first it ends with `capture stopped F
+frame(s) after the RAW->P fit's last lead-edge pair: ...`, or `capture stopped F frame(s)
+after it started, with no lead-edge pair for the RAW->P fit: ...` (`:1619-1624`,
+`:1612-1617`). All are WARNINGs, so `journalctl -u wl-sync -p warning` shows every
+episode's start and end. An episode that runs on while the `barcode N dropped` ERRORs say
+`their stamps lay outside the lead edges' windows` is a fit lost for good: the box does
+not restart itself (the user, 2026-11-20), and a restart between sessions starts a new fit
+at the sync enable.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
@@ -495,7 +505,7 @@ reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is us
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
 and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:235-258`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
-RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1531-1532`;
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1551-1552`;
 `wl_sync/log.py:217-226`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**

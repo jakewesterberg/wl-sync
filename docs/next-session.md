@@ -111,7 +111,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses an older shim
-(`deploy/README.md:443-447`).
+(`deploy/README.md:453-457`).
 
 **The one-clock plan's bench section is the checklist for what follows**
 (`docs/superpowers/plans/2026-11-07-one-clock.md:1868`): P0, then B1 to B10. *(Added
@@ -170,7 +170,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
-   shim; the backend refuses a shim that is not version 3 (`deploy/README.md:443-447`,
+   shim; the backend refuses a shim that is not version 3 (`deploy/README.md:453-457`,
    `wl_sync/rp1/backend.py:235`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
@@ -202,7 +202,7 @@ x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the 
 tested every 2 cycles, so the word holds the count 3.0–4.0 ticks after the edge. The 1 µs
 spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of the edge
 (`tests/test_rp1_program.py:159`). Nothing subtracts the mean today: a W tick is the
-latched count, inverted (`wl_sync/rp1/pio_capture.py:81`) and handed on as it is (`:270`).
+latched count, inverted (`wl_sync/rp1/pio_capture.py:81`) and handed on as it is (`:272`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
 `_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:813-821`),

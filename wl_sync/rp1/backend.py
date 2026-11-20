@@ -103,7 +103,7 @@ STAMP_TEST_HIGH_US = 1_000
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
-# edge (wl_sync/rp1/pio_capture.py:144-149); this leaves room for the syscalls either side,
+# edge (wl_sync/rp1/pio_capture.py:146-151); this leaves room for the syscalls either side,
 # and stays well inside the pulse.
 STAMP_TEST_SETTLE_US = 100
 
@@ -1336,9 +1336,11 @@ class Rp1Backend:
         # Ascending, as match_lead_stamp takes them, and this frame's alone: the carried
         # are counted as stamps between, and no more. SORTED, because a stamp stream
         # paired again after a lost word can queue one stamp out of order: a lone data
-        # word read as a counter, just short of P's wrap (`pio_capture.pair_stamps`),
-        # which unwrapped here lies before the frame. Unsorted, its place broke the match's
-        # search, and a frame whose rises all but one were stamped was dropped.
+        # word read as a counter, just short of P's wrap (`pio_capture.pair_stamps`).
+        # Unwrapped here it lies before the frame, or, while P lies past 2**31, far past
+        # its end, where it is carried and the next frame counts it between frames.
+        # Unsorted, its place broke the match's search, and a frame whose rises all but
+        # one were stamped was dropped.
         fresh = sorted(unwrap_near(stamp, low) for stamp in pump.take())
         found = match_lead_stamp(fresh, (low, high), end, rises=rises)
         own = found.between + found.consumed  # fresh stamps up to the end
@@ -1463,7 +1465,14 @@ class Rp1Backend:
         if self._fit is None or anchor_ns is None:
             return  # before capture starts: no fit, so nothing extrapolated
         if self._fit_pairs != pairs:
-            if self._extrapolating:
+            if self._extrapolating and pairs == 0:
+                log.warning(
+                    "the RAW->P fit took its first lead-edge pair after %d frame(s) "
+                    "without one: E ticks and roll boundaries had been extrapolated from "
+                    "the sync enable, %.1f s before it",
+                    self._unpaired_frames, (self._fit_anchor_raw_ns - anchor_ns) / 1e9,
+                )
+            elif self._extrapolating:
                 log.warning(
                     "a lead-edge pair reached the RAW->P fit again after %d frame(s) "
                     "without one: E ticks and roll boundaries had been extrapolated from "
@@ -1485,6 +1494,17 @@ class Rp1Backend:
                 and age_ns < EXTRAPOLATION_WARN_FRAMES * INTERVAL_US * 1_000):
             return
         self._extrapolating = True
+        # Before the first pair the line runs from the origin, the sync enable
+        # (`_start_one_count`), and there is no pair to name.
+        if self._fit_pairs == 0:
+            log.warning(
+                "the RAW->P fit has had no lead-edge pair since capture started %.1f s "
+                "ago, %d frame(s): E ticks and roll boundaries are extrapolated from the "
+                "sync enable, drifting from P by the fit's slope error, until a lead edge "
+                "is matched",
+                age_ns / 1e9, self._unpaired_frames,
+            )
+            return
         log.warning(
             "the RAW->P fit's last lead-edge pair is %.1f s old, %d frame(s) ago: E ticks "
             "and roll boundaries are extrapolated from it, drifting from P by the fit's "
@@ -1579,14 +1599,26 @@ class Rp1Backend:
         if pump is None or self._summarised:
             return
         self._summarised = True
-        log.info("barcode stamping: %d desync(s) this run, each resynchronised",
-                 pump.desyncs)
-        if self._extrapolating and self._fit_anchor_raw_ns is not None:
+        if pump.desyncs:
+            log.info("barcode stamping: %d desync(s) this run, each resynchronised",
+                     pump.desyncs)
+        else:
+            log.info("barcode stamping: 0 desync(s) this run")
+        if not self._extrapolating or self._fit_anchor_raw_ns is None:
+            return
+        age_s = (time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+                 - self._fit_anchor_raw_ns) / 1e9
+        if self._fit_pairs == 0:
             log.warning(
-                "capture stopped %d frame(s) after the RAW->P fit's last lead-edge pair: "
-                "E ticks and roll boundaries were extrapolated from a pair %.1f s old to "
-                "the end of the run",
-                self._unpaired_frames,
-                (time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
-                 - self._fit_anchor_raw_ns) / 1e9,
+                "capture stopped %d frame(s) after it started, with no lead-edge pair for "
+                "the RAW->P fit: E ticks and roll boundaries were extrapolated from the "
+                "sync enable, %.1f s before, to the end of the run",
+                self._unpaired_frames, age_s,
             )
+            return
+        log.warning(
+            "capture stopped %d frame(s) after the RAW->P fit's last lead-edge pair: "
+            "E ticks and roll boundaries were extrapolated from a pair %.1f s old to "
+            "the end of the run",
+            self._unpaired_frames, age_s,
+        )

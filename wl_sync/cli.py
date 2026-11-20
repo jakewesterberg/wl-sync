@@ -853,7 +853,7 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:1281-1373); under --fake, the fake's clock
+            # has ended (wl_sync/rp1/backend.py:1281-1375); under --fake, the fake's clock
             # as the frame starts (wl_sync/backend.py:238-243). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
@@ -907,7 +907,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:466-468, :1371-1372), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:466-468, :1373-1374), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
