@@ -3541,3 +3541,70 @@ def test_check_health_takes_the_word_error_under_the_pumps_lock(lib, monkeypatch
         backend.check_health()  # taken once, and cleared
     finally:
         backend.close()
+
+
+# --- cli.run on the real backend (final review M11) -------------------------------------
+#
+# Every one-count behaviour of the run loop is tested through FakeBackend subclasses
+# (tests/test_cli.py). These run `cli.run` itself on `Rp1Backend`, over the shim, gpiod
+# and two-crystal fakes, so the header the loop writes and the ticks the backend hands it
+# are checked together, as the box would produce them.
+
+
+@pytest.mark.parametrize("rate_ppb", [None, 50_000], ids=["no-rate-file", "a-rate-file"])
+def test_run_on_the_rp1_backend_writes_b_at_the_lead_stamp_scaled_once(
+    tmp_path, lib, gpiod, crystals, monkeypatch, rate_ppb
+):
+    """Coverage: passes on 1d9f2bc. RP1's crystal runs 50 ppm fast of the CPU's. With no
+    rate file the header says "rp1-pio" and each B is its lead edge's stamp, P, as
+    counted; with one, "rp1-pio-si" and B = round(P / r), r = 1 + rate_ppb 1e-9, scaled
+    once (spec §2.2). Either way the backend stamps the lead edge itself, so the header's
+    barcode delay is 0, and a code word captured mid-run is on the same scale as B."""
+    import datetime
+
+    from wl_sync import cli
+    from wl_sync.calibration import RATE_FILE_NAME, write_calibration
+    from wl_sync.log import BarcodeEmitted, CodeWord, read_log
+
+    utc = datetime.timezone.utc
+    clock = crystals(cpu_ppm=0, rp1_ppm=50)
+    serial = "0123456789abcdef"
+    monkeypatch.setattr(cli, "probe_ntp_synchronized", lambda timeout_s=5: True)
+    monkeypatch.setattr(cli, "probe_board_serial", lambda: serial)
+    if rate_ppb is not None:
+        calibration = _calibration(rate_ppb=rate_ppb, p_per_raw_ppb=50_000)
+        assert calibration.serial == serial
+        write_calibration(tmp_path / RATE_FILE_NAME, calibration)
+    backend = Rp1Backend()
+    word_p = []
+
+    def tick(seconds):
+        if len(word_p) == 0 and gpiod.leads:
+            word_p.append(clock.p_now())  # a code word on the capture machine, now
+            lib.push(stream((word_p[0], 7)))
+        clock.sleep(seconds)
+
+    wall = {"n": 0}
+
+    def now_fn():
+        wall["n"] += 1
+        return datetime.datetime(2026, 11, 19, 9, 0, tzinfo=utc) + datetime.timedelta(
+            seconds=wall["n"] - 1
+        )
+
+    folder = cli.run(out=tmp_path, backend=backend, now_fn=now_fn, duration_s=5,
+                     tick_fn=tick)
+
+    header, records = read_log(sorted(folder.glob("seg-*.log"))[0])
+    assert header.timebase == ("rp1-pio" if rate_ppb is None else "rp1-pio-si")
+    assert header.barcode_delay_us == 0
+    d = 10**9 + (rate_ppb or 0)
+
+    def scaled(p):
+        return (2 * p * 10**9 + d) // (2 * d)  # round(p / r), halves up
+
+    barcodes = [r for r in records if isinstance(r, BarcodeEmitted)]
+    assert len(barcodes) == 5
+    assert [b.tick_us for b in barcodes] == [scaled(gpiod.leads[k]) for k in range(1, 6)]
+    words = [r for r in records if isinstance(r, CodeWord)]
+    assert [(w.tick_us, w.word) for w in words] == [(scaled(word_p[0]), 7)]
