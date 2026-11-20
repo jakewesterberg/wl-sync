@@ -29,7 +29,12 @@ status:
     lost, and an L record marks lost events in the segment (these on main, not
     deployed until wl-preproc's follow-up has merged). iter_records reads a
     segment one record at a time, so a long one need not fit in memory. Breakout board:
-    schematic captured, layout not started. On 2026-11-07 the strobe-capture
+    schematic captured, with U63's EN 55032 input filter, J19's shell
+    resistor (R2) and U3/U4's PowerPAD (R3) added (2026-11-20); its layout
+    constraint set (hardware/breakout/constraints.md) and floorplan
+    (hardware/breakout/floorplan.md) are written and reviewed, the CM5 IO
+    Board riding above the back connector row (ruled 2026-11-20); placement
+    and routing not started. On 2026-11-07 the strobe-capture
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
     by simulating the program's words but not yet on silicon. One clock
@@ -87,8 +92,8 @@ status:
     passed, on 2026-11-20 at 07925ef: bench stamps --frames 30 stamped 30 of
     30, with 0 between, and the depth check passed. The shim is version 5
     (Ruling R42), so a build from before fix round 3 is refused, naming the
-    rebuild (1165 tests, on one-clock-p1). Next: merge one-clock-p1 to main
-    and push.
+    rebuild; v5 built and passed the same check on the box, 2026-11-20. All of
+    it is merged and pushed with main (origin/main 23ad849, 1165 tests).
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
     answers (docs/pending-wl-preproc-amendments.md:425-427); note 8 is
@@ -108,7 +113,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "c670a8d"
+  describes: "db85e3d"
 
 runs_on: [rig/sync]
 builds_on: [dws]
