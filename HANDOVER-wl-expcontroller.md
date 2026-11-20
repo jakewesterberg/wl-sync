@@ -327,7 +327,7 @@ above are struck through and replaced in place, dated.
    session identity deleted `cli.day_directory` and changed the layout.)* The record is on the box's
    own NVMe, under the unit file's `--out /data/rig1`. During a visit it is in
    `/data/rig1/<id>/syncbox/`, where `<id>` is the id the open returned; between visits it is in
-   `/data/rig1/unassigned/<YYYY-MM-DD>/syncbox/`, named by a UTC date (`wl_sync/sessions.py:48-59`).
+   `/data/rig1/unassigned/<YYYY-MM-DD>/syncbox/`, named by a UTC date (`wl_sync/sessions.py:48-59`). *(Corrected 2026-11-20: the box's folder is `/data/rig0`, the first rig; the next box writes `/data/rig1`. The unit file here now says rig0, deploy/wl-sync.service:29.)*
    A visit's record is every `seg-NNN.log` in its folder, from `seg-000`: one segment for each run of
    the recording process during the visit. **Nothing in this repository makes that
    directory readable from another host.** NAS transfer is out of the design's scope

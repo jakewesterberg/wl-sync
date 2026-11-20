@@ -302,7 +302,7 @@ class StampPump:
     in it is a missed stamp, whose frame is dropped as an unstamped lead is.
     It is held as WordPump holds its desync, so check_health reports it, an ERROR once per
     desync (wl_sync/cli.py:1247-1266). No L record: stamps are not written, and the L
-    format's paths are W and E (wl_sync/log.py:414-415).
+    format's paths are W and E (wl_sync/log.py:419-420).
 
     THE PUMP STOPS only when the drain itself fails (`stop`): `stopped` turns True.
 

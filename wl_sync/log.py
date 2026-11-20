@@ -277,9 +277,13 @@ class CodeWord:
     """A code word the task PC strobed, with the tick of its strobe.
 
     `tick_us` is UNWRAPPED, like `Edge`'s and `BarcodeEmitted`'s: the raw 32-bit
-    counter, which wraps every 2^32 us (71.6 min, `TICK_WRAP_US`), is placed by the
-    box's one clock at the value nearest its `now()`, so a tick runs past 2^32 across a
-    wrap and never repeats (wl_sync/service.py:176-182, :315).
+    counter wraps every 2^32 COUNTS (`TICK_WRAP_US`; 71.6 min at 1 count per us), and
+    the box's one clock places each raw count at the value nearest its `now()`, so the
+    count runs past 2^32 across a wrap and never repeats. The scale is applied after
+    that, to the unwrapped count (wl_sync/service.py:176-182, :315). So the wrap is 2^32
+    counts in every timebase, and in written ticks 2^32 us only where r = 1 ("rp1-pio",
+    "split"); under "rp1-pio-si" it is 2^32 / r SI us, which is 71.6 min only to within
+    r's tolerance of 200 ppm (wl_sync/calibration.py:262-285).
 
     WHAT A TICK COUNTS DEPENDS ON THE SEGMENT'S `timebase`, and the header says which:
 
@@ -315,9 +319,10 @@ class CodeWord:
     Under "rp1-pio" and "split" no rounding occurs, because the count is already whole.
     A tick is the counter as the program read it, 3 decrements after the `jmp pin` that
     saw the strobe (wl_sync/rp1/program.py:93), and the strobe is seen up to 1 us after it
-    rises (wl_sync/rp1/backend.py:857-858). So a tick is later than the strobe's rise by
-    a few us, and nothing corrects that: a `W` tick is an ordering and alignment key,
-    not the instant the task PC raised the line."""
+    rises (wl_sync/rp1/backend.py:857-858). One decrement is one tick, 1 us
+    (wl_sync/rp1/backend.py:64-65), so a tick is later than the strobe's rise by 3 us
+    plus up to 1 us: about 4 us at most, in counts, and nothing corrects that. A `W` tick
+    is an ordering and alignment key, not the instant the task PC raised the line."""
 
     tick_us: int
     word: int
