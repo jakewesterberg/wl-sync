@@ -47,16 +47,24 @@ def _frame_edges(value, start_us, level, return_low=True):
     return edges, level
 
 
-def _segment(tmp_path, frames=5, lead_offset_us=60, return_low=True, wrong_value_at=None):
+def _segment(tmp_path, frames=5, lead_offset_us=60, return_low=True, wrong_value_at=None,
+             timebase=None, no_b_at=None, offsets=None):
+    """`no_b_at` leaves that frame's `B` out of the log, its edges still on the wire;
+    `offsets` gives each frame its own lead offset."""
     records, level = [], 0
+    header = _header()
+    if timebase is not None:
+        header = header.model_copy(update={"timebase": timebase})
     for k in range(frames):
         tick = 1_000 + k * 1_000_000
-        records.append(BarcodeEmitted(tick_us=tick, value=FIRST + k))
+        if k != no_b_at:
+            records.append(BarcodeEmitted(tick_us=tick, value=FIRST + k))
         on_wire = FIRST + k + (1000 if k == wrong_value_at else 0)
-        edges, level = _frame_edges(on_wire, tick + lead_offset_us, level, return_low)
+        offset = offsets[k] if offsets else lead_offset_us
+        edges, level = _frame_edges(on_wire, tick + offset, level, return_low)
         records.extend(edges)
     path = tmp_path / "seg-000.log"
-    write_log(path, _header(), records)
+    write_log(path, header, records)
     return path
 
 
@@ -91,6 +99,40 @@ def test_a_frame_that_decodes_to_a_value_never_logged_fails(tmp_path):
 
     assert not report.passed
     assert report.unexpected == [FIRST + 2 + 1000]
+
+
+def test_a_frame_whose_b_was_dropped_is_reported_as_dropped(tmp_path):
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, timebase="rp1-pio-si", no_b_at=2), LOOP_GPIO)
+
+    assert report.timebase == "rp1-pio-si"
+    assert report.dropped == [FIRST + 2]
+    assert report.unexpected == []
+    assert not report.passed
+    assert "dropped" in report.summary()
+
+
+def test_on_a_split_segment_a_frame_never_logged_is_still_unexpected(tmp_path):
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, timebase="split", no_b_at=2), LOOP_GPIO)
+
+    assert report.dropped == []
+    assert report.unexpected == [FIRST + 2]
+    assert not report.passed
+
+
+def test_the_lead_edge_offset_is_reported_as_es_constant_with_its_spread(tmp_path):
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, frames=8, timebase="rp1-pio",
+                               offsets=[0, 50, 60, 70, 80, 90, 100, 110]), LOOP_GPIO)
+
+    summary = report.summary()
+    assert "E's constant (B6)" in summary
+    assert "median" in summary
+    assert "p50" in summary and "p99 " in summary and "p99.9" in summary
 
 
 def test_a_loopback_with_no_edges_says_the_wire_is_missing(tmp_path):

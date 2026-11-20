@@ -53,6 +53,10 @@ from wl_sync.segment import SEGMENT_PATTERN, segment_index_of
 DEFAULT_LOOP_GPIO = GPIO_MAP["pd1_comp"]
 
 
+# The timebases that put W, B and E on one PIO count (wl_sync/log.py:182).
+ONE_COUNT_TIMEBASES = ("rp1-pio-si", "rp1-pio")
+
+
 @dataclass
 class LoopbackReport:
     gpio: int
@@ -63,11 +67,17 @@ class LoopbackReport:
     missing: list[int] = field(default_factory=list)
     unexpected: list[int] = field(default_factory=list)
     lead_offsets_us: list[int] = field(default_factory=list)
+    # The segment header's `timebase`, free text (wl_sync/log.py:182); None on a segment
+    # written before the field existed.
+    timebase: str | None = None
+    # Decoded frames with no `B`, on a one-count segment only; on any other they are
+    # `unexpected`. Both fail.
+    dropped: list[int] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
         return bool(self.edge_count and self.matched and not self.missing
-                    and not self.unexpected)
+                    and not self.unexpected and not self.dropped)
 
     def summary(self) -> str:
         lines = [f"loopback on GPIO{self.gpio}: {'PASS' if self.passed else 'FAIL'}",
@@ -85,11 +95,21 @@ class LoopbackReport:
             lines.append(f"  logged but never decoded: {self.missing}")
         if self.unexpected:
             lines.append(f"  decoded but never logged: {self.unexpected}")
+        if self.dropped:
+            lines.append(f"  decoded, but the box dropped its B (the log has none): "
+                         f"{self.dropped}")
         if self.lead_offsets_us:
-            lines.append(
-                f"  lead edge after its logged tick: median "
-                f"{median(self.lead_offsets_us):.0f} us, max {max(self.lead_offsets_us)} us"
-            )
+            offsets = self.lead_offsets_us
+            line = (f"  lead edge after its logged tick, E's constant (B6): median "
+                    f"{median(offsets):.0f} us, max {max(offsets)} us")
+            if len(offsets) >= 2:
+                # n=1000 gives 999 cut points: index 499 is p50, 989 p99, 998 p99.9.
+                # Inclusive, as the stamps summary does below, so the tail is not
+                # extrapolated past the widest offset seen.
+                cuts = quantiles(offsets, n=1000, method="inclusive")
+                line += (f"; p50 {cuts[499]:.0f} us, p99 {cuts[989]:.0f} us, "
+                         f"p99.9 {cuts[998]:.0f} us")
+            lines.append(line)
         return "\n".join(lines)
 
 
@@ -100,24 +120,29 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
     A frame is found by a rising edge after IDLE_MIN_US of LOW, and nothing in the
     record precedes the first one, so the decoder cannot verify the idle before it.
     """
-    _, records = read_log(path)
+    header, records = read_log(path)
     barcodes = [r for r in records if isinstance(r, BarcodeEmitted)]
     edges = [(r.tick_us, r.level) for r in records if isinstance(r, Edge) and r.gpio == gpio]
     report = LoopbackReport(gpio=gpio, emitted=[b.value for b in barcodes],
-                            edge_count=len(edges))
+                            edge_count=len(edges), timebase=header.timebase)
     if not edges:
         return report
 
     logged = {b.value: b.tick_us for b in barcodes}
     decoded = decode_edges(edges)
     seen = set()
+    one_count = header.timebase in ONE_COUNT_TIMEBASES
     for frame in decoded:
         if frame.value in logged:
             report.matched += 1
             report.lead_offsets_us.append(frame.start_us - logged[frame.value])
             seen.add(frame.value)
         else:
-            report.unexpected.append(frame.value)
+            # On a one-count segment the box logs a `B` for every frame it emits unless
+            # it dropped it (docs/superpowers/specs/2026-10-30-one-clock-design.md:417);
+            # a "split" process whose loopback failed logs a software `B` for every
+            # frame, so a frame with none there is not a drop.
+            (report.dropped if one_count else report.unexpected).append(frame.value)
     for index, barcode in enumerate(barcodes):
         if barcode.value in seen:
             continue
