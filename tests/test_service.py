@@ -4,7 +4,7 @@ from wl_sync.backend import STAMP_NOT_SEEN, CaptureLoss, FakeBackend, FrameStamp
 from wl_sync.barcode import IDLE_MIN_US, decode_edges, encode
 from wl_sync.clockmap import TickScale
 from wl_sync.log import BarcodeEmitted, CodeWord, Edge, Loss, TICK_WRAP_US
-from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, frame_times
+from wl_sync.service import FRAME_TIME_GPIO, BarcodeGenerator, Recorder, _BoxClock, frame_times
 
 BARCODE_PIN = 17
 DATA_BASE = 2
@@ -189,6 +189,58 @@ def test_a_word_after_an_edge_path_wrap_is_placed_after_the_wrap():
         TICK_WRAP_US + 200,
     ]
     assert [r.tick_us for r in records if isinstance(r, CodeWord)] == [TICK_WRAP_US + 1_000]
+
+
+def _box_clock_readings(raws):
+    """`_BoxClock.now()` once per raw `now_us()` reading, in order."""
+    readings = iter(raws)
+    clock = _BoxClock(lambda: next(readings))
+    return [clock.now() for _ in raws]
+
+
+def test_a_clock_that_steps_back_a_few_counts_is_held_not_wrapped():
+    """Ruling R32. On one count `now_us()` is the fit's, and it can step back: a pair below
+    the line, or an R19 restart when the fit ran ahead. A 6-count step back is not a wrap;
+    the reading is held at the previous one, so no record goes back. Counted as a wrap
+    (the reviewer's probe: [1000000, 1000010, 4295967300, 4295967316]) it put every later
+    W, B and E 71.6 min late. The reading after it, at 1_000_006, is still behind the
+    1_000_010 returned, so it is held too: the clock keeps what it returned, not the raw
+    value it held."""
+    assert _box_clock_readings([1_000_000, 1_000_010, 1_000_004, 1_000_006, 1_000_020]) == [
+        1_000_000,
+        1_000_010,
+        1_000_010,
+        1_000_010,
+        1_000_020,
+    ]
+
+
+@pytest.mark.parametrize(
+    "before, after",
+    [(TICK_WRAP_US - 10, 5), (TICK_WRAP_US // 2 + 1, 0)],
+    ids=["across-the-boundary", "just-over-half-a-wrap"],
+)
+def test_a_drop_of_more_than_half_a_wrap_is_still_a_wrap(before, after):
+    """Ruling R32: a wrap is counted when the reading drops by more than half a wrap."""
+    assert _box_clock_readings([before, after]) == [before, TICK_WRAP_US + after]
+
+
+def test_a_drop_of_exactly_half_a_wrap_is_held():
+    """Ruling R32's boundary: a wrap only when the drop EXCEEDS half a wrap."""
+    assert _box_clock_readings([TICK_WRAP_US // 2, 0]) == [TICK_WRAP_US // 2] * 2
+
+
+def test_a_word_after_the_clock_steps_back_lands_beside_it_not_a_wrap_later():
+    """Ruling R32 through the Recorder: after the clock steps back 6 counts, a word stamped
+    at the new reading is placed at its raw tick, not 2^32 later."""
+    backend = FakeBackend()
+    recorder = Recorder(backend)
+    recorder.capture_codes(DATA_BASE, DATA_COUNT, STROBE_PIN)
+    backend.set_now_us(1_000_010)
+    backend.inject_word(1_000_000, 0x0001)
+    backend.set_now_us(1_000_004)
+    backend.inject_word(1_000_004, 0x0002)
+    assert [r.tick_us for r in recorder.records()] == [1_000_000, 1_000_004]
 
 
 def test_record_barcode_writes_a_barcode_record():

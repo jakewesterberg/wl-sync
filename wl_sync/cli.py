@@ -853,7 +853,7 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:1220-1307); under --fake, the fake's clock
+            # has ended (wl_sync/rp1/backend.py:1234-1321); under --fake, the fake's clock
             # as the frame starts (wl_sync/backend.py:238-243). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
@@ -866,11 +866,11 @@ def run(
             frame_end = mono_fn()
             if stamp.between:
                 # Stamps before the frame's lead, or before its window when its rises
-                # align on no lead (wl_sync/clockmap.py:292-294). A drain that gave up on
+                # align on no lead (wl_sync/clockmap.py:296-298). A drain that gave up on
                 # the frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-                # (wl_sync/rp1/backend.py:1267-1274). A fit that has drifted leaves them
+                # (wl_sync/rp1/backend.py:1281-1288). A fit that has drifted leaves them
                 # too, the frame's own when its rises align on none. And GPIO17 is this
-                # process's own output (wl_sync/rp1/backend.py:389-390), so anything else
+                # process's own output (wl_sync/rp1/backend.py:391-392), so anything else
                 # is a fault on the line.
                 log.warning(
                     "%d stamps on GPIO17 between frames, before barcode %d, discarded: "
@@ -880,9 +880,9 @@ def run(
                     value,
                 )
             # THE BOX CLOCK IS READ EVERY FRAME, kept or dropped. It counts a wrap of the
-            # 32-bit counter only if it is read at least once per 2^32 us
-            # (wl_sync/service.py:98-99), and on a quiet rig record_barcode was what read
-            # it: an episode of drops longer than 71.6 min would lose a wrap, and every
+            # 32-bit counter only if it is read at least once per 2^31 us
+            # (wl_sync/service.py:99-101), and on a quiet rig record_barcode was what read
+            # it: an episode of drops longer than 35.8 min would lose a wrap, and every
             # later tick would be placed 4294.967296 s early.
             recorder.now()
             # A FRAME WITH NO STAMP HAS NO B, and the box records on (the user, 2026-10-30).
@@ -907,7 +907,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:446-448, :1305-1306), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:448-450, :1319-1320), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
@@ -1317,13 +1317,13 @@ _DROP_ADVICE = {
     ),
     # Ruling R15, a guard now that such a process records split (Task 1.10a). The start
     # fails with EBUSY when the block has no unused state machine (pio/wlsync_pio.c:175-177);
-    # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:516-529).
+    # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:518-531).
     STAMPS_NOT_STARTED: (
         "the stamp machine did not start; restart once nothing else holds the PIO "
         "block's state machines"
     ),
     # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
-    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1107-1111, :1123-1127).
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1121-1125, :1137-1141).
     STAMPS_STOPPED: (
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"
@@ -1435,7 +1435,7 @@ class _RateKeeper:
     NTP-disciplined MONO, and kept in the calibration file (spec §2.2, "Persisting it").
 
     IT NEVER CHANGES THIS PROCESS'S RATE. The Recorder took its scale at the start and
-    keeps it (wl_sync/service.py:231-233). What is measured here is for the next start,
+    keeps it (wl_sync/service.py:243-245). What is measured here is for the next start,
     and for two witnesses in the journal.
 
     THE BASELINE IS THE ESTIMATOR'S: gated pairs only (wl_sync/calibration.py:89-98),

@@ -97,25 +97,29 @@ class MonoRawTable:
     Called from one thread, the edge pump's, so it takes no lock. That is load-bearing:
     `add`'s pop-then-append and `raw_of`'s bisect over a deque that `add` mutates are not
     safe across threads. `add` never raises, and ignores a reading whose MONO is below
-    the last (the caller may log it).
+    the last (the caller may log it). A `provisional` reading stands in only until the
+    next reading is added, which replaces it (Ruling R33).
     """
 
     def __init__(self, keep: int = 256) -> None:
         self._readings: deque[tuple[int, int]] = deque(maxlen=keep)
+        self._provisional = False
 
-    def add(self, mono_ns: int, raw_ns: int) -> None:
+    def add(self, mono_ns: int, raw_ns: int, *, provisional: bool = False) -> None:
         # A MONO that goes back would break `raw_of`'s search, but this runs on the edge
-        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1022-1025):
+        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1035-1038):
         # the box records anyway, so the reading is dropped. The caller may log it.
         if self._readings:
             last_mono, _ = self._readings[-1]
             if mono_ns < last_mono:
                 return
-            if mono_ns == last_mono:
+            if mono_ns == last_mono or self._provisional:
                 # Two readings at one MONO give no slope (a zero divisor below); the
-                # later one is the better reading of the pair.
+                # later one is the better reading of the pair. A provisional reading is
+                # the newest until this one replaces it.
                 self._readings.pop()
         self._readings.append((mono_ns, raw_ns))
+        self._provisional = provisional
 
     def raw_of(self, mono_ns: int) -> int:
         """Interpolates between the readings either side. Outside the table, before the

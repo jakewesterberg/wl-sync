@@ -303,7 +303,7 @@ class MonotonicOrigin:
 # quiet for longer: against a tick from before, its next edge read as behind, and was
 # clamped to that stale tick, with every edge after it for up to 35.8 min. Within a
 # quarter wrap of stamps the difference is the stamps' plus the map's movement, under a
-# second (an R19 restart moves the fit by at most IDLE_MIN_US, wl_sync/clockmap.py:333-337),
+# second (an R19 restart moves the fit by at most IDLE_MIN_US, wl_sync/clockmap.py:337-341),
 # so `_since` reads it right. Beyond it no map moves an edge back so far: no guard needed.
 _GUARD_REACH_NS = TICK_WRAP_US // 4 * 1_000
 
@@ -879,13 +879,17 @@ class EdgePump:
     def _witness(self, events, read_at: int) -> None:
         """Bound each edge's stamp-to-buffer lag by `read_at`, the clock when the read
         returned. An edge the timebase cannot place is left to `handle`, which skips it
-        and counts it."""
+        and counts it. An edge whose tick lies after `read_at` bounds nothing and is
+        skipped (Ruling R33): on one count the two come from maps that can disagree by
+        more than the lag, and taken mod 2^32 that bound was about 2^32."""
         for event in events:
             try:
                 tick = self._timebase.tick(event.timestamp_ns)
             except ValueError:
                 continue
-            bound = (read_at - tick) % TICK_WRAP_US
+            bound = _since(read_at, tick)
+            if bound < 0:
+                continue
             if self.stamp_lag_max_us is None or bound > self.stamp_lag_max_us:
                 self.stamp_lag_max_us = bound
             if bound > EDGE_STAMP_LAG_US:

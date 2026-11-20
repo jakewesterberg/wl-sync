@@ -134,8 +134,10 @@ _EDGE_EVENT_BUFFER = 1024
 # preemption or a GIL hand-off mid-reading (emit_pulses holds the GIL up to 2 ms a pulse,
 # :79-81). Half of it, 25 us, reaches only edges stamped beside that reading: a table
 # spanning a second bends 20 ms of extrapolation by under 1 us
-# (wl_sync/clockmap.py MONO_RAW_SPAN_MIN_NS). Provisional, as BRACKET_WIDTH_MAX_NS is,
-# until bench day measures what a reading costs.
+# (MONO_RAW_SPAN_MIN_NS, wl_sync/clockmap.py:84-91). Start-up's reading is the one kept
+# however wide, as an empty table places no edge, and so it is provisional: the edge
+# thread's first narrow reading replaces it (Ruling R33), and it never sets the table's
+# slope. The bound is provisional, as BRACKET_WIDTH_MAX_NS is, until bench day.
 MONO_RAW_BRACKET_MAX_NS = 50_000
 
 # How long close() waits for each capture thread to stop. The edge thread's last look
@@ -439,7 +441,7 @@ class Rp1Backend:
         # no provisional fit exists to be captured by mistake.
         self._fit: RawToP | None = None
         # RAW at the sync enable, where the fit starts: the edge map refuses an edge
-        # before it (wl_sync/clockmap.py:252-257).
+        # before it (wl_sync/clockmap.py:256-261).
         self._origin_raw_ns: int | None = None
         # The fit's seeded P per RAW rate, as ppb above 1. 0 until a calibration is given.
         self._seed_ppb = 0
@@ -552,7 +554,7 @@ class Rp1Backend:
         docs/superpowers/specs/2026-10-30-one-clock-design.md:375-387). Before capture
         starts no fit exists, since it is made at the sync enable; then it is RAW us since
         `__init__`. No record is placed before capture starts, and the Recorder's clock
-        reads nothing before it (wl_sync/service.py:100-104).
+        reads nothing before it (wl_sync/service.py:102-106).
 
         SPLIT: MONO us since the origin, as before the one-clock build.
         """
@@ -782,7 +784,7 @@ class Rp1Backend:
         machine is not in the mask."""
         self._origin_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         # P's zero is the enable, so the fit starts on a line through RAW here and P 0, at
-        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:153-159).
+        # the seeded rate, until lead-edge pairs move it (wl_sync/clockmap.py:157-163).
         # Read after MONO, so RAW is the reading nearer the enable.
         self._origin_raw_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
         self._fit = RawToP(self._origin_raw_ns, self._seed_ppb)
@@ -972,10 +974,12 @@ class Rp1Backend:
             self._pump = EdgePump(on_edge, self._origin_ns, on_loss)
         else:
             # The table's first reading here, on this thread, before the edge thread
-            # exists; every later one on that thread (`_pump_edges`). Kept however wide:
-            # an empty table places no edge.
+            # exists; every later one on that thread (`_pump_edges`). Kept however wide,
+            # as an empty table places no edge, so provisional: the edge thread's first
+            # narrow reading replaces it. Each pass reads before it reads edges, so this
+            # one places an edge only while every reading since has been wide.
             self._edge_table = MonoRawTable()
-            self._add_mono_raw(self._edge_table, keep_wide=True)
+            self._add_mono_raw(self._edge_table, start_up=True)
             self._pump = EdgePump(
                 on_edge,
                 on_loss=on_loss,
@@ -1008,6 +1012,15 @@ class Rp1Backend:
         takes at most about 0.12 s on the real clock (STOP_BUDGET_US and two passes),
         and (STOP_PASSES + 1) x EDGE_WAIT_S = 0.82 s on a clock that stands still: both
         inside close()'s join, _STOP_JOIN_S.
+
+        THE LAST LOOK'S OWN PASSES TAKE NO READING (accepted, Ruling R33): the one before
+        `finish` serves them all, so its edges are extrapolated up to about 0.12 s on
+        the box's clock, which always moves, where a pass's are 20 ms. At the slope of a
+        full table, about 5 s of readings each within 25 us, that is off by under 10 ppm:
+        about 1 us. Only a process stopped within a second of its edges starting runs at
+        slope 1 (wl_sync/clockmap.py:84-91), up to NTP's 500 ppm: 60 us. A reading before
+        each pass would need a hook into `EdgePump.finish`, whose bounds above are
+        argued pass by pass, for the run's last tenth of a second of edges.
         """
         table = self._edge_table
         try:
@@ -1027,19 +1040,20 @@ class Rp1Backend:
                 log.error("edge capture stopped with a loss still held: %s", lost)
 
     @staticmethod
-    def _add_mono_raw(table: MonoRawTable, keep_wide: bool = False) -> None:
+    def _add_mono_raw(table: MonoRawTable, start_up: bool = False) -> None:
         """One (MONO, RAW) reading for the edge map: RAW read either side of MONO, and
         paired by their midpoint, so the pair is one instant whatever a clock read costs,
         as `_set_bracketed` brackets the lead edge. Read back to back, RAW would lie one
         read after MONO and every edge that far late. A bracket wider than
-        MONO_RAW_BRACKET_MAX_NS is dropped unless `keep_wide`. `add` never raises
-        (wl_sync/clockmap.py:106-118)."""
+        MONO_RAW_BRACKET_MAX_NS is dropped, except at `start_up`, whose reading is kept
+        however wide and provisional, replaced by the next one kept (Ruling R33). `add`
+        never raises (wl_sync/clockmap.py:108-122)."""
         raw_before = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
         mono = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         raw_after = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
-        if raw_after - raw_before > MONO_RAW_BRACKET_MAX_NS and not keep_wide:
+        if raw_after - raw_before > MONO_RAW_BRACKET_MAX_NS and not start_up:
             return
-        table.add(mono, (raw_before + raw_after) // 2)
+        table.add(mono, (raw_before + raw_after) // 2, provisional=start_up)
 
     def delivered_through(self) -> dict[str, int | None]:
         """How far each capture path started has delivered (`SyncBackend`), as each pump
@@ -1315,7 +1329,7 @@ class Rp1Backend:
         R24 and R26 amend it).
 
         WHY. Below FIT_FREE_SLOPE_PAIRS the line runs through the newest pair at the seed
-        slope, and only a matched pair moves it (wl_sync/clockmap.py:150-159). A wrong
+        slope, and only a matched pair moves it (wl_sync/clockmap.py:154-163). A wrong
         stamp that became the anchor, or misses for longer than LEAD_STAMP_TOLERANCE over
         the slope's error, leave every later lead edge outside its window, and no pair
         comes to correct the line. Past the 30th pair one far pair barely moves a line

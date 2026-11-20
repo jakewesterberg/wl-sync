@@ -77,16 +77,20 @@ def test_a_table_with_no_reading_refuses():
 
 def test_the_table_keeps_only_its_newest_readings():
     """Ruling R31: what falls before the kept readings is extrapolated at their own
-    slope, first to last, where it was the first two's."""
-    # RAW keeps pace with MONO to the third reading, then gains 3 us a second.
+    slope, first to last, where it was the first two's. The kept readings are not on one
+    line (Ruling R33, Minor 1), so one reading more or fewer kept gives another answer:
+    on a line, keeping three gave the same as keeping four."""
+    # RAW keeps pace with MONO to the third reading, then gains 4, 2 and 3 us a second.
     readings = [
-        (0, 0), (S, S), (2 * S, 2 * S), (3 * S, 3 * S + 3_000),
+        (0, 0), (S, S), (2 * S, 2 * S), (3 * S, 3 * S + 4_000),
         (4 * S, 4 * S + 6_000), (5 * S, 5 * S + 9_000),
     ]
-    table = table_of(*readings, keep=4)
     # The oldest two are gone, so a second before the third reading is extrapolated at
-    # the kept readings' 3 ppm.
-    assert table.raw_of(S) == S - 3_000
+    # the kept readings' 3 ppm, third to sixth.
+    assert table_of(*readings, keep=4).raw_of(S) == S - 3_000
+    # Three kept, the slope is the last three's 2.5 ppm; five, S lies inside the table.
+    assert table_of(*readings, keep=3).raw_of(S) == S - 1_000
+    assert table_of(*readings, keep=5).raw_of(S) == S
     assert table_of(*readings).raw_of(S) == S
 
 
@@ -124,6 +128,32 @@ def test_a_repeated_mono_reading_replaces_the_last():
     table = table_of((0, 0), (10, 10), (10, 12))
     assert table.raw_of(5) == 6
 
+
+def test_a_provisional_reading_is_replaced_by_the_next_one_added():
+    """Ruling R33, Important 1. The backend's start-up reading is kept however wide, as an
+    empty table places no edge, so it is provisional: the next reading replaces it, and it
+    never sets the slope of a table that spans a second. Here it was read 300 us off, the
+    next is true, and so is every later extrapolation. Kept, it bent the table's slope:
+    an edge 2 s after the last reading came out 300 us off times 2 s over 3 s."""
+    table = MonoRawTable()
+    table.add(100, 300_100, provisional=True)
+    assert table.raw_of(10_000) == 310_000  # alone, it places edges
+    table.add(5, 500)  # MONO went back: ignored, and the provisional reading stands
+    assert table.raw_of(10_000) == 310_000
+    table.add(S, S)
+    assert table.raw_of(S + 10_000) == S + 10_000  # replaced
+    table.add(3 * S, 3 * S)
+    assert table.raw_of(5 * S) == 5 * S
+    assert table.raw_of(0) == 0  # before the table, at its own slope, 1
+
+
+def test_a_reading_after_one_kept_is_not_provisional():
+    """Only the reading added as provisional is replaced; the one that replaced it stays."""
+    table = MonoRawTable()
+    table.add(0, 300_000, provisional=True)
+    table.add(S, S)
+    table.add(3 * S, 3 * S + 6_000)
+    assert table.raw_of(2 * S) == 2 * S + 3_000  # interpolated between the two kept
 
 def test_before_any_pair_raw_maps_through_the_origin_at_the_seeded_ratio():
     fit = RawToP(5_000_000, 50_000)

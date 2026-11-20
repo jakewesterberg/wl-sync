@@ -56,7 +56,7 @@ class CaptureLoss:
         at the highest tick the path has delivered and has no end.
       * `span_us`: how far before `after` the last record known to precede the loss lies,
         in `after`'s counts: MONO us in a split process, P counts at the fit's ratio on one
-        count (wl_sync/clockmap.py:265-269). None when no such record is known. A DISTANCE,
+        count (wl_sync/clockmap.py:269-273). None when no such record is known. A DISTANCE,
         NOT A TICK, because that record can be any age: a line quiet for hours, then an
         overflow. Raw, a tick over half a wrap old is placed a wrap off; `after` is recent.
       * `ahead`: the loss is reported just before the record at `after`, which the
@@ -104,11 +104,11 @@ class StampLag:
 # No stamp at all up to the frame's end.
 STAMP_NOT_SEEN = "its lead edge was not stamped"
 # The start of the cause for a lead the frame's rises align on, outside the lead edge's
-# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1284-1289),
+# window (Ruling R26). The rest gives the distance (wl_sync/rp1/backend.py:1298-1303),
 # which differs frame to frame, so the run loop tells the kind by this.
 STAMP_TOO_FAR_PREFIX = "the stamp lies "
 # No frame can be matched, because the stamp machine never started (Ruling R15; a guard
-# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1252-1263).
+# since Task 1.10a) or its drain has stopped (R16) (wl_sync/rp1/backend.py:1266-1277).
 STAMPS_NOT_STARTED = "the stamp machine did not start"
 STAMPS_STOPPED = "the stamp drain stopped"
 # The frame's stamps align on no lead: too few of them lie on the frame's own rises

@@ -77,8 +77,9 @@ class _BoxClock:
     and `_origin_ns` together; `edge_tick_us` uses the same origin). So there is ONE
     wrap count, and `now()` is the only thing that has to observe it.
 
-    `now()` is `now_us()` unwrapped: it adds 2^32 whenever the raw reading is below the
-    previous one. `unwrap(raw)` returns the value congruent to `raw` mod 2^32 NEAREST to
+    `now()` is `now_us()` unwrapped: it adds 2^32 when the raw reading drops more than half
+    a wrap below the previous one, and holds a smaller drop at the previous (Ruling R32).
+    `unwrap(raw)` returns the value congruent to `raw` mod 2^32 NEAREST to
     `now()`. Nearest, not "at or before": W ticks come from the RP1 crystal while
     `now_us()` follows NTP-slewed CLOCK_MONOTONIC, so a tick can lie slightly AFTER the
     reading, and "at or before" would send it a whole wrap back. The two diverge by ppm
@@ -95,8 +96,9 @@ class _BoxClock:
     as a wrap. Here no per-record state is compared at all; each record is placed by its
     distance from `now()`, so interleaving cannot confuse it.
 
-    PRECONDITIONS. (1) `now()` is read at least once per 71.6 minutes, or a wrap goes
-    uncounted. Records read it, and the run loop reads it every frame (wl_sync/cli.py:887).
+    PRECONDITIONS. (1) `now()` is read at least once per 35.8 minutes, half a wrap, or a
+    wrap is held as a step back (R32) and goes uncounted. Records read it, and the run
+    loop reads it every frame (wl_sync/cli.py:887).
     (2) It must NOT read `now_us()` before capture starts, and it is deliberately not
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
@@ -126,8 +128,18 @@ class _BoxClock:
         self._previous_raw: int | None = None
 
     def _now_locked(self) -> int:
+        # Ruling R32. On one count `now_us()` is the fit's and can step BACK a few counts
+        # (a pair below the line; an R19 restart when the fit ran ahead). Only a drop of
+        # more than half a wrap is a wrap. A smaller drop is held: the previous reading
+        # is returned and kept, so no record goes back, and no false wrap puts every
+        # later record 71.6 min late. A true wrap read more than half a wrap after the
+        # reading before it would be held as well; the run loop's per-frame read
+        # (precondition (1)) keeps reads far closer than that.
         raw = self._now_us()
-        if self._previous_raw is not None and raw < self._previous_raw:
+        previous = self._previous_raw
+        if previous is not None and raw < previous:
+            if previous - raw <= TICK_WRAP_US // 2:
+                return previous + self._offset
             self._offset += TICK_WRAP_US
         self._previous_raw = raw
         return raw + self._offset

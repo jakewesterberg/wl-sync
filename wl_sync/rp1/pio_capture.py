@@ -155,7 +155,7 @@ class WordPump:
         self._data_count = data_count
         # The held error, written on the pump's thread and taken on the run loop's
         # (`take_error`): both under `_held`, so a take cannot clear one held between its
-        # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:980-990).
+        # read and its clear, as for EdgePump's (wl_sync/rp1/gpio.py:984-994).
         self._held = threading.Lock()
         self.error: BaseException | None = None
         self.delivered_through: int | None = None

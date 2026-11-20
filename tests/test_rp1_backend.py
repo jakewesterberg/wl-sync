@@ -1936,15 +1936,16 @@ def test_the_edge_thread_reads_mono_and_raw_together_on_every_pass(lib, gpiod, m
     look, the edge thread reads (MONO, RAW) for the edge map's table. RAW is read either
     side of MONO and paired by its midpoint, so the pair is one instant whatever a clock
     read costs, and a wide bracket is dropped (Ruling R31). start_edge_capture adds the
-    first, on its caller's thread, before the edge thread exists."""
+    first, on its caller's thread, before the edge thread exists, as provisional: the edge
+    thread's first narrow reading replaces it (Ruling R33, Important 1)."""
     from wl_sync import clockmap
 
     added = []
 
     class _Table(clockmap.MonoRawTable):
-        def add(self, mono_ns, raw_ns):
-            added.append((threading.current_thread().name, mono_ns, raw_ns))
-            super().add(mono_ns, raw_ns)
+        def add(self, mono_ns, raw_ns, *, provisional=False):
+            added.append((threading.current_thread().name, mono_ns, raw_ns, provisional))
+            super().add(mono_ns, raw_ns, provisional=provisional)
 
     monkeypatch.setattr(rp1, "MonoRawTable", _Table)
     reads = _clock_reads(monkeypatch)
@@ -1969,16 +1970,21 @@ def test_the_edge_thread_reads_mono_and_raw_together_on_every_pass(lib, gpiod, m
         assert (first, middle, last) == ("RAW", "MONO", "RAW"), edge[i - 3:i + 1]
         if raw_after - raw_before <= rp1.MONO_RAW_BRACKET_MAX_NS:
             taken.append((mono, (raw_before + raw_after) // 2))
-    assert [(mono, raw) for thread, mono, raw in added[1:]] == taken
-    assert {thread for thread, _, _ in added[1:]} == {"wl-sync-edges"}
+    assert [(mono, raw) for thread, mono, raw, _ in added[1:]] == taken
+    assert {thread for thread, _, _, _ in added[1:]} == {"wl-sync-edges"}
+    assert [provisional for _, _, _, provisional in added] == [True] + [False] * len(taken)
     assert added[0][0] == threading.current_thread().name
+    assert taken, "no narrow reading: nothing replaced the start-up one"
+    assert list(backend._edge_table._readings)[0] == taken[0]
 
 
 def test_a_mono_raw_reading_with_a_wide_bracket_is_dropped(monkeypatch):
     """Ruling R31. A RAW bracket wider than MONO_RAW_BRACKET_MAX_NS was interrupted, and its
     midpoint can be half of it off, so the reading is dropped: here 60 us wide, which would
     have put the pair 30 us off. Start-up's reading is kept however wide, since an empty
-    table places no edge."""
+    table places no edge, and provisional: a wide reading after it is dropped and leaves
+    it standing, and the first narrow one replaces it (Ruling R33, Important 1). Kept, it
+    stayed the table's first reading for about 5 s and set its whole slope."""
     from wl_sync.clockmap import MonoRawTable
 
     reads = []
@@ -1990,16 +1996,19 @@ def test_a_mono_raw_reading_with_a_wide_bracket_is_dropped(monkeypatch):
     assert rp1.MONO_RAW_BRACKET_MAX_NS == 50_000
     table = MonoRawTable()
     # RAW, MONO, RAW, in microseconds: MONO runs 1 000 000 us behind RAW.
-    for raw_before, mono, raw_after, keep_wide in (
-        (2_000_000, 1_000_020, 2_000_040, False),  # 40 us: kept
-        (4_000_000, 3_000_020, 4_000_060, False),  # 60 us: dropped
-        (4_100_000, 3_100_020, 4_100_060, True),   # 60 us at start-up: kept
+    for raw_before, mono, raw_after, start_up, kept in (
+        (2_000_000, 1_000_020, 2_000_060, True, [(1_000_020, 2_000_030)]),  # 60 us, start-up
+        (3_000_000, 2_000_020, 3_000_060, False, [(1_000_020, 2_000_030)]),  # 60 us: dropped
+        (4_000_000, 3_000_020, 4_000_040, False, [(3_000_020, 4_000_020)]),  # 40 us: replaces
+        (5_000_000, 4_000_020, 5_000_060, False, [(3_000_020, 4_000_020)]),  # 60 us: dropped
+        (6_000_000, 5_000_020, 6_000_040, False,  # 40 us: kept beside it
+         [(3_000_020, 4_000_020), (5_000_020, 6_000_020)]),
     ):
         reads[:] = [raw_before * 1_000, mono * 1_000, raw_after * 1_000]
-        rp1.Rp1Backend._add_mono_raw(table, keep_wide=keep_wide)
-    assert list(table._readings) == [
-        (1_000_020_000, 2_000_020_000), (3_100_020_000, 4_100_030_000),
-    ]
+        rp1.Rp1Backend._add_mono_raw(table, start_up=start_up)
+        assert list(table._readings) == [
+            (mono_us * 1_000, raw_us * 1_000) for mono_us, raw_us in kept
+        ], (raw_before, start_up)
 
 
 def test_a_split_process_counts_edges_from_the_monotonic_origin_as_today(
@@ -2007,7 +2016,12 @@ def test_a_split_process_counts_edges_from_the_monotonic_origin_as_today(
 ):
     """A process whose stamp machine failed its start-up test (Task 1.10a) has no fit to map
     through: an edge stamped 1 500 us after the origin is delivered at 1 500, and the edge
-    thread reads MONO alone, for the now_us() its marks are on."""
+    thread reads MONO alone, for the now_us() its marks are on.
+
+    Coverage: split is today's arithmetic, so this passed before Task 1.11 and was never
+    red. It pins that one count left split alone. Two mutants fail it (Ruling R33,
+    Minor 6): a split process that takes (MONO, RAW) readings, as one count does, and one
+    that counts from an origin 1 ms late."""
     reads = _clock_reads(monkeypatch)
     seen = []
     backend = Rp1Backend()
@@ -2111,7 +2125,7 @@ def test_a_full_fifo_reaches_the_journal_but_not_the_segment(lib, gpiod, tmp_pat
 def test_an_edge_overflow_reaches_the_segment_as_a_loss_record(lib, gpiod, tmp_path, split):
     """In a split process the window's start is the edge before's tick, exactly. On one
     count it is `after` less a span at the fit's ratio, rounded once where the two edges'
-    mapped ticks round twice (wl_sync/clockmap.py:265-269), so it is within a count."""
+    mapped ticks round twice (wl_sync/clockmap.py:269-273), so it is within a count."""
     import types
 
     from wl_sync.log import Edge, Loss, read_log
@@ -2616,7 +2630,10 @@ def test_with_no_stamp_machine_check_health_does_not_report_it_again(lib, gpiod,
 def _start(backend, path):
     """Start one capture path: the strobed words, or the edges. On one count the edges map
     through the fit the strobed start makes, so they cannot start alone
-    (`start_edge_capture`), and the words start first, as run() starts them."""
+    (`start_edge_capture`), and the words start first, as run() starts them. So a one-count
+    [edges] leg repeats its [strobed] leg, whose start has already fixed the mode, and adds
+    only that starting edges after it changes nothing (Ruling R33, Minor 7). Only a split
+    [edges] leg starts the edges alone."""
     if path == "strobed" or not backend._split:
         backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
     if path == "edges":
@@ -2657,7 +2674,8 @@ def test_now_us_runs_at_the_pio_rate_once_pairs_are_fitted(lib, gpiod, crystals)
 def test_a_calibration_applied_after_capture_started_is_refused(lib, gpiod, split, path):
     """One rate for the whole process (spec §2.2): ticks already placed are at the rate
     they had, so a later one would bend the clock between them. Refused in either mode,
-    and the timebase the headers already carry stands."""
+    and the timebase the headers already carry stands. The one-count [edges] leg repeats
+    [strobed] (`_start`)."""
     backend = Rp1Backend()
     if split:
         backend._fall_back_to_split("x")
@@ -2782,7 +2800,8 @@ def test_a_split_process_stamps_b_from_the_clock_read_before_the_frame(
 @pytest.mark.parametrize("path", ["strobed", "edges"])
 def test_falling_back_after_capture_started_is_refused(lib, gpiod, path):
     """The mode is the process's: now_us() counts P on one count and MONO on split, and a
-    path already started reads one of them."""
+    path already started reads one of them. Both legs run on one count, so [edges]
+    repeats [strobed] (`_start`)."""
     backend = Rp1Backend()
     _start(backend, path)
     try:
@@ -2924,7 +2943,7 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
 
 
 # Ruling R19: the fit finds the lead edges again. Below FIT_FREE_SLOPE_PAIRS only a matched
-# pair moves the fit (wl_sync/clockmap.py:150-159), so a fit that has lost the lead edges
+# pair moves the fit (wl_sync/clockmap.py:154-163), so a fit that has lost the lead edges
 # gets no pair to correct it. Three shifted frames in a row, their offsets agreeing,
 # restart it.
 

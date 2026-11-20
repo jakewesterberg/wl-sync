@@ -1789,7 +1789,10 @@ def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     """Review Focus 3. A fit update between two GPIO20 edges maps the second 3 counts
     before the first. Each line's E records are in tick order (wl_sync/log.py:382-385), so
     it is delivered at the first one's tick. GPIO21's edge at that same 497 has no edge
-    of its own line before it, and lands where it is mapped."""
+    of its own line before it, and lands where it is mapped. A third GPIO20 edge mapped to
+    498 is still behind the 500 delivered, so it is delivered at 500 too: the guard keeps
+    the tick it delivered, not the one it was mapped to (Ruling R33, Minor 2: kept as
+    mapped, 497, the third went out at 498, below the 500 before it)."""
     seen = []
     timebase = _Timebase()
     pump = EdgePump(lambda g, l, t: seen.append((g, t)), timebase=timebase)
@@ -1799,12 +1802,14 @@ def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     assert pump.handle(
         [_ev(2, 20, 2, False, 40_010), _ev(3, 21, 1, True, 40_010)], read_at=45_100
     )
-    assert seen == [(20, 500), (20, 500), (21, 497)]
+    timebase.offset = 498 - 40_020  # and moves a little forward again
+    assert pump.handle([_ev(4, 20, 3, True, 40_020)], read_at=45_200)
+    assert seen == [(20, 500), (20, 500), (21, 497), (20, 500)]
 
 
 def test_a_loss_windows_span_comes_from_the_timebase():
     """The window's start is a distance back from `after` (CaptureLoss), which on one count
-    is P counts at the fit's ratio, not MONO us (wl_sync/clockmap.py:265-269)."""
+    is P counts at the fit's ratio, not MONO us (wl_sync/clockmap.py:269-273)."""
     losses = []
     timebase = _Timebase(span=lambda after_ns, before_ns: 12_345)
     pump = EdgePump(lambda *_: None, on_loss=losses.append, timebase=timebase)
@@ -1858,7 +1863,7 @@ def test_origin_ns_is_shorthand_for_the_monotonic_origin():
 
 def test_the_witness_skips_an_edge_its_timebase_cannot_place():
     """As it skipped an edge before the MONO origin: MappedTimebase refuses a RAW before
-    its origin, and a P below 0, with ValueError (wl_sync/clockmap.py:246-262)."""
+    its origin, and a P below 0, with ValueError (wl_sync/clockmap.py:250-266)."""
 
     def tick(ns):
         if ns < 100:
@@ -1870,6 +1875,36 @@ def test_the_witness_skips_an_edge_its_timebase_cannot_place():
     pump.pump_once(request, request.now_us)
     assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (None, 0)
 
+
+
+def test_the_witness_skips_an_edge_whose_tick_lies_after_the_read():
+    """Ruling R33, Important 2. On one count `tick` and `read_at` come from two maps, and
+    they can disagree by more than the real lag: a wide start-up reading, or a fit pair or
+    an R19 restart between `read_at` and the witness's own map. An edge mapped after the
+    read that returned it bounds no lag, so it is skipped. Taken mod 2^32, as it was, its
+    bound was about 2^32 (the review saw 4294966596): the run loop's WARNING fired
+    (wl_sync/cli.py:1278-1289) and the summary's maximum was spoiled
+    (wl_sync/cli.py:1295-1305)."""
+    request = _Request([[_edge(1, 40_000), _edge(2, 49_000)], [_edge(3, 49_500)]])
+    pump = EdgePump(lambda *_: None, timebase=_Timebase(lambda ns: ns // 1_000 + 2_000))
+    pump.pump_once(request, request.now_us)  # read at 50 000: ticks 42 000 and 51 000
+    assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (8_000, 0)
+    pump.pump_once(request, request.now_us)  # tick 51 500, after the read: nothing
+    assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (8_000, 0)
+
+    alone = EdgePump(lambda *_: None, timebase=_Timebase(lambda ns: ns // 1_000 + 2_000))
+    alone.pump_once(_Request([[_edge(1, 49_000)]]), lambda: 50_000)
+    assert (alone.stamp_lag_max_us, alone.stamp_lag_over) == (None, 0)
+
+
+def test_the_witness_bounds_a_lag_across_the_wrap():
+    """The bound is `_since(read_at, tick)`, so a read just after the 32-bit wrap still
+    bounds an edge mapped just before it by their real distance."""
+    from wl_sync.rp1.gpio import TICK_WRAP_US
+
+    pump = EdgePump(lambda *_: None, timebase=_Timebase(lambda ns: TICK_WRAP_US - 900))
+    pump.pump_once(_Request([[_edge(1, 40_000)]]), lambda: 100)
+    assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (1_000, 0)
 
 def test_a_line_quiet_for_more_than_half_a_wrap_is_never_clamped_to_a_stale_tick():
     """Ruling R30. The order guard compares two ticks with _since, which reads a difference
