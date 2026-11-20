@@ -136,12 +136,12 @@ and the box records anyway, with its barcodes timed as before the one-clock buil
 start-up` instead. `<cause>` is one of:
 
 - `the stamp machine did not start (errno N)`. EBUSY (16) is a PIO block with no free
-  state machine (`pio/wlsync_pio.c:215-217`).
+  state machine (`pio/wlsync_pio.c:216-218`).
 - `the test machine did not start (errno N)`.
 - `the sync enable was refused: the test machine stamped GPIO17's rise only when enabled
   alone` *(added 2026-11-20)*. Enabled in sync, the test machine stamped nothing; enabled
   the plain way, 0.5 s later, it stamped a second pulse. piolib discards a refused sync
-  enable's result (`pio/wlsync_pio.c:247-250`), so this is how the box sees one, and a box
+  enable's result (`pio/wlsync_pio.c:248-251`), so this is how the box sees one, and a box
   that refuses it would otherwise have recorded one count with every `B` dropped.
 - `no stamp when GPIO17 rose, enabled in sync or alone: the PIO does not see GPIO17 rise`:
   neither pulse was stamped. (Until 2026-11-20 this read `no stamp when GPIO17 rose`, after
@@ -177,7 +177,7 @@ after their sync enable, as they did in the spike (S.3b, 2026-11-07; `pinctrl` n
 run fails by design. A count of 0 means that machine did not run, or the pulls did not
 reach the pins. The start-up test sees a box that refuses the sync enable (above), but not
 a refusal of the production machines' own enable after the test's was obeyed: that one is
-invisible to the shim (`pio/wlsync_pio.c:247-250`), and only these toggles see it. It is
+invisible to the shim (`pio/wlsync_pio.c:248-251`), and only these toggles see it. It is
 the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:1071-1078`): the mask holds only
 machines the shim claimed, so it would be a transient failure of RP1's firmware, and every
 `B` of that process would be dropped with its ERROR until a restart. The toggles also need
@@ -194,9 +194,15 @@ capture machine cannot be configured, the journal has, once, at start
     event-code capture cannot run (<cause>): this process records timebase split with no W records, and B and E on CLOCK_MONOTONIC, until a restart starts the capture machine
 
 (`wl_sync/rp1/backend.py:548-566`). `<cause>` is the load's own message (`libwlsync_pio not
-found (...)`, or `libwlsync_pio is version N, and this wl-sync needs 3: rebuild ...`, which
-names the rebuild), `opening PIO block 0 failed: errno N`, or `the capture machine did not
-start (errno N)` (`wl_sync/rp1/backend.py:600`, `:604`, `:638`). If the capture machine
+found (...)`, or `libwlsync_pio is version N, and this wl-sync needs 4: rebuild ...`, which
+names the rebuild), `opening PIO block 0 failed: errno N`, `the capture machine did not
+start (errno N)` (`wl_sync/rp1/backend.py:600`, `:604`, `:638`), or, since 2026-11-20,
+`the capture machine's RX FIFO cannot be measured (depth D, level L): the code-word pairing
+is proven from both` (`:643-648`). In that last, a negative level is the shim's errno:
+`level -9` (EBADF) means it did not find piolib's descriptor for the block, the likeliest
+cause a piolib other than the pinned one (`pio/wlsync_pio.c:54-67`), and `level -5` (EIO)
+that the kernel's answer was refused (`pio/wlsync_fifo_state.h`). A depth that is not even
+and at least 2 is piolib's own answer, and is refused too. If the capture machine
 was configured and cannot be enabled when capture starts, in a split process, it is
 
     event-code capture could not start (enabling the state machine failed: errno N): this process records no W records, and B and E go on, on CLOCK_MONOTONIC, until a restart starts the capture machine

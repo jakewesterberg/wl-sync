@@ -1321,7 +1321,7 @@ _DROP_ADVICE = {
         "wl_sync.bench stamps shows whether the stamp machine still sees GPIO17"
     ),
     # Ruling R15, a guard now that such a process records split (Task 1.10a). The start
-    # fails with EBUSY when the block has no unused state machine (pio/wlsync_pio.c:215-217);
+    # fails with EBUSY when the block has no unused state machine (pio/wlsync_pio.c:216-218);
     # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:667-680).
     STAMPS_NOT_STARTED: (
         "the stamp machine did not start; restart once nothing else holds the PIO "

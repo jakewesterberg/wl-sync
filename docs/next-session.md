@@ -112,7 +112,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 4** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:589-596`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:595-602`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
 (libwlsync_pio is version N, and this wl-sync needs 4: rebuild ...)` names the rebuild.
 *[2026-11-20: version 4, Task 1.20's fix round (Ruling R40): a level read that can fail
@@ -123,7 +123,7 @@ visibly, and the FIFO's depth from piolib.]*
 when the drain's own FIFO counts prove it whole (`wl_sync/rp1/pio_capture.py:170-335`). The
 proof holds given these:
 - **B-1. The FIFO's depth and join.** The start-up check now measures it
-  (`deploy/README.md:301-311`): the start-up INFO `the RX FIFO holds 16 words,
+  (`deploy/README.md:307-317`): the start-up INFO `the RX FIFO holds 16 words,
   measured at start-up: the code-word pairing counts on 16` says it passed. Confirm by hand
   once too: stop draining SM 0, send at least 20 strobes, and read the level. It must read 16.
 - **B-2. The level read is exact.** With a known strobe train and a deliberately slow drain,
@@ -198,7 +198,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses to use a shim that is not version 4, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:589-596`, `wl_sync/rp1/backend.py:262`).
+   (`deploy/README.md:595-602`, `wl_sync/rp1/backend.py:262`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -324,7 +324,7 @@ left, so no further panel connector fits. One fix-up came with it:
   pump pairs the stream again and goes on. It writes only the pairs the drain's own counts
   prove are one strobe's two words, and drops and counts every other word, as a `desync`
   L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:170-335`;
-  `deploy/README.md:268-288`).]*
+  `deploy/README.md:274-294`).]*
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
     out, so a thread could still be inside piolib.

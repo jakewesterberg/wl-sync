@@ -31,6 +31,7 @@
 
 #include "piolib.h"
 #include "rp1_pio_if.h"
+#include "wlsync_fifo_state.h"
 
 static PIO g_pio;
 /* The block's device descriptor, piolib's own, for the checked level read
@@ -274,9 +275,9 @@ int wlsync_sm_set_enabled(unsigned sm, int enabled)
  * wrapper never sets the error pio_get_error reads (:247-260). So a failed read was a
  * level of 0, and a level read low is the one thing the word pump's proof cannot survive
  * (wl_sync/rp1/pio_capture.py, CodeWordPairer). This issues the same message itself
- * (PIO_IOC_SM_FIFO_STATE), with the level seeded to a value no FIFO holds, and refuses an
- * answer that left it there or that contradicts its own empty flag, which piolib's own
- * empty test reads from the same message (pio_rp1.c:573-580). */
+ * (PIO_IOC_SM_FIFO_STATE), with every answer field seeded to a value none can take, and
+ * refuses an answer that left a seed in place or whose empty flag contradicts its level
+ * (wlsync_fifo_state.h, which tests/test_rp1_backend.py compiles and runs on its own). */
 int wlsync_sm_rx_level(unsigned sm)
 {
     if (g_pio == NULL)
@@ -284,13 +285,12 @@ int wlsync_sm_rx_level(unsigned sm)
     if (g_fd < 0)
         return -EBADF;
     struct rp1_pio_sm_fifo_state_args args = {
-        .sm = (uint16_t)sm, .tx = 0, .level = 0xFFFF, .empty = 0xFF, .full = 0xFF,
+        .sm = (uint16_t)sm, .tx = 0, .level = WLSYNC_LEVEL_SEED, .empty = WLSYNC_FLAG_SEED,
+        .full = WLSYNC_FLAG_SEED,
     };
     if (ioctl(g_fd, PIO_IOC_SM_FIFO_STATE, &args) < 0)
         return errno > 0 ? -errno : -EIO;
-    if (args.level == 0xFFFF || args.empty > 1 || (args.empty != 0) != (args.level == 0))
-        return -EIO;
-    return args.level;
+    return wlsync_fifo_state_level(args.level, args.empty, args.full);
 }
 
 /* The depth of the RX FIFO of every machine this shim configures: piolib's per-direction

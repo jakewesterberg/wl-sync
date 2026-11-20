@@ -54,7 +54,7 @@ class _FakeShim:
     `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
     each sync enable, where the PIO's count starts (`crystals`), the last one winning.
     `refuse_sync` makes every sync enable a refused one (C-7): it returns 0, as the shim
-    does when piolib discards the refusal (pio/wlsync_pio.c:247-257), and runs nothing.
+    does when piolib discards the refusal (pio/wlsync_pio.c:248-258), and runs nothing.
     `sync_errno` and `open_result` are what the shim itself can return.
 
     EVERY FIFO IS RP1'S: `fifo_depth`, 8, a way (pio_rp1.c:985 at utils b57c48e), joined, so
@@ -68,7 +68,7 @@ class _FakeShim:
     (pio/wlsync_pio.c, `wlsync_sm_rx_level`).
 
     THE STAMP MACHINE'S FIFO: `stamp_depth` words, joined as
-    the shim configures it (pio/wlsync_pio.c:232). A word pushed to it
+    the shim configures it (pio/wlsync_pio.c:233). A word pushed to it
     full is dropped, as `push noblock` drops it, and counted in `stamp_dropped`, and
     `wlsync_sm_rx_full` reads it full, as `pio_sm_is_rx_fifo_full` reads FSTAT
     (pio/wlsync_pio.c:308). Until Task 1.15 it was unbounded (final review M11), so the
@@ -78,7 +78,7 @@ class _FakeShim:
     first call until it is set, as a pump the GIL keeps from running.
 
     SM 0'S FIFO TOO since Task 1.20: `word_depth` words, joined as the shim
-    configures it (pio/wlsync_pio.c:178), a word pushed to it full dropped and counted in
+    configures it (pio/wlsync_pio.c:179), a word pushed to it full dropped and counted in
     `word_dropped`, and `wlsync_sm_rx_full` reading it full as it reads SM 1's, or when
     `full` is set. `word_gate`, an Event, holds the word drain at its first call until it
     is set, and `word_held` is set once a drain waits there. Together they make the fault
@@ -641,7 +641,7 @@ def test_a_test_machine_that_cannot_be_switched_falls_back_and_never_raises(
     """A disable that fails after a pass fails the test too: the block refused a call the
     production machines need, and the test machine may still be running. Since Task 1.16
     the test machine is enabled through the sync enable, whose one errno is the shim's
-    own (pio/wlsync_pio.c:251-257); this test enabled it through wlsync_sm_set_enabled
+    own (pio/wlsync_pio.c:252-258); this test enabled it through wlsync_sm_set_enabled
     until then."""
     if on:
         lib.sync_errno[0x4] = 19
@@ -865,7 +865,7 @@ def test_each_read_of_the_test_fifo_waits_out_the_settle(lib, gpiod, monkeypatch
 @pytest.mark.parametrize("fault", ["encoders", "clk_sys"])
 def test_a_block_that_cannot_be_trusted_closes_before_raising(lib, fault, monkeypatch):
     """The shim's open overwrites the block it holds without closing it
-    (pio/wlsync_pio.c:76-93), so a caller that retried would leak a block a try. These
+    (pio/wlsync_pio.c:77-94), so a caller that retried would leak a block a try. These
     two still raise (Task 1.16, the user's ruling on its Q3): an encoding that disagrees
     would put wrong ticks in every W, and an impossible clk_sys would scale every tick by
     it. A capture machine that cannot be configured no longer raises: see below."""
@@ -1014,7 +1014,7 @@ def test_machines_that_cannot_be_enabled_in_sync_record_on_without_w_or_b(
     lib, gpiod, caplog
 ):
     """On one count, at capture's start. The shim returns an errno here only with no block
-    open (pio/wlsync_pio.c:251-257), which a backend that opened one does not reach; if
+    open (pio/wlsync_pio.c:252-258), which a backend that opened one does not reach; if
     it did, the process records on: E through the fit, extrapolated, and every B dropped
     as not stamped, with W reported by the health check."""
     from wl_sync.backend import STAMPS_NOT_STARTED, CaptureDegraded, FrameStamp
@@ -1200,6 +1200,62 @@ def _c_prototype(text, name):
         assert found, f"cannot read parameter {parameter.strip()!r} of {name}"
         names.append(found.group(1))
     return names
+
+
+# (level, empty, full) as the kernel answers PIO_IOC_SM_FIFO_STATE, and what the shim makes
+# of it: the level, or -EIO (5).
+_FIFO_STATE_CASES = [
+    ((0, 1, 0), 0),            # empty
+    ((5, 0, 0), 5),
+    ((16, 0, 1), 16),          # a full joined FIFO
+    ((0, 1 << 2, 0), 0),       # empty answered as a mask, 1 << sm, for the test machine
+    ((3, 1 << 1, 0), -5),      # ... and contradicting its level
+    ((0, 0, 0), -5),           # a level of 0 that is not empty
+    ((7, 1, 0), -5),           # empty, with words in it
+    ((0xFFFF, 1, 0), -5),      # the level never written
+    ((0, 0xFF, 0), -5),        # empty never written
+    ((4, 0, 0xFF), -5),        # full never written
+]
+
+
+def test_the_shim_takes_any_answer_but_its_own_seed_and_a_contradiction(tmp_path):
+    """The shim's check of the kernel's FIFO-state answer (pio/wlsync_fifo_state.h, used by
+    wlsync_sm_rx_level), compiled with the host's C compiler and run, since the shim itself
+    cannot run off the box. A field still holding its seed was not answered, and an empty
+    flag that contradicts the level is refused; ANY OTHER VALUE IS AN ANSWER (Task 1.20 fix
+    round 2, the re-review's N-M1). The check once refused an `empty` other than 0 or 1, so
+    a firmware that answers it as a bit mask, as piolib's own `bool` would accept
+    (pio_rp1.c:573-580 at utils b57c48e), would have failed every read of every machine but
+    SM 0: the start-up test would fail, and one count would be lost on the box."""
+    import shutil
+    import subprocess
+
+    cc = shutil.which("cc") or shutil.which("gcc") or shutil.which("clang")
+    if cc is None:
+        pytest.skip("no C compiler on this host")
+    header = _C_SOURCE.parent / "wlsync_fifo_state.h"
+    cases = "".join(
+        f'    printf("%d\\n", wlsync_fifo_state_level({a}u, {b}u, {c}u));\n'
+        for (a, b, c), _ in _FIFO_STATE_CASES
+    )
+    source = tmp_path / "harness.c"
+    source.write_text(
+        f'#include <stdio.h>\n#include "{header}"\nint main(void)\n{{\n{cases}'
+        "    return 0;\n}\n"
+    )
+    binary = tmp_path / "harness"
+    subprocess.run([cc, "-Wall", "-Wextra", "-Werror", "-o", str(binary), str(source)],
+                   check=True)
+    got = [int(line) for line in subprocess.run(
+        [str(binary)], check=True, capture_output=True, text=True).stdout.split()]
+    assert got == [want for _, want in _FIFO_STATE_CASES], list(zip(_FIFO_STATE_CASES, got))
+
+
+def test_the_shim_uses_the_checked_answer():
+    """The shim's level read goes through the header the test above runs, not a copy."""
+    text = _C_SOURCE.read_text()
+    assert '#include "wlsync_fifo_state.h"' in text
+    assert "wlsync_fifo_state_level(args.level, args.empty, args.full)" in text
 
 
 def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature():

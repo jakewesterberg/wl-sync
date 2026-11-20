@@ -143,7 +143,7 @@ def pair_stamps(
 
 # The depth a WordPump counts on when not told one: 8, RP1's per-direction depth
 # (pio_rp1.c:985 at utils b57c48e), the least its RX FIFO holds whether or not the join
-# (pio/wlsync_pio.c:178) took. It once said "both 4-deep FIFOs joined", RP2040's numbers
+# (pio/wlsync_pio.c:179) took. It once said "both 4-deep FIFOs joined", RP2040's numbers
 # (review I1). The backend passes the depth it measured at start-up, 16 joined
 # (Rp1Backend._measure_fifo_depth). Told less than the FIFO holds, the pairing errs safe;
 # told more, it does not (tests/test_pio_capture.py, the told-deeper test).
