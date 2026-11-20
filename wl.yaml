@@ -44,17 +44,17 @@ status:
     they count RP1's crystal ("rp1-pio"). A process whose stamp machine fails
     its start-up test records "split", as before. A frame whose lead edge is
     not stamped loses its B, with a journal ERROR. The header's schema is
-    unchanged. The shim must be rebuilt (version 3). 1056 tests on local main.
-    I1 (Task 1.15) is built and reviewed on branch one-clock-p1, its review's
-    minors fixed, and not yet merged (1084 tests there): a desynced stamp
+    unchanged. The shim must be rebuilt (version 3). I1 (Task 1.15) is built,
+    reviewed, its review's minors fixed, and merged to local main
+    (2026-11-20; 1084 tests): a desynced stamp
     stream is paired again rather than stopped, and the journal says, once an
     episode, when the fit has gone 20 frames without a lead-edge pair, so
     that E and roll boundaries are extrapolated.
   next: >-
     Pushing main waits for the user; then note 7 to wl-preproc
     (docs/pending-wl-preproc-amendments.md). I1 (the user's ruling,
-    2026-11-20) is built and reviewed on one-clock-p1 and waits for a merge
-    to local main; a fit lost beyond the restart's reach still drops every B
+    2026-11-20) is merged to local main, not pushed or deployed; a fit lost
+    beyond the restart's reach still drops every B
     until a restart, now with a WARNING. Before one count is deployed, the
     user rules on five more things
     the final review and earlier tasks left open: M2, the edge-order guard
@@ -74,7 +74,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "4a446d6"
+  describes: "fa4f821"
 
 runs_on: [rig/sync]
 builds_on: [dws]
