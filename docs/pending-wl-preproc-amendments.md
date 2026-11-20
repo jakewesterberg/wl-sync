@@ -33,7 +33,7 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 - **Note 7:** the one-clock build: two new `timebase` values, `"split"` kept as a fallback,
   and dropped `B`s.
 
-*Added 2026-11-20, not yet delivered:*
+*Added 2026-11-20, delivered 2026-11-20 (by message to the wl-preproc session):*
 
 - **Note 8:** a `desync` `L` record no longer ends a process's code words: `W` records follow
   it, and its count is what the box dropped.
@@ -485,8 +485,9 @@ The definitions are the `process_uuid`, `barcode_delay_us` and `timebase` docstr
 
 # NOTE — 8. A `desync` `L` record no longer ends a process's code words (2026-11-20, not an ask)
 
-**Not yet delivered.** It is wl-sync Task 1.20 and its review's fix round, built on wl-sync's
-`one-clock-p1` branch: not merged and not deployed. It corrects note 6's table of what each cause
+**Delivered 2026-11-20** by message to the wl-preproc session. It is wl-sync Task 1.20 and its
+review's fix rounds, merged to wl-sync `main` and pushed (`fc18551`); it is not deployed on one
+count (the box runs `--fake`, which does not capture code words). It corrects note 6's table of what each cause
 means, in its `desync` row (above). The claims about wl-sync were checked against the commit that
 adds this note.
 
