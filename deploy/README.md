@@ -26,11 +26,11 @@ label (`gpioinfo`):
 Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
 is for a process that records `"split"` alone (below). Such a process writes the flag into
-every header (`wl_sync/rp1/backend.py:594`; `wl_sync/cli.py:553-561`, `:570`), and N is
+every header (`wl_sync/rp1/backend.py:622`; `wl_sync/cli.py:553-561`, `:570`), and N is
 the loopback's median "lead edge after its logged tick" (`docs/next-session.md`, Step B),
 in whole µs, read from a segment whose header says `"split"`. On one count the backend
 stamps the lead edge itself and every header says `barcode_delay_us` 0: a flag given is
-not used, with a WARNING (`wl_sync/rp1/backend.py:383`; `wl_sync/cli.py:553-561`). There
+not used, with a WARNING (`wl_sync/rp1/backend.py:401`; `wl_sync/cli.py:553-561`). There
 the loopback's median is "E's constant (B6)" (`wl_sync/bench.py:91`), the edge input's
 own offset and not a barcode delay. Do not pass it as `--barcode-delay-us`: a later
 process that falls back to `"split"` would write it into every header. With no split
@@ -129,7 +129,7 @@ the rise, the journal has
     the stamp machine's start-up test failed (<cause>): this process records timebase split, with B and E on CLOCK_MONOTONIC and W on RP1's crystal, until a restart passes it
 
 and the box records anyway, with its barcodes timed as before the one-clock build
-(`wl_sync/rp1/backend.py:513-531`). A pass logs `the stamp machine saw GPIO17 rise at
+(`wl_sync/rp1/backend.py:541-559`). A pass logs `the stamp machine saw GPIO17 rise at
 start-up` instead. `<cause>` is one of:
 
 - `the stamp machine did not start (errno N)`. EBUSY (16) is a PIO block with no free
@@ -138,7 +138,7 @@ start-up` instead. `<cause>` is one of:
 - `no stamp when GPIO17 rose`: the test machine started, and no stamp came with the rise.
 - `the test could not run (...)`, with the error.
 
-(`wl_sync/rp1/backend.py:519`, `:668`, `:693`, `:695`.) To tell them apart, stop the
+(`wl_sync/rp1/backend.py:547`, `:696`, `:721`, `:723`.) To tell them apart, stop the
 service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
 
     ~/wl-sync-venv/bin/python -m wl_sync.bench stamps
@@ -174,6 +174,40 @@ device recorded the frame; this log has no B for it`, and a run of more than one
 `K barcodes dropped in a row, N to M: <advice>` (`wl_sync/cli.py:1383-1417`). Each run's
 end logs `barcodes: E emitted, D dropped this run`. `journalctl -u wl-sync -p err` shows
 the ERRORs. Advice that names `python -m wl_sync.bench stamps` means the checks above.
+
+**A desynced stamp stream is one ERROR, and stamping goes on** *(added 2026-11-20)*. When
+the stamp machine's FIFO fills and the drain runs between a pair's two pushes, one word is
+left alone and the pairing slips. The journal has
+
+    capture degraded, still recording: barcode stamping: the stamp FIFO lost a word, so its data/counter pairing slipped (a counter, 0x..., where a data word belongs): resynchronised on that counter, and stamping goes on; a frame whose lead edge's stamp was lost is dropped; N desync(s) this run
+
+once for each desync (`wl_sync/rp1/pio_capture.py:378-384`). A `WordsDroppedError`
+line for the full FIFO may come just before it. A frame whose lead edge's stamp was lost has
+its own `barcode N dropped` ERROR, and the frames after it are stamped. Each run's end on
+one count logs `barcode stamping: N desync(s) this run, each resynchronised`
+(`wl_sync/rp1/backend.py:1582-1583`). Until 2026-11-20 a desync stopped the stamp drain,
+and every later frame was dropped until a restart. `barcode stamping stopped` now means
+the drain itself failed, with its cause in the same ERROR, and a restart starts it again.
+
+**The journal says when E is extrapolated** *(added 2026-11-20)*. E ticks and roll
+boundaries are placed through the RAW→P fit, which a lead-edge pair moves once a frame.
+When no pair comes for 20 frames, or for 20 frames' time, the journal has
+
+    the RAW->P fit's last lead-edge pair is S s old, F frame(s) ago: E ticks and roll boundaries are extrapolated from it, drifting from P by the fit's slope error, until a lead edge is matched again
+
+once, at WARNING (`wl_sync/rp1/backend.py:1488-1493`). The edges are still written. Their
+error grows with the pair's age, by at most 5 ppm of it on a calibrated box before its
+slope is fitted, which is 100 us at 20 s (`EXTRAPOLATION_WARN_FRAMES`,
+`wl_sync/rp1/backend.py:125-141`). The episode ends with
+
+    a lead-edge pair reached the RAW->P fit again after F frame(s) without one: E ticks and roll boundaries had been extrapolated from a pair up to S s old
+
+or, if capture stops first, with `capture stopped F frame(s) after the RAW->P fit's last
+lead-edge pair: ...` (`:1467-1472`, `:1585-1592`). Both are WARNINGs, so `journalctl -u
+wl-sync -p warning` shows every episode's start and end. An episode that runs on while the
+`barcode N dropped` ERRORs say `their stamps lay outside the lead edges' windows` is a fit
+lost for good: the box does not restart itself (the user, 2026-11-20), and a restart
+between sessions starts a new fit at the sync enable.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
@@ -314,7 +348,7 @@ and never type an id by hand: the box mints every id, and a made-up one pairs wi
 18. The strobe and code lines, which the task PC drives for the capture program: hold the code
     at least 2.5 µs after raising the strobe, keep the strobe high at least 1 µs and low at
     least 1 µs, and rise at least 6 µs after the previous rise (the contract in
-    `wl_sync/rp1/backend.py:718-725`).
+    `wl_sync/rp1/backend.py:746-753`).
 
 ## Setting up the OS, once per box
 
@@ -461,7 +495,7 @@ reaches an hour, and every hour after (`wl_sync/cli.py:1550-1574`). A file is us
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal
 and its P/RAW ratio within ±1000 ppm (`wl_sync/calibration.py:235-258`). A process that
 records `"split"` neither applies nor writes one, and scales no tick: its `W` ticks count
-RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1415-1416`;
+RP1's crystal, and its `B` and `E` ticks CLOCK_MONOTONIC (`wl_sync/rp1/backend.py:1531-1532`;
 `wl_sync/log.py:217-226`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**

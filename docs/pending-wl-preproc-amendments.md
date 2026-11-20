@@ -418,7 +418,7 @@ The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
 not yet merged, pushed or deployed; the box's unit still runs `--fake`. The claims about wl-sync
 were checked against that branch at the commit that adds this note. The three points below are
 the one-clock spec's own list of consequences for wl-preproc (wl-sync
-`docs/superpowers/specs/2026-10-30-one-clock-design.md:614-620`). That spec read wl-preproc at
+`docs/superpowers/specs/2026-10-30-one-clock-design.md:618-624`). That spec read wl-preproc at
 `d48943c` (`:10-14`); nothing of wl-preproc was re-read for this note, so it says what wl-sync
 writes and asks nothing about how your reader works.
 

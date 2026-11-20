@@ -146,7 +146,7 @@ class SyncBoxLogHeader(BaseModel):
     (wl_sync/cli.py:977-983, :997). After it, it can: the frames after the roll can lose
     their `B`s too, and each one dropped widens the step by one, so one dropped after a
     skipped value makes it 3. The box's journal ERROR is then the only witness
-    (wl_sync/cli.py:1386-1391; docs/superpowers/specs/2026-10-30-one-clock-design.md:617-619).
+    (wl_sync/cli.py:1386-1391; docs/superpowers/specs/2026-10-30-one-clock-design.md:621-623).
 
     Records cross a roll as they cross any point in a file, ordered within each path
     (`ordering`). A roll waits up to 0.2 s for each capture path to deliver what it
@@ -188,7 +188,7 @@ class SyncBoxLogHeader(BaseModel):
     edge.
 
     EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
-    that frame, after its tick is read (wl_sync/rp1/backend.py:1173-1174, :1189-1194).
+    that frame, after its tick is read (wl_sync/rp1/backend.py:1217-1218, :1236-1241).
     Its lead edge then rises later by however long the request takes, which nothing
     measures. A process whose stamp machine started has normally taken the line already,
     for its start-up test (:654-661); one whose stamp machine did not start has not.
@@ -223,7 +223,7 @@ class SyncBoxLogHeader(BaseModel):
         it is also written by a process whose stamp machine failed its start-up test: it
         did not start, or it did not see GPIO17 rise. The start's journal ERROR names
         which, and the process records split until a restart passes the test
-        (wl_sync/rp1/backend.py:513-531).
+        (wl_sync/rp1/backend.py:541-559).
       * "fake": the test backend (`wl_sync.backend.FakeBackend`), which the box's unit
         runs until bench acceptance (`--fake`). No hardware clock is involved, and no
         capture path delivers anything real.
@@ -287,7 +287,7 @@ class BarcodeEmitted:
     `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
     (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
     stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
-    ended (wl_sync/rp1/backend.py:1234, :1323). In a split process, and before the
+    ended (wl_sync/rp1/backend.py:1281, :1375). In a split process, and before the
     build, it is the clock sampled BEFORE the frame is emitted (:1173-1176): reading it
     after emission would put this box's own alignment record 200 ms behind every device
     it is aligning.

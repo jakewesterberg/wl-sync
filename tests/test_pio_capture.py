@@ -159,16 +159,117 @@ def test_a_full_stamp_fifo_is_held_and_the_pump_continues():
     assert pump.take() == [10]
 
 
-def test_a_desynced_stamp_stream_is_held_and_stops_the_pump():
+def test_a_desynced_stamp_stream_is_resynchronised_on_its_counter_and_the_pump_goes_on():
     """A slipped pairing would read counters as data and data as counters: stamps for
-    edges that never happened. The batch is refused and the pump says to stop."""
+    edges that never happened. Until Task 1.15 the batch was refused and the pump
+    stopped, and every later B was dropped for the rest of the process (final review
+    I1). Now (the user's ruling, 2026-11-20) the word with bits above the data window,
+    which only a counter can have, is taken as the counter it is, the stream is paired
+    again from the word after it, and the pump goes on. The desync is held for
+    check_health once, and counted."""
     from wl_sync.rp1.pio_capture import StampPump
 
     pump = StampPump(data_count=DATA)
-    slipped = stream((10, 0), (20, 0))[1:] + [0]
-    assert pump.handle(slipped) is False
-    assert isinstance(pump.error, DesyncError)
-    assert pump.take() == []
+    slipped = stream((10, 0), (20, 0))[1:] + [0]  # 10's data word lost; 30's data last
+    assert pump.handle(slipped) is True
+    assert pump.take() == [10, 20]
+    error = pump.take_error()
+    assert isinstance(error, DesyncError)
+    assert "resynchronised" in str(error) and "1 desync(s) this run" in str(error)
+    assert pump.desyncs == 1 and not pump.stopped
+    # 30's data word was the batch's last, so it waits for its counter in the next.
+    assert pump.handle([(~30) & 0xFFFF_FFFF] + stream((40, 0))[:1]) is True
+    assert pump.take() == [30]
+    assert pump.handle([(~40) & 0xFFFF_FFFF, 0]) is True
+    assert pump.take() == [40]
+    assert pump.error is None and pump.desyncs == 1, "the stream was in phase again"
+
+
+def test_a_counter_left_alone_at_a_batchs_end_is_taken_as_a_counter():
+    """A batch's last word, with no partner, is carried as a data word only when it could
+    be one: bits above the window make it a counter, whose data word was lost, and it is
+    queued now. Carried, it would wait for the next drain while the mark this drain sets
+    said every stamp before it was queued."""
+    from wl_sync.rp1.pio_capture import StampPump
+
+    pump = StampPump(data_count=DATA)
+    assert pump.handle([(~5) & 0xFFFF_FFFF, 0]) is True  # 5's data lost; 10's data last
+    assert pump.take() == [5] and pump.desyncs == 1
+    assert pump.handle([(~10) & 0xFFFF_FFFF, (~20) & 0xFFFF_FFFF]) is True  # 20's lost
+    assert pump.take() == [10, 20] and pump.desyncs == 2
+    assert pump.handle(stream((30, 0))) is True
+    assert pump.take() == [30]
+
+
+def test_a_lone_data_word_costs_its_stamp_and_one_stamp_just_short_of_the_wrap():
+    """The other way a word is lost: a data word whose counter the full FIFO dropped. It
+    pairs with the next data word, read as a counter, and nothing in the layout can tell:
+    that is the blind spot pair_fifo has always had. The stamp read is 0xFFFFFFFF less a
+    16-bit data word, within 65.5 ms before P's wrap, where no frame lies unless P is
+    there (the backend's match places it, `tests/test_rp1_backend.py`). The counter after
+    it is where the slip shows, and the stream is paired again from there."""
+    from wl_sync.rp1.pio_capture import StampPump
+
+    pump = StampPump(data_count=DATA)
+    lone = stream((10, 0x0001)) + [0x0002] + stream((30, 0x0003), (40, 0x0004)) + [5]
+    assert pump.handle(lone[:4]) is True  # 20's counter lost
+    assert pump.handle(lone[4:]) is True
+    assert pump.take() == [10, 0xFFFF_FFFF - 0x0003, 30, 40]
+    assert pump.desyncs == 1
+
+
+def _fuzzed_streams(cases):
+    """`cases` streams of 6-12 stamps a few ms to a few s apart, P well clear of its wrap,
+    each with its own data words, one word lost at random, and cut into the even batches a
+    drain reads."""
+    import random
+
+    rng = random.Random(115)
+    for _ in range(cases):
+        tick = rng.randrange(1_000_000, 4_000_000_000)
+        events = []
+        for _ in range(rng.randrange(6, 13)):
+            tick += rng.randrange(10_000, 3_000_000)
+            events.append((tick, rng.randrange(1 << DATA)))
+        words = stream(*events)
+        lost = rng.randrange(len(words))
+        del words[lost]
+        batches, at = [], 0
+        while len(words) - at >= 2:
+            size = 2 * rng.randrange(1, 5)
+            batches.append(words[at:at + size])
+            at += len(batches[-1])
+            if len(batches[-1]) % 2:  # the drain reads an even number of words
+                batches[-1].pop()
+                at -= 1
+        yield events, lost, batches
+
+
+def test_after_a_lost_word_every_stamp_is_a_counter_the_machine_pushed_or_its_blind_spot():
+    """Fuzzed over the position of the lost word, and so over its phase. Every stamp is
+    either a counter the machine pushed, in order, or the lone-data-word stamp of the
+    test above, past 0xFFFF0000. At most the lost word's own stamp is missing, one
+    desync is counted when anything follows the slip, and the pump never stops."""
+    from wl_sync.rp1.pio_capture import StampPump
+
+    for events, lost, batches in _fuzzed_streams(400):
+        pump = StampPump(data_count=DATA)
+        for batch in batches:
+            assert pump.handle(batch) is True
+        taken = pump.take()
+        real = [tick for tick, _ in events]
+        genuine = [tick for tick in taken if tick < 0xFFFF_0000]
+        assert all(tick in real for tick in genuine), (lost, taken, real)
+        assert genuine == sorted(genuine), (lost, taken)
+        delivered = sum(len(batch) for batch in batches)
+        # Every pair wholly delivered, but the one the lost word belonged to.
+        whole = min(len(real), (delivered + 1) // 2)
+        assert len(genuine) >= whole - 1, (lost, taken, real, delivered)
+        assert len(taken) - len(genuine) <= 1, (lost, taken)
+        # The slip shows at the lost data word's counter, or at the counter after a lost
+        # counter: either way within two words of the loss.
+        assert pump.desyncs == (1 if lost + 2 <= delivered else pump.desyncs), lost
+        assert pump.desyncs <= 1 and not pump.stopped
 
 
 def test_stamps_through_follows_the_word_pumps_rule():

@@ -28,9 +28,11 @@ FIFO_WORD_BITS = 32
 class DesyncError(ValueError):
     """The FIFO stream stopped being a sequence of (data, counter) pairs.
 
-    Raised rather than repaired: once the pairing slips, every later word is
-    attributed to the wrong half, so a batch that cannot be trusted must not be
-    quietly turned into plausible timestamps.
+    Raised rather than repaired for code words: once the pairing slips, every later
+    word is attributed to the wrong half, so a batch that cannot be trusted must not be
+    quietly turned into plausible timestamps. Stamps are paired again instead, and the
+    stamp pump holds this to report it (`pair_stamps`, `StampPump`): a stamp is not a
+    record, and B is written only from one a frame's rises vouch for.
     """
 
 
@@ -78,6 +80,61 @@ def pair_fifo(entries: Sequence[int], data_count: int) -> list[tuple[int, int]]:
             )
         paired.append(((~counter) & 0xFFFF_FFFF, word))
     return paired
+
+
+def pair_stamps(
+    words: Sequence[int], data_count: int
+) -> tuple[list[int], list[int], list[int]]:
+    """The stamp machine's FIFO stream as stamps, PAIRED AGAIN WHERE A WORD WAS LOST
+    (Task 1.15; the user's ruling on final review I1, 2026-11-20). Returns the stamps (raw
+    32-bit P counts, in the order pushed), the words left for the next batch, and where
+    the stream slipped, as indices into `words`.
+
+    WHAT THE LAYOUT TELLS APART. A data word is `in pins, 16`, shifted in from the left
+    into an ISR that every push clears, so its bits above the window are always clear
+    (wl_sync/rp1/program.py:55-61, :87-101). A push to a full FIFO is dropped and still
+    clears the ISR (RP2040 datasheet §3.4.6.2 [unverified on RP1]), so a lost push leaves
+    no bits behind for the next data word. A counter is ~P, so its upper half is set
+    unless P lies within 2**16 us, 65.5 ms, before its 71.6-min wrap. A word with bits above
+    the window is therefore a counter, always. That is the check `pair_fifo` makes; here
+    it also gives the phase: such a word where a data word belongs is a counter whose
+    data word was lost, or which follows a lone data word, so it is taken as a stamp, and
+    the stream is in phase again from the word after it. Nothing is dropped to find the
+    phase.
+
+    WHAT IT CANNOT TELL APART, which is pair_fifo's blind spot too:
+      * A lone data word, its counter dropped, pairs with the next data word read as a
+        counter: one stamp at 0xFFFFFFFF less that 16-bit word, within 65.5 ms before P's
+        wrap. The slip shows at the next counter. Unwrapped near a frame anywhere else, it
+        lies before the frame and is counted between frames. Only a frame within those
+        65.5 ms of the wrap could take it for its lead, and only if the frame's other rises
+        align on it, each within LEAD_STAMP_TOLERANCE (wl_sync/clockmap.py:329-341), and
+        the 16-bit word happens to put it there: that B would be up to 1 ms off.
+      * Within those 65.5 ms a counter looks like data, so a slip there pairs words
+        wrongly until the first counter after the wrap, as above.
+
+    A batch's last word, unpaired, is left for the next batch when it can be a data word,
+    whose counter the drain has not read yet. When it is a counter it is taken now: the
+    drain's mark says every stamp before it is queued (`StampPump.stamps_through`).
+    """
+    if not 1 <= data_count < FIFO_WORD_BITS:
+        raise ValueError(f"data_count must be 1..{FIFO_WORD_BITS - 1}, got {data_count}")
+    above = ~((1 << data_count) - 1)
+    stamps: list[int] = []
+    slips: list[int] = []
+    index = 0
+    while index < len(words):
+        word = words[index]
+        if word & above:  # a counter where a data word belongs
+            slips.append(index)
+            stamps.append((~word) & 0xFFFF_FFFF)
+            index += 1
+        elif index + 1 < len(words):
+            stamps.append((~words[index + 1]) & 0xFFFF_FFFF)
+            index += 2
+        else:
+            break  # a data word, its counter not drained yet
+    return stamps, list(words[index:]), slips
 
 
 class WordsDroppedError(RuntimeError):
@@ -223,16 +280,29 @@ class StampPump:
     """Queues the stamp machine's stamps for `emit_pulses`, and survives what goes wrong.
 
     The stamp machine runs the capture program with GPIO0-15 as its data window, so its
-    FIFO carries the same (data, counter) pairs as the word machine's and each batch goes
-    through `pair_fifo`, whose upper-half check holds (spec §2.1,
+    FIFO carries the same (data, counter) pairs as the word machine's, and each batch is
+    paired by `pair_stamps`, which makes `pair_fifo`'s upper-half check (spec §2.1,
     docs/superpowers/specs/2026-10-30-one-clock-design.md:185). Only the counter is
     kept: the P count of a rising edge on the stamp pin, raw, 32 bits.
 
-    Failures are WordPump's, and are met the same way, except that nothing here is a
-    record. A FULL FIFO is held and the pump CONTINUES. A DESYNC is held, the batch is
-    refused, and the pump STOPS: `stopped` turns True, and `handle` returns False. There
-    is no consumer to fail, and no L record: stamps are not written, and the L format's
-    paths are W and E (wl_sync/log.py:362-363).
+    A FULL FIFO is held, as WordPump holds it, and the pump CONTINUES.
+
+    A DESYNC IS HELD AND THE PUMP CONTINUES, where WordPump stops (Task 1.15; the user's
+    ruling on final review I1, 2026-11-20). The stream is paired again on the counter
+    where the slip shows (`pair_stamps`), and the desync counted (`desyncs`). Until then a
+    desync stopped this pump, and every later B was dropped for the rest of the process,
+    though the fault, a full FIFO and a drain between a pair's two pushes, had passed. The
+    word pump refuses its batch and stops because a code word is a record, and a word
+    read as the wrong half would be a plausible event that never happened. A stamp is not
+    a record: B is written only from a stamp a frame's own rises align on
+    (wl_sync/clockmap.py:329-341), so the one stamp a slip can misread is refused there
+    unless its frame lies within 65.5 ms before P's wrap (`pair_stamps`), and a stamp lost
+    in it is a missed stamp, whose frame is dropped as an unstamped lead is.
+    It is held as WordPump holds its desync, so check_health reports it, an ERROR once per
+    desync (wl_sync/cli.py:1251-1270). No L record: stamps are not written, and the L
+    format's paths are W and E (wl_sync/log.py:362-363).
+
+    THE PUMP STOPS only when the drain itself fails (`stop`): `stopped` turns True.
 
     LOCKED, because it is shared across two threads: `handle` runs on the pump's, and
     `take`, `stamps_through`, `stopped` and `take_error` on the run loop's.
@@ -245,6 +315,16 @@ class StampPump:
         self._through: int | None = None
         self._error: BaseException | None = None
         self._stopped = False
+        # A data word whose counter the drain has not read yet (`pair_stamps`). The pump's
+        # thread alone touches it, in `handle`, so it is not under the lock.
+        self._carry: list[int] = []
+        self._desyncs = 0
+
+    @property
+    def desyncs(self) -> int:
+        """How many times the stream has slipped and been paired again, this process."""
+        with self._lock:
+            return self._desyncs
 
     @property
     def stamps_through(self) -> int | None:
@@ -270,11 +350,17 @@ class StampPump:
         fifo_was_full: bool = False,
         polled_at: int | None = None,
     ) -> bool:
-        """Queue one drained batch. Returns False when the pump should stop.
+        """Queue one drained batch. Returns True: since Task 1.15 nothing in a batch
+        stops the pump, a desync included (the class docstring).
 
-        `polled_at` is the P count read just before the drain looked at the FIFO, passed
-        only when the drain left no half pair behind, as for `WordPump.handle`. It is on
-        P, not on `now_us()`: the frame's end it is compared with is a P count.
+        `polled_at` is the P count read just before the drain looked at the FIFO. The
+        stamp drain reads every word the FIFO holds and passes it at every look
+        (wl_sync/rp1/backend.py `drain_stamps`), where WordPump's is passed only when its
+        drain left no half pair behind. It is on P, not on `now_us()`: the frame's end it
+        is compared with is a P count. Every stamp it marks is queued, however the stream
+        was paired: a data word carried to the next batch had no counter in the FIFO at
+        the look, so its edge came within a pair's 5.5 us of it, after the mark, or its
+        counter was lost; and a counter alone at the end is taken now (`pair_stamps`).
         """
         if fifo_was_full:
             with self._lock:  # recorded, and we keep going
@@ -282,19 +368,26 @@ class StampPump:
                     "the stamp machine's RX FIFO was full when drained: "
                     "barcode stamps may have been lost"
                 )
-        try:
-            events = pair_fifo(entries, self._data_count)
-        except DesyncError as error:
-            self.stop(error)
-            return False
+        words = self._carry + list(entries)
+        stamps, self._carry, slips = pair_stamps(words, self._data_count)
         with self._lock:
-            self._queued.extend(tick for tick, _ in events)
+            self._queued.extend(stamps)
+            if slips:
+                self._desyncs += len(slips)
+                word = words[slips[-1]]
+                self._error = DesyncError(
+                    f"the stamp FIFO lost a word, so its data/counter pairing slipped "
+                    f"(a counter, {word:#010x}, where a data word belongs): resynchronised "
+                    f"on that counter, and stamping goes on; a frame whose lead edge's "
+                    f"stamp was lost is dropped; {self._desyncs} desync(s) this run"
+                )
             if polled_at is not None:
                 self._through = (polled_at - WORDS_LAG_US - 1) & 0xFFFF_FFFF
         return True
 
     def stop(self, error: BaseException) -> None:
-        """Hold `error` and stop: the drain refused a batch, or failed itself."""
+        """Hold `error` and stop: the drain failed itself. A desync does not stop the
+        pump (`handle`)."""
         with self._lock:
             self._error = error
             self._stopped = True

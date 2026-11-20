@@ -47,7 +47,7 @@ from wl_sync.backend import (
     STAMP_NOT_SEEN, STAMP_TOO_FAR_PREFIX, STAMPS_NOT_STARTED, STAMPS_OFF_RISES,
     STAMPS_STOPPED, CaptureDegraded, CaptureLoss, FrameStamp, StampLag,
 )
-from wl_sync.barcode import rises_us
+from wl_sync.barcode import INTERVAL_US, rises_us
 from wl_sync.calibration import Calibration
 from wl_sync.clockmap import (
     BRACKET_WIDTH_MAX_NS, IDENTITY, LEAD_STAMP_TOLERANCE, ClockPair, LeadStamp,
@@ -103,7 +103,7 @@ STAMP_TEST_HIGH_US = 1_000
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
-# edge (wl_sync/rp1/pio_capture.py:87-92); this leaves room for the syscalls either side,
+# edge (wl_sync/rp1/pio_capture.py:144-149); this leaves room for the syscalls either side,
 # and stays well inside the pulse.
 STAMP_TEST_SETTLE_US = 100
 
@@ -121,6 +121,24 @@ STAMP_TEST_SETTLE_US = 100
 # three in a row. Each shifted frame still costs its B; without the restart, a lost fit
 # cost every B after it.
 REACQUIRE_FRAMES = 3
+
+# FRAMES IN A ROW WITH NO LEAD-EDGE PAIR FOR THE RAW->P FIT, or that many frames' time since
+# its last pair, after which the journal says that E ticks and roll boundaries are
+# extrapolated (`_watch_fit`; Task 1.15, the user's ruling on final review I1, 2026-11-20).
+# While no pair comes, the line runs on at its slope from its last pair, so its error is the
+# slope's error times the time since. The largest slope error the box runs on without a word
+# is a calibrated seed's, which the line keeps below FIT_FREE_SLOPE_PAIRS and again after
+# each R19 restart (wl_sync/clockmap.py:47, :193-202): within RAW_RATIO_WITNESS_PPB,
+# 5 ppm, of the ratio measured live, or a WARNING says it is not (wl_sync/cli.py:1428,
+# :1499-1519). At one frame a second (INTERVAL_US, wl_sync/barcode.py:36), 5 ppm carries E
+# 100 us, the whole of the spec's +-100 us budget (spec §3,
+# docs/superpowers/specs/2026-10-30-one-clock-design.md:517), in 100 / 5 = 20 frames. A
+# fitted slope is far better, so there the WARNING comes early, the side to err on. With no
+# calibration the seed is 0, and its error is the crystals' difference, which only
+# RATE_BOUND_PPB's 200 ppm sanity bound limits (wl_sync/calibration.py:203): no frame count
+# warns of E's error in time there, but 20 frames is still well inside the 125 that 200 ppm
+# takes to carry the line past R19's reach for good, 25 ms (`_reacquire`).
+EXTRAPOLATION_WARN_FRAMES = 20
 
 # The edge request's event_buffer_size: the kernel's buffer, and the one libgpiod reads
 # into. Generous, because the kernel's buffer overflows SILENTLY and the only witness is
@@ -456,6 +474,16 @@ class Rp1Backend:
         # The offsets of the shifted frames in a row so far, newest last (Ruling R19;
         # `_reacquire`). Run loop's thread only.
         self._shifted: list[int] = []
+        # The extrapolation watch (`_watch_fit`; Task 1.15), run loop's thread only: how
+        # many pairs the fit has taken, by `add` or `restart`; RAW at the last of them, or
+        # at the origin before the first, where the line runs from; the frames since; and
+        # whether the journal has said that E is extrapolated.
+        self._fit_pairs = 0
+        self._fit_anchor_raw_ns: int | None = None
+        self._unpaired_frames = 0
+        self._extrapolating = False
+        # Set when `close` has given the run's stamp summary (`_summarise_stamps`).
+        self._summarised = False
         # "" when the stamp machine passed its start-up test, and otherwise why it did not
         # (`_test_stamp_machine`); `bench stamps` reads it.
         self.stamp_test_failure = ""
@@ -596,7 +624,7 @@ class Rp1Backend:
     def _test_stamp_machine(self) -> str:
         """Whether the PIO sees GPIO17 rise: "" when it does, and otherwise why not. Q2's
         "test, then fall back", once, before the first segment (spec §8 Q2,
-        docs/superpowers/specs/2026-10-30-one-clock-design.md:648-653). `__init__` calls it
+        docs/superpowers/specs/2026-10-30-one-clock-design.md:652-657). `__init__` calls it
         once the stamp machine has started, and falls back to split on a failure.
 
         WHAT IT WITNESSES. Under c-direct B rests on three things that hold or fail for a
@@ -788,6 +816,7 @@ class Rp1Backend:
         # Read after MONO, so RAW is the reading nearer the enable.
         self._origin_raw_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
         self._fit = RawToP(self._origin_raw_ns, self._seed_ppb)
+        self._fit_anchor_raw_ns = self._origin_raw_ns
         mask = (1 << self._sm) | (1 << self._sm_stamps)
         _check(self._lib.wlsync_enable_in_sync(mask), "enabling the state machines")
 
@@ -825,14 +854,25 @@ class Rp1Backend:
 
     def drain_stamps(self) -> bool:
         """Move whatever the stamp machine's FIFO holds into the stamp pump. Returns
-        False when it should stop. Called from ONE thread, the pump's own, after `drain`:
+        True: since Task 1.15 a batch never stops the pump (`StampPump.handle`), and a
+        drain that fails raises. Called from ONE thread, the pump's own, after `drain`:
         piolib has one caller while capture runs.
 
-        As `drain` does: an even number of words, fullness checked before, and the mark
-        read before the FIFO is looked at and handed over only with no half pair left.
-        The mark is `_p_now()`, on the fit's count, because the frame's end that
-        `emit_pulses` compares it with is mapped through the fit. It is what now_us()
-        reads on one count, the only mode whose stamp machine runs.
+        Fullness is checked before, as `drain` checks it, and the mark is read before the
+        FIFO is looked at. The mark is `_p_now()`, on the fit's count, because the frame's
+        end that `emit_pulses` compares it with is mapped through the fit. It is what
+        now_us() reads on one count, the only mode whose stamp machine runs.
+
+        EVERY WORD, NOT AN EVEN NUMBER (Task 1.15). `drain` leaves an odd tail for the
+        next drain because `pair_fifo` pairs one batch alone. The stamp pump pairs across
+        batches: it carries a data word whose counter has not come (`pair_stamps`). So this
+        reads every word the FIFO holds, and the mark is handed over at every look: every
+        word the FIFO held then is read, and a data word carried had no counter in it, so
+        its edge came within a pair's 5.5 us of the look, or its counter was lost. Read in
+        even numbers, a word lost alone shifted the stream against the reads for good: a
+        counter was left behind at every look, no look handed over its mark, every frame
+        waited out STAMP_DRAIN_WAIT_S, and each frame's last stamp reached the next as a
+        stamp between frames.
         """
         lib = self._lib
         sm, pump = self._sm_stamps, self._stamp_pump
@@ -842,10 +882,8 @@ class Rp1Backend:
         full = bool(lib.wlsync_sm_rx_full(sm))
         level = lib.wlsync_sm_rx_level(sm)
         full = full or level >= _RX_FIFO_WORDS
-        entries = [lib.wlsync_sm_get(sm) for _ in range(level - level % 2)]
-        return pump.handle(
-            entries, fifo_was_full=full, polled_at=None if level % 2 else polled_at
-        )
+        entries = [lib.wlsync_sm_get(sm) for _ in range(level)]
+        return pump.handle(entries, fifo_was_full=full, polled_at=polled_at)
 
     def _p_now(self) -> int:
         """RAW now through the fit: the box's estimate of P, raw, 32 bits."""
@@ -861,10 +899,11 @@ class Rp1Backend:
         disables the state machines: whatever the FIFO held at that moment is the end of
         the session's last trial.
 
-        EACH DRAIN STOPS ALONE. A desync or a failure of the stamp drain stops it and
-        leaves the word drain running: the event codes are records, and the box records
-        anyway. A desync or a failure of the word drain stops it and leaves the stamp
-        drain running (Ruling R16): on one count B is the stamp, so a stamp drain that
+        EACH DRAIN STOPS ALONE. A failure of the stamp drain stops it and leaves the word
+        drain running: the event codes are records, and the box records anyway. A desync
+        of the stamps stops nothing since Task 1.15: the stamp pump pairs the stream again
+        and goes on (`StampPump`). A desync or a failure of the word drain stops it and
+        leaves the stamp drain running (Ruling R16): on one count B is the stamp, so a stamp drain that
         stopped with the words would drop every later B. The thread ends early only when
         both have stopped; with no stamp drain, as in a split process, that is when
         the word drain stops, as before the stamp machine existed. check_health reports
@@ -901,12 +940,14 @@ class Rp1Backend:
         self._word_drain_stopped.set()
 
     def _pump_stamps(self) -> None:
-        """One stamp drain, its failure held by the stamp pump, which then stops."""
+        """One stamp drain, its failure held by the stamp pump, which then stops. A
+        desync is no failure here: the pump holds it, pairs the stream again and goes on
+        (`StampPump.handle`)."""
         pump = self._stamp_pump
         if pump is None or pump.stopped:
             return
         try:
-            self.drain_stamps()  # a False return has already stopped the pump
+            self.drain_stamps()
         except BaseException as error:  # noqa: BLE001 - surfaced by check_health
             pump.stop(error)
 
@@ -1165,6 +1206,9 @@ class Rp1Backend:
         The run loop records `B` from the stamp returned, or drops it with an ERROR
         episode when there is none (wl_sync/cli.py:864-895).
 
+        THE JOURNAL SAYS WHEN E IS EXTRAPOLATED (`_watch_fit`): once a frame finds the fit
+        EXTRAPOLATION_WARN_FRAMES frames, or that many frames' time, past its last pair.
+
         IN A SPLIT PROCESS B is now_us(), MONO us since the origin, read before anything
         else, as the run loop read it before the frame until Task 1.7. The first frame
         pays for requesting the line after its B is read unless the start-up test took it
@@ -1175,7 +1219,10 @@ class Rp1Backend:
             self._drive(pin, pulses, bracket_lead=False)
             return FrameStamp(tick)
         bracket, end_ns = self._drive(pin, pulses, bracket_lead=True)
-        return self._lead_stamp(bracket, end_ns, rises_us(pulses))
+        pairs, anchor_ns = self._fit_pairs, self._fit_anchor_raw_ns
+        stamp = self._lead_stamp(bracket, end_ns, rises_us(pulses))
+        self._watch_fit(pairs, anchor_ns, bracket)
+        return stamp
 
     def _drive(
         self, pin: int, pulses: Sequence[tuple[int, int]], bracket_lead: bool
@@ -1287,8 +1334,12 @@ class Rp1Backend:
                 break
             time.sleep(_STAMP_WAIT_POLL_S)
         # Ascending, as match_lead_stamp takes them, and this frame's alone: the carried
-        # are counted as stamps between, and no more.
-        fresh = [unwrap_near(stamp, low) for stamp in pump.take()]
+        # are counted as stamps between, and no more. SORTED, because a stamp stream
+        # paired again after a lost word can queue one stamp out of order: a lone data
+        # word read as a counter, just short of P's wrap (`pio_capture.pair_stamps`),
+        # which unwrapped here lies before the frame. Unsorted, its place broke the match's
+        # search, and a frame whose rises all but one were stamped was dropped.
+        fresh = sorted(unwrap_near(stamp, low) for stamp in pump.take())
         found = match_lead_stamp(fresh, (low, high), end, rises=rises)
         own = found.between + found.consumed  # fresh stamps up to the end
         found = replace(found, between=found.between + len(self._leftover))
@@ -1316,6 +1367,7 @@ class Rp1Backend:
         self._shifted = []
         if pair.narrow:
             fit.add(pair.raw_ns, pair.p)
+            self._took_pair(pair.raw_ns)
         with self._pairs_lock:
             self._pairs.append(pair)
         # LeadStamp.p is unwrapped, to match against the unwrapped bracket; a tick a
@@ -1369,12 +1421,76 @@ class Rp1Backend:
         if len(self._shifted) < REACQUIRE_FRAMES:
             return
         fit.restart(raw_ns, found.lead)
+        self._took_pair(raw_ns)
         log.warning(
             "the RAW->P fit lost the lead edges (%d frames in a row stamped %d us from "
             "their brackets) and restarts at the last of them",
             len(self._shifted), offset,
         )
         self._shifted = []
+
+    def _took_pair(self, raw_ns: int) -> None:
+        """The fit took a pair at `raw_ns`, by `add` or `restart`: the line runs from
+        there now (`_watch_fit`)."""
+        self._fit_pairs += 1
+        self._fit_anchor_raw_ns = raw_ns
+
+    def _watch_fit(
+        self, pairs: int, anchor_ns: int | None, bracket: _Bracket | None
+    ) -> None:
+        """After each frame on one count: whether the fit took a pair (`pairs` and
+        `anchor_ns` are the count and the anchor before the frame), and the journal's
+        word on the extrapolation, one WARNING an episode (Task 1.15; the user's ruling on
+        final review I1, 2026-11-20).
+
+        WHY. With no pair, now_us() and every E tick run on through the fit from its last
+        pair, at its slope (wl_sync/clockmap.py:157-163). A fit lost beyond R19's reach
+        (`_reacquire`) writes E for the rest of the process a quarter of a second or more
+        off W, and drifting, and until this nothing said so (final review I1). B is not
+        written then, and the dropped Bs have their ERRORs (wl_sync/cli.py:1383-1417); E
+        has no word but this. Nothing here restarts anything: the user ruled out a restart.
+
+        AN EPISODE begins at the frame that finds the fit EXTRAPOLATION_WARN_FRAMES frames
+        without a pair, or its last pair that many frames' time (INTERVAL_US each) old, for
+        frames that come further apart: the error grows with the time. A frame whose pair
+        was matched but wide counts too, since it does not move the fit. It ends at the
+        next pair, R19's restart included, with its length. Both lines are WARNINGs, so
+        that the journal filtered at WARNING (`journalctl -p warning`) shows the end of
+        every start it shows. One still open when capture stops is closed by `close`. The
+        WARNING is never repeated within an episode: Task 1.7's line for each frame with
+        stamps between frames is noise enough.
+        """
+        if self._fit is None or anchor_ns is None:
+            return  # before capture starts: no fit, so nothing extrapolated
+        if self._fit_pairs != pairs:
+            if self._extrapolating:
+                log.warning(
+                    "a lead-edge pair reached the RAW->P fit again after %d frame(s) "
+                    "without one: E ticks and roll boundaries had been extrapolated from "
+                    "a pair up to %.1f s old",
+                    self._unpaired_frames, (self._fit_anchor_raw_ns - anchor_ns) / 1e9,
+                )
+            self._unpaired_frames = 0
+            self._extrapolating = False
+            return
+        self._unpaired_frames += 1
+        if self._extrapolating:
+            return
+        # RAW at the lead edge, read for its bracket anyway: no clock read is added to the
+        # frame. A frame with no rise has none.
+        now_ns = (bracket.raw_after_ns if bracket is not None
+                  else time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW))
+        age_ns = now_ns - anchor_ns
+        if (self._unpaired_frames < EXTRAPOLATION_WARN_FRAMES
+                and age_ns < EXTRAPOLATION_WARN_FRAMES * INTERVAL_US * 1_000):
+            return
+        self._extrapolating = True
+        log.warning(
+            "the RAW->P fit's last lead-edge pair is %.1f s old, %d frame(s) ago: E ticks "
+            "and roll boundaries are extrapolated from it, drifting from P by the fit's "
+            "slope error, until a lead edge is matched again",
+            age_ns / 1e9, self._unpaired_frames,
+        )
 
     def _stamps_stopped(self) -> bool:
         """The stamp drain has stopped: its own stop, or the pump thread's. False with no
@@ -1452,3 +1568,25 @@ class Rp1Backend:
             if sm is not None:
                 self._lib.wlsync_sm_set_enabled(sm, 0)
         self._lib.wlsync_pio_close()
+        self._summarise_stamps()
+
+    def _summarise_stamps(self) -> None:
+        """The run's end, on one count (Task 1.15): the stamp stream's desyncs, beside
+        the run loop's count of the barcodes dropped (wl_sync/cli.py:1404-1406), and an
+        extrapolation episode still open, which no pair will now close (`_watch_fit`).
+        Once: a second close says nothing again."""
+        pump = self._stamp_pump
+        if pump is None or self._summarised:
+            return
+        self._summarised = True
+        log.info("barcode stamping: %d desync(s) this run, each resynchronised",
+                 pump.desyncs)
+        if self._extrapolating and self._fit_anchor_raw_ns is not None:
+            log.warning(
+                "capture stopped %d frame(s) after the RAW->P fit's last lead-edge pair: "
+                "E ticks and roll boundaries were extrapolated from a pair %.1f s old to "
+                "the end of the run",
+                self._unpaired_frames,
+                (time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+                 - self._fit_anchor_raw_ns) / 1e9,
+            )

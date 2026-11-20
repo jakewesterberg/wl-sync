@@ -53,6 +53,16 @@ class _FakeShim:
     `wlsync_sm_set_enabled` and `wlsync_enable_in_sync` set, in order; `on_sync` runs at
     the sync enable, where the PIO's count starts (`crystals`).
 
+    THE STAMP MACHINE'S FIFO IS RP1'S: `stamp_depth` words, 8, both 4-deep FIFOs joined as
+    the shim configures it (pio/wlsync_pio.c:192; `rp1._RX_FIFO_WORDS`). A word pushed to it
+    full is dropped, as `push noblock` drops it, and counted in `stamp_dropped`, and
+    `wlsync_sm_rx_full` reads it full, as `pio_sm_is_rx_fifo_full` reads FSTAT
+    (pio/wlsync_pio.c:231). Until Task 1.15 it was unbounded (final review M11), so the
+    fault that desynced the stream could not be built here. `between_words`, when set, is
+    called between the two words of every pair pushed to it, which is where a drain must
+    pop for a word to be left alone; `stamp_gate`, an Event, holds the stamp drain at its
+    first call until it is set, as a pump the GIL keeps from running.
+
     Like piolib, its encoders answer correctly only once a PIO block is open -- piolib's
     read the CURRENT block -- so a backend that checks its encodings too early is refused
     here exactly as it would be on the box.
@@ -65,6 +75,10 @@ class _FakeShim:
         self.full = False
         self.stamp_fifo: list[int] = []
         self.stamp_full = False
+        self.stamp_depth = rp1._RX_FIFO_WORDS
+        self.stamp_dropped = 0
+        self.between_words = None
+        self.stamp_gate: threading.Event | None = None
         self.test_fifo: list[int] = []
         self.drains = 0
         self.log: list[str] = []
@@ -203,8 +217,18 @@ class _FakeShim:
         self.push_to(1, entries)
 
     def push_to(self, sm, entries) -> None:
-        with self._lock:
-            self._fifo_of(sm).extend(entries)
+        if sm != 1:
+            with self._lock:
+                self._fifo_of(sm).extend(entries)
+            return
+        for index, word in enumerate(entries):
+            if index % 2 and self.between_words is not None:
+                self.between_words()
+            with self._lock:
+                if len(self.stamp_fifo) < self.stamp_depth:
+                    self.stamp_fifo.append(word)
+                else:
+                    self.stamp_dropped += 1
 
     def _fifo_of(self, sm):
         return {1: self.stamp_fifo, 2: self.test_fifo}.get(sm, self.fifo)
@@ -215,7 +239,12 @@ class _FakeShim:
     def wlsync_sm_rx_full(self, sm):
         self._witness("rx_full", sm)
         if sm == 1:
-            return 1 if self.stamp_full else 0
+            gate = self.stamp_gate
+            if gate is not None:
+                gate.wait(timeout=5)
+            with self._lock:
+                full = len(self.stamp_fifo) >= self.stamp_depth
+            return 1 if self.stamp_full or full else 0
         if sm == 2:
             return 0
         self.drains += 1  # the first call of every drain
@@ -658,7 +687,7 @@ def test_a_pio_view_of_gpio17_that_does_not_follow_its_rise_fails_the_test(
         backend.close()
     # The settle that lets a stamp at the enable land before it is discarded, and the
     # read after the rise: more than the 5.5 us a pair takes
-    # (wl_sync/rp1/pio_capture.py:87-92), and well inside the pulse.
+    # (wl_sync/rp1/pio_capture.py:144-149), and well inside the pulse.
     assert 5.5 < rp1.STAMP_TEST_SETTLE_US < rp1.STAMP_TEST_HIGH_US / 2
 
 
@@ -1071,7 +1100,10 @@ def gpiod(monkeypatch):
     that many us. `unstamped_rises` maps a frame to the rises, numbered from 0 for its
     lead, that go unstamped. `stray_before_lead_us` maps a frame to a stray stamp pushed
     that many us before its lead's. `leads` gives each frame's lead-edge stamp as
-    pushed."""
+    pushed. `data_word(frame, rise)` is the data word a stamp's pair carries, GPIO0-15 as
+    the stamp machine reads them (wl_sync/rp1/program.py:89), 0 unless a test says, and
+    `lost_words` maps a (frame, rise) to the word of its pair the FIFO loses, 0 the data
+    and 1 the counter: a stream left with one word alone (Task 1.15)."""
     import sys
     import types
 
@@ -1089,10 +1121,13 @@ def gpiod(monkeypatch):
     module.chips = {"/dev/gpiochip0": ("pinctrl-rp1", 54)}
     module.LineSettings = lambda **kwargs: kwargs
 
-    def push(machines, p):
+    def push(machines, p, data=0, lose=None):
         for sm in machines:
             module.pushes.append((sm, p))
-            module.shim.push_to(sm, [0, (~p) & 0xFFFF_FFFF])
+            words = [data, (~p) & 0xFFFF_FFFF]
+            if lose is not None:
+                del words[lose]
+            module.shim.push_to(sm, words)
 
     class _Request:
         def set_value(self, pin, value):
@@ -1131,7 +1166,8 @@ def gpiod(monkeypatch):
                 module.stamped.append(p)
                 if lead:
                     module.leads[module.frame] = p
-                push(watching, p)
+                push(watching, p, module.data_word(module.frame, module.rise),
+                     module.lost_words.get((module.frame, module.rise)))
             module.sets.append((module.clock.ns, value))
             if module.set_cost_ns - half:
                 module.clock.advance(module.set_cost_ns - half)
@@ -1198,6 +1234,8 @@ def gpiod(monkeypatch):
     module.unstamped_rises = {}
     module.stray_before_lead_us = {}
     module.leads = {}
+    module.data_word = lambda frame, rise: 0
+    module.lost_words = {}
     module.levels = {}
     module.edge_failure = None
     module.edges = []
@@ -2459,31 +2497,169 @@ def test_the_pump_drains_the_stamp_machine_on_its_own_thread(lib, gpiod, crystal
     )
 
 
-def test_a_desynced_stamp_stream_is_reported_and_every_later_frame_is_missed(
+def test_a_desynced_stamp_stream_is_reported_once_and_later_frames_are_stamped(
     lib, gpiod, crystals
 ):
-    """The stamp drain stops, and the word drain does not: the box records anyway. The
-    held error is reported once, and then that the stamps are not coming back."""
+    """THE RULE CHANGED IN TASK 1.15 (the user's ruling on final review I1, 2026-11-20).
+    This test pinned that a desync stopped the stamp drain, and every later frame was
+    missed as STAMPS_STOPPED until a restart. Now the stream is paired again on the
+    counter where the slip shows, and stamping goes on. The word drain goes on too, as
+    before: the box records anyway. The desync is reported once and counted, and the
+    stamp drain is never reported stopped."""
     from wl_sync.barcode import encode
 
-    crystals()
+    clock = crystals()
     seen = []
     backend = _started(lib, lambda tick, word: seen.append(word))
     try:
-        lib.push_stamps(stream((10, 0))[1:] + [0])  # a word lost: the pairing slipped
+        # 10's data word lost, so the pairing slipped; then 20's pair, whole. 20's counter
+        # waits in the FIFO for the next pair, as the drain reads an even number of words.
+        lib.push_stamps(stream((10, 0))[1:] + stream((20, 0)))
         first = _next_complaint(backend)
         assert first is not None and "barcode stamping" in first, first
-        assert "pairing has slipped" in first, first
-        later = [backend.emit_pulses(17, encode(v)) for v in (1000, 1001, 1002)]
+        assert "pairing slipped" in first and "resynchronised" in first, first
+        clock.sleep(0.8)
+        later = []
+        for value in (1000, 1001, 1002):
+            later.append(backend.emit_pulses(17, encode(value)))
+            clock.sleep(0.8)
         lib.push(stream((10, 1), (20, 2)))
         assert _until(lambda: seen == [1, 2]), "the word drain stopped with the stamps"
-        second = _next_complaint(backend)
-        assert second is not None and "barcode stamping" in second, second
-        assert "stopped" in second, second
+        assert _next_complaint(backend, timeout=0.1) is None, "reported twice, or stopped"
     finally:
         backend.close()
-    assert [stamp.tick for stamp in later] == [None, None, None]
-    assert {stamp.missed for stamp in later} == {rp1.STAMPS_STOPPED}
+    assert backend._stamp_pump.desyncs == 1 and not backend._stamp_pump.stopped
+    assert [stamp.tick for stamp in later] == [gpiod.leads[k] for k in (1, 2, 3)]
+
+
+def _health_kinds(backend):
+    """The kinds check_health raises now, or none."""
+    from wl_sync.backend import CaptureDegraded
+
+    try:
+        backend.check_health()
+    except CaptureDegraded as error:
+        return set(error.kinds)
+    return set()
+
+
+def test_a_full_stamp_fifo_and_a_lone_counter_desync_the_stream_and_b_recovers(
+    lib, gpiod, crystals, caplog
+):
+    """Final review I1's trigger, end to end on RP1's 8-word FIFO (M11a). The pump is
+    starved through frame 3, so its stamps fill the FIFO, and rise 4's pair is dropped
+    whole. At rise 5 the drain runs at last, between the pair's two pushes: the data word
+    was dropped, and the counter lands alone. The next batch desyncs. Until Task 1.15 that
+    stopped the stamp drain, and every later B was dropped for the rest of the process;
+    now the stream is paired again, every later frame is stamped at its own lead, and the
+    desync is reported once and counted, and the run's end gives the count."""
+    import logging
+
+    from wl_sync.barcode import encode
+
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    gate = threading.Event()
+    full_pairs = []
+
+    def between_words():
+        # Called between a pair's two pushes: when the FIFO is full, its data word was
+        # just dropped.
+        with lib._lock:
+            full = len(lib.stamp_fifo) >= lib.stamp_depth
+        if not full or gate.is_set():
+            return
+        full_pairs.append(gpiod.rise)
+        if len(full_pairs) < 2:
+            return  # rise 4: its counter is dropped too
+        gate.set()  # rise 5: the drain looks, and takes a word before the counter lands
+        assert _until(lambda: len(lib.stamp_fifo) < lib.stamp_depth, timeout=2)
+        lib.stamp_gate = None
+
+    value_of = {3: 0x5555_5555}  # 18 rises, so more than the FIFO's 4 pairs
+    stamps, kinds = [], []
+    try:
+        for k in range(1, 9):
+            if k == 3:
+                lib.stamp_gate, lib.between_words = gate, between_words
+            stamps.append(backend.emit_pulses(17, encode(value_of.get(k, 1000 + k))))
+            kinds.append(_health_kinds(backend))
+            clock.sleep(0.8)
+    finally:
+        with caplog.at_level(logging.INFO, logger=rp1.log.name):
+            backend.close()
+    assert "barcode stamping: 1 desync(s) this run, each resynchronised" in [
+        record.getMessage() for record in caplog.records
+    ]
+    assert full_pairs == [4, 5] and lib.stamp_dropped == 3
+    assert _wrong(stamps, gpiod) == []
+    assert [stamp.tick for stamp in stamps[3:]] == [gpiod.leads[k] for k in range(4, 9)]
+    assert [stamp.between for stamp in stamps[4:]] == [0] * 4
+    desynced = [k for k, found in enumerate(kinds, 1)
+                if "barcode stamping: DesyncError" in found]
+    assert len(desynced) == 1, kinds
+    assert not any("barcode stamping: stopped" in found for found in kinds), kinds
+    assert backend._stamp_pump.desyncs == 1 and not backend._stamp_pump.stopped
+
+
+def test_after_a_lone_word_the_stamp_drains_mark_still_moves(lib):
+    """A word left alone shifts the stream against the FIFO by one, so the drain's even
+    read left a counter behind at every look from then on: its mark never moved again,
+    every frame waited out STAMP_DRAIN_WAIT_S, and each frame's last stamp reached the
+    next frame as a stamp between. The stamp drain now reads every word, the pump carries
+    a data word whose counter has not come, and the mark moves at every look."""
+    from wl_sync.rp1.pio_capture import WORDS_LAG_US
+
+    backend = _started(lib, lambda tick, word: None)
+    pump = backend._stamp_pump
+    try:
+        backend._p_now = lambda: 5_000_000
+        assert _until(lambda: pump.stamps_through == 5_000_000 - WORDS_LAG_US - 1)
+        backend._p_now = lambda: 6_000_000
+        # 10's data word lost: its counter, then 20's pair.
+        lib.push_stamps([(~10) & 0xFFFF_FFFF] + stream((20, 0)))
+        assert _until(lambda: pump.stamps_through == 6_000_000 - WORDS_LAG_US - 1)
+        assert lib.stamp_fifo == []
+        assert pump.take() == [10, 20] and pump.desyncs == 1
+        lib.push_stamps(stream((30, 0), (40, 0)))
+        assert _until(lambda: lib.stamp_fifo == [])
+        assert _until(lambda: pump.take() == [30, 40])
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_after_a_lost_stamp_word_no_frame_gets_a_wrong_b(lib, gpiod, crystals, case):
+    """Fuzzed over the phase of the lost word: the data or the counter word of one rise of
+    frame 2, 3 or 4, chosen at random, with GPIO0-15 carrying a different code at every
+    stamp. A misread stamp lies before its frame and is counted between frames, a lost
+    one costs at most its own frame's B, and every frame after is stamped at its lead."""
+    import random
+
+    from wl_sync.barcode import encode
+
+    rng = random.Random(1150 + case)
+    frame = rng.choice((2, 3, 4))
+    rise = rng.randrange(len(rises_us(encode(1000 + frame))))
+    gpiod.lost_words[(frame, rise)] = rng.randrange(2)
+    gpiod.data_word = lambda k, r: (k * 7919 + r * 104_729) & 0xFFFF
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        stamps, _ = _frames(backend, clock, gpiod, 7)
+    finally:
+        backend.close()
+    lost = (frame, rise, gpiod.lost_words[(frame, rise)])
+    assert _wrong(stamps, gpiod) == [], lost
+    # The frame loses its B only when the word lost was its lead's counter, its stamp.
+    kept = (rise, lost[2]) != (0, 1)
+    assert (stamps[frame - 1].tick is not None) == kept, (lost, stamps[frame - 1])
+    assert [stamp.tick for stamp in stamps[frame:]] == [
+        gpiod.leads[k] for k in range(frame + 1, 8)
+    ], lost
+    # In phase again by then: no frame's stamps reach the next.
+    assert [stamp.between for stamp in stamps[frame + 1:]] == [0] * (6 - frame), lost
+    assert backend._stamp_pump.desyncs == 1 and not backend._stamp_pump.stopped, lost
 
 
 def test_the_stamp_drain_is_marked_on_the_fits_count_not_on_now_us(lib):
@@ -2899,7 +3075,7 @@ def test_a_word_drain_that_raises_stops_alone(lib, gpiod, crystals):
 
 def test_a_failing_consumer_stops_the_word_drain_alone(lib, gpiod, crystals):
     """drain() returns False for a consumer that raises, as for a desync
-    (wl_sync/rp1/pio_capture.py:211-216): the records are not being kept. The word drain
+    (wl_sync/rp1/pio_capture.py:268-273): the records are not being kept. The word drain
     stops, and the stamp drain goes on."""
     from wl_sync.backend import FrameStamp
     from wl_sync.barcode import encode
@@ -2951,6 +3127,9 @@ def test_a_stopped_word_drain_is_reported_on_every_check_and_left_out_of_deliver
 
 
 def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
+    """The stamp drain is stopped here by a read that fails. Until Task 1.15 a desync
+    stopped it; a desync no longer does (`StampPump`), and a drain that raises is now the
+    one way, beside the thread's own end."""
     from wl_sync.backend import CaptureDegraded
 
     backend = _started(lib, lambda tick, word: None)
@@ -2964,7 +3143,8 @@ def test_the_pump_thread_ends_when_both_drains_have_stopped(lib, gpiod):
         drains = stamp_drains() + 3
         assert _until(lambda: stamp_drains() >= drains)
         assert backend._word_thread.is_alive(), "it ended with the stamp drain running"
-        lib.push_stamps(stream((10, 0))[1:] + [0])  # and then the stamp drain
+        lib.get_failures[1] = OSError("EIO")  # and then the stamp drain
+        lib.push_stamps(stream((10, 0)))
         assert _until(lambda: not backend._word_thread.is_alive())
         with pytest.raises(CaptureDegraded) as raised:
             backend.check_health()
@@ -3375,7 +3555,11 @@ def test_a_line_more_than_a_frame_behind_p_drops_every_frame_and_never_restarts(
     lib, gpiod, crystals, caplog, monkeypatch
 ):
     """Every stamp from frame 4 on lands 210 ms after the line: past its frame's end, all
-    of them, so each frame's stamps are carried whole into the next."""
+    of them, so each frame's stamps are carried whole into the next.
+
+    Task 1.15: the B rule is unchanged, and nothing restarts. The journal now says, once,
+    that E is extrapolated: 25 frames rather than 15, so that 22 go unpaired, past
+    EXTRAPOLATION_WARN_FRAMES."""
     import logging
 
     from wl_sync.backend import STAMP_NOT_SEEN
@@ -3383,19 +3567,23 @@ def test_a_line_more_than_a_frame_behind_p_drops_every_frame_and_never_restarts(
     restarted = _restarted_at(monkeypatch)
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
-    gpiod.frame_stamp_offset_us.update({k: 210_000 for k in range(4, 16)})
+    gpiod.frame_stamp_offset_us.update({k: 210_000 for k in range(4, 26)})
     try:
         with caplog.at_level(logging.WARNING, logger=rp1.log.name):
-            stamps, traces = _frames(backend, clock, gpiod, 15)
+            stamps, traces = _frames(backend, clock, gpiod, 25)
     finally:
         backend.close()
     wrong = _wrong(stamps, gpiod)
     assert wrong == [], f"B written for another edge: (frame, us off) {wrong}"
-    assert [stamp.tick for stamp in stamps[3:]] == [None] * 12
+    assert [stamp.tick for stamp in stamps[3:]] == [None] * 22
     assert restarted == [] and _restarts(caplog) == []
     # Frame 5 on: only the frame before's stamps, carried, lie up to the end.
-    assert {stamps[k - 1].missed for k in range(5, 16)} == {STAMP_NOT_SEEN}
-    assert all(traces[k - 1].lead.between > 1 for k in range(5, 16))
+    assert {stamps[k - 1].missed for k in range(5, 26)} == {STAMP_NOT_SEEN}
+    assert all(traces[k - 1].lead.between > 1 for k in range(5, 26))
+    assert rp1.EXTRAPOLATION_WARN_FRAMES < 22
+    [(age, frames)] = _extrapolation_warnings(caplog)
+    assert frames == rp1.EXTRAPOLATION_WARN_FRAMES and abs(age - frames) < 0.5, age
+    assert len(_extrapolated_to_the_end(caplog)) == 1, "the episode stayed open"
 
 
 def test_a_drift_of_2100_s_at_100_ppm_drops_every_frame_and_never_restarts(
@@ -3418,6 +3606,149 @@ def test_a_drift_of_2100_s_at_100_ppm_drops_every_frame_and_never_restarts(
     assert [stamp.tick for stamp in stamps[:5]] == [gpiod.leads[k] for k in range(1, 6)]
     assert [stamp.tick for stamp in stamps[5:]] == [None] * 13
     assert restarted == [] and _restarts(caplog) == []
+    # Task 1.15: the journal says so at frame 6, the first without a pair, because its
+    # last pair is already 2,100 s old: far more than EXTRAPOLATION_WARN_FRAMES' time.
+    [(age, frames)] = _extrapolation_warnings(caplog)
+    assert frames == 1 and 2_100 < age < 2_102, (age, frames)
+
+
+# Task 1.15 (the user's ruling on final review I1, 2026-11-20): the journal says when the
+# RAW->P fit has gone EXTRAPOLATION_WARN_FRAMES frames without a pair, so that E ticks and
+# roll boundaries are extrapolated, and says when that ends.
+_EXTRAPOLATING = re.compile(
+    r"the RAW->P fit's last lead-edge pair is (\d+\.\d) s old, (\d+) frame\(s\) ago: E "
+    r"ticks and roll boundaries are extrapolated from it, drifting from P by the fit's "
+    r"slope error, until a lead edge is matched again"
+)
+_PAIRED_AGAIN = re.compile(
+    r"a lead-edge pair reached the RAW->P fit again after (\d+) frame\(s\) without one: "
+    r"E ticks and roll boundaries had been extrapolated from a pair up to (\d+\.\d) s old"
+)
+_TO_THE_END = re.compile(
+    r"capture stopped (\d+) frame\(s\) after the RAW->P fit's last lead-edge pair: E "
+    r"ticks and roll boundaries were extrapolated from a pair (\d+\.\d) s old to the end "
+    r"of the run"
+)
+
+
+def _warnings_matching(caplog, pattern):
+    import logging
+
+    return [pattern.fullmatch(record.getMessage()) for record in caplog.records
+            if record.levelno == logging.WARNING and pattern.fullmatch(record.getMessage())]
+
+
+def _extrapolation_warnings(caplog):
+    """(age in s, frames without a pair) of each WARNING that E is extrapolated."""
+    return [(float(m.group(1)), int(m.group(2)))
+            for m in _warnings_matching(caplog, _EXTRAPOLATING)]
+
+
+def _paired_again(caplog):
+    """(frames without a pair, the last pair's age in s) of each episode's end."""
+    return [(int(m.group(1)), float(m.group(2)))
+            for m in _warnings_matching(caplog, _PAIRED_AGAIN)]
+
+
+def _extrapolated_to_the_end(caplog):
+    return [(int(m.group(1)), float(m.group(2)))
+            for m in _warnings_matching(caplog, _TO_THE_END)]
+
+
+def test_the_journal_says_once_when_e_is_extrapolated_and_when_a_pair_ends_it(
+    lib, gpiod, crystals, caplog
+):
+    """The PIO blind from frame 4 for K + 2 frames: the fit takes no pair, so E and the
+    roll boundaries run on from frame 3's. One WARNING at the K-th frame, with the pair's
+    age, however many frames follow, and one when frame K + 6's pair ends it, with the
+    episode's length. Nothing at the run's end: no episode is open."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, k + 8, blind=range(4, k + 6))
+    finally:
+        backend.close()
+    [(age, frames)] = _extrapolation_warnings(caplog)
+    assert frames == k and abs(age - k) < 0.5, (age, frames)
+    [(without, length)] = _paired_again(caplog)
+    assert without == k + 2 and abs(length - (k + 3)) < 0.5, (without, length)
+    assert _extrapolated_to_the_end(caplog) == []
+    episode = [bool(_EXTRAPOLATING.fullmatch(record.getMessage()))
+               for record in caplog.records
+               if _EXTRAPOLATING.fullmatch(record.getMessage())
+               or _PAIRED_AGAIN.fullmatch(record.getMessage())]
+    assert episode == [True, False], "the end came before the start"
+    assert [stamp.tick for stamp in stamps[k + 5:]] == [
+        gpiod.leads[n] for n in range(k + 6, k + 9)
+    ]
+
+
+def test_a_run_that_ends_while_e_is_extrapolated_says_so_at_close(
+    lib, gpiod, crystals, caplog
+):
+    """The episode is open when capture stops: the journal says how long E had been
+    extrapolated, so a reader can tell that from an episode whose end was not logged."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            _frames(backend, clock, gpiod, k + 4, blind=range(4, k + 5))
+    finally:
+        backend.close()
+    assert len(_extrapolation_warnings(caplog)) == 1
+    [(frames, age)] = _extrapolated_to_the_end(caplog)
+    assert frames == k + 1 and k + 1 < age < k + 2.5, (frames, age)
+
+
+def test_an_r19_restart_ends_the_extrapolation_episode(lib, gpiod, crystals, caplog):
+    """At 100 ppm with seed 0, the PIO blind for K + 5 frames carries the line 2.5 ms from P,
+    so the first frames it sees again are shifted, and the third restarts the fit (R19).
+    The restart is the fit's new pair, so it ends the episode: the line runs from it."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals(cpu_ppm=0, rp1_ppm=100)
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, k + 14, blind=range(6, k + 11))
+    finally:
+        backend.close()
+    assert len(_restarts(caplog)) == 1
+    assert len(_extrapolation_warnings(caplog)) == 1
+    [(without, _)] = _paired_again(caplog)
+    # The blind frames and the shifted ones before the third, whose restart is its pair.
+    assert without == k + 5 + rp1.REACQUIRE_FRAMES - 1, without
+    assert _extrapolated_to_the_end(caplog) == []
+    assert stamps[-1].tick == gpiod.leads[k + 14]
+
+
+def test_frames_matched_without_moving_the_fit_still_count_as_unpaired(
+    lib, gpiod, crystals, caplog
+):
+    """A wide bracket keeps its frame's B but gives the fit no pair (ClockPair.narrow), so
+    the line runs on from the last narrow one: those frames count toward the WARNING."""
+    import logging
+
+    k = rp1.EXTRAPOLATION_WARN_FRAMES
+    clock = crystals()
+    backend = _started(lib, lambda tick, word: None)
+    try:
+        with caplog.at_level(logging.WARNING, logger=rp1.log.name):
+            stamps, _ = _frames(backend, clock, gpiod, k + 4, wide=range(4, k + 4))
+    finally:
+        backend.close()
+    assert all(stamp.tick is not None for stamp in stamps), "a wide bracket drops no B"
+    [(age, frames)] = _extrapolation_warnings(caplog)
+    assert frames == k, frames
+    assert [without for without, _ in _paired_again(caplog)] == [k]
 
 
 def test_a_frame_with_only_carried_stamps_is_not_stamped(lib, gpiod, crystals):

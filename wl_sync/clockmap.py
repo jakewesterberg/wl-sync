@@ -107,7 +107,7 @@ class MonoRawTable:
 
     def add(self, mono_ns: int, raw_ns: int, *, provisional: bool = False) -> None:
         # A MONO that goes back would break `raw_of`'s search, but this runs on the edge
-        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1035-1038):
+        # thread, where an exception ends edge capture (wl_sync/rp1/backend.py:1076-1079):
         # the box records anyway, so the reading is dropped. The caller may log it.
         if self._readings:
             last_mono, _ = self._readings[-1]
@@ -169,7 +169,7 @@ class RawToP:
     LEAD_STAMP_TOLERANCE before the 30th pair. Then no lead edge matched again, so no
     pair came to correct it. What the centroid bought was the offset's noise averaged:
     a pair's own is 3-9 counts (spec §3,
-    docs/superpowers/specs/2026-10-30-one-clock-design.md:507), against a window of a
+    docs/superpowers/specs/2026-10-30-one-clock-design.md:511), against a window of a
     thousand either side.
 
     A lock, because `add` runs on the run loop's thread and `p_of` on all three.
@@ -321,10 +321,10 @@ def match_lead_stamp(
     reach: int = IDLE_MIN_US,
 ) -> LeadStamp:
     """Spec §2.5 steps 2-5, by the frame's own rises (Ruling R26). `stamps` are unwrapped
-    and ascending, as the stamp drain queues them; nothing here sorts them. `bracket` is
-    the lead edge's CPU bracket mapped to P, `end` the frame's end mapped to P, and
-    `rises` where the frame's rising edges begin, in us from its start
-    (`wl_sync.barcode.rises_us`).
+    and ascending, as the RP1 backend sorts them (wl_sync/rp1/backend.py `_lead_stamp`);
+    nothing here sorts them. `bracket` is the lead edge's CPU bracket mapped to P, `end`
+    the frame's end mapped to P, and `rises` where the frame's rising edges begin, in us
+    from its start (`wl_sync.barcode.rises_us`).
 
     THE STAMPS ARE ALIGNED TO THE RISES AS A WHOLE. Each stamp up to the end is tried as
     the lead: the rises are laid out from it, and a rise is aligned when a stamp lies

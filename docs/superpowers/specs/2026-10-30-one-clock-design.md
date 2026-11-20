@@ -484,6 +484,10 @@ What matters for the budget is that the map is affine, which it is by constructi
 | Missed lead edge | that `B` dropped, ERROR (§2.5) | one pair fewer | one pair fewer |
 | Stamp FIFO dead (pump thread stopped) | every `B` dropped; health reports the stop (`rp1/backend.py:535-542`) | map extrapolates and degrades | stops |
 
+*[2026-11-20, the user, on the final review's I1 ("WARNING + resync", options (a) and (c); option (b), a restart after N dropped `B`s, not chosen). The build's Task 1.15 makes two changes; names here are at the build's branch, not at `a452599`:*
+- *A desync of the stamp stream no longer stops its drain. Until then a full FIFO, with a drain between a pair's two pushes, left one word alone, and every later `B` was dropped until a restart. Only a counter has bits above the 16-line data window, so the stream is paired again on the counter where the slip shows (`rp1/pio_capture.py`, `pair_stamps`). The desync is an ERROR in the health report, once, and counted for the run's end. Every frame's `B` is still the stamp its own rises align on, so a stamp misread in the slip is refused there, and a stamp lost in it drops its frame's `B` as an unstamped lead does. The row above now means a drain that fails, or a pump thread that ends.*
+- *"Map extrapolates and degrades" is now said. Once the RAW→P fit has gone 20 frames, or 20 frames' time, without a pair, one WARNING gives its last pair's age: E ticks and roll boundaries are extrapolated from it. Another WARNING ends the episode when a pair comes, or when capture stops first (`rp1/backend.py`, `EXTRAPOLATION_WARN_FRAMES` and `_watch_fit`). A fit lost beyond R19's reach still drops every `B`, and nothing restarts.]*
+
 ### 2.8 Files and size
 
 | File | Change |
