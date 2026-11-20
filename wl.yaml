@@ -96,7 +96,7 @@ status:
     it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
     1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
     wl_sync/rp1/harness.py), is built on the one-clock-p1 branch, reviewed,
-    and box-checked; not yet merged or pushed. Its box run (2026-11-20/21) needed
+    and box-checked, merged and pushed with main (2026-11-21). Its box run (2026-11-20/21) needed
     fixes along the way: /dev/gpiomem0 mapped whole (0x30000), each posted
     store read back, and, by the user's ruling, a harness-only PIO width meter
     (shim version 6) to say which path each high took. Then, on wl-rig-sync0 at
@@ -131,7 +131,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "b8795c8"
+  describes: "0807a68"
 
 runs_on: [rig/sync]
 builds_on: [dws]
