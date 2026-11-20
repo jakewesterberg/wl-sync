@@ -1787,7 +1787,7 @@ def test_an_edge_pump_places_edges_through_the_timebase_it_is_given():
 
 def test_edges_on_one_line_stay_in_tick_order_when_the_map_moves_between_them():
     """Review Focus 3. A fit update between two GPIO20 edges maps the second 3 counts
-    before the first. Each line's E records are in tick order (wl_sync/log.py:382-385), so
+    before the first. Each line's E records are in tick order (wl_sync/log.py:428-431), so
     it is delivered at the first one's tick. GPIO21's edge at that same 497 has no edge
     of its own line before it, and lands where it is mapped. A third GPIO20 edge mapped to
     498 is still behind the 500 delivered, so it is delivered at 500 too: the guard keeps
@@ -1960,7 +1960,7 @@ def test_a_loss_written_ahead_of_an_edge_keeps_its_lines_order(tmp_path):
     """Ruling R30. GPIO20's own numbers jump from 1 to 4, after the map moved: its edge
     at 40 100 us is mapped to 497, behind the 500 of the line's edge before it, and is
     held there at 500. The overflow's record goes just before it at its tick
-    (wl_sync/log.py:387-388). Mapped again on its own, the record took 497, and the line
+    (wl_sync/log.py:433-434). Mapped again on its own, the record took 497, and the line
     read E@500, L@497, E@500."""
     timebase = _Timebase()
     backend = _PumpedThrough(
@@ -1987,7 +1987,7 @@ def test_an_edge_its_timebase_cannot_place_is_skipped_counted_and_capture_goes_o
     """Ruling R30: the box records anyway. An edge with no place on the box clock was a
     ValueError that stopped the pump, and every edge after it was lost. It is left out
     and counted, as a fourth kind of lost edge, for the journal alone: the L record's
-    causes are a closed set (wl_sync/log.py:276-288). The overflow its own numbers showed
+    causes are a closed set (wl_sync/log.py:322-334). The overflow its own numbers showed
     has nowhere to go either, and the journal keeps it too."""
     import copy
     import pickle

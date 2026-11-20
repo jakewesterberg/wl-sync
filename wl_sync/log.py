@@ -108,12 +108,13 @@ class SyncBoxLogHeader(BaseModel):
     - Segments with the same id were written by one process, so their ticks are on one
       clock: the box clock in `wl_sync.service` (`_BoxClock`), on which every path's
       ticks are placed. They compare by number, wherever the segments are.
-    - "One clock" means one origin and one wrap count, not one rate. `B` and `E` ticks
-      count CLOCK_MONOTONIC. `W` ticks count RP1's own crystal, joined to it once, when
-      capture starts, so they drift from `B` and `E` by that crystal's rate error times
-      the time since the process started: about 0.18 s an hour at 50 ppm. The real rate
-      is unmeasured, and the fix is open (wl-sync
-      docs/superpowers/specs/2026-10-30-one-clock-design.md).
+    - "One clock" means one origin and one wrap count. Whether it is also one rate is
+      `timebase`'s to say. Under "rp1-pio-si" and "rp1-pio" it is: `W`, `B` and `E` are
+      all placed on RP1's PIO count, at one rate fixed for the process. Under "split" it is
+      not. `B` and `E` ticks count CLOCK_MONOTONIC. `W` ticks count RP1's own crystal,
+      joined to it once, when capture starts, so they drift from `B` and `E` by that
+      crystal's rate error times the time since the process started: about 0.18 s an
+      hour at 50 ppm. That rate is unmeasured.
     - Two segments in one folder, with consecutive `segment_index` and the same id, are
       not a restart. The index goes up by one between them, and the ticks run on, on
       that one clock, which a roll does not reset.
@@ -140,6 +141,13 @@ class SyncBoxLogHeader(BaseModel):
     frame may skip one value. The gap is elapsed time, not a loss. Treat +1 or +2 across
     a roll in place as adjacent.
 
+    A DROPPED `B` CAN WIDEN THAT STEP, since the one-clock build (`BarcodeEmitted`). Not
+    before the roll: the roll in place waits for a frame whose `B` was kept
+    (wl_sync/cli.py:977-983, :997). After it, it can: the frames after the roll can lose
+    their `B`s too, and each one dropped widens the step by one, so one dropped after a
+    skipped value makes it 3. The box's journal ERROR is then the only witness
+    (wl_sync/cli.py:1386-1391; docs/superpowers/specs/2026-10-30-one-clock-design.md:617-619).
+
     Records cross a roll as they cross any point in a file, ordered within each path
     (`ordering`). A roll waits up to 0.2 s for each capture path to deliver what it
     captured before the boundary; a record delivered later lands in the next segment
@@ -157,24 +165,35 @@ class SyncBoxLogHeader(BaseModel):
 
     barcode_delay_us: int | None = Field(default=None, ge=0)
     """How long after a `B` record's tick the barcode frame's lead rising edge reaches
-    the wire, in µs, as the bench loopback measures it: the median "lead edge after its
-    logged tick" that `python -m wl_sync.bench loopback` prints. None means unmeasured,
-    and stays the default until bench day measures it. The box is given the value with
-    `wl-sync record --barcode-delay-us N` (deploy/README.md), and writes it into every
-    segment of the run.
+    the wire, in µs. ADD IT TO A `B` TICK to get the wire time: `tick_us +
+    barcode_delay_us`.
 
-    ADD IT TO A `B` TICK to get the wire time: `tick_us + barcode_delay_us`. It is never
-    negative, because the tick is read before the frame goes out (`wl_sync.cli.run`,
-    spec Sec.5): after the checkpoint is written, immediately before emission. The
-    lead edge therefore rises after the tick, and this is how long after. The loopback
-    sees that edge as an `E` record on an input wired to the barcode output, so the sum
-    is where this box's own edge capture places the lead edge.
+    0 UNDER "rp1-pio-si" AND "rp1-pio" (`timebase`). A `B` tick is then the stamp
+    machine's count of the lead edge itself, so nothing lies between the tick and the
+    wire, and the latency it shares with `W` cancels. The backend declares the 0, and a
+    `--barcode-delay-us` given beside it is not used, with a WARNING
+    (wl_sync/cli.py:553-561; docs/superpowers/specs/2026-10-30-one-clock-design.md:454-458).
+    Nothing makes such a process's first `B` late, so the exception below is gone with it.
 
-    EXCEPT THE FIRST `B` OF EACH `process_uuid`. That record carries an extra delay
-    that nothing measures. On the box, `Rp1Backend.emit_pulses` requests the output line
-    during the first frame, after that frame's tick is read, so its lead edge rises later
-    by however long the request takes. The loopback reports a segment's first frame as
-    not checkable, so its median never includes this one.
+    IN A SPLIT PROCESS, AS BEFORE THE ONE-CLOCK BUILD, it is the flag's, or None. The
+    value is the bench loopback's: the median "lead edge after its logged tick" that
+    `python -m wl_sync.bench loopback` prints. None means unmeasured, and stays the
+    default until bench day measures it. The box is given the value with `wl-sync
+    record --barcode-delay-us N` (deploy/README.md), and writes it into every segment
+    of the run. It is never negative, because the tick is read before the frame goes
+    out (`wl_sync.cli.run`, spec Sec.5): after the checkpoint is written, immediately
+    before emission. The lead edge therefore rises after the tick, and this is how long
+    after. The loopback sees that edge as an `E` record on an input wired to the
+    barcode output, so the sum is where this box's own edge capture places the lead
+    edge.
+
+    EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
+    that frame, after its tick is read (wl_sync/rp1/backend.py:1173-1174, :1189-1194).
+    Its lead edge then rises later by however long the request takes, which nothing
+    measures. A process whose stamp machine started has normally taken the line already,
+    for its start-up test (:654-661); one whose stamp machine did not start has not.
+    The loopback reports a segment's first frame as not checkable, so its median never
+    includes this one.
 
     None is not zero. Zero is a measurement. A reader with None uses each tick as it is,
     and records the delay as unmeasured."""
@@ -184,22 +203,37 @@ class SyncBoxLogHeader(BaseModel):
     it (`SyncBackend.timebase`). Every tick is placed on one origin and one wrap count
     (`process_uuid`); this says whether they also share one rate.
 
+      * "rp1-pio-si", in the one-clock spec's words, verbatim
+        (docs/superpowers/specs/2026-10-30-one-clock-design.md:440-446):
+          - W and B count RP1's PIO counter. B is the barcode's lead edge, stamped by a
+            second state machine.
+          - E is kernel-stamped on CLOCK_MONOTONIC and mapped onto that count in
+            software.
+          - Every tick is scaled to SI µs by one rate, fixed for the process and
+            measured against NTP-disciplined time by earlier processes.
+          - All paths share one rate.
+      * "rp1-pio", verbatim too (:446): the same, unscaled. Ticks count RP1's crystal,
+        because no calibration was usable at start. All paths still share one rate.
       * "split": `W` ticks count RP1's PIO counter, which runs off RP1's own crystal and
         is joined to CLOCK_MONOTONIC once, when capture starts. `B` and `E` ticks count
         CLOCK_MONOTONIC, which NTP slews. So `W` drifts from `B` and `E` by that
         crystal's rate error, relative to NTP, times the time since the process started.
         The rate is unmeasured; at 50 ppm it is 0.18 s an hour. Every segment the RP1
-        backend wrote before this field existed was "split".
+        backend wrote before this field existed was "split". Since the one-clock build
+        it is also written by a process whose stamp machine failed its start-up test: it
+        did not start, or it did not see GPIO17 rise. The start's journal ERROR names
+        which, and the process records split until a restart passes the test
+        (wl_sync/rp1/backend.py:513-531).
       * "fake": the test backend (`wl_sync.backend.FakeBackend`), which the box's unit
         runs until bench acceptance (`--fake`). No hardware clock is involved, and no
         capture path delivers anything real.
 
-    FREE TEXT, NOT A CLOSED SET. A later box can name a new arrangement -- the one-clock
-    build (docs/superpowers/specs/2026-10-30-one-clock-design.md) will -- and a reader
-    pinned before that value existed must still read the segment. A reader that meets a
-    value it does not know should take the paths' relative rates as unknown. None means
-    the segment was written before this field existed (2026-10-30). Empty is refused:
-    None already means unknown."""
+    FREE TEXT, NOT A CLOSED SET. A later box can name a new arrangement, as the one-clock
+    build named "rp1-pio-si" and "rp1-pio", and a reader pinned before that value
+    existed must still read the segment. A reader that meets a value it does not know
+    should take the paths' relative rates as unknown. None means the segment was
+    written before this field existed (2026-10-30). Empty is refused: None already
+    means unknown."""
 
     @field_validator("session_id")
     @classmethod
@@ -248,10 +282,22 @@ class BarcodeEmitted:
     `tick_us` is UNWRAPPED, exactly like `Edge` and `CodeWord` -- these records go
     through `Recorder`, whose one shared clock places every path's ticks against
     `now_us()`, so all three share one timebase across RP1's 71.6-minute counter wrap.
-    It is sampled BEFORE the frame is emitted, because a frame takes 200 ms (`barcode.FRAME_US`) and every receiving device
-    reports `Barcode.start_us`, the lead rising edge. Reading the counter after
-    emission would put this box's own alignment record 200 ms behind every device it
-    is aligning.
+
+    THE TICK IS OF THE LEAD EDGE, because every receiving device reports
+    `Barcode.start_us`, the lead rising edge, and a frame takes 200 ms
+    (`barcode.FRAME_US`). Since the one-clock build ("rp1-pio-si", "rp1-pio") it is the
+    stamp machine's count of that edge as it rose on GPIO17, matched once the frame has
+    ended (wl_sync/rp1/backend.py:1234, :1323). In a split process, and before the
+    build, it is the clock sampled BEFORE the frame is emitted (:1173-1176): reading it
+    after emission would put this box's own alignment record 200 ms behind every device
+    it is aligning.
+
+    IT MAY BE ABSENT. A frame whose lead edge was not stamped has no `B`, and the box
+    records on (wl_sync/cli.py:888-893). The frame was emitted, and every device
+    recorded it; its value was spent, because the checkpoint marked it before the frame
+    (:850). No `L` record marks it (`Loss`, `path`); the journal does, with an ERROR at
+    the first drop of a run and another at its end when it dropped more than one
+    (:1383-1417). A split process stamps nothing, so it drops none.
     """
 
     tick_us: int
@@ -313,8 +359,8 @@ class Loss:
       * `tick_us`: where the record sits in its path's stream, on the box clock, as
         every tick here is (wl_sync.service.Recorder). An ordering key, not the time of
         the loss: the window gives that. See ORDER.
-      * `path`: "W" or "E", the capture path that lost the events. B is never lost:
-        this box emits it.
+      * `path`: "W" or "E", the capture path that lost the events. B is never recorded
+        as lost; a dropped `B` is a journal ERROR (`BarcodeEmitted`).
       * `gpio`: the line, for an E loss whose line is known. See the shapes below.
       * `count`: how many were lost, at least 1: code words (strobes) on W, edges on E.
         A buffer_overflow's exact count is of edge events, the line's own numbers; an

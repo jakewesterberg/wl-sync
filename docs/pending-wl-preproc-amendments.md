@@ -28,6 +28,11 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 - **Note 5:** what a session's last records do now.
 - **Note 6:** an `L` record marks lost capture events in the segment.
 
+*Added 2026-11-19, not yet delivered:*
+
+- **Note 7:** the one-clock build: two new `timebase` values, `"split"` kept as a fallback,
+  and dropped `B`s.
+
 ---
 
 # ANSWERED — 1. The pinned wl-sync cannot read today's logs
@@ -225,6 +230,8 @@ The order was agreed with wl-preproc on 2026-10-30.
     - The fix is open: wl-sync `docs/superpowers/specs/2026-10-30-one-clock-design.md` is a
       draft, to be decided after bench day. No real session is affected yet; the unit runs
       `--fake`.
+      *[2026-11-19: it is built, on a wl-sync branch not yet merged, and puts all three paths
+      on one rate. See note 7.]*
   - A different id, or `null`, is a restart and a new clock. `null` means the segment was
     written before the field existed.
 - **The field names are `process_uuid`, `barcode_delay_us` and `timebase`.** All three default to
@@ -234,9 +241,9 @@ The order was agreed with wl-preproc on 2026-10-30.
   - `"split"`: the RP1 backend. Code words count RP1's crystal, barcodes and edges
     CLOCK_MONOTONIC, and they drift apart, as above.
   - `"fake"`: the test backend, which the box's unit runs until bench acceptance.
-  - The one-clock build will write a new value. It is free text precisely so that your reader,
-    pinned today, still reads those segments. Treat a value you do not know as "relative rates
-    unknown".
+  - The one-clock build will write a new value *[2026-11-19: it writes two; see note 7]*. It
+    is free text precisely so that your reader, pinned today, still reads those segments.
+    Treat a value you do not know as "relative rates unknown".
   - `null`: written before the field existed.
 - **Ids are canonical, so compare them as text.** The header refuses any other spelling of a
   UUID: upper case, no hyphens, braces, or a `urn:` prefix.
@@ -404,3 +411,58 @@ allowance above. An edge buffered later than that is written as lost, as the jou
 **The trailer's count includes `L` records.** `schema_version` stays 1.
 
 The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
+
+# NOTE — 7. The one-clock build: two new `timebase` values, `"split"` as a fallback, and dropped `B`s (2026-11-19, not an ask)
+
+**Not yet delivered.** It is wl-sync's one-clock build, on its branch `one-clock-p1`, which is
+not yet merged, pushed or deployed; the box's unit still runs `--fake`. The claims about wl-sync
+were checked against that branch at the commit that adds this note. The three points below are
+the one-clock spec's own list of consequences for wl-preproc (wl-sync
+`docs/superpowers/specs/2026-10-30-one-clock-design.md:614-620`). That spec read wl-preproc at
+`d48943c` (`:10-14`); nothing of wl-preproc was re-read for this note, so it says what wl-sync
+writes and asks nothing about how your reader works.
+
+**The header's schema is unchanged.** No field is added, removed or retyped, and
+`schema_version` stays 1. The header's JSON schema was compared before and after the build, and
+is identical. `gpio_map` is unchanged from wl-sync `main` too. An earlier draft of the design
+added `"barcode_loop": 19`; the build does not, because nothing is wired to GPIO19 (the spec's
+`:467-471`; wl-sync `f17a26d`).
+
+1. **Two new `timebase` values, both one rate across paths.** In the spec's words
+   (`:440-446`):
+   - `"rp1-pio-si"`: W and B count RP1's PIO counter. B is the barcode's lead edge, stamped by
+     a second state machine. E is kernel-stamped on CLOCK_MONOTONIC and mapped onto that count
+     in software. Every tick is scaled to SI µs by one rate, fixed for the process and measured
+     against NTP-disciplined time by earlier processes. All paths share one rate.
+   - `"rp1-pio"`: the same, unscaled. Ticks count RP1's crystal, because no calibration was
+     usable at start. All paths still share one rate.
+
+   Under both, "one clock" (`process_uuid`, note 4) is one origin, one wrap count and one rate:
+   code words no longer drift from barcodes and edges. The definitions are the `timebase`
+   docstring in wl-sync's `wl_sync/log.py:201-236`.
+2. **A dropped `B` can widen the value step at a roll in place to 3.** Note 4 asked you to
+   treat +1 or +2 across a roll in place as adjacent.
+   - On one count, a frame whose lead edge was not stamped has no `B` record. Every device
+     recorded the frame, and its value was spent. No `L` record marks it: an `L` record's path
+     is `W` or `E`. The box's journal ERROR is the only witness (`wl_sync/log.py:295-300`).
+   - The box protects the frame before the roll: the roll in place waits for a frame whose `B`
+     was kept. It cannot protect the frames after it. So one `B` dropped just after a roll
+     whose grid skipped one value makes the step 3, and each further drop widens it by one
+     (`wl_sync/log.py:144-149`).
+   - The spec leaves to wl-preproc whether its rule should allow 3 when the ticks agree with
+     one dropped frame (`:617-619`).
+3. **`barcode_delay_us` is 0 under both new values, and the first `B` of a process is no longer
+   late.** A `B` tick is the stamp machine's count of the lead edge itself. Note 4 described
+   each process's first `B` as later by an amount nothing measures; on one count it is not, so
+   any allowance made for it is unnecessary there, and harmless (`wl_sync/log.py:171-176`;
+   the spec's `:620`).
+
+**`"split"` is still written, with the meaning note 4 gave it.** A process whose stamp machine
+fails its start-up test records `"split"`: the stamp machine did not start, or it did not see
+GPIO17 rise. Its segments are as split segments were before the build. Its barcodes are timed
+in software, its `barcode_delay_us` is the flag's or `null`, and its first `B` can be late as
+note 4 says (`wl_sync/log.py:178-196`, `:217-226`). Read it as you read `"split"` today. The
+process says so once in the journal, and records split until a restart passes the test.
+
+The definitions are the `process_uuid`, `barcode_delay_us` and `timebase` docstrings, and the
+`BarcodeEmitted` docstring, in wl-sync's `wl_sync/log.py`.

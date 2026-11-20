@@ -27,6 +27,11 @@ Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gp
 *(Added 2026-10-30.)* Once the loopback (`docs/next-session.md`, Step B) has measured the
 barcode delay, also add `--barcode-delay-us N`, where N is the median "lead edge after its
 logged tick" it printed, in whole µs. Without it every header says the delay is unmeasured.
+*(Added 2026-11-19, for the one-clock build.)* On the RP1 backend the flag matters only to
+a process that records `"split"` (below). Otherwise the backend stamps the lead edge
+itself, every header says `barcode_delay_us` 0, and a flag given beside it is not used,
+with a WARNING (`wl_sync/cli.py:553-561`). On such a process the loopback's median is the edge input's
+own constant, "E's constant (B6)", not a delay of the barcode's (`wl_sync/bench.py:103`).
 
 ## Checking it
 
@@ -89,19 +94,83 @@ the platform does not expose one.
 
 - **`process_uuid`** names the process that wrote the segment. It is one UUID, made when
   `wl-sync record` starts and written into every segment that process writes. Every restart
-  makes a new one. Segments with the same id are on one clock: one origin, but code words
-  still drift from barcodes and edges at RP1's crystal error (see `wl_sync/log.py`). A new
-  id is a restart. The
-  id does not say whether anything lies between two segments; the `B` values do. The
+  makes a new one. Segments with the same id are on one clock: one origin, and under
+  `"rp1-pio-si"` or `"rp1-pio"` one rate too. Under `"split"` code words still drift from
+  barcodes and edges at RP1's crystal error (see `wl_sync/log.py`). A new id is a restart.
+  The id does not say whether anything lies between two segments; the `B` values do. The
   start's journal line prints it.
 - **`barcode_delay_us`** is how long after a `B` record's tick the frame's lead edge reaches
-  the wire, in µs. Add it to a `B` tick to get the wire time. The exception is the first
-  `B` of each process, which is later by an amount nothing measures. The delay is `null`
-  until bench day measures it and the unit passes `--barcode-delay-us` (above).
+  the wire, in µs. Add it to a `B` tick to get the wire time. *Since the one-clock build
+  (2026-11-19)* it is 0 under `"rp1-pio-si"` and `"rp1-pio"`, because the tick is the
+  stamp of the edge itself. Under `"split"` the first `B` of a process can be later by an
+  amount nothing measures, and the delay is `null` until bench day measures it and the unit
+  passes `--barcode-delay-us` (above).
 - **`timebase`** names the clocks the segment's ticks count. `"fake"` under the `--fake`
-  unit. `"split"` on the RP1 backend: code words on RP1's crystal, barcodes and edges on
-  CLOCK_MONOTONIC, which drift apart from capture start. The one-clock build will write a
-  new value.
+  unit. On the RP1 backend, since the one-clock build (2026-11-19), one of three:
+  - `"rp1-pio-si"`: code words, barcodes and edges all on RP1's PIO count, scaled to SI µs
+    by one rate, fixed for the process, from the PIO rate file
+    ([below](#the-pio-rate-file-once-per-install-or-board)).
+  - `"rp1-pio"`: the same at RP1's own crystal rate, because no calibration was usable at
+    start. All three still share one rate.
+  - `"split"`, the fallback: code words on RP1's crystal, barcodes and edges on
+    CLOCK_MONOTONIC, which drift apart from capture start. Every RP1 segment written
+    before the build says it. Since the build a process writes it only when its stamp
+    machine failed its start-up test (below).
+
+**A process on the RP1 backend that records `"split"` says why, once, at start** *(added
+2026-11-19)*. Before the first segment the box tests the stamp machine, which counts each
+barcode's lead edge as it rises on GPIO17: a third PIO state machine watches GPIO17 rise
+once. If the stamp machine or the test machine does not start, or the PIO does not see
+the rise, the journal has
+
+    the stamp machine's start-up test failed (<cause>): this process records timebase split, with B and E on CLOCK_MONOTONIC and W on RP1's crystal, until a restart passes it
+
+and the box records anyway, with its barcodes timed as before the one-clock build
+(`wl_sync/rp1/backend.py:513-531`). A pass logs `the stamp machine saw GPIO17 rise at
+start-up` instead. `<cause>` is one of:
+
+- `the stamp machine did not start (errno N)`. EBUSY (16) is a PIO block with no free
+  state machine (`pio/wlsync_pio.c:175-177`).
+- `the test machine did not start (errno N)`.
+- `no stamp when GPIO17 rose`: the test machine started, and no stamp came with the rise.
+- `the test could not run (...)`, with the error.
+
+(`wl_sync/rp1/backend.py:519`, `:668`, `:693`, `:695`.) To tell them apart, stop the
+service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
+
+    ~/wl-sync-venv/bin/python -m wl_sync.bench stamps
+
+It builds the backend as the unit does, so it repeats the start-up test first. A test that
+fails again prints `start-up test failed (<cause>)`, runs no frame, and exits 1
+(`wl_sync/bench.py:318-325`). A test that passes is followed by 60 of the box's own
+frames, one a second (`--frames N` for more; S.4 ran 300). It passes when every lead edge
+is stamped, every later rising edge is accounted for, and nothing is stamped between
+frames (`wl_sync/bench.py:187-190`). Then `sudo systemctl start wl-sync`: a process whose
+test passes records one count again.
+
+If the test passes and the frames still get no stamp, spike S.3b's pull toggles show
+whether the machines run at all. Run `bench stamps --stamp-pin 19 --frames 60`, and from a
+second session, about 5 s in:
+
+    for i in 1 2 3 4 5; do pinctrl set 19 pu; pinctrl set 16 pu; sleep 1; pinctrl set 19 pd; pinctrl set 16 pd; sleep 4; done
+
+`stamps_seen 5` and `words 5` mean the stamp machine and the capture machine both run
+after their sync enable, as they did in the spike (S.3b, 2026-11-07; `pinctrl` needed no
+`sudo` there). A pull-up is not a lead edge and an unwired GPIO19 stamps no frame, so that
+run fails by design. A count of 0 means that machine did not run, or the pulls did not
+reach the pins. The start-up test cannot see that: its machine is enabled alone, and a
+refused sync enable is invisible to the shim (`pio/wlsync_pio.c:207-210`). That is an
+open gap. The toggles also need a passing test,
+so after `no stamp when GPIO17 rose` nothing here yet tells a test machine that never ran
+from a PIO that cannot see GPIO17.
+
+**A dropped barcode is a journal ERROR, and only that** *(added 2026-11-19)*. On one count a
+frame whose lead edge was not stamped has no `B` record, and no `L` record either. Every
+device recorded the frame. The first drop of a run logs `barcode N dropped: <cause>. Every
+device recorded the frame; this log has no B for it`, and a run of more than one ends with
+`K barcodes dropped in a row, N to M: <advice>` (`wl_sync/cli.py:1383-1417`). Each run's
+end logs `barcodes: E emitted, D dropped this run`. `journalctl -u wl-sync -p err` shows
+the ERRORs. Advice that names `python -m wl_sync.bench stamps` means the checks above.
 
 A box stuck restarting will show as repeated start entries in `journalctl -u wl-sync`,
 so an operator knows what a crash loop looks like as distinct from a healthy run.
@@ -367,10 +436,66 @@ This is what first ran the RP1 backend on silicon, on `wl-sync-rig0` on 2026-10-
 
    On the first run, every barcode after the first was 1 s apart to within 147 µs.
 
+   *(Added 2026-11-19, for the one-clock build.)* Nothing is wired for the barcode stamps
+   either. The stamp machine reads GPIO17, the barcode output, itself: 300 of 300 lead
+   edges were stamped that way in bench S.4 (2026-11-07), and 28,800 of 28,800 over 8 h in
+   S.5. GPIO19 is spare. The journal should say `the stamp machine saw GPIO17 rise at
+   start-up`, and a first run's header `"rp1-pio"`, since no rate file exists yet (next
+   section).
+
+## The PIO rate file, once per install or board
+
+*(Added 2026-11-19, for the one-clock build.)* On the RP1 backend every tick is scaled to
+SI µs by one rate, fixed for the process. Each process takes it at start from
+`.wl-sync-pio-rate` in its `--out` directory, `/data/rig0/.wl-sync-pio-rate` under the unit
+(`wl_sync/cli.py:514-547`). The box writes the file itself: once its own baseline of
+NTP-disciplined clock pairs reaches an hour, and every hour after
+(`wl_sync/cli.py:1550-1574`). A file is used only on the board whose serial it names, and
+only if its rate is within ±200 ppm of RP1's crystal (`wl_sync/calibration.py:228-248`).
+A process that records `"split"` neither applies nor writes one
+(`wl_sync/rp1/backend.py:1414-1415`).
+
+**Once the unit runs the RP1 backend, after an install or a board swap:**
+
+1. Let the box run at least 1 h.
+2. Before the restart, check that `.wl-sync-pio-rate` exists in the `--out` directory. If
+   it does not yet, wait: it is first written once an hour of pairs has been taken with NTP
+   synchronized (`wl_sync/calibration.py:89-98`).
+3. Restart it once, between sessions: `sudo systemctl restart wl-sync`. Between sessions,
+   because a restart begins a new clock (`process_uuid`).
+4. After it, the start's journal line names the applied rate,
+
+       applying the PIO rate calibration written <time>: <+N> ppb, measured over <S> s and <P> pairs; timebase rp1-pio-si
+
+   not the no-calibration WARNING (`wl_sync/cli.py:523-539`).
+
+Until that restart, the process records `"rp1-pio"`, because no calibration was usable when
+it started (`docs/superpowers/specs/2026-10-30-one-clock-design.md:311`). Its ticks
+share one rate, RP1's crystal's, which is not SI. The journal says so at start:
+
+    no usable PIO rate calibration (<why>): ticks count RP1's crystal, timebase rp1-pio, until a later start finds one
+
+`<why>` is `no calibration file`, an unreadable file, another board's, a rate outside
+±200 ppm, or `this board's serial cannot be read`. Without a serial a WARNING also says
+that this process's rate cannot be kept for the next start (`wl_sync/cli.py:540-546`).
+Later starts take the newest file. During a run, a WARNING that the calibration "most
+likely came from other hardware", or that this process measures a rate more than 1 ppm
+from the one it applies, changes nothing in that run: the process keeps the rate it
+started with (`wl_sync/cli.py:1499-1548`).
+
 ## Before first boot
 
 - Fit the CR2032 to the CM5 IO Board. Nothing on the board can detect its absence.
-- Configure NTP. `timedatectl show -p NTPSynchronized` must report `yes`.
+- Configure NTP. `timedatectl show -p NTPSynchronized` must report `yes`. *(Added
+  2026-11-19, for the one-clock build.)* **systemd-timesyncd must be the NTP client.** The
+  PIO rate (above) is measured only over clock pairs taken while NTP is synchronized and
+  the kernel reports its PLL on and an outstanding offset of at most 1 ms
+  (`wl_sync/calibration.py:89-98`). The offset check keeps out the first sync's slew, and
+  it assumes a client that corrects the clock through the kernel's PLL. A builder check
+  found that under chrony the offset stays 0, so large slews would pass it; that is
+  unverified here (`docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272`). That
+  timesyncd sets the PLL flag is unverified too, until bench B7 logs it. If it does not,
+  no pair passes, and no rate file is ever written.
 - **Important:** the unit runs `--fake` until bench acceptance (see above). The hardware
   capture is wired but unproven, while the crash-stitching mechanism is ready to verify
   at bring-up.

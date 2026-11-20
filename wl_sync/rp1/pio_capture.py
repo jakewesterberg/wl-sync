@@ -232,7 +232,7 @@ class StampPump:
     record. A FULL FIFO is held and the pump CONTINUES. A DESYNC is held, the batch is
     refused, and the pump STOPS: `stopped` turns True, and `handle` returns False. There
     is no consumer to fail, and no L record: stamps are not written, and the L format's
-    paths are W and E (wl_sync/log.py:316-317).
+    paths are W and E (wl_sync/log.py:362-363).
 
     LOCKED, because it is shared across two threads: `handle` runs on the pump's, and
     `take`, `stamps_through`, `stopped` and `take_error` on the run loop's.

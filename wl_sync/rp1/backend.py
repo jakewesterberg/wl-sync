@@ -1167,7 +1167,7 @@ class Rp1Backend:
 
         IN A SPLIT PROCESS B is now_us(), MONO us since the origin, read before anything
         else, as the run loop read it before the frame until Task 1.7. So the first frame
-        still pays for requesting the line after its B is read (wl_sync/log.py:173-177).
+        still pays for requesting the line after its B is read (wl_sync/log.py:190-196).
         Nothing is bracketed or matched, and no pair is made.
         """
         if self._split:

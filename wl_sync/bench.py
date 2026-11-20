@@ -53,7 +53,7 @@ from wl_sync.segment import SEGMENT_PATTERN, segment_index_of
 DEFAULT_LOOP_GPIO = GPIO_MAP["pd1_comp"]
 
 
-# The timebases that put W, B and E on one PIO count (wl_sync/log.py:182).
+# The timebases that put W, B and E on one PIO count (wl_sync/log.py:201).
 ONE_COUNT_TIMEBASES = ("rp1-pio-si", "rp1-pio")
 
 
@@ -67,7 +67,7 @@ class LoopbackReport:
     missing: list[int] = field(default_factory=list)
     unexpected: list[int] = field(default_factory=list)
     lead_offsets_us: list[int] = field(default_factory=list)
-    # The segment header's `timebase`, free text (wl_sync/log.py:182); None on a segment
+    # The segment header's `timebase`, free text (wl_sync/log.py:201); None on a segment
     # written before the field existed.
     timebase: str | None = None
     # Decoded frames with no `B`, on a one-count segment only; on any other they are

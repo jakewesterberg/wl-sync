@@ -92,7 +92,7 @@ class DroppedEdgeError(RuntimeError):
       * `unplaced`, GPIO -> count: events whose stamp the edge timebase could not place
         on the box clock (EdgeTimebase), left out so that capture goes on (Ruling R30).
         The journal's alone: an L record's causes are a closed set that wl-preproc reads
-        (wl_sync/log.py:276-288).
+        (wl_sync/log.py:322-334).
     Raised as the subclass for its one kind, and as this class when one report carries
     more than one.
     """
@@ -737,10 +737,10 @@ class EdgePump:
     count it is MappedTimebase, whose map moves while the pump runs: its table with each
     (MONO, RAW) reading, its fit with each lead-edge pair.
 
-    EACH LINE IN TICK ORDER (wl_sync/log.py:382-385). A map that moved between two edges
+    EACH LINE IN TICK ORDER (wl_sync/log.py:428-431). A map that moved between two edges
     on one line can put the second before the first, so the second is delivered at the
     first one's tick, and an L record written just before it takes that tick too
-    (wl_sync/log.py:387-388). Only for edges stamped within _GUARD_REACH_NS of each other,
+    (wl_sync/log.py:433-434). Only for edges stamped within _GUARD_REACH_NS of each other,
     which says why (Ruling R30).
 
     AN EDGE THE TIMEBASE CANNOT PLACE IS LEFT OUT, and capture goes on: it is counted as

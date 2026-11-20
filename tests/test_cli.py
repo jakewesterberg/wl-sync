@@ -2495,7 +2495,7 @@ def test_a_run_begun_before_ntp_synced_rolls_once_in_place_when_it_syncs(
 
 def test_the_ntp_roll_waits_for_a_frame_whose_barcode_was_kept(tmp_path, monkeypatch):
     """wl-preproc reads a roll in place as adjacent when the values step by 1 or 2 across
-    it, and the grid can already skip one value there (wl_sync/log.py:135-141). A `B`
+    it, and the grid can already skip one value there (wl_sync/log.py:136-142). A `B`
     dropped just before the roll would make the step 3, which reads as a gap. So the roll
     waits for a frame whose `B` was kept (spec §2.5, "Two rules")."""
     backend = FakeBackend()

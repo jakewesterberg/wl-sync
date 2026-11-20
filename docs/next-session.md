@@ -110,8 +110,32 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 `deploy/README.md`). `ssh wl-sync-rig0` reaches it over the tailnet.
 
 **Before anything runs the box, rebuild and install the shim, version 3** (P0 item 1,
-`docs/superpowers/plans/2026-11-07-one-clock.md:1550`). The backend refuses an older shim
-(`deploy/README.md:337-342`).
+`docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses an older shim
+(`deploy/README.md:406-410`).
+
+**The one-clock plan's bench section is the checklist for what follows**
+(`docs/superpowers/plans/2026-11-07-one-clock.md:1868`): P0, then B1 to B10. *(Added
+2026-11-19.)* Its spike, S (`:1896`), has already run on `wl-sync-rig0`, on 2026-11-07,
+with nothing wired and beside the `--fake` service. S.0 to S.6 all passed:
+- **S.1:** the shim compiles on the box under `-Wall -Wextra` with no warnings, and loads
+  from `~/wl-sync-spike/lib` through `LD_LIBRARY_PATH` with no sudo. `wlsync_start_stamp`
+  returns -19 before a program is loaded.
+- **S.2:** 30 s recorded on the real backend: 30 `B`, a clean trailer and manifest.
+- **S.3 / S.3b:** unwired GPIO19 gave no stamps. `pinctrl` pulls (no sudo needed) gave 5
+  stamps and 5 words, so both machines run after one sync enable.
+- **S.4, c-direct works:** 300 of 300 lead edges stamped reading GPIO17 directly, against
+  datasheet §3.1.1's suggestion. The user then chose "Adopt c-direct": the stamp machine
+  reads GPIO17 itself, nothing is wired for it, and GPIO19 is spare.
+- **S.5:** 8 h, 28,800 of 28,800 stamped, no edge short, none between frames. The lead-edge
+  bracket had a median of 21.9 µs, p99 43.1 µs and p99.9 48.0 µs, so
+  `BRACKET_WIDTH_MAX_NS = 100 µs` holds with 2× margin.
+- **S.6:** board serial `ff2f66a14d0e7bb1` (device tree, matching cpuinfo); CM5 Lite,
+  revision d041a0.
+- **B7** (adjtimex from a cold boot) waits for a reboot the user chooses. Its probe
+  (Task 1.4) is now built.
+
+S's files stay in `~/wl-sync-spike` on the box until the user says otherwise; nothing the
+service reads is there (`:2038`).
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
@@ -135,12 +159,12 @@ unverified semantics (one cycle per instruction, `jmp x--` legal, `mov isr, x` c
 bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
 
 1. **The fixed program on silicon (P0).** Run the plan's bench checklist P0
-   (`docs/superpowers/plans/2026-11-07-one-clock.md:1548`) first. The capture program changed on
+   (`docs/superpowers/plans/2026-11-07-one-clock.md:1878`) first. The capture program changed on
    2026-11-07 because it lost 1.5 µs per strobe (900 µs over Step 3's 600 strobes) and could
    leave its program when the counter wrapped. The fix counts 2:1 on every path. That is
    proven in an interpreter of the program's words (`tests/test_rp1_program.py`), not on
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
-   shim; the backend refuses a shim that is not version 3 (`deploy/README.md:337-342`,
+   shim; the backend refuses a shim that is not version 3 (`deploy/README.md:406-410`,
    `wl_sync/rp1/backend.py:217`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
@@ -185,6 +209,7 @@ The cheapest two can be done on this same bench day:
   rate of code words against edges converted to `CLOCK_MONOTONIC_RAW`. Under 0.01 ppm means RP1
   and the CPU share a reference, and the design's simplest option is enough.
 - **B4:** whether a PIO state machine can see GPIO17's barcode with no extra wire.
+  *Answered 2026-11-07 by spike S.4: it can (above).*
 
 Run wl-phantom's ±100 µs check on a recorder process hours old, not a fresh one: the drift grows
 from capture start, which happens once per process.
@@ -337,6 +362,10 @@ left, so no further panel connector fits. One fix-up came with it:
     - **The header names its clocks now** (`timebase`, `c67599f`), so the build changes only the
       value.
     Nothing of it is built yet.
+    *[2026-11-19: c-direct replaced the loopback (bench S.4, the user, 2026-11-07). The stamp
+    machine reads GPIO17 itself, nothing is wired to GPIO19, and GPIO19 is spare. The design
+    is built since, on the branch `one-clock-p1`: not merged, pushed or deployed, and the
+    unit still runs `--fake`.]*
 - **After a power-up on a box whose RTC is dead, the NTP roll kept a now-trusted segment in the
   previous day's folder** *(found in the final review, 2026-10-30; the user chose the fix; built,
   not yet pushed or deployed: the box stays on `4f1739c`)*.

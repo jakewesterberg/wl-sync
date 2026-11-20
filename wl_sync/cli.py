@@ -331,9 +331,9 @@ def _await_delivery(recorder: Recorder, boundary: int) -> None:
     leaves the barrier.
 
     "UP TO THE BOUNDARY" MEANS CAPTURED BY THEN on the box clock, which the boundary is
-    read from. An edge's tick is that clock, stamped by the kernel. A code word's tick
-    counts the RP1 crystal, which drifts from the box clock by its ppm over a run, so a
-    word captured just before the boundary can carry a tick just after it.
+    read from. In a split process an edge's tick is that clock and a word's counts RP1's
+    crystal, which drifts from it by its ppm over a run, so a word captured just before
+    the boundary can carry a tick just after it. On one count all are on the PIO count.
 
     THE WAIT IN NORMAL OPERATION. A roll runs after a frame, and the next frame is due
     about 0.8 s after that one ends. In the one iteration that places the frame grid again
@@ -977,7 +977,7 @@ def run(
             # AND PAST A FRAME WHOSE B WAS DROPPED (spec Sec.2.5, "Two rules"). wl-preproc
             # reads a roll in place as adjacent when the values step by 1 or 2 across it,
             # and the grid placed again after the sync's step can already skip one value
-            # there (wl_sync/log.py:135-141). A B dropped just before the roll would make
+            # there (wl_sync/log.py:136-142). A B dropped just before the roll would make
             # the step 3, which reads as a gap, so the roll stays due until a frame's B is
             # kept. A session roll in any iteration it waits into still drops it, and is
             # looked at first: that roll has judged its own segment, whatever the frame.

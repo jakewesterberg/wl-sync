@@ -20,7 +20,7 @@ status:
     by the box) is built and merged to main (2026-10-19); its
     tests run on a laptop against the fake backend, it has not been called from
     the task PC, and its MonkeyLogic recipe has never run under MATLAB. The capture paths are still unproven against
-    real signals, so the systemd unit ships --fake. 751 tests. On 2026-10-30 one
+    real signals, so the systemd unit ships --fake. On 2026-10-30 one
     clock came to unwrap every delivery path and clock trust is judged at every
     roll (both deployed); headers gained process_uuid, barcode_delay_us and
     timebase, the box rolls once when NTP first syncs, a roll waits for records
@@ -32,20 +32,37 @@ status:
     schematic captured, layout not started. On 2026-11-07 the strobe-capture
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
-    by simulating the program's words but not yet on silicon. The shim must be
-    rebuilt (version 2).
+    by simulating the program's words but not yet on silicon. One clock
+    (docs/superpowers/specs/2026-10-30-one-clock-design.md) is built on this
+    branch, one-clock-p1, and reviewed task by task; it is not merged, pushed
+    or deployed. A second state machine stamps each barcode's lead edge,
+    reading GPIO17 itself with nothing wired (c-direct, bench spike S,
+    2026-11-07). Code words, barcodes and edges share RP1's PIO count, scaled
+    to SI us by one rate per process that the box measures against NTP and
+    keeps in .wl-sync-pio-rate: timebase "rp1-pio-si", or "rp1-pio" until a
+    rate exists. A process whose stamp machine fails its start-up test records
+    "split", as before. A frame whose lead edge is not stamped loses its B,
+    with a journal ERROR. The header's schema is unchanged. The shim must be
+    rebuilt (version 3). 1044 tests.
   next: >-
-    Bench day, in the order of docs/next-session.md:112-144: rebuild the shim
-    (version 2); then GPIO17 looped to GPIO20, so the box decodes its own
-    barcode; then Task 5b Steps 3-5, whose first check is the fixed capture
-    program on silicon (P0); then the session endpoint from the task PC and the
-    MonkeyLogic checklist (docs/next-session.md). Before layout: the task PC line-out, the
-    PFI copy of PD1_COMP (spec Sec.12 item 11), and a GPIO17->GPIO19 barcode
-    loopback for the one-clock build, whose direction the user approved on
-    2026-10-30 (docs/superpowers/specs/2026-10-30-one-clock-design.md).
+    Part 1's whole-branch review, then a local merge, which waits for the
+    user, then note 7 to wl-preproc (docs/pending-wl-preproc-amendments.md).
+    Before one count is deployed, three known gaps wait for the user: Task
+    1.7's WARNING for each frame with stamps between frames, a capture machine
+    that cannot start still crash-looping the unit, and a refused sync enable
+    that nothing sees. Bench day, in the order of docs/next-session.md:112-168:
+    rebuild the shim (version 3); then GPIO17 looped to GPIO20, so the box
+    decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
+    fixed capture program on silicon (P0); then the session endpoint from the
+    task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
+    --fake also waits for bench B3a and B3b, on a harness not yet planned
+    (docs/superpowers/plans/2026-11-07-one-clock.md:2004-2006). Once the unit
+    runs the RP1 backend: run it 1 h, then restart it once, between sessions,
+    so it applies a PIO rate (deploy/README.md). Before layout: the task PC
+    line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "3003982"
+  describes: "f52484e"
 
 runs_on: [rig/sync]
 builds_on: [dws]
@@ -75,6 +92,18 @@ third_party:
       Builds libwlsync_pio.so on the box itself, because piolib's headers are
       Linux-only and its API static inline, so there is no prebuilt library to
       install.
+  - name: systemd-timesyncd
+    where: rig/sync
+    why: >-
+      The box's NTP client must be timesyncd. The PIO rate that scales every
+      tick to SI us is measured only over clock pairs taken while the kernel
+      reports an outstanding NTP offset of at most 1 ms (and its PLL on), which
+      keeps the first sync's slew out of the estimate. That check assumes a
+      client that corrects the clock through the kernel's PLL; a builder check
+      found that under chrony the offset stays 0, unverified on the box, so
+      large slews would pass it (one-clock spec Sec.2.2, ruling OC-R1;
+      docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272;
+      wl_sync/calibration.py:89-98).
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.
