@@ -625,6 +625,45 @@ def test_a_mark_forty_minutes_stale_stays_behind_the_boundary():
     assert mark == 999_999_999 < boundary
 
 
+@pytest.mark.parametrize("ahead", [500, STEP_BACK_MAX_US - 1], ids=["500us", "at-the-edge"])
+def test_a_mark_read_before_a_held_step_back_lies_after_now_not_a_wrap_early(ahead):
+    """Final review M1, on Ruling R34. The pump reads its mark, then the fit steps back,
+    and the clock holds `now()` at what it last returned: so the mark lies AFTER `now()`,
+    by less than the step. "At or before now" put it a whole wrap early (the reviewer's
+    probe: held now 1 000 000, mark 1 000 500, -4293966796), and a roll waited its 0.2 s
+    for a path that had delivered everything, then warned that it had not."""
+    backend, recorder = _marked()
+    backend.set_now_us(1_000_000)
+    boundary = recorder.now()
+    backend.mark = 1_000_000 + ahead  # read before the step back
+    backend.set_now_us(1_000_000 - 700)  # the fit steps back; now() holds 1 000 000
+    assert recorder.now() == boundary == 1_000_000
+    assert recorder.delivered_through() == {"edge capture": 1_000_000 + ahead}
+
+
+def test_a_roll_across_a_held_step_back_does_not_wait_for_a_path_that_has_delivered(
+    caplog,
+):
+    """Final review M1 through the roll (wl_sync/cli.py:665): the boundary is the held
+    `now()`, and the mark, read before the step back, is past it, so the barrier passes at
+    once and says nothing. Before, it waited ROLL_BARRIER_TIMEOUT_S and warned."""
+    import logging
+    import time
+
+    from wl_sync import cli
+
+    backend, recorder = _marked()
+    backend.set_now_us(1_000_000)
+    recorder.now()
+    backend.mark = 1_000_500
+    backend.set_now_us(999_300)
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING):
+        cli._await_delivery(recorder, recorder.now())
+    assert time.monotonic() - started < cli.ROLL_BARRIER_TIMEOUT_S / 2
+    assert not [r for r in caplog.records if "rolling before" in r.getMessage()]
+
+
 # --- L records: where the Recorder places a loss a capture path reports (2026-10-30) ----
 #
 # A backend reports a loss with raw ticks, as it hands over every tick (CaptureLoss). The

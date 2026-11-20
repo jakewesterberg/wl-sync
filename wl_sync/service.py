@@ -96,11 +96,14 @@ class _BoxClock:
     `now()` is `now_us()` unwrapped: it holds a reading behind the previous by under
     STEP_BACK_MAX_US mod 2^32, and adds 2^32 when any other falls below it (R32, R34).
     `unwrap(raw)` returns the value congruent to `raw` mod 2^32 NEAREST to
-    `now()`. Nearest, not "at or before": W ticks come from the RP1 crystal while
-    `now_us()` follows NTP-slewed CLOCK_MONOTONIC, so a tick can lie slightly AFTER the
-    reading, and "at or before" would send it a whole wrap back. The two diverge by ppm
-    times run length; nearest tolerates up to +-2^31 us (35.8 min), roughly 500 days of
-    continuous running at 50 ppm.
+    `now()`. Nearest, not "at or before": a tick can lie slightly AFTER the reading, and
+    "at or before" would send it a whole wrap back. In a split process W ticks come from
+    the RP1 crystal while `now_us()` follows NTP-slewed CLOCK_MONOTONIC, and the two
+    diverge by ppm times run length. On one count `now_us()` is RAW mapped to P through
+    the fit (wl_sync/rp1/backend.py:550-567), so a tick can lead it by the fit's error,
+    and one stamped just before the fit steps back leads the held `now()` by up to the
+    step, under STEP_BACK_MAX_US. Nearest tolerates up to +-2^31 us (35.8 min), roughly
+    500 days of continuous running at 50 ppm.
 
     WHY SHARING IS SAFE NOW. The per-path unwrappers this replaced each noticed a wrap
     only when their own tick fell below their own previous one. That misses a wrap if the
@@ -125,8 +128,11 @@ class _BoxClock:
     reads 0 at enable, edges before the origin are refused by `edge_tick_us`, and a B tick
     is its lead edge's stamp, `FrameStamp.tick`), and lies within +-2^31 us of `now()`.
 
-    A run that never misses a wrap gets exactly the values the per-path unwrappers
-    gave, on both backends: the same origin, with the offset starting at 0.
+    A run that never misses a wrap gets the values the per-path unwrappers gave: the
+    same origin, with the offset starting at 0. Not exactly, on one count, across a held
+    step back: `now()` then runs ahead of the fit by up to STEP_BACK_MAX_US, which moves
+    the point where nearest changes its wrap, 2^31 us from `now()`, by as much. Only a
+    tick about 35.8 min from now is placed differently, and no live path delivers one.
 
     P, NOT SI. Everything here is a PIO count. `Recorder` applies `TickScale` to what this
     returns, once, so no value is scaled before it is unwrapped (spec §2.2).
@@ -177,19 +183,30 @@ class _BoxClock:
 
     def unwrap_reading(self, raw: int) -> int:
         """A raw `now_us()` READING taken earlier, unwrapped: the value congruent to `raw`
-        mod 2^32 at or before `now()`.
+        mod 2^32 at or before `now()`, or after it by under STEP_BACK_MAX_US.
 
         For readings only, such as how far a capture path has delivered, never for ticks.
-        A reading cannot lie after now, since it came from this clock earlier, so "at or
-        before" is exact for one up to 71.6 min old, where `unwrap`'s nearest is exact only
-        to 35.8 min. That matters for a capture path that has stalled: nearest would carry
-        a mark more than 35.8 min old a wrap FORWARD, past any boundary, and a roll would
-        stop waiting for a path that has delivered nothing. A tick can lie after now (see
-        above), which is why ticks get nearest.
+        A reading came from this clock earlier, so it lies after `now()` only while
+        `now()` holds a step back (R34): taken before the fit stepped back, it is ahead of
+        the held value by less than the step, and a step is under STEP_BACK_MAX_US by
+        construction (STEP_BACK_MAX_US, above). Read as at or before, such a mark went a
+        whole wrap early, and a roll waited for a path that had delivered everything
+        (final review M1). Anything else is at or before, which is exact for a reading up
+        to 71.6 min less STEP_BACK_MAX_US old, where `unwrap`'s nearest is exact only to
+        35.8 min. That matters for a capture path that has stalled: nearest would carry a
+        mark more than 35.8 min old a wrap FORWARD, past any boundary, and a roll would
+        stop waiting for a path that has delivered nothing. The price is a mark within
+        STEP_BACK_MAX_US of 71.6 min old, which is carried forward the same way: a roll
+        that comes in that 1 s, of every 71.6 min a path stays stalled, does not wait for
+        it. A tick can lie after now for other reasons too (see above), which is why
+        ticks get nearest.
         """
         with self._lock:
             now = self._now_locked()
-            return now - (now - raw) % TICK_WRAP_US
+            ahead = (raw - now) % TICK_WRAP_US
+            if ahead < STEP_BACK_MAX_US:
+                return now + ahead
+            return now + ahead - TICK_WRAP_US
 
 
 class _MemorySink:
