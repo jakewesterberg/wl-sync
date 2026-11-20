@@ -7,6 +7,10 @@ here was measured on hardware, and placement is a later task.
 
 It satisfies `constraints.md`, and cites that file by constraint ID.
 
+Two rulings by the user on 2026-11-20 are recorded here: the CM5 IO Board rides above the
+back connector row (§6.5), and the fan strip is 130 mm (§2.1). A review of the first
+version asked for one fix round, and this text includes it.
+
 ## How to read this
 
 **Every placement cites its source**, as a constraint ID in `constraints.md`, a `file:line`,
@@ -31,13 +35,14 @@ are fixed at placement, to ±0.1 mm, and the panel is drawn from the placed foot
 | CM5IO | *Raspberry Pi Compute Module 5 IO Board* datasheet, Raspberry Pi Ltd, documentation history dated 11 September 2026; recorded at TOML `[cm5_io_board]` |
 | CM5 | *Raspberry Pi Compute Module 5* datasheet, Raspberry Pi Ltd |
 | PI5 | *Raspberry Pi 5* mechanical drawing, Raspberry Pi Ltd, one sheet; recorded at TOML `[raspberry_pi_5]` |
+| CASE | *Raspberry Pi IO Case for Raspberry Pi Compute Module 5* product brief, Raspberry Pi Ltd, published November 2024; recorded at TOML `[cm5_io_case]` |
 | B-1, K-4, … | constraint IDs in `hardware/breakout/constraints.md` |
 
 **The frame.** Plan view from above, components up. X runs left to right as seen by someone
 facing the front panel, 0 to 430 mm. Y runs from the front edge (0) to the back edge (240).
 **[engineering judgment]** The sources never name a viewpoint for "left" and "right". SPEC
 puts the fans on the front face's right (SPEC:798, "fans right"), the exhaust on the left
-side panel, the CM5 back-left and the analog section back-right (SPEC:828, 834, 836), and
+side panel, the CM5 back-left and the analog section back-right (SPEC:836, 842, 844), and
 those four statements agree with each other only in this frame. The back panel, seen from
 behind, is mirrored.
 
@@ -50,13 +55,13 @@ behind, is mirrored.
 | Outline | **430 × 240 mm, nominal** | SPEC:767–769; S-2 |
 | Layers | four | S-1 |
 | Chassis | 2U, 19 in rack | SPEC:767 |
-| Chassis interior width | about 470 mm, so 20 mm clear on each side of the board | SPEC:852–853 |
+| Chassis interior width | about 470 mm, so 20 mm clear on each side of the board | SPEC:860–861 |
 | Panel width between rack ears | about 450 mm | PE:52 |
-| Panel height | 88.9 mm, about 82 mm usable | PE:98; SPEC:824 |
+| Panel height | 88.9 mm, about 82 mm usable | PE:98; SPEC:832 |
 | Panels | 3.0 mm aluminium, front and back | D3:3; PE:130 |
 | Board set-back from each panel | 36.2 mm less the BNC's protrusion through the panel. The protrusion is **not in the sources**. | PE:125–128; TOML `[bnc_dual_isolated].body_depth_mm`; M-9 |
 | Chassis interior depth | **not in the sources**. It is the board depth plus two set-backs plus two panel offsets, so it waits on the protrusion as well. | M-9 |
-| Chassis interior height | **not in the sources**. SPEC uses 82 mm once as a height: 20 mm × 82 mm is its "1,640 mm² per side". | SPEC:853 |
+| Chassis interior height | **not in the sources**. SPEC uses 82 mm once as a height: 20 mm × 82 mm is its "1,640 mm² per side". | SPEC:861 |
 | Standoff under the board | **not in the sources**. "Any standoff from about 5 mm up" keeps both BNC ports on the panel. | PE:116–120; M-7 |
 | Board thickness | 1.6 mm | S-3, itself engineering judgment |
 | Corner radius, mounting holes | **not in the sources** | M-16; constraints Open question 8 |
@@ -66,7 +71,7 @@ back edge carry BNC bodies, so the depth and the chassis are tied by twice the s
 (M-9, S-2).
 
 **Where the board sits against the panel.** The board is centred in the chassis
-(20 mm each side, SPEC:852–853). Taking the 450 mm of panel as centred too, the panel
+(20 mm each side, SPEC:860–861). Taking the 450 mm of panel as centred too, the panel
 overhangs the board by 10 mm at each end. **[engineering judgment]** PE gives the two
 widths and not their alignment; a symmetric rack chassis is the plain reading. It matters
 in §2, because a board-mounted connector cannot use those 10 mm.
@@ -100,7 +105,7 @@ Grounds are B-2(a)'s, from NET:250, 245, 224, 223.
   lies between them;
 - the Intan island borders both `DGND` and `AGND` (B-2(b)), so it lies between those two;
 - `AGND` must run unbroken from `J36` to the analog front ends at the back-right
-  (K-16, K-18), and the CM5 and its digital region are at the back-left (SPEC:834), so
+  (K-16, K-18), and the CM5 and its digital region are at the back-left (SPEC:842), so
   `AGND` is the right-hand domain and `NI_GND` the left-hand one;
 - no front connector sits behind the fan strip on the right (M-6).
 
@@ -110,17 +115,21 @@ DGND side away from `J36` (K-4).
 
 **Budget.** Board-mounted items total 66.0 + 14.4 + 20.0 + 122.4 + 66.0 = **288.8 mm** when
 the seven Intan bodies are a group of their own. PE's own figure is 292.4 mm, with `J5`
-on the same 18.0 mm pitch as the Intan row (PE:65–67). The fan strip takes the right-hand
+on the same 18.0 mm pitch as the Intan row (PE:65–67). Both count `J4`'s 20.0 mm as
+board-mounted, which follows its footprint; whether the button is on the board or on the
+panel is still open (constraints Open question 14). The fan strip takes the right-hand
 130 mm of the panel, which is board X ≥ 310 under the centring of §1. That leaves
 310 − 288.8 = **21.2 mm** for one edge margin and four gaps, and three of those gaps are
 domain boundaries that each need B-7's 2.5 mm copper-free band.
 
-**SPEC's 170 mm strip does not fit this row.** M-6 reserves "a 170 × 82 mm strip" from
-SPEC:811–812. That figure belongs to the two-row arrangement SPEC had then ("280 / 154 mm",
-SPEC:798). PE replaced it with one row, because a PCB-mounted dual body cannot be stacked
-in two rows (PE:88–92), and budgets the fans at 130 mm (PE:68). With 170 mm reserved the
-board-mounted items would have 450 − 170 − 10 = 270 mm and need 288.8. This floorplan uses
-PE's 130 mm. See Open question 6.
+**The fan strip is 130 mm. Ruled by the user on 2026-11-20: "the fan strip is 130 mm
+(2 × 65 mm fans)".** M-6 is amended to say so. SPEC:811–812 says the two-row front "frees
+a 170 × 82 mm full-height strip": that was the space the two-row arrangement left over
+(SPEC:798, "280 / 154 mm"), not what the fans need, and SPEC now carries a dated note
+there. What the fans need is two cutouts of about 65 mm (SPEC:832–834; PE:68). PE replaced
+the two rows with one, because a PCB-mounted dual body cannot be stacked (PE:88–92), and
+one row does not leave 170 mm: on PE's accounting 450 − 170 − 292.4 is 12.4 mm short, and
+on this document's 450 − 170 − 10 − 288.8 is 18.8 mm short.
 
 ### 2.2 Back edge (Y = 240), left to right
 
@@ -146,9 +155,13 @@ The order is K-5's: camera sync at the CM5 end, the five analog bodies at the fa
 - `J20` and `J22` at the right-hand end, because the photodiode stages and the microphone
   chain are the parts K-17 keeps farthest from the converters and the fan pair.
 
-**Budget.** Board-mounted items total 132.0 + 176.4 + 69.4 = **377.8 mm** (M-5). The board
-edge is 430 mm, so **52.2 mm of it is free of board-mounted connectors**, in total and not
-in one piece. That number decides §6.
+**Budget.** M-5 totals the board-mounted items at 132.0 + 176.4 + 69.4 = **377.8 mm**,
+which leaves **52.2 mm** of the 430 mm edge free. That counts the ten BNC bodies as one
+row at 18.0 mm pitch. In the order above they are three groups, 68.4 + 14.4 + 86.4, so
+the items total 370.6 mm and **59.4 mm** is free. Either way the free length is in
+pieces: it has to supply five gaps between groups, and the M12's 20 mm of panel where the
+inlet sits over the board. No single free stretch approaches 56 mm, let alone 160. That
+decides §6.
 
 PE's 45 mm for "CM5 port cutouts" (PE:80) is panel width beside the connector row. §6 shows
 the IO Board cannot be beside the row, so that 45 mm is not spent where PE spent it.
@@ -160,7 +173,7 @@ the IO Board cannot be beside the row, so that 45 mm is not spent where PE spent
 | `J1`, supply header, with `NT1`, `NT2`, `NT3` | on the `AGND`/`DGND` boundary, §3.3 | G-2, G-4, G-5, P-1 |
 | `J7`, 40-pin header to the sync module | in `DGND`, just inboard of the sync module's carrier, §6.6 | M-17 |
 | `J18`, internal USB | in `DGND` beside `J7`, with `U66` | M-17, K-30 |
-| `J52` to `J55`, fan headers | in `DGND`; see Open question 7 | P-14, G-24 |
+| `J52` to `J55`, fan headers | in `DGND`; see Open question 6 | P-14, G-24 |
 | `J56`, chassis earth stud | at the inlet star | G-5, M-15 |
 
 ---
@@ -222,10 +235,12 @@ sits at the T (B-2(c)). The island's two short sides carry no parts.
 to X = 183 at most (§3.3).
 
 **Order along the Intan line**, left to right: `U64`, `U65`, `C162` with `U63`, `U2`, the
-T, then the `INA105`s for outputs 1 to 8. **[engineering judgment]** `U64` carries the
+T, then the `INA105`s for outputs 1 to 8. No straddler sits at the island's corner
+(B-2(c)), so `U64`'s centre is at X ≥ about 119: from X = 112, half of B-7's 2.5 mm band,
+B-8's 1 mm beyond it, and half of the SOIC-16's 9.9 mm. **[engineering judgment]** `U64` carries the
 barcode and goes farthest from the `INA105`s (K-4), directly behind `J46`. `U2` and `U63`
 are the board's switchers, and this puts them more than 190 mm from the photodiode and
-microphone stages (K-17), but next to the T; see Open question 9.
+microphone stages (K-17), but next to the T; see Open question 8.
 
 **Islands do not touch.** The `DGND` tongue, X = 70 to 112, separates them for the whole
 depth of the Intan island (B-20).
@@ -266,7 +281,7 @@ Placement is a later task. These are the anchors the regions were drawn round.
 | Analog front ends: `U22`, `U23` and the difference amplifiers | back-right, behind their own connectors | K-11, K-14, K-16 |
 | Mux bank `U38` to `U52` | `AGND`, directly behind the Intan line, X = 170 to 238 | B-19 |
 | `U67`, `U68` | `DGND` side of the split, beside the mux bank | K-31 |
-| `U54`, `U76`, `U55` | `AGND` side of the split, Y = 160 to 190 | K-25, G-12, G-13; position is **[engineering judgment]**, see Open question 9 |
+| `U54`, `U76`, `U55` | `AGND` side of the split, Y = 160 to 190 | K-25, G-12, G-13; position is **[engineering judgment]**, see Open question 8 |
 | NI and task-PC buffer banks | `AGND`, between the mux bank, `J36` and `J2` | K-18, K-19 |
 | `U3`, `U4`, the two pi filters, `TP5` to `TP7` | Intan island, between the BNC bodies and the line | P-4, P-5, P-6, P-15 |
 | `U1` | `DGND`, beside the `+5V` entry capacitors at `J1` | P-13 |
@@ -289,7 +304,7 @@ inside the island it is delivered to:
 | `BARCODE_RAW` | `J7` pin 11 | `U15`, `U74` | a few millimetres, beside `J7` (K-6) |
 | `CAM_SYNC_*`, five nets | `U15`/`U74`, through `R198` to `R202` at the buffers (K-7) | `J13`, `J15`, `J17` | toward the back-left, under the IO Board's shadow |
 | `BARCODE_BUF` | `U15` | `U60`, on the NI line at X = 70 | across `DGND` only (K-9), X = 75 to 110 |
-| `BARCODE_INTAN_BUF` | `U15` | `U64`, at the left end of the Intan line | across `DGND` only (K-9), same strip, to about X = 115, Y = 78 |
+| `BARCODE_INTAN_BUF` | `U15` | `U64`, at the left end of the Intan line | across `DGND` only (K-9), same strip, to about X = 120, Y = 78 |
 | `BARCODE_NI` | `U60` | `J45` pin 3 | inside the NI island (K-4) |
 | `BARCODE_INTAN`, `BARCODE_INTAN_BNC` | `U64`, through `R205` | `J46` pin 3 | down the island's left edge, clear of the `INA105`s and `INTAN_AO*` (K-4) |
 
@@ -319,18 +334,18 @@ first analog body lie `J6`, `J3`, the M12, `J57`, `J2` and `J19`, which is 66.0 
 ### 5.1 The path
 
 Two 60 mm fans draw in at the front-right and two exhaust through the left side panel, so
-air crosses the board diagonally (T-1; SPEC:828–830). Both pairs are panel cutouts of about
+air crosses the board diagonally (T-1; SPEC:836–838). Both pairs are panel cutouts of about
 65 mm square (PE:145). The 20 mm between the board's left edge and the side panel is the
-way out (X-8; SPEC:852–856).
+way out (X-8; SPEC:860–864).
 
 - Intake: the front panel's right-hand 130 mm, board X ≥ 310 (§2.1).
 - Exhaust: the left side panel. Where along its depth is **not in the sources**. SPEC puts
-  the CM5 "back-left, at the exhaust" (SPEC:834), so the rear half is proposed,
+  the CM5 "back-left, at the exhaust" (SPEC:842), so the rear half is proposed,
   Y = 110 to 240. **[engineering judgment]**
 - Nothing overhangs the left or right board edge (X-8).
 
 The CM5 and its NVMe are the last thing the air meets (T-2). The analog front ends at the
-back-right are off the diagonal (T-3; SPEC:836–839). See Open question 8 for what that
+back-right are off the diagonal (T-3; SPEC:844–847). See Open question 7 for what that
 leaves undecided.
 
 ### 5.2 Heat sources
@@ -357,6 +372,7 @@ island and the other three are left of X = 170, so none is in `AGND`.
 | Left and right edges | no overhang | X-8 |
 | The diagonal | no tall part between the front-right intake and the left exhaust | X-9 |
 | Fans and fan copper | none beside `U23`, `U22` or their nets | X-10, K-17 |
+| Intake fan bodies | pending. If a fan is deeper than the front set-back, it overhangs the board's front-right (region `f` in §7) and limits component height there. The fan's depth and the set-back are both **not in the sources**. | M-9; **[engineering judgment]** that it needs a keep-out |
 
 **Fans against the quiet channels.** The CM5's own cooler is at about X = 40 to 80 (§6.3)
 and the photodiode and microphone bodies are right of about X = 330, so they are at least
@@ -381,7 +397,17 @@ No fan header is in `AGND` (G-24).
 | M.2 M key socket | at the far end of the port edge from HDMI0; the card lies inside the outline, pointing away from the port edge, with posts for 2230, 2242, 2260 and 2280 | Figure 2, p.10; §4.1, p.7 |
 | 40-pin header | on the HDMI half, between HAT mounting holes at 3.50 and 61.50 mm from that corner, 52.50 mm from the port edge | Figure 2, p.10, as read from its extension lines |
 | Power | 5 V at 5 A, USB-C PD, on the port edge | §2.1, p.5 |
+| The board's own mounting holes | four: 11.00 and 132.50 mm along the port edge from the HDMI corner, in rows **8.00** and 77.00 mm from the port edge. A 121.5 × 69 mm pattern. | Figure 2, p.10; the pattern is the differences |
 | Any height, any connector width or overhang, PCB thickness, a standoff | **not in the document** | Figure 2 is a plan view |
+
+**The IO Case**, from CASE, recorded at TOML `[cm5_io_case]`. Raspberry Pi's own enclosure
+for this board is **170 mm × 94 mm × 28 mm** overall (p.3, "Form factor"; the p.6 drawing
+prints the same 28). It holds the module on the IO Board, with "space for accessories
+connected to the IO Board, such as an M.2 SSD or a PoE+ HAT+", and a fan built into the
+lid (p.2). The board is held by "four M2.5 × 4 screws" through "the four mounting holes"
+(p.4, step 3). This box does not use the case. Its 28 mm is used below as a **ceiling** on
+the IO Board assembly's height: everything the case holds is inside it. It does not cover
+a cooler on the module, which the brief does not mention.
 
 Printed page numbers are the ones in the page footers. The PDF's own index is one higher.
 
@@ -389,13 +415,17 @@ Printed page numbers are the ones in the page footers. The PDF's own index is on
 or 7.44 mm high once mounted, depending on the carrier's connector. Which one the IO Board
 fits is not stated. The active cooler's height is in neither document.
 
-**Raspberry Pi 5**, from PI5, recorded at TOML `[raspberry_pi_5]`: 85 mm × 56 mm; connectors
+**Raspberry Pi 5**, from PI5, recorded at TOML `[raspberry_pi_5]`: 85 mm × 56 mm; mounting holes
+on a 58 × 49 mm pattern, 3.5 mm in, so the nearer pair is 23.5 mm from the short edge
+(85 − 3.5 − 58); connectors
 on one long edge at 11.2, 25.8 and 39.2 mm from a corner, and on the short edge at the
 other end at 10.2, 29.1 and 47 mm, overhanging it by 3 mm. The sheet says its dimensions
 are "approximate and for reference purposes only". It does not label the connectors. On
 the board's known arrangement the short edge carries Ethernet and the USB ports and the
 long edge carries the USB-C power input, so **the Pi 5's power input does not face the same
-panel as its Ethernet and USB.** No height is on the sheet.
+panel as its Ethernet and USB.** No height is dimensioned. The sheet is 1:1 at A4 with a
+side view, and the review of this document scaled the USB and Ethernet stack from it at
+about 16 mm above the PCB.
 
 **PCIe-FPC NVMe adapter**: a third-party part nobody has chosen. Its dimensions are **not in
 the sources**.
@@ -403,8 +433,8 @@ the sources**.
 ### 6.2 The condition
 
 "It must sit over the **rear digital region**, never over the analog front ends or across
-the airflow path serving them" (SPEC:901–904; X-2). Its ports "need the back panel"
-(SPEC:834). It sits downstream of the analog section in the airflow (T-2).
+the airflow path serving them" (SPEC:909–912; X-2). Its ports "need the back panel"
+(SPEC:842). It sits downstream of the analog section in the airflow (T-2).
 
 ### 6.3 Where it goes
 
@@ -423,6 +453,7 @@ Turned that way, and with its left edge at X = 0:
 | HDMI1, HDMI0, behind blank panel | 112, 137 | 160 − 48.00, 160 − 23.00 |
 | 40-pin header | about 98 to 157 | 160 − 61.50 to 160 − 3.50 |
 | CM5 module | about 40 to 80, scaled from Figure 2, which does not dimension it | |
+| Mounting holes | 27.5 and 149, in rows 8.00 and 77.00 mm in from the port edge | 160 − 132.50, 160 − 11.00 |
 
 Its Y depends on how far its connectors overhang its own edge, which CM5IO does not
 dimension, and on the main board's set-back (§1).
@@ -446,75 +477,126 @@ move to X = 183 (§3.3) and the NI island's depth is an allowance (§3.1).
 
 **Beside the connector row, no.** The plan and PE both picture the carrier's ports in a
 45 mm slice of back panel alongside the other connectors (PE:80). The ports are on a
-160 mm board edge, and that whole edge has to be at the panel. The back edge has
-**52.2 mm** free of board-mounted connectors (§2.2). 160 > 52.2, by 107.8 mm.
+160 mm board edge, and that whole edge has to be at the panel. The back edge has 52.2 to
+59.4 mm free of board-mounted connectors, in pieces (§2.2). 160 mm is more than 100 mm
+over either figure.
 
-**So it goes above the connector row, and whether it clears is not in the sources.** Under
-its shadow at the back edge are `J13`, `J15`, `J17`, `J6` and `J3`. The tallest is the BNC
+**Above the connector row, yes at the 5 mm standoff and no at the 26 mm one.** Under its
+shadow at the back edge are `J13`, `J15`, `J17`, `J6` and `J3`. The tallest is the BNC
 body, 29.25 mm above the board's top surface (X-5).
 
-| | mm | Source |
-|---|---|---|
-| Standoff under the main board, least | 5 | PE:118–119 |
-| Main board | 1.6 | S-3, judgment |
-| BNC body | 29.25 | TOML `[bnc_dual_isolated].body_height_mm` |
-| **Top of the BNC bodies, at least** | **35.85** | sum |
-| Usable height | about 82 | PE:98; SPEC:853 |
-| **Left for the IO Board, its underside, the module, the cooler and the air above** | **about 46** | 82 − 35.85 |
+| | 5 mm standoff | 26 mm standoff | Source |
+|---|---|---|---|
+| Standoff under the main board | 5 | 26 | PE:116–119 |
+| Main board | 1.6 | 1.6 | S-3, judgment |
+| BNC body | 29.25 | 29.25 | TOML `[bnc_dual_isolated].body_height_mm` |
+| **Top of the BNC bodies** | **35.85** | **56.85** | sum |
+| IO Board assembly, at most | 28 | 28 | CASE p.3; TOML `[cm5_io_case].overall_height_mm` |
+| **Top of the stack, at most** | **63.85, about 64** | **84.85, about 85** | sum |
+| Usable height | about 82 | about 82 | PE:98; SPEC:861 |
+| **Left over** | **about 18** | **none: about 3 over** | difference |
 
-Four numbers would close this, and none is in the repository or in CM5IO: the IO Board's
-height above its own PCB at its tallest connector; its underside protrusion and PCB
-thickness; the cooler's height on the module; and the chassis interior height, of which
-"about 82" is the panel's usable band and not a measurement.
+The 28 mm is a ceiling, not a measurement of this assembly. It is the outside of a case
+that holds the board, the module, an SSD and a lid fan, so the bare assembly is less by
+the case's sheet metal, which CASE does not dimension. The 18 mm left over has to cover
+three things the table does not: the clearance between the BNC tops and the IO Board's
+underside; whatever the module's cooler adds above the case's envelope; and air.
+"About 82" is the panel's usable band, used once by SPEC as a height (SPEC:861), and is
+not a floor-to-lid measurement.
 
-**The standoff decides it as much as the IO Board does.** Constraints Open question 17
-offers a standoff of about 26 mm to centre the BNC pairs on the panel (PE:116–118). With
-that, the BNC bodies top out at 26 + 1.6 + 29.25 = 56.85 mm and about 25 mm is left. A
-carrier above the row needs the short standoff.
+**Nothing yet holds it up there.** The IO Board's own mounting holes are in rows 8.00 and
+77.00 mm from its port edge (§6.1). With the port edge at the back panel:
 
-**Verdict.** The CM5 IO Board **fits in plan** over the rear digital region and meets
-X-2, with 10 mm margins. It **does not fit at the panel beside the connector row**
-(160 mm against 52.2 mm). It can only ride above the back-edge connectors, and **that fit
-in height is unproven**: at least 35.85 mm of about 82 mm is used below it, and the rest
-of the stack is not in the sources.
+- the row 77 mm in is at about Y = 163, inboard of every connector body. The deepest,
+  `J3`, reaches 51.32 mm in from the board edge (X-4). Standoffs from the main board can
+  reach those two holes. They are about 30 mm long or more, to clear the BNC bodies, and
+  they land in `DGND` at about X = 27.5 and 149.
+- the row 8 mm in is over the connector bodies. A BNC body is 36.2 mm deep (X-5), and
+  the gap between two bodies at 18.0 mm pitch is 18.0 − 14.4 = 3.6 mm. An M2.5 standoff
+  does not go down a 3.6 mm gap. **[engineering judgment]** on that last step: the screw
+  size is CASE's (p.4), and no standoff's width is in the sources, but a hexagonal one
+  for a 2.5 mm thread is wider than 3.6 mm.
 
-### 6.5 The two options
+So the port edge cannot stand on the main board.
 
-The choice is the user's. It is Open question 1.
+### 6.5 The answer to Step 1b
 
-| | **A. CM5 Lite on the CM5 IO Board** | **B. Pi 5 with a PCIe-FPC NVMe adapter** |
-|---|---|---|
-| Outline | 160 × 90 mm | 85 × 56 mm, plus the adapter (not in the sources) |
-| Shadow | 14,400 mm², 14 % of the board | 4,760 mm², 4.6 %, before the adapter |
-| Edge that must reach the back panel | 160 mm | 56 mm, if Ethernet and USB are to reach it |
-| Against 52.2 mm of free back edge | over by 107.8 mm | over by 3.8 mm, and the 52.2 mm is not in one piece |
-| So it sits | above `J13`, `J15`, `J17`, `J6` and `J3` | above about three of those bodies |
-| Height it must clear | 29.25 mm BNC bodies | the same, unless it is moved over `J3` alone (9.10 mm, TOML `[mdr68].body_height_mm`), which K-5 does not forbid |
-| Its own height | not in the sources | not in the sources |
-| Back-panel cutouts | USB-C power, USB3, Ethernet, centres spanning 34.00 mm | Ethernet and two USB stacks, centres spanning 36.8 mm (47 − 10.2). **Power is on the adjacent edge** and needs its own arrangement. |
-| NVMe | on the board, inside the outline, no cable | on a flex cable, which SPEC:222–225 calls "a mechanical failure mode worth designing out" |
-| Over `DGND` only | yes, 10 mm margins | yes, with more than 100 mm to spare along the back edge |
-| RAM upgrade | swap the module | new board (SPEC:272–276) |
-| Software | identical (SPEC:911–913) | identical |
+**Ruled by the user on 2026-11-20: the compute board is the CM5, above the row.** The
+sync module is a CM5 Lite on the official CM5 IO Board, with its NVMe on the board's own
+M.2 socket. The IO Board sits above `J13`, `J15`, `J17`, `J6` and `J3`, over the rear
+digital region only, at X = 0 to 160, Y = 150 to 240 nominal (§6.3). The main board is on
+the 5 mm standoff. The IO Board's port edge is carried by a bracket.
 
-Neither option sits beside the connector row, so both ride above it, and the unproven
-height stack is common to both. What separates them is how many connector bodies each
-covers, the flex cable, and where the power cutout goes.
+The plan's reversal to a Pi 5 is not taken. PLAN's Task 14 Step 1b carries a note of the
+same date.
 
-**[engineering judgment]** A variant of A the sources do not mention: mount the IO Board
-set back from the panel, inboard of the connector bodies, and bring Ethernet, USB and
-power to the panel on short panel-mount leads. It removes the height stack and the
-set-back coupling. It adds three cables to the option that was chosen to have none.
+**Mechanical requirement: a port-edge bracket.** **[engineering judgment]** The two
+mounting holes 8 mm in from the IO Board's port edge are fixed to a bracket from the back
+panel or the chassis, because nothing on the main board can reach them (§6.4). Two things
+the bracket must do, both judgment:
 
-### 6.6 What waits on the choice
+- hold the IO Board's port edge to the back panel within the tolerance its cutouts need
+  (M-2 asks ±0.1 mm of board-mounted connectors; the IO Board's ports are located by the
+  bracket instead);
+- not become a second connection between circuit ground and chassis. The board bonds
+  `CHASSIS_GND` to `DGND` at `NT3` and nowhere else (G-3, M-16). Whether the IO Board's
+  mounting holes are connected to its ground is **not in the sources**; if they are, the
+  bracket or its fixings must be insulating.
 
-- X-3, the component height limit under the shadow: the carrier's standoff is unknown, so
-  nothing under X = 0 to 160, Y = 150 to 240 is assumed usable for a tall part.
-- `J7` and `J18` (M-17). Proposed for option A: in `DGND` just inboard of the shadow,
-  about X = 100 to 155, Y = 130 to 148, so the ribbon drops from the IO Board's header
-  over its inboard edge. **[engineering judgment]**
-- The back panel's cutouts, and whether the 45 mm PE allowed them is returned to the row.
-- The left side panel's exhaust cutouts, which should face the carrier (§5.1).
+Its design is Open question 2.
+
+**What the ruling costs, and what it leaves.**
+
+- **The BNC row is off-centre on both panels.** Centring the port pair on the panel's
+  centreline needs a standoff of about 26 mm (PE:116–118). At 5 mm the pair sits about
+  21 mm lower. The MDR68 row is lower still (M-8). The 26 mm standoff is not available:
+  the stack would need about 85 mm (§6.4). Constraints Open question 17 is answered to
+  that extent.
+- **The IO Board's ports open above the BNC nuts**, in the upper part of the back panel.
+  PE's 45 mm of row width for them (PE:80) is not spent in the row.
+- **Four figures are still to be measured**, and the panels are not machined before they
+  are (PLAN:912–913):
+  1. the cooler's height on the module. SPEC:249–250 fits an active cooler, and the 28 mm
+     ceiling does not include one;
+  2. the chassis's floor-to-lid interior height. "About 82 mm" is the panel's usable band;
+  3. the BNC's protrusion through the panel, which sets the main board's set-back (M-9)
+     and so where the IO Board's port edge and its bracket land;
+  4. the IO Board's real component heights, above and below its PCB, from Raspberry Pi's
+     KiCad design files (CM5IO §6.1 points to them) or a board in hand. They replace the
+     28 mm ceiling with the real stack.
+
+**Alternatives considered, with their costs.**
+
+| | **Chosen: CM5 IO Board above the row** | **Pi 5 with a PCIe-FPC NVMe adapter** | **IO Board set back from the panel, on leads** |
+|---|---|---|---|
+| Outline | 160 × 90 mm | 85 × 56 mm, plus the adapter (not in the sources) | 160 × 90 mm |
+| Shadow | 14,400 mm², 14 % of the board | 4,760 mm², 4.6 %, before the adapter | 14,400 mm² |
+| Beside the back row | no: 160 mm against 52.2 to 59.4 mm free | no: 56 mm, and no free stretch that long (§2.2) | not at the panel at all |
+| So it sits | above `J13`, `J15`, `J17`, `J6`, `J3` | above about three of those bodies, or above `J3` alone (9.10 mm tall, TOML `[mdr68].body_height_mm`), which K-5 does not forbid | inboard of the connector bodies |
+| Over `DGND` only | yes, 10 mm margins | yes, with more than 100 mm to spare along the back edge | **not as drawn.** Inboard of the bodies `DGND` is 240 − 140 − 36.2 = 63.8 mm deep behind the BNCs and 240 − 140 − 51.32 = 48.7 mm behind `J3`, against 90 mm. It needs the NI island or the barcode strip moved, or the board raised over the bodies' rear after all. |
+| Height | at most about 64 of about 82 mm at the 5 mm standoff; does not fit at 26 mm | not dimensioned by Raspberry Pi; about 16 mm above its PCB, scaled (§6.1), plus cooler and adapter | low |
+| Support | inboard holes on standoffs; port-edge holes on a bracket | its nearer holes are 23.5 mm from the port edge, over `J3`'s 51.32 mm body: a bracket too | ordinary standoffs |
+| Back-panel cutouts | USB-C power, USB3, Ethernet; centres span 34.00 mm; above the BNC nuts | Ethernet and two USB stacks, centres spanning 36.8 mm (47 − 10.2). **Power is on the adjacent edge** and needs its own route. | three panel-mount connectors, anywhere |
+| NVMe | on the board, inside the outline, no cable | on a flex cable, which SPEC:222–225 calls "a mechanical failure mode worth designing out" | on the board |
+| Cables added | none | one flex, carrying the boot device | three leads, on the option chosen to have none |
+| RAM upgrade | swap the module | new board (SPEC:272–276) | swap the module |
+| Software | identical (SPEC:919–921) | identical | identical |
+| Standoff | forces the short one; BNC row off-centre | either | either |
+
+### 6.6 What follows from the ruling
+
+- **X-3**, the component height limit under the shadow. The IO Board's underside is above
+  the BNC bodies, so at least 29.25 mm is clear over the main board's surface there. The
+  exact figure waits on measurement 4 above.
+- **`J7` and `J18`** (M-17): in `DGND` just inboard of the shadow, about X = 100 to 155,
+  Y = 130 to 148, so the ribbon drops from the IO Board's header over its inboard edge.
+  **[engineering judgment]**
+- **The two inboard standoffs** land in `DGND` at about (27.5, 163) and (149, 163). Their
+  footprints on the main board are isolated holes (M-16), and the barcode's branch to the
+  camera bodies (§4) goes round the first.
+- **The back panel's cutouts** are drawn from the IO Board as bracketed, after the four
+  measurements.
+- **The left side panel's exhaust cutouts** should face the carrier (§5.1).
 
 ---
 
@@ -566,7 +648,7 @@ Y mm    X = 0                             170                                   
 | `.` | `DGND` |
 | `a` | `AGND` |
 | `f` | `AGND` behind the intake fans; in the airstream, and no front connector here (M-6) |
-| `o` | `DGND` under the CM5 IO Board's shadow, option A (§6.3) |
+| `o` | `DGND` under the CM5 IO Board's shadow (§6.3) |
 | `b` | `DGND` carrying the barcode corridor (§4); under the shadow it is drawn in place of `o` |
 
 The NI slot runs up the right-hand side of the `N` block from about Y = 55. The Intan slot
@@ -581,27 +663,30 @@ bands and the 1 mm split are narrower than a cell and are not drawn.
 Numbered for this document. Where one continues a question in `constraints.md`, that
 question is named.
 
-1. **CM5 IO Board, or Pi 5?** The IO Board fits in plan over the rear digital region with
-   10 mm margins, and meets X-2. It does not fit at the back panel beside the connector
-   row, 160 mm against 52.2 mm free, so it has to ride above `J13`, `J15`, `J17`, `J6`
-   and `J3`, and that height stack is unproven: at least 35.85 mm of about 82 mm is used
-   below it and the IO Board's own height is not in Raspberry Pi's datasheet (§6.4). A
-   Pi 5 has the same problem on a 56 mm edge and adds a flex cable and a power input that
-   faces sideways (§6.5). Which is it, A or B? The plan says the answer precedes panel
-   machining (PLAN:912–913). Four measurements would turn "unproven" into yes or no: the
-   IO Board's tallest connector, its underside, the cooler's height, and the chassis
-   interior height. (Continues constraints Open question 10.)
+**Settled since the first version, both by the user on 2026-11-20:** the compute board is
+the CM5 IO Board above the back connector row (§6.5), and the fan strip is 130 mm (§2.1).
 
-2. **Is a carrier above the connector row acceptable at all?** Nobody decided it; the
-   arithmetic of §6.4 forces it for both options. It ties the standoff to the short end
-   of its range (§6.4; constraints Open question 17), puts the carrier's port cutouts
-   above the BNC nuts, and covers the camera-sync and `J3` bodies. The alternative is the
-   set-back variant of §6.5, with three panel leads.
+1. **The four measurements behind the CM5 ruling.** The stack is at most about 64 mm of
+   about 82 mm, on a 28 mm ceiling borrowed from Raspberry Pi's IO Case (§6.4). Before
+   panels are machined, measure or fetch: the cooler's height on the module; the
+   chassis's floor-to-lid interior height; the BNC's protrusion through the panel; and
+   the IO Board's real component heights, from Raspberry Pi's KiCad design files or a
+   board in hand (§6.5). Who does each, and what happens if the cooler does not fit under
+   the lid: a lower cooler, or the lid fan Raspberry Pi's own case uses?
 
-3. **PE's 45 mm for the CM5 cutouts.** The three ports' centres span 34.00 mm (CM5IO
-   Figure 2), which leaves 11 mm for two half-widths and clearance, and the connector
-   widths are not in the datasheet. If the carrier rides above the row, is that 45 mm
-   returned to the back row, whose slack is 7.2 mm (PE:82)?
+2. **The port-edge bracket.** The IO Board's two mounting holes 8 mm from its port edge
+   sit over the back connector bodies, and the 3.6 mm between BNC bodies will not take a
+   standoff, so a bracket from the back panel or the chassis carries that edge (§6.5).
+   What is it made of, what does it fix to, and how does it locate the ports against
+   their cutouts? If the IO Board's mounting holes are tied to its ground, how is the
+   bracket kept from bonding circuit ground to chassis a second time (G-3)? Is one hole
+   at about X = 149 better taken to the main board, in the gap beside `J3`, by shifting
+   the IO Board sideways? (Continues constraints Open question 10.)
+
+3. **The IO Board's cutouts, and PE's 45 mm.** The three ports' centres span 34.00 mm
+   (CM5IO Figure 2), and their widths are not in the datasheet. They now open above the
+   BNC nuts. Is PE's 45 mm of row width returned to the back row, whose slack is 7.2 mm
+   (PE:82), and how much panel is left between a BNC nut and a port cutout above it?
 
 4. **The islands' straddler lines.** §3.2 puts the NI slot on the island's side, because
    six SOIC-16s and `U62` do not fit across a 70 mm back, and the Intan slot on the
@@ -615,32 +700,29 @@ question is named.
    back edge the leads are short and the mux address lines cross 130 mm from the tie.
    Which? (Continues constraints Open question 16.)
 
-6. **130 mm or 170 mm for the fan strip.** SPEC:811–812 reserves 170 mm and M-6 repeats
-   it. PE budgets 130 mm, and the single connector row needs it: with 170 mm the front
-   row is 18.8 mm too long (§2.1). Confirm 130 mm, and that two 65 mm cutouts need no
-   more.
-
-7. **Fan headers.** `FAN_RTN` ties to `DGND` at the inlet and G-24 keeps the fan pair out
+6. **Fan headers.** `FAN_RTN` ties to `DGND` at the inlet and G-24 keeps the fan pair out
    of the `AGND` region. The intake fans are at the front-right, and the nearest `DGND`
    is at X ≤ 170, at least 140 mm away, so P-14's "two toward the front-right intake
    strip" cannot be met by a trace. Put all four headers in `DGND` and let the intake
    fans' own leads cross above `AGND`, or allow a routed pair along the front edge?
 
-8. **The intake jet and the quiet corner.** SPEC calls the back-right the quietest corner
-   because the flow is diagonal (SPEC:836–839). The intakes are at the front-right and
+7. **The intake jet and the quiet corner.** SPEC calls the back-right the quietest corner
+   because the flow is diagonal (SPEC:844–847). The intakes are at the front-right and
    blow along Y, straight at the back-right, before the air turns left. Is a deflector
-   wanted, and where along the left side panel are the exhaust cutouts (§5.1)?
+   wanted, and where along the left side panel are the exhaust cutouts (§5.1)? How deep
+   are the intake fans against the front set-back (§5.3)?
 
-9. **Comparators against the heat sources.** K-25 and G-10 want `U54`, `U76` and `U55` at
+8. **Comparators against the heat sources.** K-25 and G-10 want `U54`, `U76` and `U55` at
    the split near `NT1`. K-27 wants `U54` and `U76` away from `U1`, `U2`, `U63` and the
    CM5. On this floorplan they are about 30 to 50 mm from `U1` and about 90 mm or more
    from `U2`, `U63` and the module. The sources give the margin (about 3 °C of
    self-heating in a 0 to 70 °C part, TOML `[lm339]`) and no distance. Enough?
 
-10. **Board X against the panel.** §1 takes the board and the 450 mm of panel as
-    concentric, which costs the front row 10 mm (§2.1). Is the panel's usable width
-    centred on the chassis?
+9. **Board X against the panel.** §1 takes the board and the 450 mm of panel as
+   concentric, which costs the front row 10 mm (§2.1). Is the panel's usable width
+   centred on the chassis?
 
 Still open from `constraints.md` and unchanged by this document: Open questions 2 and 3
 (the barcode readings), 4 to 7 (slots and barriers), 8 (stack-up and mounting),
-11 to 13 (BNC terminals, pads, nut and protrusion), 15, 18 to 22.
+11 to 13 (BNC terminals, pads, nut and protrusion), 15, 18 to 22. Its Open question 17
+(the standoff) is answered as far as §6.5 says.

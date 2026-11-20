@@ -18,7 +18,9 @@ marked **[engineering judgment]** with its reason. Treat those as proposals to a
 change, not as requirements the design already carries. Where the sources lack a value, the
 text says "not in the sources" and gives none.
 
-**Line numbers are those of the commit that added this file.** Three sheets were regenerated
+**Line numbers are those of the commit that added this file.** A note of 2026-11-20 in SPEC
+§9.6 (the fan strip, M-6) added eight lines there, so every SPEC line cited here above 812 is
+now eight lines further down. Three sheets were regenerated
 by L1 (`power`, `analog-frontend`, `opto-intan`), and in them each line of an on-sheet note is
 its own `(text ...)` element, so a note is cited by the line that carries the quoted words.
 
@@ -374,7 +376,7 @@ was meant.
 | M-3 | Face assignment. Front: the seven Intan bodies (`J37`, `J39`, `J41`, `J43`, `J46`, `J48`, `J50`), `J5` (reward remote, with the spare port `J5B`), `J36` and `J45` (recording NI), and the reward button. Back: `J20`, `J22`, `J24`, `J26`, `J29` (rig analog), `J13`, `J15`, `J17` (camera sync, with frame-time in on `J17B`), `J6` (reward driver, with frame-time in on `J6B`), `J57` (line-out), `J2` and `J3` (task-PC NI), `J19` (DB37). | SPEC:789–799; PE:23–25, 36–42, 65–82 |
 | M-4 | Dual BNC bodies are on an 18.0 mm column pitch, in one row per face. That pitch rests on a nut across-corners figure of about 16.5 mm that was never sourced from a drawing. Confirm it before fixing positions. | PE:56–59; F6:88–100. See Open question 13. |
 | M-5 | Front-edge board-mounted items total 132.0 mm (two MDR68) plus 140.4 mm (eight BNC bodies). Back-edge items total 132.0 + 176.4 + 69.4 mm (two MDR68, ten BNC bodies, DB37). With the panel furniture, the back face has 7.2 mm of slack in a 450 mm panel and takes no further connector. | PE:65–82; PE:27–30 |
-| M-6 | The right-hand part of the front face is a 170 × 82 mm strip for the two 60 mm intake fans. No front-face connector is placed behind it. | SPEC:811–812; SPEC:828; PE:68 |
+| M-6 | The right-hand 130 mm of the front face is the strip for the two 60 mm intake fans, two cutouts of about 65 mm. No front-face connector is placed behind it. **Amended 2026-11-20**: this row said "a 170 × 82 mm strip". | **Ruled by the user on 2026-11-20: "the fan strip is 130 mm (2 × 65 mm fans)".** PE:68 (2 × 65.0 = 130.0); SPEC §9.7, "60 mm needs ~65 mm". The 170 mm of SPEC §9.6 was the space the two-row front freed, not what the fans need, and SPEC carries a note of the same date saying so. PE's single row does not leave 170 mm: `floorplan.md` §2.1. |
 | M-7 | BNC port axes are 6.63 mm and 22.63 mm above the board's top surface, so the standoff height sets where the BNC row lands on both panels. Choose the standoff (anything from about 5 mm up fits) before fixing panel drawings. | PE:104–120; DR:378. See Open question 17. |
 | M-8 | The MDR68 row will not centre on the same height as the BNC row (a 9.10 mm body against a 29.25 mm one). Plan for it to sit lower on the panel, or to be shimmed. | PE:121–124; TOML `[mdr68].body_height_mm` (line 456) |
 | M-9 | The board's set-back from each panel equals the BNC body depth (36.2 mm) less its protrusion through the panel, which is not dimensioned. Both the front and back edges carry BNCs, so the board depth and the chassis depth are tied together by twice this figure. | PE:125–128; DR:226–230. The "twice" is arithmetic on M-3. |
@@ -432,7 +434,7 @@ was meant.
    `INTAN_GND` each in a rear corner and `AGND` front-centre. SPEC §9.6 moved the recording-NI
    and Intan connectors to the front (GT-2). The front edge now has to carry all four domains:
    `INTAN_GND` (seven BNC bodies), `NI_GND` (`J45`), `AGND` (`J36`) and `DGND` (`J5`, `J4`),
-   with the right-hand 170 mm taken by the fan strip (M-6). The Intan island borders `DGND` at
+   with the right-hand 130 mm taken by the fan strip (M-6, as amended). The Intan island borders `DGND` at
    its optocouplers and converters and `AGND` at its `INA105`s. Which arrangement keeps each
    barrier as straight as B-2 asks, and where is the Intan boundary's corner?
 
@@ -490,6 +492,10 @@ was meant.
     together with the back-face connector row of M-5, or does the plan's fallback to a Pi 5
     apply? This is Step 1b's decision, and X-2, X-3 and M-17 wait on it.
 
+    > **Answered in part, 2026-11-20.** `floorplan.md` §6 gives the orientation and the edge that
+    > faces the back panel, and records the user's ruling: the CM5 IO Board rides above the
+    > back connector row. The fixing points are still open: `floorplan.md` Open question 2.
+
 11. **BNC retention terminals.** The sources establish that each shell is independently
     isolated, so the two 2.01 mm terminals do not common the shells (X-6). They do not say
     whether the terminals touch either shell. Are they to be soldered to isolated pads only?
@@ -519,6 +525,10 @@ was meant.
 17. **Standoff height and the MDR68 row.** Centre the BNC pairs on the panel with a standoff
     of about 26 mm, or use a short standoff and accept an off-centre row? Shim the MDR68s or
     let them sit low (M-7, M-8)?
+
+    > **Answered in part, 2026-11-20.** The user's ruling on the CM5 IO Board (`floorplan.md` §6.5)
+    > takes the main board's standoff as 5 mm, so the BNC row sits off-centre on both panels.
+    > Shimming the MDR68s is still open.
 
 18. **Where `J56` and `NT3` sit.** G-5 puts `NT3` at the inlet star and M-15 wants the stud
     reachable by a bond strap. Where is the strap's other end, and does that place the stud

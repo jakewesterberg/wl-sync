@@ -914,6 +914,22 @@ place Ethernet, USB and power cutouts differently. Intake and exhaust are panel 
 mechanical drawing from the start. If a fan is fitted, keep it away from the microphone preamp
 and photodiode front ends — its motor is an electrical noise source as well as an acoustic one.
 
+> **Decided. Note added 2026-11-20; the text above is left as it was written.**
+> `hardware/breakout/floorplan.md` §6 is this step's answer. **The CM5 choice survives, and the
+> user ruled how on 2026-11-20: the CM5 IO Board, with its NVMe on board, sits above the back
+> connector row** (`J13`, `J15`, `J17`, `J6`, `J3`), over the rear digital region only, with the
+> main board on a 5 mm standoff and the IO Board's port edge carried by a bracket.
+>
+> The floorplan found what this step did not expect: no carrier fits *beside* the back
+> connector row. The row leaves 52.2 mm of board edge free, against a 160 mm IO Board edge and
+> a 56 mm Pi 5 edge. A Pi 5 with a PCIe-FPC adapter, and an IO Board set back from the panel on
+> leads, were considered and are recorded there with their costs.
+>
+> Two consequences. The short standoff puts the BNC row off-centre on both panels. And four
+> figures are still to be measured before panels are machined: the cooler's height, the
+> chassis's floor-to-lid height, the BNC's protrusion through the panel, and the IO Board's
+> real component heights, from Raspberry Pi's KiCad design files or a board in hand.
+
 - [ ] **Step 2: Write the constraint set**
 
 Board stack-up 4-layer (signal / GND / power / signal). ≥2.5 mm clearance slot under every

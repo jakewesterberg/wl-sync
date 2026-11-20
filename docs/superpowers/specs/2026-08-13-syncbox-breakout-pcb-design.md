@@ -811,6 +811,14 @@ recessed button also earns its keep on the front, which is where people stand an
 The front's spare width is what makes the fans possible: splitting its connectors into two rows on
 the left frees a **170 × 82 mm full-height strip** on the right.
 
+> **Note added 2026-11-20; the sentence above is left as it was written.** The 170 mm is the
+> space the two-row front freed, not what the fans need. The fans need two cutouts of about
+> 65 mm, 130 mm in all (§9.7; `hardware/breakout/panel-elevations.md`, §2, Front). The front
+> has since become one row, because a PCB-mounted dual BNC cannot be stacked in two
+> (`panel-elevations.md`, §2), and one row does not leave 170 mm. **Ruled by the user on
+> 2026-11-20: the fan strip is 130 mm (2 × 65 mm fans).** `hardware/breakout/constraints.md`
+> M-6 and `hardware/breakout/floorplan.md` §2.1 carry it.
+
 **33 BNC positions** (31 until the frame-time inputs took two spares on 2026-08-16), all populated. Display sync is **dropped entirely** (§12 item 12), and the
 3.5 mm TRS leaves the design with it — the reward remote became a BNC, which was its last use.
 

@@ -905,11 +905,34 @@ port_edge_chain_ends = ["mounting hole", "HDMI0 (J22)", "HDMI1 (J10)", "Ethernet
 # DERIVED here by summing the chain; the figure prints the links, not these sums.
 port_centre_from_hdmi_corner_mm = { hdmi0 = 23.00, hdmi1 = 48.00, ethernet = 74.00, usb3 = 93.00, usb_c_power = 108.00, microsd = 121.25 }
 ethernet_to_usb_c_centre_span_mm = 34.00   # derived: 19.00 + 15.00
-# Other dimensions printed on Figure 2, recorded as printed. Which feature each
-# vertical one ends on was read from the figure's extension lines.
-port_edge_other_mm = { hole_a_from_corner = 11.00, hole_b_from_corner = 61.50, hdmi_group = [22.70, 3.65] }
-from_port_edge_mm = [3.50, 8.00, 52.50, 67.5, 77.00, 90.00]
-opposite_edge_mm = [11.50, 18.0, 36.0]     # CAM/DISP 0, power button and CAM/DISP 1, from the HDMI-side corner
+# THE BOARD'S OWN FOUR MOUNTING HOLES. Figure 2 dimensions them: 11.00 and 132.50 mm
+# along the port edge from the HDMI corner (132.50 is the end of the chain above), in two
+# rows 8.00 and 77.00 mm from the port edge. A 121.5 x 69 mm pattern. The IO Case brief
+# ([cm5_io_case]) says four M2.5 screws hold the board by them. CORRECTED 2026-11-20 (L3
+# fix round 1): the first version of this section recorded 8.00 and 77.00 without saying
+# what they were.
+mounting_holes_along_port_edge_mm = [11.00, 132.50]
+mounting_holes_from_port_edge_mm = [8.00, 77.00]
+mounting_hole_pattern_mm = [121.5, 69.0]   # derived: 132.50 - 11.00, 77.00 - 8.00
+mounting_screw = "M2.5"                    # from [cm5_io_case], not from this datasheet
+# The HAT's hole pattern, a separate set: 3.50 and 61.50 mm along the port edge, in rows
+# 3.50 and 52.50 mm from it (58 x 49 mm). The 40-pin header J8 lies along the 52.50 row.
+hat_holes_along_port_edge_mm = [3.50, 61.50]
+hat_holes_from_port_edge_mm = [3.50, 52.50]
+# Other dimensions printed on Figure 2. CORRECTED 2026-11-20 (L3 fix round 1), two labels:
+#  - 22.70 and 3.65 locate the two LEDs D1 and D2, not the HDMI connectors. 22.70 runs
+#    from the mounting hole at 11.00 to D1, and 3.65 from D1 to D2, so they are 33.70 and
+#    37.35 mm from the HDMI corner.
+#  - on the opposite edge, 11.50 runs from the corner to CAM/DISP 0's centre line, and 18.0
+#    and 36.0 run FROM THAT CENTRE LINE, not from the corner. The power button is 29.5 mm
+#    and CAM/DISP 1 47.5 mm from the corner.
+led_chain_from_mounting_hole_mm = [22.70, 3.65]            # to D1, then D1 to D2
+led_from_hdmi_corner_mm = { d1 = 33.70, d2 = 37.35 }       # derived
+opposite_edge_cam_disp0_from_corner_mm = 11.50
+opposite_edge_from_cam_disp0_mm = { power_button = 18.0, cam_disp1 = 36.0 }
+opposite_edge_from_corner_mm = { cam_disp0 = 11.50, power_button = 29.5, cam_disp1 = 47.5 }   # last two derived
+other_height_from_port_edge_mm = 67.5      # printed; the feature it ends on was not identified
+board_depth_mm = 90.00
 m2 = "M.2 M key socket (J4) at the end of the port edge farthest from HDMI0; the card lies inside the board outline, running away from the port edge, with retention posts marked 2230, 2242, 2260 and 2280"
 m2_interface = "PCIe Gen 2 x1 by default"       # Section 4.1, printed p.7
 gpio_header = "40-pin HAT header (J8) on the HDMI half of the board; the figure dimensions the HAT mounting holes, not the header"
@@ -918,9 +941,11 @@ fan_connector = "four-pin JST-SH, PWM, powered from the 5 V rail"   # Sections 1
 note = """Recorded for the breakout floorplan (hardware/breakout/floorplan.md, section 6),
 which has to decide whether this board fits over the main board's digital region.
 
-WHAT THE DATASHEET DOES NOT GIVE, and the floorplan therefore cannot use:
+WHAT THE DATASHEET DOES NOT GIVE:
   - any height: component heights above the board, the tallest connector, the underside
     protrusion, the PCB thickness, or a recommended standoff. Figure 2 is a plan view only.
+    Another Raspberry Pi document bounds the height: see [cm5_io_case], 28 mm overall for
+    the case that holds this board, the module, an SSD and a fan.
   - any connector's width, or how far a connector overhangs the port edge. The figure
     marks a "PCB Edge" line at the USB-C connector and draws the connector outlines past
     it, undimensioned.
@@ -960,5 +985,38 @@ is from the board's known arrangement, not from this sheet; confirm on a board. 
 reading the power input is on the LONG edge and the Ethernet and USB connectors on the
 SHORT one, so the two do not face the same panel.
 
-Not on the sheet: any height, and anything about a PCIe-FPC NVMe adapter, which is a
-third-party part nobody has chosen."""
+Not DIMENSIONED on the sheet: any height. The sheet is drawn 1:1 at A4 and has a side
+view, and the L3 review scaled the USB and Ethernet stack from it at about 16 mm above
+the PCB and the underside at about 2 mm. Those are scaled, not printed. Nothing on the
+sheet concerns a PCIe-FPC NVMe adapter, which is a third-party part nobody has chosen."""
+
+[cm5_io_case]
+part = "Raspberry Pi IO Case for Raspberry Pi Compute Module 5"
+document = "Raspberry Pi IO Case for Raspberry Pi Compute Module 5, product brief (Raspberry Pi Ltd)"
+revised = "2024-11"              # "Published November 2024", p.1
+retrieved = "2026-11-20"
+url = "https://datasheets.raspberrypi.com/cm5/io-case-product-brief.pdf"
+sha256 = "6a0416deeed50660f8e1c5abbe223c6714fbd7114602e10f0287afa41003e43c"
+pages = "p.2 (Overview); p.3 (Specification); p.4 (Assembly instructions); p.6 (Physical specification). Printed and PDF page numbers agree."
+
+form_factor_mm = [170.0, 94.0, 28.0]     # p.3, "Form factor"; 28, 94 and 170 are also on the p.6 drawing
+overall_height_mm = 28.0
+board_fixing = "four M2.5 x 4 screws through the IO Board's four mounting holes into the case base"   # p.4, step 3
+holds = "Compute Module 5 on the CM5 IO Board, with space for an M.2 SSD or a PoE+ HAT+, and a fan built into the lid"   # p.2
+fan_power_w = 0.85               # p.3; the lid fan, on the IO Board's four-pin header
+fan_airflow_cfm = 2.46
+fan_noise_db = 21.7
+note = """Used as a CEILING on the height of the CM5 IO Board assembly, which the IO Board's own
+datasheet does not give ([cm5_io_board]). The whole case is 28 mm tall outside, so the
+board, the module, an SSD, the tallest port and the lid fan are all inside 28 mm, less
+the case's own sheet metal, which the brief does not dimension.
+
+This box does NOT use the case. The figure is borrowed as a bound and nothing else.
+
+What the bound does not cover: a cooler on the module. The case cools with its lid fan,
+and the brief mentions no heatsink. The breakout spec fits an active cooler, whose height is
+in no Raspberry Pi document read here. Real component heights are in Raspberry Pi's CM5IO
+KiCad design files, which were not fetched.
+
+The p.6 drawing prints "All dimensions are approximate and for reference purposes only."
+Its other printed values (56, 48, 41, 33, 10, 2.7) were not needed and are not recorded."""
