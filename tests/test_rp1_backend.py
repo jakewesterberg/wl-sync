@@ -915,9 +915,13 @@ class _FakeTime:
 class _TwoCrystalClock:
     """The CPU's crystal behind MONO, RAW and REALTIME, and RP1's behind the PIO count.
 
-    True time advances 20 us per clock read, from any thread, and by each sleep. A sleep
-    also sleeps for real, at most 1 ms, so the pump threads run as `_manual_clock`'s do;
-    the pump's own sleeps move true time too. RAW reads true x (1 + cpu_ppm 1e-6), and
+    TRUE TIME IS THE RUN LOOP'S. It advances 20 us per clock read and by each sleep, on
+    the thread that made the clock, which calls `emit_pulses` as the run loop does. A
+    read from any other thread, a pump's, samples true time without moving it, and a
+    pump's sleep sleeps for real only, at most 1 ms, so the pumps run as `_manual_clock`'s
+    do. Until the final review's M6 a pump's sleep moved true time 1 ms a poll too, so a
+    poll that landed in `_drive`'s spin made a `set_value` up to 1 ms late, at random, and
+    a test with a smaller margin flaked. RAW reads true x (1 + cpu_ppm 1e-6), and
     MONO reads the same unless a test slews it: RAW x (1 + mono_slew_ppm 1e-6) plus
     mono_offset_ns, as NTP moves MONO and not RAW. REALTIME reads MONO plus an offset,
     and `p_now()`, the PIO count, true time since P's zero x (1 + rp1_ppm 1e-6) in
@@ -949,22 +953,30 @@ class _TwoCrystalClock:
         self._mono_offset_ns = mono_offset_ns
         self.p_zero_ns = 0  # true time at P's zero
         self._lock = threading.Lock()
+        self._run_loop = threading.get_ident()
 
     def _mono(self, raw_ns):
         return round(raw_ns * self._slew) + self._mono_offset_ns
 
+    def _moves_time(self):
+        return threading.get_ident() == self._run_loop
+
     def clock_gettime_ns(self, clock):
+        moves = self._moves_time()
         with self._lock:
-            self._true_ns += 10_000
+            if moves:
+                self._true_ns += 10_000
             raw = round(self._true_ns * self._cpu)
-            self._true_ns += 10_000
+            if moves:
+                self._true_ns += 10_000
         if clock == self.CLOCK_MONOTONIC_RAW:
             return raw
         mono = self._mono(raw)
         return mono + self.REALTIME_OFFSET_NS if clock == self.CLOCK_REALTIME else mono
 
     def sleep(self, seconds):
-        self.advance(round(seconds * 1e9))
+        if self._moves_time():
+            self.advance(round(seconds * 1e9))
         time.sleep(min(seconds, 0.001))
 
     def advance(self, ns):
@@ -1013,6 +1025,26 @@ def crystals(monkeypatch, gpiod):
         return clock
 
     return make
+
+
+def test_only_the_run_loops_thread_moves_the_two_crystal_clocks_true_time():
+    """Final review M6, on the fixture itself. A pump's reads and sleeps leave true time
+    where it was, so a run-loop `set_value` lands at its deadline however the pumps poll;
+    the run loop's own read and sleep still move it, 20 us and the sleep's length."""
+    clock = _TwoCrystalClock()
+
+    def pump():
+        for _ in range(5):
+            clock.clock_gettime_ns(clock.CLOCK_MONOTONIC_RAW)
+            clock.sleep(0.001)
+
+    thread = threading.Thread(target=pump)
+    thread.start()
+    thread.join()
+    assert clock.ns == 0
+    clock.clock_gettime_ns(clock.CLOCK_MONOTONIC_RAW)
+    clock.sleep(0.001)
+    assert clock.ns == 1_020_000
 
 
 @pytest.fixture
