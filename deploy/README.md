@@ -369,7 +369,7 @@ the NVMe.
 1. **Write Raspberry Pi OS Lite (64-bit) to a USB drive** with Raspberry Pi Imager. Use
    Raspberry Pi OS, not another distribution: PIO reaches Raspberry Pi's own kernel first
    (`docs/superpowers/plans/2026-08-13-sync-box.md`). In Imager's settings:
-   - hostname `wl-sync-rigN`;
+   - hostname `wl-rig-syncN`;
    - a user, with SSH by public key only;
    - no Wi-Fi.
 2. **Boot from the USB drive, with the SD slot empty.** The CM5's `BOOT_ORDER=0xf2461`,
@@ -378,7 +378,7 @@ the NVMe.
 3. **Give it a network that hands out addresses.** On a direct cable with no DHCP,
    NetworkManager gives up and takes the link down, so the box answers for a few seconds
    and then vanishes. Use the lab network, or a Mac's Internet Sharing over its Ethernet
-   adapter, which puts the box on 192.168.2.x. Then `ssh <user>@wl-sync-rigN.local`.
+   adapter, which puts the box on 192.168.2.x. Then `ssh <user>@wl-rig-syncN.local`.
 4. **Set what this box needs that a stock image lacks:**
    - **`force_eeprom_read=0`** at the end of `/boot/firmware/config.txt`, which ends in an
      `[all]` section. GPIO 0/1 carry event-code bits 0 and 1, and the boot-time HAT probe
