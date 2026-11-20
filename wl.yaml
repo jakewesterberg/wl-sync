@@ -44,7 +44,7 @@ status:
     they count RP1's crystal ("rp1-pio"). A process whose stamp machine fails
     its start-up test records "split", as before. A frame whose lead edge is
     not stamped loses its B, with a journal ERROR. The header's schema is
-    unchanged. The shim must be rebuilt (version 4). I1 (Task 1.15) is built,
+    unchanged. The shim must be rebuilt (version 5). I1 (Task 1.15) is built,
     reviewed, its review's minors fixed, merged and pushed with main
     (2026-11-20; 1084 tests): a desynced stamp
     stream is paired again rather than stopped, and the journal says, once an
@@ -82,17 +82,21 @@ status:
     seed, so a mask-style empty flag no longer fails every read. A no-wire box
     check of shim v4 (2026-11-20) found the joined RX FIFO's level field
     saturating at 15, so the depth check failed and the box recorded split
-    with no W. Fix round 3, on one-clock-p1, not pushed (1164 tests): the shim
-    reads 15 with the full flag as 16, exactly, and refuses what cannot be
-    exact; the box check is to be run again.
+    with no W. Fix round 3 (1164 tests): the shim reads 15 with the full flag
+    as 16, exactly, and refuses what cannot be exact. The box check then
+    passed, on 2026-11-20 at 07925ef: bench stamps --frames 30 stamped 30 of
+    30, with 0 between, and the depth check passed. The shim is version 5
+    (Ruling R42), so a build from before fix round 3 is refused, naming the
+    rebuild (1165 tests, on one-clock-p1). Next: merge one-clock-p1 to main
+    and push.
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
     answers (docs/pending-wl-preproc-amendments.md:425-427); note 8 is
     queued. The box has 77a1f5a installed under --fake (2026-11-20), and runs
     it from the user's next restart; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
-    Bench day, in the order of docs/next-session.md:113-209:
-    rebuild the shim (version 4); then GPIO17 looped to GPIO20, so the box
+    Bench day, in the order of docs/next-session.md:113-210:
+    rebuild the shim (version 5); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
     task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
@@ -104,7 +108,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "3ed9e1d"
+  describes: "c670a8d"
 
 runs_on: [rig/sync]
 builds_on: [dws]
@@ -147,7 +151,7 @@ third_party:
       docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272;
       wl_sync/calibration.py:89-125). That timesyncd sets the PLL flag is itself
       unverified until bench B7 logs it, and without it no pair passes and no
-      rate file is ever written (deploy/README.md:711-713).
+      rate file is ever written (deploy/README.md:715-717).
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.
