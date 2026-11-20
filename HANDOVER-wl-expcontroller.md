@@ -206,7 +206,7 @@ P0.x line read in software). Source:
 [engine spec §9.1 and §21](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-10-07-engine-design.md#9-media-and-sound-n6-nr5-nr6).
 Two things the spec assumed that your source does not show: the spec says "beside the existing speaker
 tap", but no speaker tap exists in this repository (Ask 3 is unassigned), and the misc BNCs are input-only
-by construction (`docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md:990`, an output port
+by construction (`docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md:1044`, an output port
 "would be a respin"). We also found no task-PC analog-output net in `hardware/README.md`; the task PC's
 connector 0 carries nine analog *inputs*. So (a) may be new copper, or may be nothing at all if the card's
 connector can feed the amplifier directly; that is your call, and we would rather hear it is outside the
