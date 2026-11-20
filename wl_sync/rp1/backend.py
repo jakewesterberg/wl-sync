@@ -1166,9 +1166,9 @@ class Rp1Backend:
         episode when there is none (wl_sync/cli.py:864-895).
 
         IN A SPLIT PROCESS B is now_us(), MONO us since the origin, read before anything
-        else, as the run loop read it before the frame until Task 1.7. So the first frame
-        still pays for requesting the line after its B is read (wl_sync/log.py:190-196).
-        Nothing is bracketed or matched, and no pair is made.
+        else, as the run loop read it before the frame until Task 1.7. The first frame
+        pays for requesting the line after its B is read unless the start-up test took it
+        (wl_sync/log.py:190-196). Nothing is bracketed or matched, and no pair is made.
         """
         if self._split:
             tick = self.now_us()
@@ -1339,7 +1339,8 @@ class Rp1Backend:
         own rises align on (`clockmap.match_lead_stamp`, Ruling R26), which subsumes R24's
         count and pattern, within IDLE_MIN_US of its bracket (Ruling R28). Its offset is
         that lead less its bracket's midpoint, both on P. A frame whose lead alone went
-        unstamped aligns no lead, since its rises would need a later edge to align as one.
+        unstamped can still align a later rise as its lead, as value 1<<16's 95 ms rise
+        did (final review M5); counted shifted, it writes no B.
         Stamps carried from the frame before are never aligned (`_lead_stamp`, R28), so
         the TRAIL a line more than 10 ms behind P carries into the next frame, which once
         restarted the fit 0.8 s off (R24), plays no part: that frame's rises align on its

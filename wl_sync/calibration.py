@@ -202,7 +202,7 @@ RATE_FILE_NAME = ".wl-sync-pio-rate"
 # reference, lands outside it (spec Sec.2.2).
 RATE_BOUND_PPB = 200_000
 # The same kind of bound on the P/RAW ratio, which seeds the RAW->P fit
-# (wl_sync/rp1/backend.py:1420), so a wrong one maps every E wrongly (final review M3).
+# (wl_sync/rp1/backend.py:1421), so a wrong one maps every E wrongly (final review M3).
 # P/RAW is P/MONO, the rate, times MONO/RAW, and MONO differs from RAW only by NTP's slew,
 # at most 500 ppm (wl_sync/clockmap.py:85). A file whose rate is within RATE_BOUND_PPB
 # therefore has a ratio within about 700 ppm; 1000 ppm leaves margin, and refuses a ratio

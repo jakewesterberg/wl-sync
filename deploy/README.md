@@ -456,7 +456,7 @@ NTP-disciplined clock pairs reaches an hour, and every hour after
 (`wl_sync/cli.py:1550-1574`). A file is used only on the board whose serial it names, and
 only if its rate is within ±200 ppm of RP1's crystal (`wl_sync/calibration.py:228-248`).
 A process that records `"split"` neither applies nor writes one
-(`wl_sync/rp1/backend.py:1414-1415`).
+(`wl_sync/rp1/backend.py:1415-1416`).
 
 **Once the unit runs the RP1 backend, after an install or a board swap:**
 
