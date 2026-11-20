@@ -1093,6 +1093,21 @@ def test_the_streams_command_records_every_edge_of_probe_and_run(
     assert phases == {"probe", "run"}
 
 
+def test_the_streams_record_says_how_its_meter_counts_become_widths(
+    board, monkeypatch, capsys, tmp_path, run_fast
+):
+    """The CSV alone turns each meter count back into a width: it names clk_sys and the
+    meter's machine and scale (Task 1.21 fix round 6's review, Minor 7). Red before the
+    two comment lines were written."""
+    path = tmp_path / "b3b.csv"
+    _streams(board, monkeypatch, capsys, "--duration", "60", "--record", str(path))
+    comments = [line[2:] for line in path.read_text().splitlines() if line.startswith("# ")]
+    hz = [line for line in comments if line.startswith("clk_sys_hz=")]
+    assert hz == [f"clk_sys_hz={200_000_000}"]
+    [scale] = [line for line in comments if line.startswith("meter=")]
+    assert scale == "meter=SM3 on GPIO18: width_ns = (2 count + 1) x 5, +-5"
+
+
 def test_the_default_writer_holds_are_proven_highs_of_at_least_one_microsecond():
     """The hold is timed from the SET's read-back, so it is a proven lower bound on the
     high (fix round 4): 1 us, the program's minimum (backend.py:975-976), is enough, and
@@ -1200,6 +1215,21 @@ def test_the_override_command_refuses_to_clear_without_naming_a_pin(board, monke
     with pytest.raises(SystemExit) as exited:
         bench.main(["override", "--clear"])
     assert exited.value.code == 2
+
+
+@pytest.mark.parametrize("pin", ["17", "20"])
+def test_the_override_command_takes_a_spare_pin_only(board, monkeypatch, pin):
+    """Coverage: `override --pin` names GPIO18 or GPIO19 only, refused by argparse with
+    nothing read or written (Task 1.22; the one choices refusal no test showed red: with
+    `choices` dropped from `--pin`, every other test passed)."""
+    from wl_sync import bench
+
+    _patch_rig(monkeypatch, board)
+    for argv in (["override", "--pin", pin], ["override", "--pin", pin, "--clear"]):
+        with pytest.raises(SystemExit) as exited:
+            bench.main(argv)
+        assert exited.value.code == 2
+    assert board.bank.writes == []
 
 
 def test_the_override_command_reports_a_refused_clear_with_nothing_written(

@@ -9,18 +9,25 @@ on the dense pin, unclaimed as the stamp machines are, measures every high itsel
 harness reads the path from the width (wl_sync.bench, `path_of_width`).
 
 THE PROGRAM, pio/width_meter.pio's listing as words, in the capture program's style
-(wl_sync/rp1/program.py:82-102) and from the same six instructions, so piolib's encoders
-are already checked against these at every open (backend.py, `_assert_encoders_agree`):
+(wl_sync/rp1/program.py:82-102) and from five of its six instructions (no `in pins`), so
+piolib's encoders are already checked against these at every open (backend.py,
+`_assert_encoders_agree`):
 idle tests the pin every 2 cycles; a rise seeds X with all ones; the loop decrements X once
 and tests the pin, 2 cycles a count, while the pin is high; the fall copies X to the ISR and
 pushes it, and the machine goes back to idle. The count is ~word.
 
 RESOLUTION AND RANGE, at CLKDIV 1 and RP1's clk_sys of 200 MHz (5 ns a cycle): a count is 2
-cycles, 10 ns, and the width is (2 count + 1) cycles to within one cycle, 5 ns
-(tests/test_rp1_meter.py runs it: 1 us to 1 ms at both phases). A high must last 2 cycles,
-10 ns, to be seen at all; the capture program needs 1 us. The count wraps modulo 2^32, after
-2^33 cycles, 42.9 s of high: every `jmp x--` names its own fall-through, so X reaching 0
-changes nothing but the count. The harness's longest high is 1 ms.
+cycles, 10 ns, and the width is (2 count + 1) cycles to within one cycle, 5 ns, of the
+width the PIO saw: its input after the synchroniser, on whose cycles it samples
+(tests/test_rp1_meter.py runs it: 1 us to 1 ms at both phases). Against the pad's own
+width the error is under two cycles, 10 ns, since the synchroniser quantises each edge
+too. The path a high takes through the capture program is set by the same synchronised
+width, since the capture machine reads the block's one input synchroniser as this one
+does [inferred], so `wl_sync.bench.path_of_width` needs only the one cycle. A high must
+last 2 cycles, 10 ns, to be seen at all; the capture program needs 1 us. The count wraps
+modulo 2^32, after 2^33 cycles, 42.9 s of high: every `jmp x--` names its own
+fall-through, so X reaching 0 changes nothing but the count. The harness's longest high
+is 1 ms.
 """
 
 from __future__ import annotations
@@ -41,7 +48,10 @@ WIDTH_METER: tuple[int, ...] = (
 )
 
 # Where the machine starts, relative to where pio_add_program put the program: idle, so a
-# pin found high at the enable is not measured from part way through.
+# pin found LOW at the enable pushes nothing until it rises; started at the rise, 0, the
+# machine would push a count of 1 for a high that never was. A pin found HIGH at the enable
+# is measured from the enable: one count, of the part of the high after it, pushed at its
+# fall (tests/test_rp1_meter.py). The harness's lines start low.
 ENTRY = 5
 WRAP_TARGET = 5
 WRAP = 6
@@ -61,5 +71,6 @@ def width_ns(count: int, clk_sys_hz: int) -> float:
 
 
 def uncertainty_ns(clk_sys_hz: int) -> float:
-    """How far a high's true width can lie from `width_ns`: one cycle either way."""
+    """How far the width the PIO saw, on its synchronised input, can lie from `width_ns`:
+    one cycle either way. The pad's own width can lie under two cycles from it."""
     return _cycle_ns(clk_sys_hz)

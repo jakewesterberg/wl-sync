@@ -13,9 +13,9 @@
  * passed in as a number, because piolib's `enum pio_src_dest` carries validity flags in
  * its high bits -- `pio_null` is not 3, and `pio_isr` is not 6.
  *
- * ERRORS ARE RETURNED, NEVER FATAL. piolib's default response to an error is pio_panic(),
- * which is exit(1): the whole recording process, gone. Fatal errors are switched off at
- * open, and every call here that can fail reports a negative errno instead.
+ * ERRORS ARE RETURNED, NOT FATAL, as far as piolib allows. pio_panic(), its default, is
+ * exit(1). Fatal errors are off from open, so a failure piolib reports is a negative errno;
+ * some it hides, and some still panic (the note at wlsync_start_meter, at the end).
  *
  * ONE PIO BLOCK PER PROCESS, held here, because wl-sync uses exactly one.
  */
@@ -40,11 +40,11 @@ static int g_fd = -1;
 
 /* THE START OF piolib's PRIVATE RP1 HANDLE, struct rp1_pio_handle (pio_rp1.c:82-89 at
  * utils b57c48e): the public struct pio_instance, the device's name, then the descriptor.
- * piolib exports no way to the descriptor, and its own level read cannot fail visibly
- * (wlsync_sm_rx_level), so the shim reads it here. Only `fd` is read, and only after the
- * block is known to be RP1's; it is then PROVEN to be this block's device, by its device
- * number, before it is used (`find_fd`), so a layout that has moved finds nothing rather
- * than another file. */
+ * piolib offers no way to it, and its level read cannot fail visibly (wlsync_sm_rx_level),
+ * so the shim reads `fd` here, only for an RP1 block, and PROVES it this block's device by
+ * its device number before use (`find_fd`): a moved layout finds nothing, not another file.
+ * Reading it through this type is formally an aliasing violation, harmless while
+ * build-shim.sh compiles this file and pio_rp1.c as separate units without LTO. */
 struct wlsync_rp1_handle_prefix {
     struct pio_instance base;
     const char *devname;
@@ -328,8 +328,23 @@ uint32_t wlsync_sm_get(unsigned sm) { return pio_sm_get(g_pio, sm); }
  * claim_jmp_pin 0): the pin stays libgpiod's. No in pins: the program reads none. Returns
  * the state machine's number, or a negative errno: -EINVAL for a program that cannot be
  * one, -ENOSPC when it does not fit beside the capture program, -EBUSY with no machine
- * free or a meter already loaded, -EIO when the machine could not be configured, its
- * claim given back. One meter per open block; wlsync_pio_close forgets it.
+ * free or a meter already loaded. One meter per open block; wlsync_pio_close forgets it.
+ *
+ * WHAT THE RETURN CANNOT SAY (Task 1.21 fix round 6's review, Minors 5 and 6; Task 1.22):
+ * - A machine that could not be configured. The -EIO below cannot fire at utils
+ *   b57c48e, and is kept, unchanged, for a piolib that reports the failure. piolib sets
+ *   its error only where a program is added or removed or a machine claimed by number
+ *   (piolib.h:268-273, :334-362, :521-533), and that error is cleared before the add,
+ *   which is checked here; rp1_pio_sm_init discards its ioctl's result
+ *   (pio_rp1.c:368-374), and rp1_ioctl sets no error (:247-260). The capture and stamp
+ *   starts' -EIO is the same, except that their pio_sm_exec panics on a failed ioctl
+ *   (:386-393), as a failed pop does (:531-539). A meter that does not run is seen by
+ *   the harness instead: a dense rise with no width is `missed`, and the probe fails.
+ * - The program left behind. After -EBUSY from the claim, the meter's program STAYS
+ *   LOADED until wlsync_pio_close, and another call is -EBUSY (g_meter_loaded).
+ *   Unloading it there would be one more path only the box can run, for nothing: the
+ *   harness closes the block on any failure to start (wl_sync/rp1/harness.py:604-606,
+ *   `Block.open`).
  */
 int wlsync_start_meter(const uint16_t *instructions, unsigned length,
                        unsigned wrap_target, unsigned wrap, unsigned entry,

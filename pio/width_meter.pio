@@ -7,7 +7,8 @@
 ;
 ; It measures every high on its jmp pin: X counts down, 2 cycles a decrement, while the pin
 ; is high, and is pushed at the fall. At CLKDIV 1 (clk_sys, 200 MHz on RP1) a count is
-; 10 ns, and the width is (2 count + 1) cycles to within one cycle, 5 ns. The count is ~word.
+; 10 ns, and the width is (2 count + 1) cycles to within one cycle, 5 ns, of the width the
+; PIO saw after its input synchroniser; of the pad's, under two. The count is ~word.
 ;
 ;   jmp_pin   = the dense pin, unclaimed (wlsync_start_meter)
 ;   fifo      = RX joined; one word a high, drained after every event on the harness's thread

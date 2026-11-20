@@ -36,7 +36,7 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 *Added 2026-11-20, delivered 2026-11-20 (by message to the wl-preproc session):*
 
 - **Note 8:** a `desync` `L` record no longer ends a process's code words: `W` records follow
-  it, and its count is what the box dropped.
+  it, and its count is what the box dropped. *[2026-11-21: two additions to note 8, at its end, not yet delivered.]*
 
 ---
 
@@ -521,3 +521,25 @@ shape note 6 gave it: path `W`, no GPIO, `at_least`, `before_us` optional, `afte
    `"split"` with no `W`, as note 7's last paragraph describes, with a journal ERROR.
 
 The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
+
+*[2026-11-21, added after the delivery above, NOT YET DELIVERED (wl-sync Task 1.22; Task
+1.20's re-review, N-M4 and N-M5). Two additions to this note; the delivered text is kept as
+it was sent:*
+
+- *Point 5 is narrower than it reads. It also rests on nothing but wl-sync reading the PIO's
+  FIFO on the box, a deployment condition the box cannot check (wl-sync
+  `docs/next-session.md:145-147`, B-5). The split it names is for a FIFO depth or level read
+  that fails the start-up check; a level read that fails during capture instead drops that
+  drain's words and counts them (point 2). And it is not yet confirmed on silicon under
+  traffic: the start-up check passed on wl-rig-sync0 on 2026-11-20, while the bench checks
+  of the level reads under load are still to run (`docs/next-session.md:138-147`, B-2 to
+  B-5).*
+- *A process start now drives the barcode line ten times, not once. Where the start-up test
+  runs and its first pulse is stamped, the 1 ms test pulse is followed by nine of about
+  100 µs, high and low, that fill the PIO's FIFO to measure its depth (wl-sync
+  `wl_sync/rp1/backend.py:847-849`, `:943-947`; `STAMP_TEST_SETTLE_US`, `:108`), and then
+  0.5 s of low before the first frame (`:870`). That is 20 edges on GPIO17 where there were
+  2. No decoder takes them for a frame's lead, which must still be high 2.5 ms after its
+  rise (`wl_sync/barcode.py:135-138`). NI and Intan record the line raw, so a reader that
+  audits the barcode channel's edges outside frames will find these at each process
+  start.]*

@@ -496,7 +496,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 | `pio/wlsync_pio.c` | Part 0: start at the idle entry. Then the stamp-machine start (jmp pin only, shared offset) and a sync enable of both. |
 | `wl_sync/rp1/backend.py` | Second machine; the pump drains both; `emit_pulses` brackets the lead edge and returns the stamp; `now_us()` from the map; `timebase` per instance; `barcode_delay_us` 0. |
 | `wl_sync/rp1/gpio.py` | `edge_tick_us` → the map; the (MONO, RAW) table on each pass; `span_us` conversion. |
-| `wl_sync/rp1/pio_capture.py` | Stamp pairs through `pair_fifo`; `WORDS_LAG_US`. |
+| `wl_sync/rp1/pio_capture.py` | Stamp pairs through `pair_fifo`; `WORDS_LAG_US`. *[2026-11-21, Task 1.22 (Task 1.20's review, M6): the build pairs stamps through `pair_stamps` since Task 1.15, which pairs again after a slip (`wl_sync/rp1/pio_capture.py:87-141` at `36f1fc9`), and code words through `CodeWordPairer` since Task 1.20, from the drain's FIFO counts (`:170-338`); `pair_fifo` stays for the start-up test's one stamp.]* |
 | A new pure module, e.g. `wl_sync/clockmap.py` | MONO→RAW table, RAW→P fit, stamp validation, SI estimator and gate, calibration file read and write. Laptop-tested. |
 | `wl_sync/backend.py` | Protocol: `emit_pulses` → `int \| None`, `timebase` per instance, the backend's `barcode_delay_us`. `FakeBackend` gets two clocks (a P rate and a CPU rate), so a test fails on today's drift and passes on the map. |
 | `wl_sync/service.py` | The Recorder applies `round(P / r)` at each record, to `now()` and to `delivered_through()`. |

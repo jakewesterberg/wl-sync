@@ -74,6 +74,20 @@ def test_two_highs_give_two_counts_and_a_low_gives_none():
     assert counts == []
 
 
+def test_a_pin_high_at_the_enable_is_measured_from_it_and_a_low_one_pushes_nothing():
+    """Coverage: what starting at idle (`meter.ENTRY`) does (Task 1.21 fix round 6's review,
+    Minor 1). A pin high at the enable is measured from the enable: one count, of the part
+    of the high after it, pushed at its fall. A pin low at the enable pushes nothing until
+    it rises. Red against ENTRY = 0 (a count of 1 pushed at once) and ENTRY = 3."""
+    result, counts = _measure([(0, 300)])
+    assert counts == [meter_count(0, 300)] == [150]
+    [(pushed_at, _)] = result.pushes
+    assert 300 < pushed_at <= 304
+    result, counts = _measure([(200, 260)])
+    assert counts == [meter_count(200, 260)]
+    assert all(at > 260 for at, _ in result.pushes)
+
+
 def test_the_fakes_rule_is_the_simulators():
     """The board fake (tests/test_rp1_harness.py) pushes `meter_count`'s count rather than
     running the simulator for every high; this pins the two together."""

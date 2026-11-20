@@ -610,7 +610,15 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
    and `wlsync_rx_fifo_depth` gives the FIFO's depth; the code-word pairing rests on both.
    Version 5 (2026-11-20): `wlsync_sm_rx_level` reads a full FIFO as its depth, 16, from
    RP1's level field, which saturates at 15, and its full flag; version 4 read 15, and its
-   box failed the start-up depth check.
+   box failed the start-up depth check. Version 6 (2026-11-20): `wlsync_start_meter`, the
+   bench harness's width meter (`wl_sync/rp1/meter.py`); the recording path never calls it.
+
+   The shim reads the start of piolib's private RP1 handle, as it is at utils `b57c48e`, to
+   find the block's descriptor (`pio/wlsync_pio.c:41-52`). The clone above takes utils'
+   newest commit, whose handle may have moved. That is caught, not misread: every level
+   read gives `-9`, and the process records split with no `W` (`deploy/README.md:202-203`).
+   `build-shim.sh` warns when it builds against another commit. To build at the checked
+   one, clone without `--depth 1`, then `git -C ~/src/utils checkout b57c48e`.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
    `gpio`. If it is `root:root`, piolib's README gives a udev rule.

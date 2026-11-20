@@ -414,7 +414,9 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
 _WRAP = 1 << 32
 
 # What --record writes, one line per driven rise, every value an integer RAW ns or a raw
-# 32-bit count, so a verdict can be re-derived without rerunning the hour.
+# 32-bit count, so a verdict can be re-derived without rerunning the hour, with the comment
+# lines before it: the RAW reading at the sync enable and, for `streams`, clk_sys and the
+# width meter's machine and scale, which turn `meter_counts` into widths.
 RECORD_COLUMNS = ("phase,index,pins,shape,rise_before_ns,rise_after_ns,fall_before_ns,"
                   "fall_after_ns,set_read_ns,clear_read_ns,meter_counts,rise_landed,"
                   "drained_at_ns,stamps")
@@ -725,7 +727,9 @@ def path_of_width(width_ns: float, uncertainty_ns: float) -> str | None:
     held at one phase and short at the other). The bounds are the program's own,
     SHORT_EXIT_MAX_NS and HELD_MIN_NS. The CPU's bounds (`path_of`) are reported beside
     it, as information only: one RP1 read costs 5.1 us (box step 2), so they cannot prove a
-    short high."""
+    short high. The uncertainty is the meter's against the width the PIO saw, after its
+    input synchroniser, not against the pad's (`meter.uncertainty_ns`): that is the width
+    the capture machine's path depends on, read through the same synchroniser [inferred]."""
     if width_ns + uncertainty_ns <= SHORT_EXIT_MAX_NS:
         return "short"
     if width_ns - uncertainty_ns >= HELD_MIN_NS:
@@ -1364,6 +1368,11 @@ def _streams(dense_pin: int, duration_s: int, rate: int, marker: bool, probe_onl
             recorder.comment(f"enable_raw_ns={report.enable_raw}")
             recorder.comment(f"A=SM{report.a} on GPIO{dense_pin}, B=SM{report.b} on "
                              f"GPIO{BARCODE_PIN}")
+            # What turns meter_counts back into widths (fix round 6's review, Minor 7).
+            recorder.comment(f"clk_sys_hz={rig.block.clk_sys_hz}")
+            recorder.comment(f"meter=SM{rig.block.meter_sm} on GPIO{dense_pin}: width_ns = "
+                             f"(2 count + 1) x {rig.meter_width_ns(0):g}, "
+                             f"+-{rig.meter_uncertainty_ns:g}")
             recorder.phase = "probe"
         probe(rig, report.probe, report.a, report.b, short_holds)
         if probe_only or report.probe.failure():

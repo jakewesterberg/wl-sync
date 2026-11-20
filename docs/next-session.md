@@ -139,7 +139,7 @@ proof holds given these:
   compare each batch's length and level-after with the words actually received.
 - **B-3. A failed level read.** Count the journal's `level could not be read (errno E)` lines
   over a long run: whether RP1's firmware ever answers the FIFO-state message with a failure
-  during capture.
+  during capture. *[2026-11-21, Task 1.22 (Task 1.20's re-review, N-M7): an `errno 5` there can also be the shim refusing an answer made inconsistent by a push between the firmware's two register reads, `empty` set with a word counted (`pio/wlsync_fifo_state.h:71-72`). That is expected to be rare [inferred], costs nothing at a drain's look, and after popping drops that drain's words, counted in an `L` record. So a few `errno 5` lines alone do not show the firmware failing.]*
 - **B-4. The cost of each call.** Time `rx_level` and `get` on RP1, which sets how often a full
   FIFO is popped while strobes come, and so how much the pairing drops to stay safe.
 - **B-5. Nothing else pops SM 0.** The kernel does not check a machine's claim on a pop or a
