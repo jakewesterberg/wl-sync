@@ -66,6 +66,11 @@ status:
     hour of narrow pairs with none gated by the rate gate is one WARNING per
     process, naming what held it, and saying that a gate opening later
     still writes the rate file (M4).
+    Task 1.18 (the user's rulings, 2026-11-20) is done on one-clock-p1,
+    not merged: the repository's unit writes /data/rig0, the first rig
+    box's folder, as the unit installed on wl-sync-rig0 does (the next box
+    writes rig1); and CodeWord.tick_us says what a W tick counts under each
+    timebase, where it is zero, and its limits (wl_sync/log.py:276-320).
   next: >-
     Task 1.16's and Task 1.17's re-reviews, then their merge to main,
     wait. Note 7 goes to
@@ -85,7 +90,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "b296e7d"
+  describes: "db98c6e"
 
 runs_on: [rig/sync]
 builds_on: [dws]
