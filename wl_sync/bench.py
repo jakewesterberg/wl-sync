@@ -135,6 +135,11 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
     THE FIRST FRAME IS NOT CHECKABLE, and is reported as such rather than as a failure.
     A frame is found by a rising edge after IDLE_MIN_US of LOW, and nothing in the
     record precedes the first one, so the decoder cannot verify the idle before it.
+
+    A FRAME DECODED WITH NO `B` IS `dropped` ON ONE COUNT, AND `unexpected` ON ANY OTHER
+    TIMEBASE. On one count the box drops the `B` of a frame whose lead edge went
+    unstamped, so the frame is on the wire and not in the log; a split process logs a
+    `B` for every frame, so a frame without one there was never logged. Both fail.
     """
     header, records = read_log(path)
     barcodes = [r for r in records if isinstance(r, BarcodeEmitted)]
@@ -154,10 +159,10 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
             report.lead_offsets_us.append(frame.start_us - logged[frame.value])
             seen.add(frame.value)
         else:
-            # On a one-count segment the box logs a `B` for every frame it emits unless
-            # it dropped it (docs/superpowers/specs/2026-10-30-one-clock-design.md:417);
-            # a "split" process whose loopback failed logs a software `B` for every
-            # frame, so a frame with none there is not a drop.
+            # On a one-count segment the run loop logs a `B` for every frame it emits
+            # unless the frame's lead edge went unstamped (wl_sync/cli.py:880-884); a
+            # "split" process's `B` is a software tick, read for every frame
+            # (wl_sync/rp1/backend.py:1385-1388), so a frame with none there is not a drop.
             (report.dropped if one_count else report.unexpected).append(frame.value)
     for index, barcode in enumerate(barcodes):
         if barcode.value in seen:

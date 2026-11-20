@@ -304,7 +304,7 @@ piolib gives 4 state machines per block (`MAX_PIO_SMS 4`, `piolib.h`), and this 
 **At start, the file is used if:**
 - it parses;
 - its serial matches this board's; and
-- |r − 1| ≤ 200 ppm.
+- |r − 1| ≤ 200 ppm. *[2026-11-20: the build adds a fourth condition, its P/RAW ratio within ±1000 ppm (the final review's M3; `wl_sync/calibration.py:282-284` at `91efdf6`).]*
 
 The bound is a sanity check, as `_CLK_SYS_SANE_HZ` is (`rp1/backend.py:123`). A clk_sys that is not really 200 MHz, or a broken reference, lands outside it. Where the board serial is read on a CM5 is **[unverified; B9]**.
 
@@ -653,7 +653,7 @@ What matters for the budget is that the map is affine, which it is by constructi
     - *Under c-direct, two things can fail for a whole process: the stamp machine's start, and the PIO's sight of GPIO17 while libgpiod drives it. S.4 found that sight on this box. It belongs to the silicon and the kernel, not to the wiring.*
     - *Before the first segment, the box configures both machines and leaves them disabled. It then drives the same 1 ms pulse on GPIO17, witnessed by a third state machine on GPIO17, enabled alone and then disabled.*
     - *A machine that does not start, or a pulse that no machine stamps, puts the process on `"split"`, as answered.*
-    - *The sync enable stays untested (a refused one cannot be seen).*
+    - *The sync enable stays untested (a refused one cannot be seen).* *[2026-11-20, Task 1.16 (the user's Q1, "Via the start-up test"): no longer. The test machine is enabled through the sync enable, and when it stamps nothing it is enabled alone and pulsed again; a stamp then is read as a refused sync enable, by inference, and the process records `"split"` (`wl_sync/rp1/backend.py:788-798` at `91efdf6`). A refusal of the production machines' own enable, after the test's was obeyed, is still not seen.]*
     - *The plan's Task 1.10a has the mechanism.]*
 - **Q3. What is the hardware and deploy scope of this work?**
   - **A spike on the box first?** May the build use wl-sync-rig0 over ssh for a spike before the ~1.5 weeks of software that rest on it? The spike would cover Part 0's program, the stamp machine, B3a and B3b. A failure there changes the design (§5).

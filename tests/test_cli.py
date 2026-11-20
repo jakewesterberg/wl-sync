@@ -568,7 +568,7 @@ def test_an_episode_ends_after_exactly_between_clean_frames_frames(tmp_path, cap
 
 def test_one_carried_misread_is_one_episode_of_one_frame(tmp_path, caplog):
     """Task 1.15's carry: a misread after a lost stamp word is counted between frames once,
-    at one frame (tests/test_rp1_backend.py:2975-2978). That is one episode: one WARNING
+    at one frame (tests/test_rp1_backend.py:3023-3026). That is one episode: one WARNING
     to open it and one to close it, a minute later."""
     backend = _StampsBetween({5: 1})
     wire, _ = _dropping(tmp_path, backend, 5 + K, caplog)

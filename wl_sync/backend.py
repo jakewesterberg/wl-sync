@@ -97,10 +97,10 @@ class StampLag:
 
 @dataclass(frozen=True)
 class OrderClamps:
-    """The edge path's order guard this run: how many edges it wrote at their line's last
-    tick, because the map placed them behind it, and the furthest behind one was, in
-    ticks (final review M2). Both only ever grow. A clamped edge is in the segment, at a
-    tick up to `max_us` later than the map gave it.
+    """The edge path's order guard this run (final review M2): how many edges it wrote at
+    their line's last tick, because the map placed them behind it, and how far behind the
+    furthest was, in ticks, which are the segment's us as every `tick_us` is (`timebase`).
+    Both only ever grow. A clamped edge is in the segment, up to `max_us` after its mapped tick.
     """
 
     clamped: int

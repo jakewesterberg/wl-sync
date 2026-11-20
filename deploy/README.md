@@ -118,9 +118,9 @@ the platform does not expose one.
     start. All three still share one rate.
   - `"split"`, the fallback: code words on RP1's crystal, barcodes and edges on
     CLOCK_MONOTONIC, which drift apart from capture start. Every RP1 segment written
-    before the build says it. Since the build a process writes it only when its stamp
-    machine failed its start-up test, or when it cannot capture code words at all
-    (both below).
+    from 2026-10-30, when the field was added, until the build says it; earlier ones say
+    `null` (above). Since the build a process writes it only when its stamp machine
+    failed its start-up test, or when it cannot capture code words at all (both below).
 
 **A process on the RP1 backend that records `"split"` says why, once, at start** *(added
 2026-11-19)*. Before the first segment the box tests the stamp machine, which counts each
@@ -149,23 +149,25 @@ start-up` instead. `<cause>` is one of:
 - `the test could not run (...)`, with the error.
 
 (`wl_sync/rp1/backend.py:637`, `:785`, `:112-118`, `:797-800`.) On a failure the box drives
-GPIO17 twice, 1 ms high each and 0.5 s apart; no decoder takes either for a frame. To tell
-them apart, stop the
-service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
+GPIO17 twice, 1 ms high each and 0.5 s apart; no decoder takes either for a frame. To repeat
+the test by hand, stop the service (`sudo systemctl stop wl-sync`) and run spike S.4's check:
 
     ~/wl-sync-venv/bin/python -m wl_sync.bench stamps
 
 It builds the backend as the unit does, so it repeats the start-up test first. A test that
 fails again prints `start-up test failed (<cause>)`, runs no frame, and exits 1
-(`wl_sync/bench.py:341-348`). A test that passes is followed by 60 of the box's own
+(`wl_sync/bench.py:346-353`). A test that passes is followed by 60 of the box's own
 frames, one a second (`--frames N` for more; S.4 ran 300). It passes when every lead edge
 is stamped, every later rising edge is accounted for, and nothing is stamped between
-frames (`wl_sync/bench.py:203-206`). Then `sudo systemctl start wl-sync`: a process whose
+frames (`wl_sync/bench.py:208-211`). Then `sudo systemctl start wl-sync`: a process whose
 test passes records one count again.
 
 If the test passes and the frames still get no stamp, spike S.3b's pull toggles show
-whether the machines run at all. Run `bench stamps --stamp-pin 19 --frames 60`, and from a
-second session, about 5 s in:
+whether the machines run at all. Run
+
+    ~/wl-sync-venv/bin/python -m wl_sync.bench stamps --stamp-pin 19 --frames 60
+
+and from a second session, about 5 s in:
 
     for i in 1 2 3 4 5; do pinctrl set 19 pu; pinctrl set 16 pu; sleep 1; pinctrl set 19 pd; pinctrl set 16 pd; sleep 4; done
 
@@ -177,11 +179,11 @@ reach the pins. The start-up test sees a box that refuses the sync enable (above
 a refusal of the production machines' own enable after the test's was obeyed: that one is
 invisible to the shim (`pio/wlsync_pio.c:207-210`), and only these toggles see it. It is
 the gap left open on 2026-11-20 (`wl_sync/rp1/backend.py:964-971`): the mask holds only
-machines the shim claimed, so it would be a transient failure of RP1's firmware, and
-every `B` of that process would be dropped with its ERROR until a restart. The toggles
-also need a passing test. A failed test's cause tells a refused sync enable from a PIO
-that cannot see GPIO17; a test machine whose plain enable is refused too reads as the
-second, since that enable has the same blind spot.
+machines the shim claimed, so it would be a transient failure of RP1's firmware, and every
+`B` of that process would be dropped with its ERROR until a restart. The toggles also need
+a passing test. A failed test's cause tells a refused sync enable from a PIO that cannot
+see GPIO17 only by inference: a PIO that misses just the first rise reads as the first,
+and a box that refuses the plain enable too as the second (the same blind spot).
 
 **A process that cannot capture code words records anyway** *(added 2026-11-20)*. Until
 then a capture machine that could not be configured raised at construction, and under
@@ -212,7 +214,7 @@ start-up checks stay fatal, and still restart the unit every second: a GPIO chip
 not RP1's bank (nothing could be recorded), piolib's encodings disagreeing with this
 package's, and an impossible `clk_sys` (either would put wrong ticks in every `W`).
 `bench stamps` refuses such a process, printing `event-code capture cannot run (<cause>):
-this process records split, and has no stamps to count` (`wl_sync/bench.py:334-340`).
+this process records split, and has no stamps to count` (`wl_sync/bench.py:339-345`).
 
 **A dropped barcode is a journal ERROR, and only that** *(added 2026-11-19)*. On one count a
 frame whose lead edge was not stamped has no `B` record, and no `L` record either. Every
@@ -593,8 +595,8 @@ crystal, and the header says `"rp1-pio"` (`wl_sync/log.py:206-216`). Each proces
 for the file at start, as `.wl-sync-pio-rate` in its `--out` directory: under this
 repository's unit that is `/data/rig0/.wl-sync-pio-rate` (`deploy/wl-sync.service:29`;
 `wl_sync/cli.py:516-549`), which is also what the unit installed on wl-rig-sync0 writes
-(read on the box on 2026-11-07). The next rig box writes `/data/rig1`, so its file is
-`/data/rig1/.wl-sync-pio-rate`.
+(read on the box on 2026-11-07, `docs/superpowers/plans/2026-11-07-one-clock.md:1907-1908`).
+The next rig box writes `/data/rig1`, so its file is `/data/rig1/.wl-sync-pio-rate`.
 The box writes the file itself: once its own baseline of NTP-disciplined clock pairs
 reaches an hour, and every hour after (`wl_sync/cli.py:1714-1738`). A file is used only on
 the board whose serial it names, and only if its rate is within ±200 ppm of RP1's crystal

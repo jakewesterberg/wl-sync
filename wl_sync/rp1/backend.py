@@ -231,7 +231,7 @@ def _load_shim() -> ctypes.CDLL:
     except OSError as error:
         raise PiolibError(
             f"libwlsync_pio not found ({error}). This backend is hardware-gated: build "
-            "it on the box with pio/build-shim.sh and install it (deploy/README.md)."
+            "it on the box with pio/build-shim.sh and install it (deploy/README.md)"
         ) from error
     _check_shim_version(lib)
     try:
@@ -749,13 +749,13 @@ class Rp1Backend:
 
         A SECOND PULSE ONLY ON A FAILURE, to tell the ERROR's two causes apart: after
         STAMP_TEST_QUIET_S of LOW, the test machine is enabled alone, the plain way, and
-        pulsed again. A stamp then means the sync enable was refused
-        (STAMP_TEST_SYNC_REFUSED); none, that the PIO does not see GPIO17 rise
-        (STAMP_TEST_BLIND). That
-        plain enable has the same blind spot (pio/wlsync_pio.c:207-210), so a box that
-        refuses both reads as blind: split either way. The quiet between the pulses is
-        what a decoder needs after the first (STAMP_TEST_QUIET_S), and the second is
-        rejected as the first is.
+        pulsed again. A stamp then is read as a refused sync enable
+        (STAMP_TEST_SYNC_REFUSED), an inference: a PIO that missed the first rise and saw
+        the second reads the same. None, that the PIO does not see GPIO17 rise
+        (STAMP_TEST_BLIND). That plain enable has the same blind spot
+        (pio/wlsync_pio.c:207-210), so a box that refuses both reads as blind: split
+        either way. The quiet between the pulses is what a decoder needs after the first
+        (STAMP_TEST_QUIET_S), and the second is rejected as the first is.
 
         NEVER RAISES: an exception is a failed test, and the box records anyway, split.
         Exception, not BaseException, so a KeyboardInterrupt still stops the process.
@@ -1054,11 +1054,11 @@ class Rp1Backend:
         drain running: the event codes are records, and the box records anyway. A desync
         of the stamps stops nothing since Task 1.15: the stamp pump pairs the stream again
         and goes on (`StampPump`). A desync or a failure of the word drain stops it and
-        leaves the stamp drain running (Ruling R16): on one count B is the stamp, so a stamp drain that
-        stopped with the words would drop every later B. The thread ends early only when
-        both have stopped; with no stamp drain, as in a split process, that is when
-        the word drain stops, as before the stamp machine existed. check_health reports
-        each.
+        leaves the stamp drain running (Ruling R16): on one count B is the stamp, so a
+        stamp drain that stopped with the words would drop every later B. The thread
+        ends early only when both have stopped; with no stamp drain, as in a split
+        process, that is when the word drain stops, as before the stamp machine existed.
+        check_health reports each.
         """
         try:
             while not self._word_stop.is_set():

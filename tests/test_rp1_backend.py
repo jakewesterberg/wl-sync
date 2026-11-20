@@ -8,6 +8,7 @@ things start and stop in. What it cannot exercise is silicon -- the PIO program,
 FIFO timing, the chardev -- which is bench day's.
 """
 
+import ctypes
 import inspect
 import pathlib
 import re
@@ -810,7 +811,11 @@ _NO_CAPTURE_HEALTH = (
 
 def _records_without_w(backend, gpiod, reason):
     """Capture starts with no word thread, the health check reports W on every call, and
-    B (in software, split's) and E still record."""
+    B (in software, split's) and E still record.
+
+    Coverage: E's delivery, from the Task 1.16 review (Minor 2). Split's ordinary edge
+    path, so it passed when added; edge capture that started and delivered nothing in
+    a process with no W fails every test that calls this."""
     from wl_sync.backend import CaptureDegraded, FrameStamp
     from wl_sync.barcode import encode
 
@@ -825,6 +830,9 @@ def _records_without_w(backend, gpiod, reason):
         assert str(raised.value) == _NO_CAPTURE_HEALTH.format(reason)
     edges = []
     backend.start_edge_capture([20], lambda gpio, level, tick: edges.append(tick))
+    gpiod.edges.append(_edge_stamped(1, backend._origin_ns + 1_500_000))
+    assert _until(lambda: edges), "no E delivered"
+    assert edges == [1_500]  # MONO us since the origin, as split counts it
     stamp = backend.emit_pulses(17, encode(1000))
     assert isinstance(stamp, FrameStamp) and stamp.tick is not None
     assert any(level == 1 for _, level in gpiod.sets)
@@ -1128,6 +1136,44 @@ def test_the_c_shim_and_the_python_that_binds_it_agree_on_version_and_signature(
             )
 
 
+# The ctypes type `_declare` must give each C type the shim's exports use.
+_CTYPE_OF = {
+    "int": ctypes.c_int,
+    "unsigned": ctypes.c_uint,
+    "uint32_t": ctypes.c_uint32,
+    "float": ctypes.c_float,
+    "const uint16_t *": ctypes.POINTER(ctypes.c_uint16),
+    "void": None,
+}
+
+
+def test_the_python_binds_each_shim_export_at_its_c_types():
+    """Coverage: the test above counts `_declare`'s argtypes against the C parameters, not
+    their types (Part 0's re-review, out of its scope). ctypes converts each argument by
+    the type it is told, so a c_uint where the C takes an int, or a restype narrower
+    than the C's, would pass that count and read wrong on the box without a sound. This
+    pins every type of every export `_declare` binds, as they agree today; an export it
+    gives no argtypes must take none."""
+    text = _C_SOURCE.read_text()
+    definitions = re.findall(
+        r"^(int|unsigned|uint32_t|void)\s+(wlsync_\w+)\s*\(([^)]*)\)", text, re.MULTILINE
+    )
+    assert len(definitions) >= 15, f"read only {len(definitions)} exports from {_C_SOURCE}"
+    lib = unittest.mock.MagicMock()
+    rp1._declare(lib)
+    for returns, function, parameters in definitions:
+        if function == "wlsync_shim_version":  # typed where it is read (_check_shim_version)
+            continue
+        c_types = [" ".join(re.match(r"(.*?)\w+$", parameter.strip()).group(1).split())
+                   for parameter in parameters.split(",") if parameter.strip() != "void"]
+        bound = getattr(lib, function)
+        assert bound.restype is _CTYPE_OF[returns], f"{function} returns {returns}"
+        argtypes = bound.argtypes if isinstance(bound.argtypes, list) else []
+        assert argtypes == [_CTYPE_OF[c_type] for c_type in c_types], (
+            f"{function} takes ({', '.join(c_types)}) in C, but _declare binds {argtypes}"
+        )
+
+
 def _shape(word):
     """A jmp's address field masked: relocation and target do not change the encoding."""
     return word & ~0x1F if word >> 13 == 0 else word
@@ -1242,7 +1288,12 @@ class _TwoCrystalClock:
     pump's sleep sleeps for real only, at most 1 ms, so the pumps run as `_manual_clock`'s
     do. Until the final review's M6 a pump's sleep moved true time 1 ms a poll too, so a
     poll that landed in `_drive`'s spin made a `set_value` up to 1 ms late, at random, and
-    a test with a smaller margin flaked. RAW reads true x (1 + cpu_ppm 1e-6), and
+    a test with a smaller margin flaked. THE PRICE IS A ROLL: the run loop's wait for the
+    paths to deliver sleeps for real (wl_sync/cli.py:374-383), and true time moves only
+    by its reads, about 20 us a poll, short of the edge pump's 20 ms lag
+    (wl_sync/rp1/gpio.py:26, :45). A test that rolls on this clock with edge capture
+    running would wait the full 0.2 s and log a false "rolling before" WARNING; none
+    does yet (final fix wave's re-review, Minor 2). RAW reads true x (1 + cpu_ppm 1e-6), and
     MONO reads the same unless a test slews it: RAW x (1 + mono_slew_ppm 1e-6) plus
     mono_offset_ns, as NTP moves MONO and not RAW. REALTIME reads MONO plus an offset,
     and `p_now()`, the PIO count, true time since P's zero x (1 + rp1_ppm 1e-6) in
@@ -1571,7 +1622,6 @@ def test_every_barcode_frame_decodes_not_just_the_first(lib, gpiod, monkeypatch)
     assert values[:2] == [1000, 1001]
 
 
-
 def test_a_dead_edge_path_does_not_hide_a_failing_event_code_path(lib, gpiod):
     """check_health() raised at the FIRST problem. Once the edge thread had died, every
     call stopped at "edge capture thread stopped" and never looked at the event codes
@@ -1590,7 +1640,6 @@ def test_a_dead_edge_path_does_not_hide_a_failing_event_code_path(lib, gpiod):
         assert "event-code capture" in str(raised.value)
     finally:
         backend.close()
-
 
 
 def test_a_chip_that_does_not_exist_is_refused_before_anything_is_recorded(lib, gpiod, tmp_path):
@@ -1637,7 +1686,6 @@ def test_the_hardware_backend_is_built_on_the_chip_it_is_given(monkeypatch):
     monkeypatch.setattr(rp1, "Rp1Backend", lambda *args, **kwargs: built.append((args, kwargs)))
     cli._hardware_backend("/dev/gpiochip4")
     assert built == [((), {"chip_path": "/dev/gpiochip4"})]
-
 
 
 def test_the_shim_is_the_library_looked_for(monkeypatch):
@@ -2621,7 +2669,7 @@ def test_a_frame_with_no_stamp_is_missed_as_not_stamped(lib, gpiod, crystals):
 
     clock = crystals()
     backend = _started(lib, lambda tick, word: None)
-    gpiod.pio_sees_barcode = False  # after construction: from Task 1.10a on, that tests the PIO sees GPIO17
+    gpiod.pio_sees_barcode = False  # after construction, which tests that the PIO sees GPIO17
     try:
         began = clock.ns
         stamp = backend.emit_pulses(17, encode(1000))

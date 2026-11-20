@@ -101,8 +101,8 @@ class _BoxClock:
     the RP1 crystal while `now_us()` follows NTP-slewed CLOCK_MONOTONIC, and the two
     diverge by ppm times run length. On one count `now_us()` is RAW mapped to P through
     the fit (wl_sync/rp1/backend.py:656-673), so a tick can lead it by the fit's error,
-    and one stamped just before the fit steps back leads the held `now()` by up to the
-    step, under STEP_BACK_MAX_US. Nearest tolerates up to +-2^31 us (35.8 min), roughly
+    and one stamped just before the fit steps back leads `now()`, held or not, by up to
+    the step, under STEP_BACK_MAX_US. Nearest tolerates up to +-2^31 us (35.8 min), roughly
     500 days of continuous running at 50 ppm.
 
     WHY SHARING IS SAFE NOW. The per-path unwrappers this replaced each noticed a wrap
@@ -122,7 +122,7 @@ class _BoxClock:
     primed at construction: the RP1 backend fixes its timebase origin in
     `start_strobed_capture`, after the `Recorder` exists, so an earlier reading would be
     on a dead origin and the first real reading would count a spurious wrap, shifting the
-    whole run by 2^32 us. The first `unwrap` seeds the clock instead.
+    whole run by 2^32 us. The first reading, `now()`'s or an unwrap's, seeds the clock.
 
     Ticks cannot go negative: every raw tick is at or after the origin (the PIO counter
     reads 0 at enable, edges before the origin are refused by `edge_tick_us`, and a B tick
@@ -186,9 +186,9 @@ class _BoxClock:
         mod 2^32 at or before `now()`, or after it by under STEP_BACK_MAX_US.
 
         For readings only, such as how far a capture path has delivered, never for ticks.
-        A reading came from this clock earlier, so it lies after `now()` only while
-        `now()` holds a step back (R34): taken before the fit stepped back, it is ahead of
-        the held value by less than the step, and a step is under STEP_BACK_MAX_US by
+        A reading came from this clock earlier, so it lies after `now()` only across a
+        step back (R34): taken before the fit stepped back, it is ahead of `now()`, held
+        or not, by less than the step, and a step is under STEP_BACK_MAX_US by
         construction (STEP_BACK_MAX_US, above). Read as at or before, such a mark went a
         whole wrap early, and a roll waited for a path that had delivered everything
         (final review M1). Anything else is at or before, which is exact for a reading up

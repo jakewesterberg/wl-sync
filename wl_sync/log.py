@@ -146,7 +146,7 @@ class SyncBoxLogHeader(BaseModel):
     (wl_sync/cli.py:966-972, :986). After it, it can: the frames after the roll can lose
     their `B`s too, and each one dropped widens the step by one, so one dropped after a
     skipped value makes it 3. The box's journal ERROR is then the only witness
-    (wl_sync/cli.py:1391-1396; docs/superpowers/specs/2026-10-30-one-clock-design.md:621-623).
+    (wl_sync/cli.py:1392-1397; docs/superpowers/specs/2026-10-30-one-clock-design.md:621-623).
 
     Records cross a roll as they cross any point in a file, ordered within each path
     (`ordering`). A roll waits up to 0.2 s for each capture path to deliver what it
@@ -181,11 +181,11 @@ class SyncBoxLogHeader(BaseModel):
     default until bench day measures it. The box is given the value with `wl-sync
     record --barcode-delay-us N` (deploy/README.md), and writes it into every segment
     of the run. It is never negative, because the tick is read before the frame goes
-    out (`wl_sync.cli.run`, spec Sec.5): after the checkpoint is written, immediately
-    before emission. The lead edge therefore rises after the tick, and this is how long
-    after. The loopback sees that edge as an `E` record on an input wired to the
-    barcode output, so the sum is where this box's own edge capture places the lead
-    edge.
+    out (wl_sync/rp1/backend.py:1385-1388, spec Sec.5): after the run loop writes the
+    checkpoint, first thing in `emit_pulses`. The lead edge therefore rises after the
+    tick, and this is how long after. The loopback sees that edge as an `E` record on
+    an input wired to the barcode output, so the sum is where this box's own edge
+    capture places the lead edge.
 
     EXCEPT, IN A SPLIT PROCESS, ITS FIRST `B`, when the output line is requested during
     that frame, after its tick is read (wl_sync/rp1/backend.py:1385-1386, :1404-1409).

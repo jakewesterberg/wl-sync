@@ -155,6 +155,7 @@ def test_a_reading_after_one_kept_is_not_provisional():
     table.add(3 * S, 3 * S + 6_000)
     assert table.raw_of(2 * S) == 2 * S + 3_000  # interpolated between the two kept
 
+
 def test_before_any_pair_raw_maps_through_the_origin_at_the_seeded_ratio():
     fit = RawToP(5_000_000, 50_000)
     assert fit.p_of(5_000_000) == 0

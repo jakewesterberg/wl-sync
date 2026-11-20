@@ -107,6 +107,7 @@ backward-compatible for reading, but not forward-compatible.
     began.
   - `clock_reason` is still a free string, so nothing wl-preproc reads changes shape.
   - This update has not been delivered to wl-preproc. It is repeated in the answers below.
+    *[2026-11-20: delivered with them (top).]*
 
 ---
 
@@ -196,7 +197,8 @@ Session identity landed on wl-sync `main` on 2026-10-19. The design is in wl-syn
 
 # NOTE — 4. Three header fields, and a third moment a segment starts (2026-10-30, not an ask)
 
-**Not yet delivered.** It is for wl-preproc before its pin moves past these wl-sync commits:
+~~Not yet delivered.~~ **Delivered 2026-11-20**, with note 7 (top).
+It is for wl-preproc before its pin moves past these wl-sync commits:
 
 - `73f4395`, "log, cli: every header names its process and the measured barcode delay";
 - `56a89f8`, "cli: roll once in place when NTP first syncs";
@@ -231,7 +233,8 @@ The order was agreed with wl-preproc on 2026-10-30.
       draft, to be decided after bench day. No real session is affected yet; the unit runs
       `--fake`.
       *[2026-11-19: it is built, on a wl-sync branch not yet merged, and puts all three paths
-      on one rate. See note 7.]*
+      on one rate. See note 7.]* *[2026-11-20: all three outside the `"split"` fallback, which
+      keeps the drift above; see note 7's last paragraph.]*
   - A different id, or `null`, is a restart and a new clock. `null` means the segment was
     written before the field existed.
 - **The field names are `process_uuid`, `barcode_delay_us` and `timebase`.** All three default to
@@ -271,8 +274,9 @@ The definitions are the field docstrings in wl-sync's `wl_sync/log.py`.
 
 # NOTE — 5. Ask 4b is built: what a session's last records do now (2026-10-30, not an ask)
 
-**Not yet delivered.** It is in wl-sync `4043737`, "cli, service, rp1: a roll waits for what was
-captured before its boundary", which comes after the two commits in note 4.
+~~Not yet delivered.~~ **Delivered 2026-11-20**, with note 7 (top).
+It is in wl-sync `4043737`, "cli, service, rp1: a roll waits for what was captured before its
+boundary", which comes after the two commits in note 4.
 
 - **Records captured before an open or close now land in the closing segment.** At each roll,
   the box takes a boundary tick, then waits until every capture path has delivered everything
@@ -292,7 +296,8 @@ captured before its boundary", which comes after the two commits in note 4.
 
 # NOTE — 6. An `L` record marks lost capture events in the segment, and how `E` is ordered (2026-10-30)
 
-**Not yet delivered.** It is in the wl-sync commit "log, rp1, service: an L record marks lost
+~~Not yet delivered.~~ **Delivered 2026-11-20**, with note 7 (top).
+It is in the wl-sync commit "log, rp1, service: an L record marks lost
 capture events in the segment", which comes after the commits in notes 4 and 5. wl-sync asks
 that it ship in the same pin move as the header fields, so that wl-preproc's pin moves once,
 past both. wl-preproc's session agreed to that in a message on 2026-10-30, before its user had
@@ -414,7 +419,7 @@ The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
 
 # NOTE — 7. The one-clock build: two new `timebase` values, `"split"` as a fallback, and dropped `B`s (2026-11-19, not an ask)
 
-**Delivered 2026-11-20**, with the answers and notes 4 to 6 below, by message to the
+**Delivered 2026-11-20**, with the answers and notes 4 to 6 above, by message to the
 wl-preproc session. It is wl-sync's one-clock build, merged to wl-sync `main` and pushed
 (`91efdf6`, 2026-11-20), but not deployed: the box's unit still runs `--fake`, at `a452599`. The
 claims about wl-sync were checked against the branch at the commit that added this note, and

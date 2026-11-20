@@ -1735,7 +1735,6 @@ def test_an_unaccounted_window_whose_stamps_invert_collapses_to_its_end(tmp_path
     backend.recorder.check_health()
 
 
-
 # --- The edge timebase (Task 1.11) --------------------------------------------------------
 #
 # The pump places each kernel stamp through the timebase it is given: MonotonicOrigin in a
@@ -1900,7 +1899,6 @@ def test_the_witness_skips_an_edge_its_timebase_cannot_place():
     assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (None, 0)
 
 
-
 def test_the_witness_skips_an_edge_whose_tick_lies_after_the_read():
     """Ruling R33, Important 2. On one count `tick` and `read_at` come from two maps, and
     they can disagree by more than the real lag: a wide start-up reading, or a fit pair or
@@ -1923,12 +1921,16 @@ def test_the_witness_skips_an_edge_whose_tick_lies_after_the_read():
 
 def test_the_witness_bounds_a_lag_across_the_wrap():
     """The bound is `_since(read_at, tick)`, so a read just after the 32-bit wrap still
-    bounds an edge mapped just before it by their real distance."""
+    bounds an edge mapped just before it by their real distance.
+
+    Coverage: it passed when it was added (Ruling R33, Important 2). A bound taken as
+    `read_at - tick`, not mod 2^32, fails it: below 0 here, so the edge is skipped."""
     from wl_sync.rp1.gpio import TICK_WRAP_US
 
     pump = EdgePump(lambda *_: None, timebase=_Timebase(lambda ns: TICK_WRAP_US - 900))
     pump.pump_once(_Request([[_edge(1, 40_000)]]), lambda: 100)
     assert (pump.stamp_lag_max_us, pump.stamp_lag_over) == (1_000, 0)
+
 
 def test_a_line_quiet_for_more_than_half_a_wrap_is_never_clamped_to_a_stale_tick():
     """Ruling R30. The order guard compares two ticks with _since, which reads a difference

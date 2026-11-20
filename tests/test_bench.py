@@ -135,6 +135,39 @@ def test_the_lead_edge_offset_is_reported_as_es_constant_with_its_spread(tmp_pat
     assert "p50" in summary and "p99 " in summary and "p99.9" in summary
 
 
+def test_the_spread_gives_each_inclusive_quantile_at_its_own_cut(tmp_path):
+    """Coverage: pins the cut points and the method, which passed when they were written
+    and which the test above, checking labels alone, would let swap or slip a cut. Seven
+    offsets 1000 us apart put 6 us between neighbouring cuts, so p50, p99 and p99.9 are
+    cuts 499, 989 and 998 to the us, inclusive; the default, exclusive, extrapolates p99
+    to 7920 us, past the widest offset."""
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, frames=8, timebase="rp1-pio",
+                               offsets=[k * 1_000 for k in range(8)]), LOOP_GPIO)
+
+    assert report.lead_offsets_us == [1_000, 2_000, 3_000, 4_000, 5_000, 6_000, 7_000]
+    summary = report.summary()
+    assert summary.endswith(
+        "median 4000 us, max 7000 us; p50 4000 us, p99 6940 us, p99.9 6994 us"
+    ), summary
+
+
+@pytest.mark.parametrize("frames, has_spread", [(2, False), (3, True)])
+def test_the_spread_needs_two_offsets(tmp_path, frames, has_spread):
+    """Coverage: pins the `>= 2` guard, untested until now. The first frame is not
+    checkable, so 2 frames give one offset, where the quantiles have too few points
+    (statistics raises below two), and 3 give two."""
+    from wl_sync.bench import loopback
+
+    report = loopback(_segment(tmp_path, frames=frames, timebase="rp1-pio"), LOOP_GPIO)
+
+    assert len(report.lead_offsets_us) == frames - 1
+    line = report.summary().splitlines()[-1]
+    assert line.startswith("  lead edge after its logged tick")
+    assert ("; p50 " in line) is has_spread, line
+
+
 @pytest.mark.parametrize(
     "timebase, label",
     [

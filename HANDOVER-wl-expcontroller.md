@@ -320,7 +320,7 @@ above are struck through and replaced in place, dated.
    about once a second.** *(Updated later on 2026-10-18. Before Step A it was a 200 ms barcode frame plus a fixed
    1 s sleep, about 1.2 s.)* Between flushes Python's own buffer can push out part of a line,
    so a reader can see a torn last line. Drop it and read it on the next pass; `wl_sync.log.read_log`
-   already does this (`log.py:155`). The writer holds no lock (`"x"` is create-exclusive, not
+   already does this (`wl_sync/log.py:689-697`). The writer holds no lock (`"x"` is create-exclusive, not
    read-exclusive), so any process on the box can open the open segment read-only.
 5. **Where it is, and who can reach it.** ~~The record is at `/data/rig1/<YYYY-MM-DD>_01/seg-NNN.log` on
    the box's own NVMe (the unit file and `cli.day_directory`).~~ *(Corrected 2026-10-18, later:
