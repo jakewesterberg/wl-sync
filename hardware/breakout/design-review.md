@@ -380,7 +380,8 @@ Recorded here so signing this document does not lose them:
 | Recessed pushbutton (`J4`) MPN locked | during early layout | `procurement-check.md` |
 
 **The layout constraint set is `hardware/breakout/constraints.md`** (added 2026-11-20). It
-carries each item in this table into a numbered layout rule with its source, and it records
+carries the items in this table into numbered layout rules or open questions, each with its
+source (the `J4` MPN is its Open question 14), and it records
 two things this document predates: the three schematic gaps closed on 2026-11-20 (`U63`'s
 input filter, `J19`'s shell position `R224`, and the `U3`/`U4` PowerPAD), and the board's
 four net ties `NT1`–`NT4`, where the net-tie item above still says one.

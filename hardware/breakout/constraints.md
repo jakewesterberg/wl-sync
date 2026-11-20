@@ -37,6 +37,7 @@ its own `(text ...)` element, so a note is cited by the line that carries the qu
 | D3 | `hardware/breakout/d3-panel-thickness.md` |
 | MULE | `hardware/mule/floorplan.md` |
 | ASM | `hardware/assembly-checklist.md` |
+| MURATA | Murata reference sheet *GA342DR7GF221KW02-B0B* (4520M/1808, 220 pF; "as of Apr.3,2026"), cited by page. It is not in this repository. |
 | GENPWR | `hardware/gen/gen_breakout_power.py` |
 | GENOI | `hardware/gen/gen_breakout_opto_intan.py` |
 | CHKOI | `hardware/gen/check_breakout_opto_intan_netlist.py` |
@@ -59,7 +60,7 @@ judgment.
 | ID | Constraint | Source |
 |---|---|---|
 | GT-1 | Layout does not begin until a person has completed the sign-off block in `design-review.md`. As read for this document, the reviewer, date, decision and signature fields are blank. | DR:35–37; DR:352–366 |
-| GT-2 | Take the connector faces from SPEC §9.6 and `panel-elevations.md`, not from PLAN's Task 14 Step 1. The plan puts the rig-facing connectors on the front and the MDR68s, Intan BNCs, inlet and Pi cutouts on the rear. SPEC §9.6 says "The front/rear assignment was backwards" and reverses it, and PE was drawn from the corrected version. SPEC §9.4's own sentence "Rig-facing connectors front, equipment-facing rear" predates the correction in the same way. | PLAN:873–878 (the stale text); PLAN:880–898 (the dated note, recording the ruling of 2026-11-20 that the spec wins); SPEC:789–799; PE:17–25; SPEC:767 |
+| GT-2 | Take the connector faces from SPEC §9.6 and `panel-elevations.md`, not from PLAN's Task 14 Step 1. The plan puts the rig-facing connectors on the front and the MDR68s, Intan BNCs, inlet and Pi cutouts on the rear. SPEC §9.6 says "The front/rear assignment was backwards" and reverses it, and PE was drawn from the corrected version. SPEC §9.4's own sentence "Rig-facing connectors front, equipment-facing rear" predates the correction in the same way. | PLAN:873–878 (the stale text); PLAN:880–899 (the dated note, recording the ruling of 2026-11-20 that the spec wins); SPEC:789–799; PE:17–25; SPEC:767 |
 | GT-3 | Where a sheet's text note disagrees with the netlist, the netlist governs. Known stale notes: (a) opto-intan still says `ISO_5V` comes from an `LD1117S50`, but the netlist has `U63`, a `TMR 1-0511`; (b) pi-interface still lists GPIO18 and GPIO19 as camera trigger outputs, but `J7` pins 12 and 35 are unconnected and the cameras free-run; (c) analog-frontend still gives the photodiode stage as Rf = 1M and Cf = 3.3 pF, but `R38`/`R40` are 180 kΩ and `C48`/`C50` are 22 pF; (d) the power generator's docstring calls the 3.3 V regulator "U2", and in the netlist it is `U1`. | **[engineering judgment]** No document states a precedence, and the netlist contract is the one artefact a test regenerates and compares on every run. Stale notes: `opto-intan.kicad_sch`:3460 against NET:558 and SPEC:507–511; `pi-interface.kicad_sch`:3348 and :3578 against NET:226 and SPEC:156, 171; `analog-frontend.kicad_sch`:3190 against NET:302, 304, 52, 54 and PA:236, 503; GENPWR:621 against NET:496 |
 | GT-4 | Do not route any dual-BNC pad until pad 1 is confirmed as port A's centre conductor and pad 2 as its shell (and pads 3 and 4 likewise for port B), from the 3D model or by continuity on a sample. The roles were inferred from one third-party footprint. If they are wrong, every BNC channel drives its shield and grounds its centre, with a clean netlist and a clean ERC, and the cost is a respin. | F6:17–52. Making it a gate on routing is **[engineering judgment]**: the source asks the question and nothing in the repository closes it. See Open question 12. |
 
@@ -69,12 +70,12 @@ judgment.
 
 | ID | Constraint | Source |
 |---|---|---|
-| S-1 | Four copper layers, in the order signal / GND / power / signal (L1 / L2 / L3 / L4). | PLAN:918; SPEC:767–769 |
+| S-1 | Four copper layers, in the order signal / GND / power / signal (L1 / L2 / L3 / L4). | PLAN:919; SPEC:767–769 |
 | S-2 | The outline is nominally 430 × 240 mm. Do not freeze the depth until the dual BNC's protrusion through the panel is measured, because that protrusion sets the board's set-back from each panel. | SPEC:767–769; PLAN:867; PE:125–128; DR:226–230 |
 | S-3 | Board thickness 1.6 mm, 35 µm copper on all four layers. | **[engineering judgment]** Thickness, copper weight, dielectric and finish are not in the sources. This is what a fab quotes by default for four layers, and every current the sources give fits it (§4). Stiffness across a 430 mm span is Open question 8. |
 | S-4 | All components on L1. | **[engineering judgment]** The first board is assembled turnkey and the rest are hand-built from it (SPEC:923–929), and one populated side keeps both routes simple. The mule did the same (MULE:12). The sources do not require it here. |
 | S-5 | Minimum track and gap 0.15 mm, used only where a package forces it. The default is in §4. | **[engineering judgment]** The finest part is the `MCP4728` in MSOP-10 at 0.5 mm pitch (SPEC:944–950; `comparators.kicad_sch`:1711), whose stock footprint has 0.35 mm pads and so a 0.15 mm gap (KiCad library). Everything else is SOIC, TSSOP or coarser (SPEC:940–942). No fab house or capability is in the sources. |
-| S-6 | L2 and L3 are each split into the same four regions (AGND, DGND, NI_GND, INTAN_GND), with the splits in the same place on both layers, so no domain's plane lies over or under another domain's. | PLAN:919–920 for the analog/digital split. The congruent L3 split is **[engineering judgment]**: an overlapping plane pair is a capacitor across the barrier the split exists to make, and SPEC already names barrier capacitance as a coupling path (SPEC:526). |
+| S-6 | L2 and L3 are each split into the same four regions (AGND, DGND, NI_GND, INTAN_GND), with the splits in the same place on both layers, so no domain's plane lies over or under another domain's. | PLAN:920–921 for the analog/digital split. The congruent L3 split is **[engineering judgment]**: an overlapping plane pair is a capacitor across the barrier the split exists to make, and SPEC already names barrier capacitance as a coupling path (SPEC:526). |
 | S-7 | L3 carries `+12V` and `-12V` in the AGND region, `+5V` and `+3V3` in the DGND region, `NI_5V` in the NI region, and `ISO_P12`, `ISO_N12` and `ISO_5V` in the Intan region. | Rail-to-domain membership from the decoupling returns: NET:709, 807, 609, 574, 3208, 3005, 2970, 2941; SPEC:552–558. How each region's L3 is divided between its rails is **[engineering judgment]**: it is left to the router. |
 
 ---
@@ -99,10 +100,10 @@ and `DGND`.
 
 | ID | Constraint | Source |
 |---|---|---|
-| G-1 | `AGND` and `DGND` join at `NT1` and nowhere else: no second tie, no stitching via between the two pours, no pour overlap, no shared component pad, no mounting-hardware path. | PLAN:919–920; SPEC:303; NET:261, 942, 2040; DR:87–95 for the intent (its count is stale, as above) |
-| G-2 | `NT1` sits at the supply inlet header `J1`. | PLAN:919–920 ("star tie at the power inlet only"); PLAN:486; GENPWR:566; `power.kicad_sch`:3289 and :3099 |
+| G-1 | `AGND` and `DGND` join at `NT1` and nowhere else: no second tie, no stitching via between the two pours, no pour overlap, no shared component pad, no mounting-hardware path. | PLAN:920–921; SPEC:303; NET:261, 942, 2040; DR:87–95 for the intent (its count is stale, as above) |
+| G-2 | `NT1` sits at the supply inlet header `J1`. | PLAN:920–921 ("star tie at the power inlet only"); PLAN:486; GENPWR:566; `power.kicad_sch`:3289 and :3099 |
 | G-3 | `FAN_RTN` joins `DGND` only at `NT2`. `CHASSIS_GND` joins `DGND` only at `NT3`. `ISO_5V_RTN` joins `INTAN_GND` only at `NT4`. Route each of the three as its own trace or island, and never flood it into the plane it ties to. | NET:262–264, 2762, 2036, 2963; `power.kicad_sch`:3289, :3039; SPEC:518–520; PA:322–325 |
-| G-4 | `NT2` is placed at the inlet beside `NT1`, so the fan feed and return are star-connected there and nowhere else. | SPEC:884–889 |
+| G-4 | `NT2` is placed at the inlet beside `NT1`, so the fan feed and return are star-connected there and nowhere else. | SPEC:884–889 ("star-connected at the power inlet only"). "Beside `NT1`" is **[engineering judgment]**: the source names the inlet, not a position at it. |
 | G-5 | `NT3` is placed at the inlet star cluster, and `J56` (the chassis earth stud) connects to it by a dedicated trace. | The single-point rule is `power.kicad_sch`:3039 and SPEC:864. The location is **[engineering judgment]**: the sources fix the topology but not where the tie sits, and beside `NT1` keeps chassis current out of both planes. See Open question 18. |
 | G-6 | `NT4` is placed at `U63`'s secondary pins, so `ISO_5V_RTN` is a short local net and the converter's switching return enters `INTAN_GND` at that one point. The net has five pins: `U63` pin 6, `C137` pin 2, `C138` pin 2, `C162` pin 2 and `NT4` pin 1. | SPEC:518–520; NET:2963; GENOI:775, :799. "At `U63`'s pins" is **[engineering judgment]** as a distance: the sources say one controlled point and that the loop closes at the part, and give no dimension. |
 | G-7 | Use the four net-tie footprints as drawn (`NetTie-2_SMD_Pad2.0mm`). Do not replace a tie with a zero-ohm link or a pour neck. | `power.kicad_sch`:10206, `power.kicad_sch`:7069, `power.kicad_sch`:7839, `opto-intan.kicad_sch`:6973; GENPWR:120; PLAN:486–488 (the tie is what makes a plane-split error visible as a rule violation). Keeping the footprint rather than an equivalent is **[engineering judgment]**: the netlist checkers and the contract name these four references. |
@@ -126,40 +127,57 @@ and `DGND`.
 
 ---
 
-## 3. Isolation barriers: clearance and creepage
+## 3. Isolation barriers and slots
 
-There are two galvanic barriers, DGND to NI_GND and DGND to INTAN_GND. A third boundary, AGND
-to INTAN_GND through the eight `INA105` difference amplifiers, is deliberately not galvanic
-(SPEC:291–295).
+**Only the NI domain is galvanically isolated.** The DGND to NI_GND barrier is galvanic: nothing
+joins the two domains but the optocouplers. The DGND to INTAN_GND barrier is galvanic only at
+its own straddlers, and the Intan domain as a whole is not isolated from the board:
+
+- each of the eight Intan-side `INA105`s joins `INTAN_GND` to an AGND-referenced node through
+  its own resistors, 25 kΩ per input and 50 kΩ common mode (TOML `[ina105]`, lines 132–134).
+  Eight in parallel is about 6 kΩ;
+- SPEC says of that stage "no galvanic break" (SPEC:294);
+- `NT1` joins `AGND` to `DGND` (NET:261);
+- at every one of those parts `INTAN_GND` copper (pin 1) lies 0.67 mm from `AGND` copper
+  (pin 2): SOIC-8, 1.27 mm pitch, 0.6 mm pads (NET:534; `mux-intan.kicad_sch`:1534; KiCad library);
+- the offset the Intan domain can take from `AGND` is bounded by the `INA105`'s 20 V
+  common-mode range (TOML `[ina105].v_cm_range_v`, line 131).
+
+**What the slot is for, per the sources.** The plan asks for a "clearance slot" and gives no
+voltage for it (PLAN:919–920). The mule says what its slot does: it leaves "no copper path"
+between the regions except through the straddling packages, "the entire point of the barrier"
+(MULE:70–74). SPEC gives the barriers' purpose as keeping loop current out of signal
+returns (SPEC:284–287). So on the Intan side the slot is a guarantee about copper, and its margins
+are fabrication margins: how close copper may sit to a routed edge.
 
 **What the sources give, and what they do not.** The plan's slot is the only clearance
-requirement stated anywhere. The sources give no working voltage across either barrier, no
+requirement stated anywhere. The sources give no working voltage across the NI barrier, no
 pollution degree or material group for the board, and no isolation rating for the `ACSL-6xx0`
 (`[acsl_6xx0]`, TOML:35 onward, has none). A creepage figure from IEC 62368-1 or IEC 60664-1
-is indexed by exactly those inputs, so no creepage figure can be derived from the sources.
-Nothing in them claims the barriers are safety insulation. SPEC gives their purpose as keeping
-loop current out of signal returns (SPEC:284–287), and the audit
-calls `U63`'s insulation functional (PA:880–884). Component ratings the
-sources do give, for reference:
+is indexed by exactly those inputs, so none can be derived for the NI barrier. For the Intan
+side the list above already bounds the matter, and no creepage figure applies there. Nothing
+in the sources claims either barrier is safety insulation, and the audit calls `U63`'s
+insulation functional (PA:880–884). Component ratings the sources do give, for reference:
 
 | Part | Rating | TOML |
 |---|---|---|
 | `IH1215D` (`U2`) | 1000 VDC isolation, 60 pF barrier capacitance | `[ih_series].isolation_vdc`, `.isolation_capacitance_pf` (lines 279–280) |
 | `TMR 1-0511` (`U63`) | 1500 VDC, 1061 VAC for 60 s, 50 pF | `[tmr_1_0511].isolation_vdc`, `.isolation_test_vac_60s`, `.isolation_capacitance_pf` (lines 763–765) |
-| `C162` (220 pF, 1808) | 2 kV | `[tmr_1_0511].emc_filter_c2` (line 797) |
+| `C162` (220 pF, 1808) | 2 kV. Traco's table asks for it, and the part fitted, KEMET `C1808C221KGRACTU`, carries it. | `[tmr_1_0511].emc_filter_c2`, `.emc_filter_c2_fitted` (lines 797, 806) |
 | Dual BNC | 1500 Vrms dielectric withstanding. The drawing's key names no terminals. Separately, the body is glass-filled PBT, so each shell is isolated from the panel and from its neighbour. | `[bnc_dual_isolated].dwv_vrms` (line 541); note (lines 550–552) |
 | MDR68 | 500 VAC dielectric withstanding | `[mdr68].dielectric_withstanding_vac` (line 459) |
 | `ACSL-6400` / `-6420` | not in the sources | none |
 | `TMA-0505S` (`U62`, DNP) | not pinned to a primary document | `[tma_0505s].status` (line 716) |
 
-**Copper-to-copper gap at each part that straddles a galvanic barrier.** These are computed
-from KiCad library pad positions and sizes, and the last column is what a centred 2.5 mm slot
-leaves on each side.
+**Copper-to-copper gap at each part that straddles the NI or the DGND/Intan barrier.** These
+are computed from KiCad library pad positions and sizes, and the last column is what a centred
+2.5 mm slot leaves on each side. Under `C162` the slot is 1.5 mm by ruling (B-14), which leaves
+0.55 mm.
 
 | Part | Footprint | Primary to secondary | Copper gap | Left per side |
 |---|---|---|---|---|
 | `U56`–`U61`, `U64`, `U65` | `SOIC-16_3.9x9.9mm_P1.27mm` (`opto-ni.kicad_sch`:1840, `opto-intan.kicad_sch`:6853) | pin 1–8 column to pin 9–16 column; pad centres ±2.475 mm, pads 1.95 mm long | 3.00 mm | 0.25 mm |
-| `C162` | `C_1808_4520Metric` (`opto-intan.kicad_sch`:8529) | pad 1 to pad 2; pad centres ±2.075 mm, pads 1.55 mm long | 2.60 mm | 0.05 mm |
+| `C162` | `C_1808_4520Metric` (`opto-intan.kicad_sch`:8529) | pad 1 to pad 2; pad centres ±2.075 mm, pads 1.55 mm long | 2.60 mm | 0.05 mm at 2.5 mm; **0.55 mm at the ruled 1.5 mm** |
 | `U63` | `Converter_DCDC_TRACO_TMR-1-xxxx_Single_THT` (`opto-intan.kicad_sch`:9783) | pin 2 to pin 4; 5.08 mm centres, 1.5 mm pads | 3.58 mm | 0.54 mm |
 | `U62` (DNP) | `Converter_DCDC_TRACO_TMA-05xxS_12xxS_Single_THT` (`opto-ni.kicad_sch`:7149) | pin 2 to pin 4; 5.08 mm centres, 1.5 mm pads | 3.58 mm | 0.54 mm |
 | `U2` | `Converter_DCDC_XP_POWER-IHxxxxD_THT` (`power.kicad_sch`:10599) | pin 3 to pin 4; 7.62 mm centres, 1.85 mm pads | 5.77 mm | 1.64 mm |
@@ -168,20 +186,20 @@ The mule reports the same 3.58 mm and about 0.5 mm for the same SIP pin spacing 
 
 | ID | Constraint | Source |
 |---|---|---|
-| B-1 | Each isolation barrier is a single straight line across its region, never a zigzag. | PLAN:873–878. The plan wrote this for the old face assignment; B-2 re-derives it. |
-| B-2 | **Re-derived for the corrected faces.** (a) Each domain reaches the edge its connectors are on: `NI_GND` reaches the front edge at `J45`; `INTAN_GND` reaches the front edge at its seven BNC bodies; `AGND` reaches the front edge at `J36` and the back edge at `J2`, `J19` and the five analog bodies; `DGND` reaches the front edge at `J5` and `J4` and the back edge at `J3`, `J6`, `J13`, `J15` and `J17`. (b) Each barrier is built from straight segments, and each segment faces one neighbouring domain only. The NI barrier faces `DGND` only and is one segment. The Intan boundary has a DGND-facing segment (`U64`, `U65`, `U2`, `U63`, `C162`) and an AGND-facing segment (the eight `INA105`s), so it has a corner unless both regions meet it along one line. (c) No straddling part sits at a corner, and each slot is one straight run within one segment. | **[engineering judgment]** The plan's "rear corner" placement cannot hold once SPEC §9.6 puts the recording-NI and Intan connectors on the front (GT-2), so the rule is restated in the form the corrected faces allow. What is sourced: straightness (B-1); the faces (SPEC:798–799; PE:36–42); each connector's ground net (NET:250, 245, 224, 223, 221, 222); and which parts straddle which boundary (DR:97–106). Which arrangement to draw is Open question 1. |
-| B-3 | A routed slot at least 2.5 mm wide runs under every optocoupler, between its two pin columns (`U56`–`U61` on the NI barrier, `U64` and `U65` on the Intan barrier), and under `U2`, between its primary and secondary pins. | PLAN:918–919; NET:551–556, 559, 560, 497 |
-| B-4 | The same slot runs under `U63` and under the DNP fallback `U62`. | **[engineering judgment]** The plan says "the isolated DC-DC" in the singular (PLAN:919), written when `U2` was the only one. `U63` and `U62` are galvanic barriers of the same kind, and `U63` is the switcher whose coupling across the barrier SPEC calls out (SPEC:526–529). See Open question 5. |
+| B-1 | "Domain regions placed so each isolation barrier is a **single straight line** across the board, never a zigzag". | PLAN:873–878. The plan wrote this for the old face assignment; B-2 re-derives it. |
+| B-2 | **Re-derived for the corrected faces.** (a) Each domain reaches the edge its connectors are on: `NI_GND` reaches the front edge at `J45`; `INTAN_GND` reaches the front edge at its seven BNC bodies; `AGND` reaches the front edge at `J36` and the back edge at `J2`, `J19` and the five analog bodies; `DGND` reaches the front edge at `J5` and `J4` and the back edge at `J3`, `J6`, `J13`, `J15` and `J17`. (b) Each barrier is built from straight segments, and each segment faces one neighbouring domain only. The NI barrier faces `DGND` only and is one segment. The Intan boundary has a DGND-facing segment (`U64`, `U65`, `U2`, `U63`, `C162`) and an AGND-facing segment (the eight `INA105`s), so it has a corner unless both regions meet it along one line. (c) No straddling part sits at a corner, and each slot is one straight run within one segment. | **[engineering judgment]** The plan's "rear corner" placement cannot hold once SPEC §9.6 puts the recording-NI and Intan connectors on the front (GT-2), so the rule is restated in the form the corrected faces allow. What is sourced: straightness (B-1); the faces (SPEC:798–799; PE:36–42); each connector's ground net (NET:250, 245, 224, 223, 221, 222); and which parts straddle which boundary (CHKOI:698 onward for the four on the opto-intan sheet; `mux-intan.kicad_sch`:7242, :7252 for the `INA105`s; NET:497, 551–557; DR:97–106 for the class). Which arrangement to draw is Open question 1. |
+| B-3 | A routed slot at least 2.5 mm wide runs under every optocoupler, between its two pin columns (`U56`–`U61` on the NI barrier, `U64` and `U65` on the Intan barrier), and under `U2`, between its primary and secondary pins. | PLAN:919–920; NET:551–556, 559, 560, 497 |
+| B-4 | The same slot runs under `U63` and under the DNP fallback `U62`. | **[engineering judgment]** The plan says "the isolated DC-DC" in the singular (PLAN:920), written when `U2` was the only one. `U63` and `U62` are galvanic barriers of the same kind, and `U63` is the switcher whose coupling across the barrier SPEC calls out (SPEC:526–529). B-14 is a ruled local departure from this row. See Open question 5. |
 | B-5 | The slots are real cutouts on Edge.Cuts, not a keep-out convention, and no slot reaches a board edge. | MULE:42–47, the mule's practice, which MULE:70–74 says this board reuses |
-| B-6 | No track, via or pour on any layer crosses a barrier line. The only things that span a galvanic barrier are the straddling parts of the table above. `C162` is one of them: it is the fourth declared straddler on the opto-intan sheet, beside `U63`, `U64` and `U65`. | MULE:70–74; DR:97–106; CHKOI:698 |
+| B-6 | No track, via or pour on any layer crosses a barrier line. The only things that span the NI barrier or the DGND/Intan barrier are the straddling parts of the table above. `C162` is one of them: it is the fourth declared straddler on the opto-intan sheet, beside `U63`, `U64` and `U65`. | MULE:70–74; DR:97–106; CHKOI:698 |
 | B-7 | Between slots, along the rest of each barrier line, keep a copper-free band at least 2.5 mm wide on all four layers. | **[engineering judgment]** The plan specifies the slot only under the parts. An unslotted stretch with a narrower gap would be the weakest point of the same barrier. |
 | B-8 | A keep-out rule area covers each slot, extending 1 mm beyond the cutout on each side and blocking tracks, vias and zones on all layers. Footprint pads may sit inside it: the mule's DC/DC pads sit about 0.5 mm from the slot, inside its 1 mm keep-out, and adding the keep-out raised no new violation. | MULE:76–82; MULE:52–55. "All layers" is **[engineering judgment]**: the mule has two layers, and here the keep-out must also hold the L2 and L3 pours back. |
 | B-9 | Carry the keep-out from each slot end to the board edge, or to the next barrier segment, so nothing routes around the end of a slot. | **[engineering judgment]** The mule relies on "nothing can route around either end" (MULE:42–47) because its parts fill the span. On a 430 mm board a barrier that does not span the board needs the keep-out to close that path. |
 | B-10 | Place each `ACSL` package with its long axis along the barrier: pins 1 to 8 on the DGND side, pins 9 to 16 on the isolated side. This holds for the bidirectional `U65` too, whose pins 1 to 8 are all DGND-side and 9 to 16 all Intan-side. | NET:551 (pins 1–8 on `EVT_D*_NI_LEDA` and `EVT_D*_BUF`, pins 9–16 on `NI_GND`, `NI_5V` and `EVT_D*_NI`); NET:560 (pins 1 and 4 on `DGND` and `+5V`, pins 9 and 12 on `INTAN_GND` and `ISO_5V`, pins 13 to 16 on Intan-side LED nets) |
 | B-11 | **SOIC-16 optocouplers: the 2.5 mm slot leaves about 0.25 mm of laminate between each pad row and the slot edge.** That is half the mule's tightest margin, which the mule already calls the tightest on its board. Confirm the fab's minimum copper-to-routed-edge distance before committing. | The geometry table above; MULE:52–55; SPEC:495. The fab's capability is not in the sources. See Open question 4. |
 | B-12 | DC/DC orientation and margins. `U63` and `U62`: the slot passes between pin 2 and pin 4, with about 0.54 mm each side, and it cannot be made wider there. On `U63` pins 1 and 2 are primary and pins 4 and 6 secondary. `U2`: pins 1 and 3 are primary, pins 4 to 6 secondary, with about 1.6 mm each side. `U2` pin 2 is no-connect and sits at the secondary end, so treat its pad as Intan-side. | Pin roles: NET:497, 558, 557; TOML `[tmr_1_0511].pinout` (line 774). Geometry: the table above. Treating `U2`'s pin 2 pad as Intan-side is **[engineering judgment]**: what the pin connects to inside the module is not in the sources, and the pad lies beyond the slot from the primary pins. |
-| B-13 | `C162` sits across the Intan barrier line beside `U63`, with pad 1 (`DGND`) on the DGND side and pad 2 on the Intan side. Each pad joins the converter's own pin (pin 1, pin 6) by the shortest trace. Pad 2 connects to `ISO_5V_RTN`, never to the `INTAN_GND` plane. | NET:166; `opto-intan.kicad_sch`:2970, :3050; GENOI:798–799; TOML `[tmr_1_0511].emc_filter_topology` (line 793) |
-| B-14 | **`C162`'s pad gap, 2.60 mm, is the shortest copper-to-copper distance across the Intan barrier, and a 2.5 mm slot does not fit under it** (0.05 mm per side). Keep the laminate between its pads bare on all four layers: no track, via, pour or plane under the body. Do not lengthen its pads inward. The creepage this gap must meet is not in the sources. | The geometry table above. `C162` is rated 2 kV against the converter's 1500 VDC test voltage (PA:880–884). Keeping all four layers clear is **[engineering judgment]**: the gap is the barrier at this part, and copper under it on an inner layer shortens the path through the laminate. See Open question 5. |
+| B-13 | `C162` sits across the Intan barrier line beside `U63`, with pad 1 (`DGND`) on the DGND side and pad 2 on the Intan side. Each pad joins the converter's own pin (pin 1, pin 6) by the shortest trace. Pad 2 connects to `ISO_5V_RTN`, never to the `INTAN_GND` plane. B-8's keep-out covers the inner part of each pad, and of `U63` pins 2 and 4, so each trace leaves its pad from the outer end. | NET:166; `opto-intan.kicad_sch`:2970, :3050; GENOI:798–799; TOML `[tmr_1_0511].emc_filter_topology` (line 793) |
+| B-14 | **The slot narrows to 1.5 mm under `C162` only**, which leaves 0.55 mm of laminate between each pad and the routed edge. Everywhere else it stays at 2.5 mm or more. `C162`'s pad gap is 2.60 mm, the smallest among the parts that straddle the DGND/Intan barrier, and a 2.5 mm slot would leave 0.05 mm a side. This is a fabrication margin, copper beside a routed edge, and not a creepage requirement: the Intan domain's copper already sits 0.67 mm from `AGND` copper at each `INA105` (the lead of this section). Do not lengthen `C162`'s pads inward, and keep the laminate between them free of copper on all four layers, as B-6 and B-7 require of the whole line. | **Ruled by the user on 2026-11-20: "Narrower slot under C162"** (PA:891–930). It is a deliberate local departure from B-4's judgment, not from a sourced rule: the plan's slot names optocouplers and "the isolated DC-DC" (PLAN:920). Geometry: the table above. The practice is a capacitor maker's own: MURATA p.26, "2-2. Dimensions of Slit (Example)", row "4.5×2.0", gives a slit width d of 1.0 to 2.8 mm under a part of this case size. That drawing is Murata's, for Murata's part and land (gap 2.8 to 3.4 mm, same page), not KEMET's for the part fitted. The fab's minimum copper-to-routed-edge distance is not in the sources; see Open question 4. |
 | B-15 | `C162` stays reachable with an iron after assembly, clear of the BNC bodies and of `U63`'s body. | PA:846–849; ASM:21. Access is **[engineering judgment]**: the ruling has the part removed and refitted on board 1. |
 | B-16 | No Intan-island copper under or beside the primary pins of `U2` and `U63`, and no DGND copper under their secondary pins, on any layer. | **[engineering judgment]** The two converters already couple about 110 pF from `DGND` to the Intan reference, and `C162` takes it to about 330 pF (PA:866; TOML lines 280, 765). SPEC names that coupling as the residual that belongs to layout (SPEC:526). Overlapping copper adds to it. |
 | B-17 | The eight Intan-side `INA105`s (`U39`, `U41`, … `U53`) are placed on the Intan island. Only two AGND-domain conductors reach each one: `MUX_OUTn` at pin 3 and `AGND` at pin 2. These 16 traces are the only copper that crosses between AGND and INTAN_GND. No slot is required under these parts. The 2.5 mm copper-free band of B-7 applies, with these traces crossing it. | `mux-intan.kicad_sch`:7242, :7252; NET:534 (pin 2 on `AGND`, pin 3 on `MUX_OUT1`, pins 1, 4 and 7 on `INTAN_GND`, `ISO_N12` and `ISO_P12`). Applying B-7's band here, and putting the whole package on the Intan island, are **[engineering judgment]**: the plan names slots only for optocouplers and the DC/DC, and pins 2 and 3 sit between pin 1 and pin 4 at 1.27 mm pitch, so no slot can pass under the package. The other workable shape is an L2 gap that notches round pins 2 and 3. See Open question 6. |
@@ -190,6 +208,7 @@ The mule reports the same 3.58 mm and about 0.5 mm for the same SIP pin spacing 
 | B-20 | The NI island and the Intan island do not border each other. If the floorplan forces them adjacent, B-7's band applies between them. | **[engineering judgment]** The plan kept them in separate corners (PLAN:873–878); under SPEC §9.6 both are front-edge regions, and nothing electrical joins them. |
 | B-21 | Expect, and accept, `silk_edge_clearance` warnings on straddling parts' own outlines. Accept no other DRC class at a slot. | MULE:191–194 |
 | B-22 | `U62` and its companions `C135`, `C136`, `FB3` and `R170` are placed and routed as if populated, across the NI barrier with its slot, and marked DNP. | DR:307–311; `opto-ni.kicad_sch`:7689–7694; NET:557, 139, 140, 219, 434 |
+| B-23 | The 1.5 mm section of B-14 is as short as it can be: it spans `C162`'s body width and no more, and the slot returns to 2.5 mm on both sides. B-8's keep-out follows the step, 1 mm beyond the cutout on each side. | MURATA p.26: "the length of the slit design should be as short as possible to prevent mechanical damage in the capacitor", with a slit length e of 3.6 to 4.1 mm tabled for the 4.5 × 2.0 mm case; PA:924. The length here is **[engineering judgment]**: Murata's e is for Murata's part, and the stock 1808 land is 2.3 mm wide (KiCad library), so the figure to draw waits on the placed footprint. |
 
 ---
 
@@ -220,7 +239,7 @@ Open question 22.
 | N-10 | `+5V` copper drops no more than 25 mV from `D3`'s cathode to the farthest optocoupler LED resistor at 615 mA. That is 41 mΩ, about 83 squares of 35 µm copper. | The margin is sourced: the worst-case LED current is 8.6 mA against an 8 mA floor (`opto-ni.kicad_sch`:7544), and the supply's ±2 % tolerance is load-bearing (SPEC:597–603). The 25 mV figure is **[engineering judgment]**: 0.6 mA through 249 Ω is about 0.15 V of margin, and 25 mV spends a sixth of it. |
 | N-11 | Default copper-to-copper clearance 0.2 mm within a domain. | **[engineering judgment]** Within-domain differences are at most 24 V (`+12V` to `-12V`, and `ISO_P12` to `ISO_N12`), apart from the raw ±15 V pair of N-12. IPC-2221 Table 6-1 asks 0.05 mm internal (B1) and 0.1 mm external uncoated (B2) for 16 to 30 V, so 0.2 mm covers both. |
 | N-12 | 0.6 mm on outer layers, and 0.1 mm on inner layers, between `ISO_P15_RAW`/`ISO_P15_FILT` and `ISO_N15_RAW`/`ISO_N15_FILT`. | The unregulated `IH1215D` may reach about ±16.5 V at light load (PA:368–369; TOML `[ih_series]` lines 271, 273). That is about 33 V between the two nets, the 31 to 50 V row of IPC-2221 Table 6-1: B2 0.6 mm, B1 0.1 mm. |
-| N-13 | 0.6 mm on outer layers from any net between a panel connector and its series resistor (`*_RAW`, `*_DAC`, `*_BNC`, `*_SHLD` and the like) to any other net. | **[engineering judgment]** These are the only nets that see a mis-plug voltage directly. The clamps are checked for ±24 V on digital inputs and ±48 V on analog ones (TOML `[bat54s]` note, lines 877–879; PA:923–925). An analog input at ±48 V against a ±12 V rail is 60 V, and both the 31 to 50 V and 51 to 100 V rows of IPC-2221 Table 6-1 give B2 0.6 mm. |
+| N-13 | 0.6 mm on outer layers from any net between a panel connector and its series resistor (`*_RAW`, `*_DAC`, `*_BNC`, `*_SHLD` and the like) to any other net. | **[engineering judgment]** These are the only nets that see a mis-plug voltage directly. The clamps are checked for ±24 V on digital inputs and ±48 V on analog ones (TOML `[bat54s]` note, lines 877–879; PA:964–966). An analog input at ±48 V against a ±12 V rail is 60 V, and both the 31 to 50 V and 51 to 100 V rows of IPC-2221 Table 6-1 give B2 0.6 mm. |
 | N-14 | Via: 0.3 mm drill, 0.6 mm pad as the default. | **[engineering judgment]** No fab capability is in the sources. This is a size any four-layer process offers. |
 | N-15 | Drill sizes for the two custom connectors come from TOML, not from a library default: MDR68 contacts 0.85 mm and mounting holes 2.77 mm, non-plated; BNC signal holes 0.89 mm and ground-terminal holes 2.01 mm. | TOML `[mdr68].contact_hole_dia_mm`, `.mounting_hole_dia_mm` (lines 448, 451); `[bnc_dual_isolated].pcb_signal_hole_dia_mm`, `.pcb_ground_hole_dia_mm` (lines 531, 533); DR:187–201 |
 
@@ -247,10 +266,10 @@ was meant.
 
 | ID | Constraint | Source |
 |---|---|---|
-| K-1 | "The barcode net routed on the opposite side of the board from every analog channel and kept away from the front edge", because "it carries a high edge density and coupling into a headstage is a QC failure on real data". | PLAN:920–922. SPEC gives the same reason for the external barcode cable, which "must be routed away from headstage cables" (SPEC:771–773). |
-| K-2 | **Region reading.** No barcode-family net enters the AGND region, or runs over or under it, on any layer. Under SPEC §9.7 the CM5 and the digital section are back-left and the analog front ends back-right, so the barcode stays on the CM5 side. | **[engineering judgment]** This is one reading of K-1, not the plan's own words. Supported by PLAN:974–975 and SPEC:834–839. "On any layer" is added so DRC or a reviewer can check the rule against the plane outline. |
+| K-1 | "The barcode net routed on the opposite side of the board from every analog channel and kept away from the front edge", because "it carries a high edge density and coupling into a headstage is a QC failure on real data". | PLAN:921–923. SPEC gives the same reason for the external barcode cable, which "must be routed away from headstage cables" (SPEC:771–773). |
+| K-2 | **Region reading.** No barcode-family net enters the AGND region, or runs over or under it, on any layer. Under SPEC §9.7 the CM5 and the digital section are back-left and the analog front ends back-right, so the barcode stays on the CM5 side. | **[engineering judgment]** This is one reading of K-1, not the plan's own words. Supported by PLAN:975–976 and SPEC:834–839. "On any layer" is added so DRC or a reviewer can check the rule against the plane outline. |
 | K-3 | **Layer reading.** Analog channels are routed on L1 over the L2 AGND plane, and barcode-family nets on L4. Where a barcode net runs on L4, the L3 copper above it is a DGND-domain rail (`+5V` or `+3V3`), never `+12V` or `-12V`. | **[engineering judgment]** This is the other reading of K-1. An L4 trace's return current flows in the adjacent L3 copper, so that copper must belong to the digital domain. Two costs follow from the rest of this document: every part is on L1 (S-4), so each barcode pin needs a via; and L4's reference is a power plane, not a ground plane. |
-| K-4 | **Front edge, re-derived for the corrected faces.** The barcode cannot be kept off the front edge: `J45` pin 3 and `J46` pin 3 are front-face barcode ports. The rule becomes: the two isolated-side nets (`BARCODE_NI`; `BARCODE_INTAN` and `BARCODE_INTAN_BNC`) take the shortest path from `U60` and `U64` to their connectors, inside their own islands. Every DGND-side barcode net stays away from the Intan analog outputs (`J37` to `J43` and the eight `INA105`s) and from `J36`. On the front face, the `J46` body goes at the end of the Intan group farthest from `J37` to `J43`. | **[engineering judgment]** The plan's reason is coupling into a headstage, and its front edge was the rig-sensor edge. SPEC §9.6 moved the Intan and recording-NI connectors there (GT-2), so the literal rule cannot be met and the reason is applied in its place. Pins: NET:250, 251, 1914, 1896, 1901. See Open question 3. |
+| K-4 | **Front edge, re-derived for the corrected faces.** The barcode cannot be kept off the front edge: `J45` pin 3 and `J46` pin 3 are front-face barcode ports. The rule becomes: the two isolated-side nets (`BARCODE_NI`; `BARCODE_INTAN` and `BARCODE_INTAN_BNC`) take the shortest path from `U60` and `U64` to their connectors, inside their own islands, and inside the Intan island they stay clear of `INTAN_AO*` and the `INA105`s. Every DGND-side barcode net stays away from the Intan analog outputs (`J37` to `J43` and the eight `INA105`s) and from `J36`. On the front face, the `J46` body goes at the end of the Intan group farthest from `J37` to `J43`. | **[engineering judgment]** The plan's reason is coupling into a headstage, and its front edge was the rig-sensor edge. SPEC §9.6 moved the Intan and recording-NI connectors there (GT-2), so the literal rule cannot be met and the reason is applied in its place. Pins: NET:250, 251, 1914, 1896, 1901. See Open question 3. |
 | K-5 | On the back face, the three camera-sync bodies (`J13`, `J15`, `J17`) go at the CM5 end of the BNC row and the five analog bodies (`J20`, `J22`, `J24`, `J26`, `J29`) at the far end, with `J6`, `J57` and the non-BNC connectors between them. | Both groups are on the back face (PE:36–42); SPEC:834–839. The ordering is **[engineering judgment]**: it is the only way to separate the two groups on a face that carries both. See Open question 3. |
 | K-6 | `U15` and `U74` are placed beside `J7`, so `BARCODE_RAW` is short. | NET:1931 (one driver, eleven inputs). Placement is **[engineering judgment]**: the net with the most loads should be the shortest. PA:273–276 gives the audit's reason the buffer stays with its source GPIO and its BNCs. |
 | K-7 | The five 47 Ω resistors `R198` to `R202` are placed at the buffer outputs, not at the BNCs. | NET:462–466; PA:267–284 (they are source terminations). "At the driver" is **[engineering judgment]**: a series termination works only at the source end. |
@@ -273,9 +292,9 @@ was meant.
 | K-14 | Each analog input's series resistor and clamp diode are placed at its connector, between the connector and the first amplifier. | SPEC:377; SPEC:648; PLAN:37. "At the connector" follows FT:180–183, which states it for the frame-time inputs. Applying it to the analog inputs is **[engineering judgment]**. |
 | K-15 | Each front-end difference amplifier senses centre against shield at the connector. Route the centre and shield conductors from the BNC to the receiver as an adjacent pair, and place the 10 Ω shield resistor at the connector end. | SPEC:338–342; `analog-frontend.kicad_sch`:3360. Pair routing and the resistor's position are **[engineering judgment]**: a small loop makes disturbance arrive as common mode, and circulating shield current should reach `AGND` before it runs beside the sense trace. |
 | K-16 | The analog section occupies the back-right corner, farthest from intake and exhaust, at its own connectors. | SPEC:836–839 |
-| K-17 | The microphone chain (`U23` and the `A_MIC_*` nets) and the two photodiode stages are the parts kept farthest from the fan headers, the fan pair of N-3, `U2` and `U63`. | SPEC:785–787; PLAN:914 for the fans; SPEC:417–424 (the microphone is the one broadband channel). Extending the fan rule to the two converters is **[engineering judgment]**: they are the board's switchers. |
+| K-17 | The microphone chain (`U23` and the `A_MIC_*` nets) and the two photodiode stages are the parts kept farthest from the fan headers, the fan pair of N-3, `U2` and `U63`. | SPEC:785–787; PLAN:915 for the fans; SPEC:417–424 (the microphone is the one broadband channel). Extending the fan rule to the two converters is **[engineering judgment]**: they are the board's switchers. |
 | K-18 | The sixteen `A_*` distribution nets, and the buffered copies to `J36` (front) and `J2` (back), run over `AGND` for their whole length. | **[engineering judgment]** Each has about a dozen pins spread between the back-right front ends, the mux bank and both NI Connector 0s (for example `A_MIC`, NET:1494). A return-plane rule is the only way to hold that together. |
-| K-19 | Each NI and task-PC buffer output has its own trace through its own 100 Ω to its own connector pin, with the 100 Ω at the op-amp output. Each Intan `INA105`'s 100 Ω output resistor is at the `INA105` output pin. | `analog-ni.kicad_sch`:6343–6348; TOML `[ina105].c_load_stable_pf` (line 136); PA:914–916. The resistor's position is **[engineering judgment]**: it isolates the amplifier from trace and cable capacitance only when it sits at the amplifier. |
+| K-19 | Each NI and task-PC buffer output has its own trace through its own 100 Ω to its own connector pin, with the 100 Ω at the op-amp output. Each Intan `INA105`'s 100 Ω output resistor is at the `INA105` output pin. | `analog-ni.kicad_sch`:6343–6348; TOML `[ina105].c_load_stable_pf` (line 136); PA:955–957. The resistor's position is **[engineering judgment]**: it isolates the amplifier from trace and cable capacitance only when it sits at the amplifier. |
 | K-20 | AISENSE on each NI Connector 0 (`J36` pin 62, `J2` pin 62) reaches `AGND` by a dedicated trace taken to the plane at the NI buffer bank, not by a pour contact at the connector. | The tie itself: DR:78–85; `analog-ni.kicad_sch`:6408. Where it lands is **[engineering judgment]**: NRSE rejects the difference between AISENSE and the buffers' reference, so AISENSE should sense where the buffers return. |
 | K-21 | `PD1_COMP_PFI` is the one digital line on an analog connector (`J2` pin 38). Keep it away from the AI traces and the AO pair on its approach to `J2`, and place `R221` to `R223` beside `J2`. | NET:3384; LO:94–96; `taskpc-digital.kicad_sch`:6600. The separation is **[engineering judgment]**: the acceptance in LO assumes the line does not couple into its cable neighbours on the board either. |
 | K-22 | Route `AO_L_*` and `AO_R_*` beside the `AO_GND_TPC` trace, out and back on adjacent conductors. | **[engineering judgment]** That is what keeps the audio return off the board's planes, which G-17 requires (LO:48–52). |
@@ -290,7 +309,7 @@ was meant.
 | K-26 | Each comparator channel's hysteresis network (10 kΩ series, 1 MΩ feedback) is placed at the comparator pins. | **[engineering judgment]** These are high-impedance nodes, and a hysteresis of about 33 mV (FT:102) is easily eroded by coupled noise. |
 | K-27 | `U54` and `U76` are kept away from the CM5, the exhaust path, `U1`, `U2`, `U63` and the LDOs. | TOML `[lm339].t_j_range_lm339x_c` and note (lines 212, 221–223); SPEC:775–778. The list of heat sources is **[engineering judgment]**: the sources give the margin, not what to keep clear of. |
 | K-28 | For each frame-time input, the 100 Ω series resistor and `BAT54S` clamp (`R211` and `D45` for `J17B`, `R216` and `D46` for `J6B`) are placed at the connector, not at `U76`. | FT:180–183; `comparators.kicad_sch`:4855–4860; NET:475, 211, 480, 212 |
-| K-29 | Keep the I²C bus short. The pull-ups were chosen for about 100 pF of bus, and the audit's 100 kHz recommendation assumes about 150 pF. The bus has four devices (`U55`, `U66`, `U67`, `U68`) and crosses into the AGND region once, for `U55`. | `control-usb-i2c.kicad_sch`:2573, :2598; PA:917–920; NET:2779, 2786 |
+| K-29 | Keep the I²C bus short. The pull-ups were chosen for about 100 pF of bus, and the audit's 100 kHz recommendation assumes about 150 pF. The bus has four devices (`U55`, `U66`, `U67`, `U68`) and crosses into the AGND region once, for `U55`. | `control-usb-i2c.kicad_sch`:2573, :2598; PA:958–961; NET:2779, 2786 |
 | K-30 | `U66` (`MCP2221A`) is placed beside the internal USB header `J18`. | NET:235, 561. **[engineering judgment]**: it keeps the pair of N-9 short. |
 | K-31 | `U67` and `U68` (VSS on `DGND`) are placed on the DGND side of the AGND/DGND boundary next to the mux bank. Their 32 address lines cross in the G-10 corridor as one bundle and stay clear of the muxes' analog inputs. | NET:562, 563, 3040 onward; SPEC:206–209 (the lines are configuration-time state). Placement is **[engineering judgment]**. |
 
@@ -333,8 +352,8 @@ was meant.
 
 | ID | Constraint | Source |
 |---|---|---|
-| X-1 | The barrier keep-outs of B-7, B-8, B-9 and B-14. | as there |
-| X-2 | The CM5 IO Board (160 × 90 mm) sits over the digital region only, at the back-left by the exhaust. No analog front end, no part of the AGND region and none of the airflow path serving it lies under it. If it cannot be placed so, the decision reverts to a Pi 5 with a PCIe-FPC NVMe adapter, before panels are machined. | SPEC:834–835; SPEC:901–909; PLAN:908–912 |
+| X-1 | The barrier keep-outs of B-7, B-8, B-9, B-14 and B-23. | as there |
+| X-2 | The CM5 IO Board (160 × 90 mm) sits over the digital region only, at the back-left by the exhaust. No analog front end, no part of the AGND region and none of the airflow path serving it lies under it. If it cannot be placed so, the decision reverts to a Pi 5 with a PCIe-FPC NVMe adapter, before panels are machined. | SPEC:834–835; SPEC:901–909; PLAN:909–913 |
 | X-3 | Under the IO Board's shadow, component height is limited by its standoff. | **[engineering judgment]** The limit is real, but the standoff height is not in the sources. See Open question 10. |
 | X-4 | Behind each MDR68 reserve the full body depth of 51.32 mm from the mating face, by 63.86 mm wide, with 66.0 mm allowed per connector along the panel. | TOML `[mdr68].body_depth_mm`, `.overall_width_mm` (lines 455, 454); PE:65 |
 | X-5 | Behind each dual BNC reserve 36.2 mm of depth by 14.4 mm of width, 29.25 mm tall, and keep its 15.4 × 37.2 mm courtyard clear. In the footprint the body runs 35.15 mm from pad 1 toward the panel. | TOML `[bnc_dual_isolated].body_depth_mm`, `.body_width_mm`, `.body_height_mm` (lines 538, 536, 537); PE:56–59; `hardware/lib/wl-sync.pretty/BNC_Dual_RA_Isolated.kicad_mod`:53 (F.Fab) and :67 (F.CrtYd) |
@@ -342,7 +361,7 @@ was meant.
 | X-7 | The MDR68 mounting holes (2.77 mm, 57.93 mm apart) are non-plated. Keep copper on all layers clear of them. | TOML `[mdr68].mounting_hole_dia_mm`, `.mounting_hole_span_mm` (lines 451–452); `hardware/lib/wl-sync.pretty/MDR68_Male_RightAngle.kicad_mod`:486, 492. The copper clearance is **[engineering judgment]**: whatever hardware passes through a non-plated hole belongs to no net, so copper beside it is an unplanned contact. |
 | X-8 | Nothing overhangs the left or right board edge. The 20 mm between the board and each chassis side is the air path to the side exhaust. | SPEC:852–856 |
 | X-9 | Tall parts are kept out of the line between the front-right intakes and the left-side exhaust where they would shade the diagonal flow. | SPEC:828–830. What counts as tall is **[engineering judgment]**: the sources give the flow path, not a height. |
-| X-10 | No fan, fan header or fan trace beside the microphone preamp or the photodiode front ends. | SPEC:785–787; PLAN:914 |
+| X-10 | No fan, fan header or fan trace beside the microphone preamp or the photodiode front ends. | SPEC:785–787; PLAN:915 |
 
 ---
 
@@ -350,8 +369,8 @@ was meant.
 
 | ID | Constraint | Source |
 |---|---|---|
-| M-1 | Place connectors first. Everything else is placed to serve them. | PLAN:925–926 |
-| M-2 | Panel connector positions are dimensioned to ±0.1 mm, and every panel hole is derived from its placed footprint's position, never from a hand measurement. | PLAN:922–923; PLAN:955–956 |
+| M-1 | Place connectors first. Everything else is placed to serve them. | PLAN:926–927 |
+| M-2 | Panel connector positions are dimensioned to ±0.1 mm, and every panel hole is derived from its placed footprint's position, never from a hand measurement. | PLAN:923–924; PLAN:956–957 |
 | M-3 | Face assignment. Front: the seven Intan bodies (`J37`, `J39`, `J41`, `J43`, `J46`, `J48`, `J50`), `J5` (reward remote, with the spare port `J5B`), `J36` and `J45` (recording NI), and the reward button. Back: `J20`, `J22`, `J24`, `J26`, `J29` (rig analog), `J13`, `J15`, `J17` (camera sync, with frame-time in on `J17B`), `J6` (reward driver, with frame-time in on `J6B`), `J57` (line-out), `J2` and `J3` (task-PC NI), `J19` (DB37). | SPEC:789–799; PE:23–25, 36–42, 65–82 |
 | M-4 | Dual BNC bodies are on an 18.0 mm column pitch, in one row per face. That pitch rests on a nut across-corners figure of about 16.5 mm that was never sourced from a drawing. Confirm it before fixing positions. | PE:56–59; F6:88–100. See Open question 13. |
 | M-5 | Front-edge board-mounted items total 132.0 mm (two MDR68) plus 140.4 mm (eight BNC bodies). Back-edge items total 132.0 + 176.4 + 69.4 mm (two MDR68, ten BNC bodies, DB37). With the panel furniture, the back face has 7.2 mm of slack in a 450 mm panel and takes no further connector. | PE:65–82; PE:27–30 |
@@ -378,7 +397,7 @@ was meant.
 | ID | Constraint | Source |
 |---|---|---|
 | T-1 | Air crosses the board diagonally, from two 60 mm intakes on the front-right to two 60 mm exhausts on the left side panel. Placement follows from it. | SPEC:822–830 |
-| T-2 | The CM5 and its NVMe are downstream of the analog section in that flow, at the exhaust. | SPEC:783–784; SPEC:834–835; PLAN:904–906 |
+| T-2 | The CM5 and its NVMe are downstream of the analog section in that flow, at the exhaust. | SPEC:783–784; SPEC:834–835; PLAN:905–907 |
 | T-3 | The analog section wants thermal stability rather than cooling. Do not place it in the direct airstream. | SPEC:836–839 |
 | T-4 | The heat-dissipating parts on the board itself (`U1`, `U2`, `U3`, `U4`, `U63`) are kept off the analog region and out of the path between it and still air. | SPEC:775–778 for the sensitivity. The list is **[engineering judgment]**: the sources quantify only `U3` and `U4`, at about 0.16 W and 0.07 W (PA:822). |
 
@@ -399,10 +418,10 @@ was meant.
 
 | ID | Constraint | Source |
 |---|---|---|
-| V-1 | DRC is run as `kicad-cli pcb drc --exit-code-violations --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb`, and the expected result is exit code 0. | PLAN:931–932 |
+| V-1 | DRC is run as `kicad-cli pcb drc --exit-code-violations --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb`, and the expected result is exit code 0. | PLAN:932–933 |
 | V-2 | The net classes of §4 and the keep-outs of §3 and §7 are entered as board rules before routing starts, so V-1 tests them. | **[engineering judgment]** The project file has none today, and a rule that exists only in this document is not checked by V-1. |
 | V-3 | Every panel connector's placed coordinates are checked against the panel drawing before panels are machined. | DR:234–256; DR:379 |
-| V-4 | Render the top and bottom, and confirm that the isolation slots are unbroken, that no copper crosses them, and that the barcode net is away from the analog region. The plan's check also says "and the front edge"; read that part as K-4. | PLAN:974–975; PLAN:880–898 |
+| V-4 | Render the top and bottom, and confirm that the isolation slots are unbroken, that no copper crosses them, and that the barcode net is away from the analog region. The plan's check also says "and the front edge"; read that part as K-4. | PLAN:975–976; PLAN:880–899 |
 | V-5 | When the netlist is exported for import into the board, treat "schematic has annotation errors" on `kicad-cli`'s stdout as a failure. | F6:173–175 |
 
 ---
@@ -432,13 +451,13 @@ was meant.
    pad copper and the routed edge on each side (B-11). Is that acceptable to the fab? If not,
    which gives: shorter pads, a narrower slot under these eight parts, or a copper-free gap in
    place of a routed slot? The mule validated the slot under DIP-8 parts with 6.02 mm between
-   pad rows, which is a different case.
+   pad rows, which is a different case. The same answer settles `C162`, whose ruled 1.5 mm
+   slot leaves 0.55 mm (B-14), and the stepped outline of B-23.
 
-5. **Slots at `U63`, `U62` and `C162`.** The plan names one DC/DC. B-4 extends the slot to
-   `U63` and `U62`: is that wanted? `C162` then sits on the same line with a 2.60 mm pad gap
-   (B-14), which no 2.5 mm slot fits under. Should the slot stop short of `C162`, narrow under
-   it, or should `C162` take a land pattern with a wider gap? The creepage `C162` must meet is
-   not in the sources.
+5. **Slots at `U63` and `U62`.** The plan names one DC/DC. B-4 extends the slot to `U63` and
+   `U62`: is that wanted? `C162` is settled: the slot narrows to 1.5 mm under it (B-14, ruled
+   2026-11-20). That is a fabrication margin and not a creepage one, because the Intan domain
+   is not galvanically isolated from the board (§3's lead).
 
 6. **The AGND/INTAN_GND boundary at the `INA105`s.** No slot fits under an SOIC-8 whose AGND
    pins sit between its Intan pins. B-17 puts the whole package on the Intan island with two
@@ -446,10 +465,12 @@ was meant.
    and 3. Which is wanted, and is the 2.5 mm band the right width for a boundary that is not
    galvanic?
 
-7. **What the barriers must withstand.** No working voltage, pollution degree or insulation
-   class is stated, and the `ACSL-6xx0` isolation and creepage ratings are not in
-   `datasheet-params.toml`. If any standard's creepage figure is meant to apply, those inputs
-   are needed first.
+7. **What the NI barrier must withstand.** No working voltage, pollution degree or insulation
+   class is stated for it, and the `ACSL-6xx0` isolation and creepage ratings are not in
+   `datasheet-params.toml`. If any standard's creepage figure is meant to apply there, those
+   inputs are needed first. The Intan side needs no such figure: the sources bound it (the
+   `INA105`s' resistive path and 20 V common-mode range, "no galvanic break", functional
+   insulation at `U63`; §3's lead).
 
 8. **Stack-up, fab and mounting.** Board thickness, copper weight per layer, dielectric,
    finish and the fab house are not in the sources, and neither are its minimum track, space

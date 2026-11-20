@@ -888,6 +888,47 @@ both BOMs at quantity 1, and stays a declared barrier-straddling part in
 `check_breakout_opto_intan_netlist.py`. Removing it at the bench needs no board change.
 If bring-up settles on "removed", mark it DNP in the generator then, with the measurement.
 
+### R5 — The isolation slot narrows under `C162` — **RULED 2026-11-20**
+
+`C162` sits across the DGND/Intan barrier beside `U63` (R4). Its footprint, the stock
+`Capacitor_SMD:C_1808_4520Metric`, has pads centred at ±2.075 mm and 1.55 mm long, so the
+copper gap under the part is **2.60 mm** (read from the KiCad 10.0.5 library file, not from a
+document in this repository). The layout constraint set extends the plan's 2.5 mm slot to
+`U63` (`constraints.md`, B-4, an engineering judgment), and a 2.5 mm slot on that line would
+leave 0.05 mm of laminate between each pad and the routed edge.
+
+**Ruling: a narrower slot under `C162`.** The slot narrows to **1.5 mm under `C162` only**,
+which leaves **0.55 mm a side**, and stays at 2.5 mm or more everywhere else. This is a
+deliberate local departure from `constraints.md` B-4, not from a sourced rule: the plan's
+slot rule names optocouplers and "the isolated DC-DC" and no capacitor
+(`docs/superpowers/plans/2026-08-13-breakout-pcb.md`, Task 14 Step 2).
+
+**Why this is a fabrication matter and not a safety one.** The problem at 0.05 mm is copper
+on a routed edge. It is not creepage, because the Intan domain is not galvanically separate
+from the rest of the board in the first place: each of the eight Intan-side `INA105`s joins
+`INTAN_GND` to an AGND-referenced node through its own resistors (25 kΩ per input, 50 kΩ
+common mode; `hardware/datasheet-params.toml`, `[ina105]`), the spec says of that stage "no
+galvanic break" (§5.2), `NT1` joins `AGND` to `DGND`, and at every one of those parts
+`INTAN_GND` copper (pin 1) lies 0.67 mm from `AGND` copper (pin 2). `U63`'s own insulation
+is functional (R4 above). So a wider gap at `C162` would protect nothing: the same two
+domains already sit 0.67 mm apart at eight parts.
+
+**The practice is a capacitor maker's own.** Murata's reference sheet for a part of the same
+case size draws a slit in the board under the capacitor and tables its width: Murata
+*GA342DR7GF221KW02-B0B* (4520M/1808, 220 pF; "as of Apr.3,2026"), p.26, "2-2. Dimensions of
+Slit (Example)", row "4.5×2.0": d (slit width) 1.0 to 2.8 mm, e (slit length) 3.6 to 4.1 mm.
+1.5 mm is inside that range. Two limits on what this citation carries: it is Murata's
+drawing for Murata's part and Murata's land (gap 2.8 to 3.4 mm, same page), not KEMET's for
+the `C1808C221KGRACTU` fitted here; and Murata give the slit's purpose as flux cleaning and
+resin coating, and ask that its length be "as short as possible to prevent mechanical damage
+in the capacitor". The narrowed section is therefore kept short as well as narrow
+(`constraints.md`, B-23).
+
+**What does not change.** `C162` stays the part, value, rating and footprint R4 describes;
+the schematic, generators, BOM and checkers are untouched. The fab must still accept 0.55 mm
+of copper to a routed edge, which is the question the optocouplers already ask of it at
+0.25 mm (`constraints.md`, B-11).
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

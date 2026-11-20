@@ -884,7 +884,8 @@ own rear corner.
 > corrected version, and **the spec and `panel-elevations.md` supersede this step's face
 > assignment**: the front edge carries the 14 Intan BNCs, the recording NI's two MDR68s, and
 > the reward button and remote; the back edge carries the rig-facing BNCs, the reward driver
-> output, the task PC's two MDR68s, the DB37, the supply inlet and the Pi's port cutouts.
+> output, the task-PC line-out, the task PC's two MDR68s, the DB37, the supply inlet and the
+> Pi's port cutouts.
 >
 > Two rules in this task were written for the old faces and **must be re-derived for the
 > corrected ones**:
