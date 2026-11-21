@@ -38,13 +38,15 @@ status:
     breakout.kicad_pcb: every footprint placed and on its net, both
     isolation slots, no track) and checked
     (hardware/gen/check_breakout_placement.py), on a branch, not merged
-    (2026-11-21). Its design review: approved for layout by the user
-    (2026-11-21); the checklist confirmations were not given; dimensions
+    (2026-11-20). Its design review: approved for layout by the user
+    (2026-11-20); the checklist confirmations were not given; dimensions
     are taken from manufacturer drawings (R46). From those drawings the
     MDR68 footprint was corrected (it was mirrored, its tail-row map and
     datum wrong) and both connector families placed; nothing is checked
     against a part, and three questions about the connectors and the
-    panel are open (constraints.md, Open questions 23-25). The slot
+    panel are open (constraints.md, Open questions 23-25): among them,
+    every BNC is to be insulated from the panel (ruled 2026-11-20) and
+    no stock washer that fits has been found, so the panels wait. The slot
     is 2.0 mm under the SOIC-16 optocouplers (ruling R6), and DRC on the
     unrouted board reports only unconnected items and the 24 silkscreen
     warnings constraints B-21 accepts. Routing, which is a person's, is not
@@ -145,7 +147,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "cb4191c"
+  describes: "5d7f4a3"
 
 runs_on: [rig/sync]
 builds_on: [dws]
