@@ -43,10 +43,10 @@ status:
     are taken from manufacturer drawings (R46). From those drawings the
     MDR68 footprint was corrected (it was mirrored, its tail-row map and
     datum wrong) and both connector families placed; nothing is checked
-    against a part, and three questions about the connectors and the
-    panel are open (constraints.md, Open questions 23-25): among them,
-    every BNC is to be insulated from the panel (ruled 2026-11-20) and
-    no stock washer that fits has been found, so the panels wait. The slot
+    against a part. Every BNC is insulated from the panel by a G-10/FR-4
+    sub-plate (ruled 2026-11-20; specified in panel-elevations.md, not
+    drawn or built), and three questions about the connectors and the
+    panel are open (constraints.md, Open questions 23, 24 and 26). The slot
     is 2.0 mm under the SOIC-16 optocouplers (ruling R6), and DRC on the
     unrouted board reports only unconnected items and the 24 silkscreen
     warnings constraints B-21 accepts. Routing, which is a person's, is not
@@ -147,7 +147,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "5d7f4a3"
+  describes: "6889774"
 
 runs_on: [rig/sync]
 builds_on: [dws]
