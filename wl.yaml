@@ -38,11 +38,16 @@ status:
     breakout.kicad_pcb: every footprint placed and on its net, both
     isolation slots, no track) and checked
     (hardware/gen/check_breakout_placement.py), on a branch, not merged
-    (2026-11-21). Its design review is signed off (2026-11-21). The slot
+    (2026-11-21). Its design review: approved for layout by the user
+    (2026-11-21); the checklist confirmations were not given; dimensions
+    are taken from manufacturer drawings (R46). From those drawings the
+    MDR68 footprint was corrected (it was mirrored, its tail-row map and
+    datum wrong) and both connector families placed; nothing is checked
+    against a part, and three questions about the connectors and the
+    panel are open (constraints.md, Open questions 23-25). The slot
     is 2.0 mm under the SOIC-16 optocouplers (ruling R6), and DRC on the
     unrouted board reports only unconnected items and the 24 silkscreen
-    warnings constraints B-21 accepts. Connector depth is judgment until a
-    BNC and an MDR68 are measured. Routing, which is a person's, is not
+    warnings constraints B-21 accepts. Routing, which is a person's, is not
     started. On 2026-11-07 the strobe-capture
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
@@ -140,7 +145,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "894aad7"
+  describes: "cb4191c"
 
 runs_on: [rig/sync]
 builds_on: [dws]
