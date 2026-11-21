@@ -620,7 +620,8 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
    `static inline`, so `ctypes` cannot call it directly; `pio/wlsync_pio.c` explains why.
    The shim includes piolib's sources, so nothing else needs installing:
 
-       git clone --depth 1 https://github.com/raspberrypi/utils.git ~/src/utils
+       git clone https://github.com/raspberrypi/utils.git ~/src/utils
+       git -C ~/src/utils checkout b57c48e
        git clone https://github.com/jakewesterberg/wl-sync.git ~/src/wl-sync
        ~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp
        sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig
@@ -643,11 +644,17 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
    bench harness's width meter (`wl_sync/rp1/meter.py`); the recording path never calls it.
 
    The shim reads the start of piolib's private RP1 handle, as it is at utils `b57c48e`, to
-   find the block's descriptor (`pio/wlsync_pio.c:41-52`). The clone above takes utils'
-   newest commit, whose handle may have moved. That is caught, not misread: every level
+   find the block's descriptor (`pio/wlsync_pio.c:41-52`). The clone above is checked out at
+   that commit; a newer one's handle may have moved. That is caught, not misread: every level
    read gives `-9`, and the process records split with no `W` (`deploy/README.md:203-204`).
-   `build-shim.sh` warns when it builds against another commit. To build at the checked
-   one, clone without `--depth 1`, then `git -C ~/src/utils checkout b57c48e`.
+   `build-shim.sh` refuses to build against another commit (`pio/build-shim.sh:23-45`): it exits
+   non-zero before compiling, so no `.so` is left, and its message names the commit it found,
+   `b57c48e`, why it matters, and the override. A directory that is not a git checkout reads as
+   `unknown` and is refused too. To build at the checked one, clone without `--depth 1`, then
+   `git -C ~/src/utils checkout b57c48e`. To build against another commit anyway, set
+   `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1`; the build goes ahead and prints the warning
+   (the user, 2026-11-21: "Refuse, with an override"). The box's `~/src/utils` is at `b57c48e`
+   (checked read-only on 2026-11-21), so the bench-day commands need no override.
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
    `gpio`. If it is `root:root`, piolib's README gives a udev rule.

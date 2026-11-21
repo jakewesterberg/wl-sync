@@ -207,7 +207,7 @@ third_party:
       its descriptor (pio/wlsync_pio.c:41-52). A utils whose handle has moved
       is caught at start, not misread (every level read -9, so split with no
       W), and pio/build-shim.sh warns when piolib is not at b57c48e
-      (deploy/README.md:645-650).
+      (deploy/README.md:646-658).
   - name: gcc
     where: rig/sync
     why: >-
@@ -227,7 +227,7 @@ third_party:
       docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272;
       wl_sync/calibration.py:89-125). That timesyncd sets the PLL flag is itself
       unverified until bench B7 logs it, and without it no pair passes and no
-      rate file is ever written (deploy/README.md:752-754).
+      rate file is ever written (deploy/README.md:759-761).
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.

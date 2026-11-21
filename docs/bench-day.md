@@ -136,7 +136,7 @@ The third is next-session `:182` and `:186`, with `lib-b3` (below).
 **Pass:**
 - "`active`, `1`, no bench running, both devices in group `gpio` with the user in it, and
   GPIO17-19 not under another function" (next-session `:181`);
-- `fc18551` (or the last deploy) with a clean status, and utils `b57c48e` (README `:645-650`);
+- `fc18551` (or the last deploy) with a clean status, and utils `b57c48e` (README `:646-658`);
 - `{"session_id": null, ...}`;
 - "`no override` on GPIO18 and GPIO19" (next-session `:182`).
 
@@ -151,7 +151,7 @@ The third is next-session `:182` and `:186`, with `lib-b3` (below).
 **What a fail means:**
 - **An inactive service:** read `journalctl -u wl-sync -n 50` before anything else
   (README `:42-43`).
-- **A session open:** wait until it closes. A restart begins a new clock (README `:711-712`).
+- **A session open:** wait until it closes. A restart begins a new clock (README `:718-719`).
 - **An override set:** clear it as next-session `:186` says, with no sudo:
   `override --pin <pin> --clear`.
 
@@ -175,16 +175,16 @@ is never left over new files **[composed]**.
 - The `--split` count is 1 or more.
 
 The path is double-quoted so the shell does not glob `[pi]`, and is written `$HOME` because a
-quoted `~` would not expand. README `:657` gives it unquoted.
+quoted `~` would not expand. README `:664` gives it unquoted.
 
     ssh wl-rig-sync0 '~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp'
 
 **Pass:** "It must compile under `-Wall -Wextra` with no warnings" (P0 item 1, plan
-`:1880`). Expect no warning that piolib is not at `b57c48e` (README `:645-650`).
+`:1880`). The script refuses, and writes no `.so`, if piolib is not at `b57c48e` (README `:646-658`; `pio/build-shim.sh:23-45`). The box's `~/src/utils` is at `b57c48e` (checked read-only on 2026-11-21), so this command needs no override and the refusal is not expected; do not set `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1` here, because a refusal would mean the checkout moved.
 
     ssh -t wl-rig-sync0 'sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig'
 
-**(you, sudo)** This is README `:626` and P0 item 1's "Install it and run `ldconfig`".
+**(you, sudo)** This is README `:627` and P0 item 1's "Install it and run `ldconfig`".
 
     ssh -t wl-rig-sync0 'sudo systemctl restart wl-sync'
 
@@ -201,7 +201,7 @@ Then check the shim. This is S.1's check, plan `:1950`, run against the installe
 
 **A fail:**
 - **The backend refuses the shim.** It names its rebuild: "`libwlsync_pio is version N, and
-  this wl-sync needs 6: rebuild ...`" (README `:628-635`). Under `--fake` the backend never
+  this wl-sync needs 6: rebuild ...`" (README `:629-636`). Under `--fake` the backend never
   loads the shim, so the unit stays active.
 - **A compiler warning.** It is a fault in our own build: stop, and fix it in the repository
   (plan `:2033`).
@@ -222,6 +222,8 @@ with `lib-b3`. That is the user's ruling, 2026-11-20. `--split` is Task 1.24
 
 ```sh
 ssh wl-rig-sync0 'rm -rf ~/wl-sync-spike/src-b3 && mkdir -p ~/wl-sync-spike/src-b3 && git -C ~/src/wl-sync archive --format=tar HEAD | tar -x -C ~/wl-sync-spike/src-b3 && ~/wl-sync-spike/src-b3/pio/build-shim.sh ~/src/utils/piolib ~/wl-sync-spike/lib-b3'
+
+This build-shim.sh call also refuses a piolib not at utils `b57c48e` (`pio/build-shim.sh:23-45`); the same `~/src/utils` serves it, so it needs no override.
 ssh wl-rig-sync0 '~/wl-sync-spike/venv/bin/pip install -q --no-deps -e "$HOME/wl-sync-spike/src-b3[pi]" && ~/wl-sync-spike/venv/bin/wl-sync record --help | grep -c -- --split'
 ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib-b3 venv/bin/python -c "from wl_sync.rp1 import backend as b; lib = b._load_shim(); print(lib.wlsync_shim_version(), [l.split()[-1] for l in open(\"/proc/self/maps\") if \"wlsync\" in l][0])"'
 ```
@@ -260,16 +262,16 @@ Nothing on the header.
     ssh wl-rig-sync0 'mkdir -p /tmp/wl-bench && ~/wl-sync-venv/bin/wl-sync record --out /tmp/wl-bench/rig0 --duration 30 > /tmp/wl-bench/p0-2.txt 2>&1; echo "exit $?"; grep -E "stamp machine|RX FIFO|PIO rate|capture" /tmp/wl-bench/p0-2.txt'
     ssh wl-rig-sync0 '~/wl-sync-venv/bin/python -c "import collections, pathlib, sys; from wl_sync.log import read_log; [s] = sorted(pathlib.Path(sys.argv[1]).rglob(\"seg-*.log\")); h, r = read_log(s); print(h.timebase, h.barcode_delay_us, dict(collections.Counter(type(x).__name__ for x in r)))" /tmp/wl-bench/rig0; cat /tmp/wl-bench/rig0/unassigned/*/syncbox/manifest.json'
 
-The first command is README `:669`, with its output kept **[composed]**. The second is
+The first command is README `:676`, with its output kept **[composed]**. The second is
 S.2's read (plan `:1954-1955`), on this run's folder.
 
 **Pass:**
 - "It must start, which means the shim's version and all six encodings agree. The segment
   and trailer must be clean, with 30 `B`s and no `W`" (plan `:1881`).
 - "30 consecutive barcode values; no edge or word records; a clean trailer, and a manifest
-  with no gaps or overlaps; no `capture degraded` lines" (README `:672-675`).
+  with no gaps or overlaps; no `capture degraded` lines" (README `:679-682`).
 - The journal says "`the stamp machine saw GPIO17 rise at start-up`", and the header says
-  "`"rp1-pio"`, since no rate file exists yet" (README `:682-684`).
+  "`"rp1-pio"`, since no rate file exists yet" (README `:689-691`).
 - The start-up INFO, "`the RX FIFO holds 16 words, measured at start-up: the code-word
   pairing counts on 16`" (next-session `:127-128`).
 - `barcode_delay_us` 0 (README `:106-111`).
@@ -407,7 +409,7 @@ Take the jumper to pin 36 off.
   stands" (plan `:2101-2102`).
 - **B8's first day:** "Run the calibration over 8 h on two days. Report r, r per hour, and
   day to day" (plan `:2091`). Once its baseline reaches an hour, the box writes the rate file
-  itself into its `--out`, every hour (README `:697-699`).
+  itself into its `--out`, every hour (README `:704-706`).
 
 **Wire:** pin 11 to pin 38 only.
 
@@ -432,7 +434,7 @@ After 8 h:
 - **No rate file at all:** it is written only after an hour of pairs with NTP synchronised
   and STA_PLL set. A journal line `no clock pair has passed the PIO rate gate ...` names
   what held it, and "If it names `no STA_PLL`, the gate will not open by itself: bench B7
-  ... is the check" (README `:733-740`).
+  ... is the check" (README `:740-747`).
 - **Next-session's B-3 (failed level reads):** count the `level could not be read` lines.
   A few `errno 5` alone do not show the firmware failing (next-session `:140-142`).
 
@@ -455,10 +457,10 @@ R73): it keeps the bench recorder's log the only one in play. It is not a PIO ne
 `--fake` service never opens the block (plan `:1921-1922`).
 
 **The bench recorders.** Each runs the deployed `wl-sync`, which `/usr/local/bin` links
-(README `:662`). Each has its own `--out`, `--listen 0.0.0.0:8741` and no token, so the
+(README `:669`). Each has its own `--out`, `--listen 0.0.0.0:8741` and no token, so the
 endpoint serves GET only (`phase-1.md:822-843`). Start each from a second terminal with
 `ssh -t`, so Ctrl-C stops it, and keep its stderr (`phase-1.md:908-911`). The gpiochip is
-`/dev/gpiochip0`, by label (README `:665-666`); check it with `gpiodetect`.
+`/dev/gpiochip0`, by label (README `:672-673`); check it with `gpiodetect`.
 
 ### 10. Wiring, flashing, and the Pico-to-Pico checks
 
@@ -976,7 +978,7 @@ B7 is informational: "The spread of θ sets the gate's 1 ms and the 1 h baseline
 `:2088`).
 
 **A finding:** `sta_pll` never `True`. Then "no pair passes, and no rate file is ever
-written" (README `:752-754`), and the unit can never record `"rp1-pio-si"`. That goes to the
+written" (README `:759-761`), and the unit can never record `"rp1-pio-si"`. That goes to the
 user before step 22.
 
 ---
@@ -1033,10 +1035,10 @@ A minute later:
 - "`the RX FIFO holds 16 words, measured at start-up: the code-word pairing counts on 16`"
   (next-session `:127-128`).
 - The WARNING "`no usable PIO rate calibration (no calibration file): ticks count RP1's
-  crystal, timebase rp1-pio, until a later start finds one`" (README `:723-725`).
+  crystal, timebase rp1-pio, until a later start finds one`" (README `:730-732`).
 - No line `event-code capture cannot run`, and no line `the stamp machine's start-up test
   failed` (README `:195`, `:133`).
-- The header's `"timebase": "rp1-pio"` and `"barcode_delay_us": 0` (README `:682-684`,
+- The header's `"timebase": "rp1-pio"` and `"barcode_delay_us": 0` (README `:689-691`,
   `:106-111`).
 
 **A fail:**
@@ -1052,22 +1054,22 @@ A minute later:
 
 ### 23. The rate file: 1 h, then restart once (you, sudo)
 
-These are README `:705-717`:
+These are README `:712-724`:
 
     ssh wl-rig-sync0 'ls -l /data/rig0/.wl-sync-pio-rate; curl -s http://localhost:8740/session; echo'
 
 Run this after at least 1 h. **Pass:** the file exists, and no session is open. If it does
 not exist yet, wait: "it is first written once an hour of pairs has been taken with NTP
-synchronized" (README `:708-710`).
+synchronized" (README `:715-717`).
 
     ssh -t wl-rig-sync0 'sudo systemctl restart wl-sync'
 
-**(you, sudo)** Between sessions (README `:711-712`).
+**(you, sudo)** Between sessions (README `:718-719`).
 
     ssh wl-rig-sync0 'journalctl -u wl-sync --since "-3 min" --no-pager | grep "PIO rate"; head -1 "$(ls -t /data/rig0/unassigned/$(date -u +%F)/syncbox/seg-*.log | head -1)"'
 
 **Pass:** "`applying the PIO rate calibration written <time>: <+N> ppb, measured over <S> s
-and <P> pairs; timebase rp1-pio-si`", "not the no-calibration WARNING" (README `:713-717`).
+and <P> pairs; timebase rp1-pio-si`", "not the no-calibration WARNING" (README `:720-724`).
 The header says `"timebase": "rp1-pio-si"`.
 
 **B8's second day** **[composed]**: on another day, snapshot the unit's own rate file over 8 h,

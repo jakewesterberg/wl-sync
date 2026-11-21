@@ -5,6 +5,12 @@
 #
 #   pio/build-shim.sh <raspberrypi/utils checkout>/piolib [output directory]
 #
+# It REFUSES (exit 1, before the compiler runs, so no .so is written) unless piolib is at
+# raspberrypi/utils b57c48e, the one commit the shim's read of piolib's private RP1 handle was
+# checked against. To build against another commit anyway, set WLSYNC_ALLOW_UNCHECKED_PIOLIB=1:
+# the build then goes ahead and prints a warning. A directory that is not a git checkout reads
+# as "unknown" and is refused the same way.
+#
 # Then install it where ctypes.util.find_library("wlsync_pio") looks:
 #
 #   sudo install -m 0644 <output>/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig
@@ -14,6 +20,30 @@ piolib=${1:?usage: build-shim.sh <path to raspberrypi/utils/piolib> [output dir]
 out=${2:-.}
 here=$(cd "$(dirname "$0")" && pwd)
 
+checked=b57c48e
+at=$(git -C "$piolib" rev-parse HEAD 2>/dev/null || echo unknown)
+case $at in
+    $checked*) ;;
+    *)
+        if [ "${WLSYNC_ALLOW_UNCHECKED_PIOLIB:-}" = 1 ]; then
+            echo "warning: piolib is at $at, not utils $checked, the commit the shim's read of" \
+                 "its private handle was checked against (deploy/README.md); building anyway," \
+                 "WLSYNC_ALLOW_UNCHECKED_PIOLIB=1" >&2
+        else
+            cat >&2 <<MSG
+error: piolib is at $at, but the shim was checked against utils $checked only.
+The shim reads the start of piolib's private RP1 handle to find its descriptor
+(pio/wlsync_pio.c, struct wlsync_rp1_handle_prefix). On a commit where that handle has
+moved, every level read fails with -9 and the box records split with no W.
+Nothing was built. To build at the checked commit:
+    git -C <utils checkout> checkout $checked     (clone without --depth 1)
+To build against $at anyway, knowing the handle is unverified:
+    WLSYNC_ALLOW_UNCHECKED_PIOLIB=1 $0 $piolib ${out}
+MSG
+            exit 1
+        fi ;;
+esac
+
 # LIBRARY_BUILD=1 is what piolib's own CMakeLists.txt defines for its library build.
 cc -O2 -fPIC -shared -Wall -Wextra -DLIBRARY_BUILD=1 \
     -I "$piolib/include" \
@@ -21,15 +51,4 @@ cc -O2 -fPIC -shared -Wall -Wextra -DLIBRARY_BUILD=1 \
     "$here/wlsync_pio.c" \
     "$piolib/piolib.c" "$piolib/library_piochips.c" "$piolib/pio_rp1.c"
 
-echo "built $out/libwlsync_pio.so against piolib at $(git -C "$piolib" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-
-# The shim reads the start of piolib's private RP1 handle to find its descriptor, checked
-# against utils b57c48e only (wlsync_pio.c, struct wlsync_rp1_handle_prefix). A commit
-# whose handle has moved is caught at start, not misread: every level read is -9, and the
-# process records split with no W (deploy/README.md:645-650). Say so here, at build time.
-at=$(git -C "$piolib" rev-parse HEAD 2>/dev/null || echo unknown)
-case $at in
-    b57c48e*) ;;
-    *) echo "warning: piolib is at $at, not utils b57c48e, the commit the shim's read of" \
-            "its private handle was checked against (deploy/README.md)" >&2 ;;
-esac
+echo "built $out/libwlsync_pio.so against piolib at $(echo "$at" | cut -c1-7)"
