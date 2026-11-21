@@ -37,7 +37,7 @@ status:
     placement is generated (hardware/gen/gen_breakout_pcb.py writes
     breakout.kicad_pcb: every footprint placed and on its net, both
     isolation slots, no track) and checked
-    (hardware/gen/check_breakout_placement.py), on a branch, not merged
+    (hardware/gen/check_breakout_placement.py), merged to main
     (2026-11-20). Its design review: approved for layout by the user
     (2026-11-20); the checklist confirmations were not given; dimensions
     are taken from manufacturer drawings (R46). From those drawings the
@@ -113,7 +113,7 @@ status:
     it is merged and pushed with main (origin/main 23ad849, 1165 tests). Task
     1.21, the no-wire harness for bench B3a and B3b (bench skew and streams,
     wl_sync/rp1/harness.py), is built on the one-clock-p1 branch, reviewed,
-    and box-checked, merged and pushed with main (2026-11-21). Its box run (2026-11-20/21) needed
+    and box-checked, merged and pushed with main (2026-11-20). Its box run (2026-11-20/21) needed
     fixes along the way: /dev/gpiomem0 mapped whole (0x30000), each posted
     store read back, and, by the user's ruling, a harness-only PIO width meter
     (shim version 6) to say which path each high took. Then, on wl-rig-sync0 at
@@ -127,18 +127,18 @@ status:
     bench override reads that override after a run and clears one left set,
     with no sudo. B3b is INCONCLUSIVE unless each path has 25% of A's fitted
     events and 1 sigma on A - B is at most 0.0033 ppm (the user's rulings,
-    2026-11-20). Task 1.22 (2026-11-21, on one-clock-p1, not yet merged) closes
+    2026-11-20). Task 1.22 (2026-11-20, merged to main) closes
     the minors the reviews of Tasks 1.20 and 1.21 deferred, in comments, docs
     and tests, with nothing changed on the recording path: bench streams'
     --record CSV now names clk_sys and the width meter's machine, so its
     counts give widths, and build-shim.sh warns when piolib is not at utils
-    b57c48e (1351 tests). Task 1.24 (the user's ruling, 2026-11-21, on
-    one-clock-p1, not yet merged or reviewed) adds wl-sync record --split,
+    b57c48e (1351 tests). Task 1.24 (the user's ruling, 2026-11-20,
+    reviewed and merged to main) adds wl-sync record --split,
     for the bench only and never the unit: it skips the stamp machine and
     its start-up test and records the split fallback through its own path,
     with the fallback's header and records, saying so at ERROR at start, in
     the health check and in the run's summary; refused with --fake (1363
-    tests). Task 1.23 (on one-clock-p1, not yet merged) writes the bench-day
+    tests). Task 1.23 (reviewed and merged to main) writes the bench-day
     runbook, docs/bench-day.md, with the user's rulings on its sources'
     conflicts as dated notes in them; docs only.
   next: >-
@@ -148,15 +148,15 @@ status:
     (:525-545). The box runs fc18551 under --fake, from the user's restart of
     2026-11-20; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
-    Bench day, in the order of docs/bench-day.md (Task 1.23, 2026-11-21), one
+    Bench day, in the order of docs/bench-day.md (Task 1.23, 2026-11-20), one
     checklist built from docs/next-session.md Step B, the one-clock plan's
     bench section, deploy/README.md and wl-phantom's docs/bench/phase-1.md,
-    which stay the authority: once the user approves the push of
-    one-clock-p1, deploy that origin/main and rebuild the shim (version 6);
+    which stay the authority: deploy origin/main (pushed
+    2026-11-20 with one-clock-p1 and the placement) and rebuild the shim (version 6);
     P0's 30 s run; GPIO17 looped to GPIO20; B1 and B2 on wl-sync record
     --split; B6, B10 and B8's first day in one 8 h run; then wl-phantom, for
     P0, Task 5b Steps 3-5 and the +-100 us gate (separate runs, the jumper
-    off; the user's ruling, 2026-11-21); B7 at a reboot; then the task PC and
+    off; the user's ruling, 2026-11-20); B7 at a reboot; then the task PC and
     the MonkeyLogic checklist. Leaving --fake waits for Task 5b Steps 3-5
     and the +-100 us gate (both, the user's ruling); Step 4, parity with the
     fake, is wl-phantom grading the one-count box with --expect-timebase
@@ -169,7 +169,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "c167763"
+  describes: "ef0f94a"
 
 runs_on: [rig/sync]
 builds_on: [dws]
