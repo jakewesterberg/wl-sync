@@ -568,7 +568,8 @@ def bnc_front_end(sch, x, y, name, desc):
     shield_net = f"{name}_SHLD"
     sch.label(raw_net, *pin_pos(x, y, centre))      # coax centre conductor
     sch.label(shield_net, *pin_pos(x, y, shell))    # this port's OWN shell -- the 031-6575
-    # isolates each shell from the panel and from its neighbour, which is what lets these
+    # isolates each shell from its neighbour (not from the panel, corrected 2026-11-20:
+    # the insulating sub-plates do that), which is what lets these
     # ten channels keep a separately-routed shield each (finding F6 / bnc_dual.py).
     two_pin(sch, "Device", "R", "R", "1k", x + X_R1K, y, raw_net, clamp_net, footprint=FOOTPRINT_R)
     two_pin(

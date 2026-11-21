@@ -72,7 +72,7 @@ it is not a dimensioned panel position.
 |---|---|---|---|
 | `J13`, `J15`, `J17`, `J6` | 9.5, 27.5, 45.5, 63.5 | 2.3 to 70.7 | `DGND` |
 | `J3` | 107.0 | 75.07 to 138.93 | `DGND` |
-| M12 inlet, panel only | no footprint (M-13) | 139 to 174 is free of connectors; the inlet belongs at about 162 to 174, at the boundary (floorplan §2.2) and clear of the IO Board's port edge and its bracket, which reach X = 160 (floorplan Open question 2) | |
+| M12 inlet, panel only | no footprint (M-13) | **not in the row.** Its hole is at X = 210, 50 mm above the board's top surface, above `J2`'s left end (`panel-elevations.md` §7; the user, 2026-11-20: "Elsewhere on the back"). `J57`'s sub-plate and the IO Board's bracket leave no room in the row. 139 to 171 at the row's height is free of connectors. | |
 | `J57` | 182.0 | 174.8 to 189.2 | `AO_GND_TPC` shells, in the `AGND` region |
 | `J2` | 226.0 | 194.07 to 257.93 | `AGND` |
 | `J19` | 298.0 | courtyard 262.87 to 333.28 | `AGND` |
@@ -107,7 +107,8 @@ What follows from those:
   rest, and the panel drawing (Task 15) has to say how.
 - The BNC's panel holes are single-D, not round (`constraints.md` Open question 24). Its
   bushing is its shell, so every BNC goes through an insulating G-10/FR-4 sub-plate in a
-  window of the panel (rulings R7 and R8; `panel-elevations.md` §6). The plate is 3.0 mm
+  window of the panel (rulings R7 and R8; `panel-elevations.md` §6), with an unfitted
+  strap point for bring-up (R9). The plate is 3.0 mm
   in the window, so the body face still seats at the board edge. Neither moves a
   footprint.
 - Pad 1 of a dual BNC is the UPPER port's centre and pad 3 the lower's, by the sibling

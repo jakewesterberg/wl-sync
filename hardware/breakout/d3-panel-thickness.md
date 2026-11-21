@@ -124,6 +124,7 @@ always "caught when the connector will not seat", because the drawing's map and
 arise: drawing 31-6575 rev A gives 8.6 mm of thread beyond the body's front face, and the
 nut is 2.8 mm. No spot-face is needed at 3.0 mm.
 
-**New, and open:** the MDR68's side hooks against a 3 mm panel, the BNC hole's flat, and
-whether the BNC's bushing is insulated from the panel (`constraints.md` Open questions 23
-to 25).
+**New, and open:** the MDR68's latching and mating depth behind a 3 mm panel, the BNC
+hole's flat, and which BNC port is the upper one (`constraints.md` Open questions 23, 24
+and 26). Whether the BNC's bushing is insulated from the panel was Open question 25: it
+is not, and every BNC goes through an insulating sub-plate (`panel-elevations.md` §6).

@@ -999,7 +999,7 @@ insulating sub-plate or an insulating panel region, and ruled, 2026-11-20: **"In
 sub-plate"**.
 
 Each group of dual BNCs passes through a G-10/FR-4 plate in a window of the aluminium
-panel: two windows on the front, three on the back. The plate is 3.0 mm thick in the
+panel: one window on the front, which also takes the reward button, and three on the back. The plate is 3.0 mm thick in the
 window, flush with the panel's inner face so that the BNC bodies still seat at the board
 edge, with a 1.6 mm lip on the panel's outer face. Each bushing passes 4.6 mm of plate and
 takes a 2.8 mm Amphenol nut, 7.4 of its 8.6 mm of thread. No BNC metal comes within 2.5 mm
@@ -1011,6 +1011,33 @@ The specification, with its arithmetic, is `panel-elevations.md` §6; the materi
 Apart from Amphenol's dimensions it is engineering judgment and a proposal for the panel
 drawing (Task 15). **The board does not change.** `constraints.md` Open question 25 is
 closed by it.
+
+### R9 — The BNCs stay unbonded, with a strap point for bring-up — **RULED 2026-11-20**
+
+The user asked, of R7 and R8: "is it better if they are bonded? revert my decision if so.
+i want best possible setup". **Ruling: the default stays not bonded, every BNC insulated,
+and each sub-plate gets one strap point, unfitted.**
+
+**Why not bonded.**
+- *The rig-signal shields* (`J20` to `J29`): bonding joins `AGND` to the chassis through
+  the ten 10 Ω resistors, and the chassis reaches `DGND` at `NT3`. That is a second path
+  between the two grounds beside `NT1`, which `constraints.md` G-1 forbids.
+- *The digital BNCs and `J57`*: extra `DGND`-to-chassis bonds against G-3 and G-5, and
+  the task PC's AO ground on the box's chassis against G-17.
+- *The Intan BNCs*: bonding `INTAN_GND` to the chassis bridges the Intan isolation barrier
+  off the board.
+
+**What bonding would have bought**, and why it loses here: a shield bonded to the chassis
+where it enters is better against radio-frequency pickup and emission. What it costs is a
+low-frequency ground loop through every bonded shield. This box's signals are
+low-frequency and its design is built against loops (the spec's §5), so the loop is the
+worse fault.
+
+**The provision.** One fixing screw on each plate is a strap point, with room for a solder
+tag, unfitted. If the rig-signal inputs pick up interference at bring-up, a shield on the
+back-right plate can be strapped to the chassis and measured, and the quieter arrangement
+kept. Only that plate is ever strapped. This is R2's and R4's way of leaving a choice to a
+measurement. Specified in `panel-elevations.md` §6; no part is chosen for the lug or tag.
 
 ## 4. Verified correct
 

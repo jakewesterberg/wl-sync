@@ -509,6 +509,7 @@ dielectric_strength_sources = [
   "https://www.mcmaster.com/product/8667K62/",
 ]
 stock_thickness_note = "Gund lists sheet from 0.006 to 5.0 in; McMaster lists 1/8 in and 1/4 in"
+plates_per_box = 4               # one front window (with the reward button), three back
 in_window_thickness_mm = 3.0     # equals the panel, so the plate's inner face is the panel's
 lip_thickness_mm = 1.6           # over the panel's outer face, round the window
 at_bnc_thickness_mm = 4.6        # in_window + lip: what each bushing passes through

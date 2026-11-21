@@ -15,6 +15,11 @@ Board fits. It is a document, not a board file. Nothing here was measured on har
 > - there is **no board set-back** from either panel: the panel's inner face is at the
 >   board edge.
 >
+> - the **M12 inlet is not in the back row**: its hole is at X = 210, 50 mm above the
+>   board, above `J2` (`panel-elevations.md` §7). §2.2's row 4, its "M12 at the
+>   `AGND`/`DGND` boundary" judgment, §3.3's 90 mm of lead and §7's drawing show it between
+>   `J3` and `J57`, where `J57`'s insulating sub-plate now is (`panel-elevations.md` §6).
+>
 > The text below is left as written. Where it reserves 51.32 mm or 36.2 mm of depth (§1,
 > §3.1, §5.3, §6.4 and §6.5's comparison table) the regions are deeper than the connectors
 > need, which costs nothing and has not been re-drawn. §6.4's finding that nothing reaches

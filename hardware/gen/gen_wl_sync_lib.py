@@ -1020,6 +1020,12 @@ def build_dual_coax_symbol(
     return f"\t{header}\n" + "\n".join(blocks) + "\n\t\t(embedded_fonts no)\n\t)"
 
 
+# NOTE 2026-11-20: the description below says "isolated from the panel". That is false: the
+# 031-6575's threaded bushing is its shell, isolated from the other port only, and the
+# panel's insulating sub-plates are what keep it off the chassis
+# (hardware/breakout/panel-elevations.md, section 6). The string is left as it is because
+# it is embedded in five committed sheets, and regenerating those was outside the layout
+# task that found this; correct it the next time the sheets are regenerated.
 SYM_BNC_DUAL = build_dual_coax_symbol(
     "BNC_Dual_RA_Isolated",
     "BNC_Dual_RA_Isolated",

@@ -210,17 +210,23 @@ section but the Amphenol dimensions is [engineering judgment]**: it is a proposa
 panel drawing (Task 15) to draw, with its arithmetic shown, and nothing here was built.
 
 **Windows.** One window in the aluminium per group of BNC bodies, and one plate per
-window. A single window per face is not possible on the back, where two MDR68s and the
-DB37 sit between the groups and fix to the metal; on the front `J5` gets its own, so that
-the aluminium between it and the Intan row stays.
+window: one on the front and three on the back, four plates. A single window is not
+possible on the back, where two MDR68s and the DB37 sit between the groups and fix to the
+metal.
 
 | Face | Bodies | Window in X (board frame) | Width |
 |---|---|---|---|
-| front | `J5` | 70.3 to 91.7 | 21.4 |
-| front | `J46`, `J48`, `J50`, `J37`, `J39`, `J41`, `J43` | 110.3 to 239.7 | 129.4 |
+| front | `J5`, the button `J4`, `J46`, `J48`, `J50`, `J37`, `J39`, `J41`, `J43` | 70.3 to 239.7 | 169.4 |
 | back | `J13`, `J15`, `J17`, `J6` | −1.2 to 74.2 | 75.4 |
 | back | `J57` | 171.3 to 192.7 | 21.4 |
 | back | `J29`, `J26`, `J24`, `J22`, `J20` | 335.3 to 428.7 | 93.4 |
+
+**The front is one window because of the reward button.** With `J5` in a window of its
+own (70.3 to 91.7) and the Intan row in another (from 110.3), the aluminium between them
+was 18.6 mm wide, and §2 allows the button and its bezel 20.0 mm. The 10.7 mm margins
+cannot be narrowed without going under B-7's 2.5 mm. So the two windows are one, and the
+button's hole is in the plate, at the 3.0 mm thickness, where the panel would have had
+it. The button is a `DGND` part behind an insulator, which costs nothing.
 
 Each window runs from 10.7 mm outside the first body's centre to 10.7 mm outside the
 last's, and in height from 3.7 mm below the board's top surface to 33.7 mm above it (the
@@ -239,9 +245,10 @@ between any BNC metal and any chassis metal. 8.2 + 2.5 = 10.7. That leaves:
 
 The sources state no working voltage for any of these domains against the chassis
 (`constraints.md` §3), so no standard's creepage figure applies; the board's own rules are
-0.6 mm for a mis-plugged input (N-13) and the 2.5 mm above. G-10/FR-4 at 4.6 mm withstands
-tens of kilovolts through the sheet (at least 350 V/mil as quoted,
-`datasheet-params.toml` `[bnc_sub_plate]`), so the plate is not the limit.
+0.6 mm for a mis-plugged input (N-13) and the 2.5 mm above. The laminate itself is not the
+limit: the distances over its surface are. Its dielectric strength is quoted at 350 V/mil
+and up (`datasheet-params.toml` `[bnc_sub_plate]`), a short-time figure for thin sheet
+that does not scale to a withstand voltage for this plate, and none is claimed here.
 
 **The plate, and why it is stepped.** G-10/FR-4 glass-epoxy laminate. The BNC's body
 face is on the board edge, and so is the aluminium's inner face (§3). For that to stay
@@ -262,6 +269,11 @@ Thread: 8.6 mm stands beyond the body's face (31-6575 rev A).
 | nut, Amphenol 31-5652 | 2.8 |
 | **used** | **7.4** |
 | **left of 8.6** | **1.2** |
+
+**The jacks show 1.6 mm less than they would through bare panel.** Each stands 20.7 mm
+beyond the board edge wherever the plate is. Beyond a 3.0 mm panel that is 17.7 mm;
+beyond the plate's 4.6 mm it is 16.1 mm, with 4.0 mm of thread showing for the nut and
+its 1.2 mm to spare. A mating plug's body has to clear the plate's face 1.6 mm sooner.
 
 No washer is fitted: there is 1.2 mm for one, and none is needed on an insulator. A lip
 thicker than 2.8 mm would leave the nut no thread. The part can be machined from one
@@ -288,18 +300,75 @@ plate and at whichever **ends** have room. Three things limit where:
 
 Screw size, count and the lip's width are for the panel drawing.
 
-**Hardware on the plate: nuts only.** One Amphenol 31-5652 hex nut per port, 2.8 mm thick,
-14.2 mm across flats, turned flat to flat on each body (§4). 36 per box. No metal washer,
-no solder lug, no bracket: anything metal that spans from a bushing toward the plate's
-edge shortens the 2.5 mm.
+**Hardware on the plate: nuts only, as built.** One Amphenol 31-5652 hex nut per port,
+2.8 mm thick, 14.2 mm across flats, turned flat to flat on each body (§4). 36 per box. No
+metal washer, no solder lug, no bracket: anything metal that spans from a bushing toward
+the plate's edge shortens the 2.5 mm.
+
+**A strap point on each plate, unfitted (ruling R9).** One of each plate's fixing screws,
+on its top edge, is the strap point: it is chassis metal already, and it is drawn with
+room under its head for a solder tag. Nothing is fitted there as built. To bond one port
+to the chassis at bring-up, a 1/2 in ring lug goes under that port's nut and a short wire
+from it to the tag. The lug has to be 1.2 mm thick or less, which is the thread to spare.
+Neither the lug nor the tag is a chosen part.
+
+- **Only the rig-signal plate is ever strapped**: the back-right one, `J29`, `J26`, `J24`,
+  `J22`, `J20`, whose ten shields each reach `AGND` through 10 Ω. If those inputs pick up
+  interference, strap a shield, measure, and keep whichever is quieter. That is the
+  bulkhead choice SPEC:330–342 left open, made testable, in the way R2 and R4 leave
+  `R224` and `C162` to bring-up.
+- **The other three plates have the point for uniformity and must not be strapped.** A
+  strap on the front plate bonds `INTAN_GND` to the chassis and bridges the Intan barrier;
+  on the camera plate or `J5` it adds a second `DGND`-to-chassis bond (G-3, G-5); on
+  `J57` it bonds the task PC's AO ground (G-17).
+- **What a strap trades.** It gains shielding at radio frequencies, in both directions:
+  the shield meets the chassis where the cable enters. It gives up the single low-frequency
+  return: the strapped shield joins `AGND` to the chassis through 10 Ω, and the chassis
+  reaches `DGND` at `NT3`, a second path beside `NT1` (G-1). Mains-frequency loop current
+  then flows in the shield. The default is not bonded because low-frequency loops are the
+  failure this board is built against (SPEC:284–287).
 
 **What it changes elsewhere.**
-- The **M12 inlet** cannot be at X 162 to 174 at the BNC row's height: `J57`'s plate
-  takes 171.3 to 192.7 and its lip more. It goes above the plate or farther left, clear of
-  the IO Board's bracket. Its position was never dimensioned (§2).
+- The **M12 inlet moves** (the user, 2026-11-20: "Elsewhere on the back"). See §7.
 - The **IO Board's port cutouts** are above the back-left plate, whose top is 33.7 mm
   above the board plus its lip.
-- The panel's **stiffness**: five windows, the longest 129.4 mm, in 3.0 mm aluminium.
-  Not assessed.
+- The panel's **stiffness**: four windows, the front one 169.4 mm long, in 3.0 mm
+  aluminium. Not assessed.
 - **Port labels** go on the plate, and which port of a body is the upper one needs
   settling first (`constraints.md` Open question 26).
+
+## 7. The M12 inlet's position (2026-11-20)
+
+**The inlet's hole is centred at X = 210 mm in the board's frame, 50 mm above the board's
+top surface, in the aluminium of the back panel.** That is above the left-hand end of
+`J2`, and 56.6 mm above the chassis floor with the board on its 5 mm standoff.
+**[engineering judgment]**; no source gives the inlet a position, and the user's ruling
+was "Elsewhere on the back".
+
+It was to sit in the connector row at about X = 162 to 174 (`placement.md` §2, until
+this date). `J57`'s sub-plate now takes X = 171.3 to 192.7 up to 33.7 mm above the board,
+and the IO Board with its bracket reaches X = 160 above the row, so nothing 20 mm wide is
+left there.
+
+Why this place:
+
+| It must clear | Where that is | Clearance at X 210, 50 mm up |
+|---|---|---|
+| its own allocation | 20 mm: the 16.5 mm flange and clearance (§2) | X 200 to 220, 40 to 60 mm above the board |
+| `J57`'s plate | X ≤ 192.7 and its lip; top at 33.7 mm and its lip | 7 mm to the side of the allocation, and above the plate's height |
+| `J2` | X 194.07 to 257.93, body 9.10 mm tall | 31 mm above the body. **The height of `J2`'s mating plug and its jackscrews is not in the sources**; if a backshell is taller than about 30 mm above the board the inlet goes higher. |
+| the IO Board and its bracket | X ≤ 160 | 40 mm |
+| `J19` and the rig-signal plate | X ≥ 262.87 | 43 mm |
+| the fans | front panel, X ≥ 310; left side panel | a different panel |
+| the airflow | front-right to the left side (`floorplan.md` §5.1) | the inlet is a hole filled by a connector in the back panel, not in the path |
+| the panel's usable band | about 82 mm (§3) | the flange's top is 64.9 mm above the floor |
+
+**The leads to `J1`.** `J1` is at (173.5, 80 to 90) on the board, on the `AGND` side of
+the split, and both of its ground pins are `AGND` (G-15). From X = 210 the leads run about
+93 mm across the board and drop 50 mm, entirely over the `AGND` region: they do not cross
+the split, the `DGND` region or the barcode strip, and they reach `J1` from its own side.
+`floorplan.md` §3.3 allowed about 90 mm of lead from the old place (P-1). They pass over
+`U35` and near the comparators `U54`, `U55` and `U76`; dress them clear of those.
+
+**What it frees.** The 20.0 mm the inlet took in the back row's width (§2's table) is no
+longer in the row: the row's slack is 27.2 mm, not 7.2 mm. The table is left as drawn.

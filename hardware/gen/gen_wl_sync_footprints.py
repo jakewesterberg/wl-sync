@@ -535,7 +535,9 @@ def build_bnc_dual() -> str:
 
     The audit's handoff recommended the Winchester geometry. That is wrong on this board in
     the way that matters most: the 031-6575 is INDEPENDENTLY isolated -- each shell isolated
-    from the panel AND from its neighbour (bnc_dual_isolated.note) -- and ten channels here
+    from its neighbour (bnc_dual_isolated.note; CORRECTED 2026-11-20: this said "from the
+    panel AND", which is false -- the bushing is the shell, and the panel's insulating
+    sub-plates are what keep it off the chassis) -- and ten channels here
     carry a separately-routed shield per connector (A_PD1_SHLD, A_MIC_SHLD, A_MISC1_SHLD
     and the rest), each landing on its own resistor position. Commoning the shells in pairs
     would defeat the deferred bulkhead-bonding scheme entirely and produce a perfectly clean
@@ -620,8 +622,9 @@ def build_bnc_dual() -> str:
 
     return assemble(
         "BNC_Dual_RA_Isolated",
-        f"Dual-port 50 ohm BNC jack, RIGHT ANGLE, each shell INDEPENDENTLY isolated from "
-        f"the panel and from its neighbour. Amphenol RF 031-6575, customer outline drawing "
+        f"Dual-port 50 ohm BNC jack, RIGHT ANGLE, each port's shell isolated from the "
+        f"OTHER port's (NOT from the panel: the threaded bushing is the shell, so it "
+        f"needs an insulated panel hole). Amphenol RF 031-6575, customer outline drawing "
         f"31-6575 rev A (2013-04-18). Ports stacked vertically at {p['port_pitch_mm']}mm; "
         f"panel holes {p['panel_hole_dia_mm']}mm at the same pitch, {p['panel_thread']}. "
         f"PCB pattern: 4 x {SIG_DRILL}mm signal (pad 1 = port A centre, 2 = port A shell, "

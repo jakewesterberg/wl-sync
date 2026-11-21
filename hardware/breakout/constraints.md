@@ -164,7 +164,7 @@ insulation functional (PA:880–884). Component ratings the sources do give, for
 | `IH1215D` (`U2`) | 1000 VDC isolation, 60 pF barrier capacitance | `[ih_series].isolation_vdc`, `.isolation_capacitance_pf` (lines 279–280) |
 | `TMR 1-0511` (`U63`) | 1500 VDC, 1061 VAC for 60 s, 50 pF | `[tmr_1_0511].isolation_vdc`, `.isolation_test_vac_60s`, `.isolation_capacitance_pf` (lines 763–765) |
 | `C162` (220 pF, 1808) | 2 kV. Traco's table asks for it, and the part fitted, KEMET `C1808C221KGRACTU`, carries it. | `[tmr_1_0511].emc_filter_c2`, `.emc_filter_c2_fitted` (lines 797, 806) |
-| Dual BNC | 1500 Vrms dielectric withstanding. The drawing's key names no terminals. Separately, the body is glass-filled PBT, so each shell is isolated from the panel and from its neighbour. | `[bnc_dual_isolated].dwv_vrms` (line 541); note (lines 550–552) |
+| Dual BNC | 1500 Vrms dielectric withstanding. The drawing's key names no terminals. Separately, the body is glass-filled PBT, so each shell is isolated from its neighbour. **Corrected 2026-11-20:** this row said "from the panel and from its neighbour". The shell is the threaded bushing, which passes through the panel, so nothing in the part isolates it from a metal panel; the sub-plates of R8 do (Open question 25). | `[bnc_dual_isolated].dwv_vrms` (line 541); note (lines 550–552) |
 | MDR68 | 500 VAC dielectric withstanding | `[mdr68].dielectric_withstanding_vac` (line 459) |
 | `ACSL-6400` / `-6420` | not in the sources | none |
 | `TMA-0505S` (`U62`, DNP) | not pinned to a primary document | `[tma_0505s].status` (line 716) |
@@ -382,7 +382,7 @@ was meant.
 | M-10 | Panels are 3.0 mm aluminium. | PE:130–132; D3:3 |
 | M-11 | The MDR68 footprint is built from the MH drawing: four staggered rows of 17 at 1.905 mm, 0.85 mm holes, a 41.91 mm array. **Read from the drawing 2026-11-20 (R46):** rows from the PCB edge inward hold contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd; contact 1 is at the right seen from the component side with the edge up; the row datum is the PCB edge; the boardlock holes are on the second row's line. The footprint had the map wrong, was mirrored, and had the holes 0.95 mm too far in; all are corrected and asserted by `check_footprint_geometry.py`. Not checked against a part. As written: Its tail-row-to-contact map is unverified. Route to it, and do not release for fabrication until the map is confirmed. The sources require that before fab, not before layout. | TOML `[mdr68]` (lines 446–453); DR:207–224 ("required before fab — not before Task 14", :221); DR:376; D3:83 |
 | M-12 | Confirm the MDR68 map before routing the escape from any of the four connectors, not only before fab. **Done from the drawing, 2026-11-20 (M-11).** | **[engineering judgment]** This is deliberately earlier than M-11's source. Each contact's X position is fixed and only its depth row may change (D3:69–71), so a late change re-routes the escape of up to 4 × 68 pins, and the check is minutes with a drawing already in hand. |
-| M-13 | The M12 inlet is panel furniture with flying leads. It has no footprint and puts no load on the board. | TOML `[m12_inlet].termination`, note (lines 482, 502–504); PA:779–782 |
+| M-13 | The M12 inlet is panel furniture with flying leads. It has no footprint and puts no load on the board. **Placed 2026-11-20** (the user: "Elsewhere on the back"): X = 210 mm, 50 mm above the board's top surface, above `J2`'s left end, its leads running over `AGND` only to `J1` (`panel-elevations.md` §7). **[engineering judgment]** | TOML `[m12_inlet].termination`, note (lines 482, 502–504); PA:779–782 |
 | M-14 | `J19` is a board-mounted horizontal DB37 on the back edge, allowed 69.4 mm of panel width. | `analog-frontend.kicad_sch`:13961; PE:78 |
 | M-15 | `J56` (the chassis earth stud) is an M3 plated mounting-hole pad on `CHASSIS_GND`. Place it where a bond strap can reach it. | `power.kicad_sch`:8882; NET:258, 2036; SPEC:872. Accessibility is **[engineering judgment]**. |
 | M-16 | Board mounting holes other than `J56` are isolated: non-plated, or plated with no net and clear of every plane. | **[engineering judgment]** The schematic has no mounting-hole part other than `J56` (NET `component_values`; `J19`'s two `SH` pads are the D-sub's own shell holes, G-20), and a second metal path to the chassis would defeat the single-point bond of G-3. |
@@ -607,34 +607,17 @@ was meant.
     chassis through a BNC. With that, G-1, G-3, G-5, G-17, G-18, G-21, G-22 and the Intan
     barrier stand as written, and SPEC's bulkhead choice is made as "not bonded".
 
-    *Why it is not closed: no stock shoulder washer fits.* The two ports of a body are
-    16.0 mm apart and the bushing is 12.7 mm (1/2-28), so:
-    - the washer's flange can be at most **16.0 mm** across, or two flanges overlap;
-    - the shoulder in the hole can be at most about **14.5 mm** across, to leave 1.5 mm of
-      panel between the two holes, which is a wall of 0.9 mm or less;
-    - the nut is 14.2 mm across flats and about 16.4 across corners, wider than any flange
-      that fits, so its corners overhang the flange by 0.2 mm.
+    *Why a washer was not used.* The two ports of a body are 16.0 mm apart and the
+    bushing is 12.7 mm, so a shoulder washer's flange could be 16.0 mm at most and its
+    shoulder about 14.5 mm. The smallest catalogue 1/2 in nylon shoulder washer found,
+    Essentra 12SWS2578, has a 15.88 mm shoulder and a 19.05 mm flange as DigiKey lists it;
+    the BNC insulating washers Amphenol, L-com and Rosenberger sell are for 3/8-32
+    bushings. The user was offered an insulating sub-plate, an insulating panel region or
+    a custom-turned washer, and chose the sub-plate (R8).
 
-    The catalogue 1/2 in nylon shoulder washers found are far outside that. Essentra
-    12SWS2578, the smallest: bore 12.95 mm, **shoulder 15.88 mm, flange 19.05 mm**, as
-    DigiKey lists it (Essentra's own page could not be fetched). Two of them at 16.0 mm
-    leave 0.12 mm of panel between the holes and overlap their flanges by 3.05 mm.
-    Essentra 12SWS4001 and 12SWS4003 are larger (shoulders 18.8 and 19.1 mm). The BNC
-    insulating washers Amphenol, L-com and Rosenberger sell are for 3/8-32 bushings or
-    reduce a 1/2 in hole to 3/8 in. Nothing was found for a 1/2-28 bushing with a flange of
-    16 mm or less. No part is recorded in `datasheet-params.toml` or the BOM, because none
-    was chosen.
-
-    *What the user was offered, and has to choose between:*
-    - an **insulating sub-plate**: the BNC field, or each group of it, in an oversize
-      cutout in the aluminium, carried on a plate of insulating laminate that has the
-      Ø12.83 mm D-holes;
-    - an **insulating panel region**, or the whole panel in an insulating material;
-    - a custom-turned washer inside the limits above, which is not a stock part.
-
-    **Chosen 2026-11-20: the sub-plate (R8).** The panels are not machined with bare BNC
-    holes. The board does not change. Continuity from bushing to pads 2 and 4 on one
-    part would turn "high confidence" into fact; under R46 that is optional.
+    *A bring-up provision (R9).* Each plate has one unfitted strap point. Only the
+    rig-signal plate (`J20` to `J29`) may ever be strapped, to try the shields bonded if
+    interference demands it; `panel-elevations.md` §6 has the reasons and what it trades.
 
 26. **Which port of a dual BNC is the upper one.** Added 2026-11-20. The footprint and
     `hardware/gen/bnc_dual.py` take pad 1 as port A, the LOWER port, and pad 3 as port B,
