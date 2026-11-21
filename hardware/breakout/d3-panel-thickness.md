@@ -95,3 +95,36 @@ conductors and the ±2.54 mm pair are the shells.
   note, so the machinist gets the escape hatch and not just the nominal.
 - The 3M-derived **2.00 mm figure is dead** and should not reappear. It came from a part that
   was evaluated and not selected; see this finding's entry in `parametric-audit.md`.
+
+## Recorded 2026-11-20: the answers, from the drawings (ruling R46)
+
+The user's policy of 2026-11-20 is that these are taken from the manufacturers' published
+drawings, not from samples. Both PDFs are recorded with their sha256 in
+`../datasheet-params.toml`. Nothing below was checked against a part.
+
+**The MDR68 tail-row map** (MH 3700-0121-01 rev 3.0, "PCB Layout (B)" and the front view).
+The section above says the drawing does not give it. It does. From the PCB edge inward:
+
+| Tail row | From the PCB edge | Contacts |
+|---|---|---|
+| 1 | 5.100 mm | 36, 38 … 68 |
+| 2 | 7.005 mm | 35, 37 … 67 |
+| 3 | 8.910 mm | 2, 4 … 34 |
+| 4 | 10.815 mm | 1, 3 … 33 |
+
+Seen from the component side with the edge up, contact 1 is at the right. This is
+`B_even,B_odd,A_even,A_odd`, which was not one of the four candidates: all four assumed the
+upper mating row lands nearer the edge. Three more corrections came off the same sheet: the
+row datum is the **PCB edge**, not the mating face; the footprint was **mirrored**; and the
+boardlock holes are on row 2's line. And one claim above is withdrawn: a wrong map is not
+always "caught when the connector will not seat", because the drawing's map and
+`A_even,A_odd,B_even,B_odd` drill the same holes.
+
+**The BNC's thread.** "If Amphenol's usable thread turns out shorter than 3.0 mm" does not
+arise: drawing 31-6575 rev A gives 8.6 mm of thread beyond the body's front face, and the
+nut is 2.8 mm. No spot-face is needed at 3.0 mm.
+
+**New, and open:** the MDR68's latching and mating depth behind a 3 mm panel, the BNC
+hole's flat, and which BNC port is the upper one (`constraints.md` Open questions 23, 24
+and 26). Whether the BNC's bushing is insulated from the panel was Open question 25: it
+is not, and every BNC goes through an insulating sub-plate (`panel-elevations.md` §6).

@@ -307,6 +307,7 @@ populate 7 positions that are deliberately empty on every board built to this lo
 | BAT54S | 36 | — | 180 |
 | 600R@100MHz ferrite | 3 | 1 DNP (FB3) → 2 real | 10 real |
 | ~~M12A_5~~ **NOT A BOARD PART, 2026-08-16 (ruling R1)** | — | — | — | Replaced on the board by a bare 1×05 2.54 mm header (`J1`). The M12 connector itself is still purchased as **chassis furniture**: Phoenix Contact `1551833`, panel-mount with AWG 22-20 flying leads. It has no PCB tails, so it never belonged in a board-component count. |
+| **BNC panel hardware — NOT BOARD PARTS, added 2026-11-20 (rulings R7, R8)** | — | — | — | Chassis furniture, like the M12, so not in `breakout-bom.csv` (whose rows are netlist references). **Hex nut, Amphenol RF `31-5652`**: 1/2-28, 2.8 mm thick, 14.2 mm across flats; one per BNC port, **36 per box, 180 for five**. Whether the 031-6575 ships with its nuts is not in the sources; check before ordering 180. **Insulating sub-plates**: four per box, machined from NEMA G-10/FR-4 glass-epoxy laminate, 3.0 mm in the window with a 1.6 mm lip; a made part with no order code, drawn in Task 15 from `hardware/breakout/panel-elevations.md` §6. No washers. The strap lug and tag of ruling R9 are unfitted and not chosen. |
 | MDR68 (4 distinct connector roles) | 4 | — | 20 |
 | BNC — **17 DUAL bodies** serving 31 panel ports + 3 spare (finding F6, 2026-08-16; §5 below) | 17 | — | 85 |
 | Conn_02x03 (misc ÷1/÷2 shunt headers) | 3 | — | 15 (+3 shorting blocks/bd, not in this BOM — see §5) |

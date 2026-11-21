@@ -929,6 +929,116 @@ the schematic, generators, BOM and checkers are untouched. The fab must still ac
 of copper to a routed edge, which is the question the optocouplers already ask of it at
 0.25 mm (`constraints.md`, B-11).
 
+### R6 — The isolation slot narrows under the SOIC-16 optocouplers — **RULED 2026-11-20**
+
+R5's sibling. The eight `ACSL-6400`/`-6420` optocouplers (`U56`–`U61`, `U64`, `U65`) are in
+the stock `Package_SO:SOIC-16_3.9x9.9mm_P1.27mm`, whose two pad columns are centred at
+±2.475 mm with pads 1.95 mm long, so the copper gap under each is **3.00 mm** (KiCad 10.0.5
+library file). The plan's 2.5 mm slot, centred, leaves **0.25 mm** of laminate between each
+pad row and the routed edge (`constraints.md`, B-11). The generated placement (layout task
+L4) showed what that costs: 128 `copper_edge_clearance` errors, 16 pads on each of the eight
+parts, against KiCad's default 0.5 mm, and no routing would clear them.
+
+`constraints.md` Open question 4 asked what the fab accepts. The user was asked, and
+answered on 2026-11-20: "what is best practice, do some research. i am not an expert in
+this". What the research found, as reported to this task; the pages are not in this
+repository and were not re-read here:
+
+| Source | What it gives |
+|---|---|
+| JLCPCB, <https://jlcpcb.com/blog/pcb-board-outline> and <https://jlcpcb.com/blog/how-to-avoid-damaged-traces-and-pads> | minimum copper to a routed edge about 0.2 mm; at least 0.3 mm recommended, because the routing tolerance is ±0.2 mm |
+| PCBWay, <https://www.pcbway.com/helpcenter/Engineering_Questions/the_spacing_requirement_from_slot_to_copper_trace.html> | minimum about 0.2 mm from a slot to copper |
+| Eurocircuits, <https://www.eurocircuits.com/copper-and-the-board-edge/> | 0.25 mm |
+| TI SLLA284, <https://ti.com/document-viewer/lit/html/SLLA284G/GUID-70A502C2-0DE5-4A92-8C3A-BE16D8AB564C> | a through-slot wider than about 1 mm counts as air |
+
+So 0.25 mm is at or under every fab's minimum once a ±0.2 mm routing tolerance is taken
+off, and the slot does not need to be 2.5 mm wide to do its work.
+
+**Ruling: a 2.0 mm slot under the eight SOIC-16 optocouplers only.** That leaves **0.50 mm**
+of copper-free laminate each side, which is the mule's own margin (`hardware/mule/floorplan.md`,
+"about 0.5 mm"), is at or above every figure in the table after tolerance, and meets KiCad's
+default edge clearance with no override. The slot stays 2.5 mm under `U62`, `U63` and `U2`,
+and 1.5 mm under `C162` (R5).
+
+**What it costs.** Nothing electrical that the sources name. The slot is still well over
+1 mm, and the 3.00 mm between the two pad columns is the footprint's and does not change.
+It is a departure from the plan's "≥2.5 mm clearance slot under every optocoupler"
+(`docs/superpowers/plans/2026-08-13-breakout-pcb.md`, Task 14 Step 2), by 0.5 mm, under
+these eight parts. The plan gives no voltage or standard for the 2.5 mm
+(`constraints.md` §3).
+
+**If it is wrong:** one constant, `SLOT_OPTO_MM` in
+`hardware/gen/check_breakout_placement.py`, and a regenerate, while the board is unrouted.
+
+Built 2026-11-20: `gen_breakout_pcb.py` draws both slots stepped, the check holds the width
+under each of the eight parts to 2.0 mm exactly, and DRC reports no `copper_edge_clearance`.
+`constraints.md` B-3, B-11 and B-21 are amended and its Open question 4 is closed.
+
+### R7 — Every BNC is insulated from the panel — **RULED 2026-11-20; the hardware is not chosen**
+
+The dual BNC's threaded bushing is its shell (`constraints.md`, Open question 25, from
+drawing 31-6576 rev B). Through a bare hole in an aluminium panel it would bond `AGND`'s
+shields, `DGND`, `INTAN_GND` and the task PC's `AO_GND_TPC` to the chassis, and the Intan
+bond would bridge the Intan isolation barrier off the board.
+
+**Ruling, the user's, 2026-11-20: "Insulate every BNC".** All 18 dual bodies, `J57` among
+them. No ground reaches the chassis through a BNC, and G-1, G-3, G-17, G-18, G-21 and the
+Intan barrier stand as written.
+
+**Not built.** The ruling asked for a real insulating shoulder washer if one fits. None
+found does: at a 16.0 mm port pitch a flange can be 16.0 mm at most and a shoulder about
+14.5 mm, and the smallest catalogue 1/2 in part found (Essentra 12SWS2578) has a 15.88 mm
+shoulder and a 19.05 mm flange. The alternatives, an insulating sub-plate or an insulating
+panel region, are the user's to choose. The arithmetic and the candidates are in
+`constraints.md`, Open question 25. The board is not affected.
+
+### R8 — The BNCs go through insulating sub-plates — **RULED 2026-11-20**
+
+R7 asked for a shoulder washer if a real one fits, and none does. The user was offered an
+insulating sub-plate or an insulating panel region, and ruled, 2026-11-20: **"Insulating
+sub-plate"**.
+
+Each group of dual BNCs passes through a G-10/FR-4 plate in a window of the aluminium
+panel: one window on the front, which also takes the reward button, and three on the back. The plate is 3.0 mm thick in the
+window, flush with the panel's inner face so that the BNC bodies still seat at the board
+edge, with a 1.6 mm lip on the panel's outer face. Each bushing passes 4.6 mm of plate and
+takes a 2.8 mm Amphenol nut, 7.4 of its 8.6 mm of thread. No BNC metal comes within 2.5 mm
+of chassis metal, the figure `constraints.md` B-7 holds between ground domains on the
+board. Only the nuts are metal on the plate.
+
+The specification, with its arithmetic, is `panel-elevations.md` §6; the material data is
+`datasheet-params.toml` `[bnc_sub_plate]`; the parts are in `procurement-check.md` §2.
+Apart from Amphenol's dimensions it is engineering judgment and a proposal for the panel
+drawing (Task 15). **The board does not change.** `constraints.md` Open question 25 is
+closed by it.
+
+### R9 — The BNCs stay unbonded, with a strap point for bring-up — **RULED 2026-11-20**
+
+The user asked, of R7 and R8: "is it better if they are bonded? revert my decision if so.
+i want best possible setup". **Ruling: the default stays not bonded, every BNC insulated,
+and each sub-plate gets one strap point, unfitted.**
+
+**Why not bonded.**
+- *The rig-signal shields* (`J20` to `J29`): bonding joins `AGND` to the chassis through
+  the ten 10 Ω resistors, and the chassis reaches `DGND` at `NT3`. That is a second path
+  between the two grounds beside `NT1`, which `constraints.md` G-1 forbids.
+- *The digital BNCs and `J57`*: extra `DGND`-to-chassis bonds against G-3 and G-5, and
+  the task PC's AO ground on the box's chassis against G-17.
+- *The Intan BNCs*: bonding `INTAN_GND` to the chassis bridges the Intan isolation barrier
+  off the board.
+
+**What bonding would have bought**, and why it loses here: a shield bonded to the chassis
+where it enters is better against radio-frequency pickup and emission. What it costs is a
+low-frequency ground loop through every bonded shield. This box's signals are
+low-frequency and its design is built against loops (the spec's §5), so the loop is the
+worse fault.
+
+**The provision.** One fixing screw on each plate is a strap point, with room for a solder
+tag, unfitted. If the rig-signal inputs pick up interference at bring-up, a shield on the
+back-right plate can be strapped to the chassis and measured, and the quieter arrangement
+kept. Only that plate is ever strapped. This is R2's and R4's way of leaving a choice to a
+measurement. Specified in `panel-elevations.md` §6; no part is chosen for the lug or tag.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

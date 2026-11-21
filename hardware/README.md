@@ -453,6 +453,28 @@ distributor evidence.
   Later schematic-capture and layout tasks can import either module directly rather than
   re-deriving the technique.
 
+  **The breakout's placement is generated the same way (layout task L4, 2026-11-20).**
+  `gen_breakout_pcb.py` writes `hardware/breakout/breakout.kicad_pcb`: the 430 × 240 mm
+  outline, four copper layers, the two isolation slots (2.0 mm under the SOIC-16
+  optocouplers, 1.5 mm under `C162`, 2.5 mm elsewhere), all 567 netlist footprints placed with their nets, the barrier keep-outs
+  as rule areas, and the CM5 IO Board's outline and two standoff holes. It also writes the
+  net classes of `constraints.md` §4 into `breakout.kicad_pro`, and their minimum track
+  widths and the clearance rules (N-12, N-13, S-5) into `breakout.kicad_dru`: KiCad does
+  not enforce a net class's width as a minimum, so each is a `track_width` rule. **It writes no track: routing is a person's**, for the reason
+  above. Panel connectors go at their panel positions, the parts that straddle a barrier
+  and every IC at stated coordinates, and the remaining 413 parts beside the part each
+  serves, searched for only inside its own ground domain's region.
+  `check_breakout_placement.py` is the check: every netlist reference placed once and on
+  its contract net, each panel connector at its position, no part in the wrong domain's
+  region, no copper in a slot. The generator runs it on its own output and writes nothing
+  if it fails; `tests/hardware/test_breakout_placement.py` runs it on the committed file,
+  with no KiCad needed. `hardware/breakout/placement.md` records where things are and
+  which positions are judgment. `kicad_pcb.py` gained, for this board: four-layer output,
+  polygon cutouts and rule areas, `footprint_courtyard_bbox()`, and `Board.place()`
+  keywords for a child sheet's path, DNP, board-only parts and horizontal reference text.
+  It also now drops a legacy `fp_text reference` from a placed footprint — see the
+  gotchas below.
+
 ## Custom connector footprints: TA/TB naming, sourcing, and confidence
 
 Four `wl-sync` footprints have no KiCad stock equivalent and were built from scratch:
@@ -571,7 +593,7 @@ distributor figures can still be unbuildable.
 | `BNC_Dual_RA_Isolated` | Body envelope | 14.40 × 36.20mm (F.Fab) | Drawing's own `body_width_mm` / `body_depth_mm` | High — matches KiCad's Amphenol footprint exactly; the Winchester one draws 15.00 × 39.10, a different part, and was NOT copied |
 | `BNC_Dual_RA_Isolated` | Port pitch / panel holes | 16.00mm vertical centres, Ø12.83mm, 1/2-28 UNEF | Drawing 31-6575 rev A | High — cross-checks against `body_height_mm` 29.25: each port sits 6.625mm from the body edge against a hole needing 6.415mm |
 | `BNC_Dual_RA_Isolated` | Pad numbering (1 = port A centre, 2 = port A shell, 3 = port B centre, 4 = port B shell) | Four INDEPENDENT pads | Derived from the drawing's geometry plus the two stock footprints' agreement that the centreline holes are the centre conductors | Medium — the ARRANGEMENT is certain; which port is "upper" is assumed. Harmless: the shells are independent either way, so no short can result, and swapping is a net reassignment. Marked `PIN MAP UNVERIFIED` in the footprint's own `descr` |
-| `BNC_Dual_RA_Isolated` | Independent shell isolation | Each shell isolated from the panel AND from its neighbour | Drawing's own description + the body being glass-filled PBT, so the isolation is structural | High — and load-bearing: ten channels on this board route a shield per connector. Asserted by `check_footprint_geometry.py`'s `verify_bnc_dual()` |
+| `BNC_Dual_RA_Isolated` | Independent shell isolation — **corrected 2026-11-20: from its NEIGHBOUR only.** The shell is the threaded bushing and is not isolated from a metal panel; the insulating sub-plates are what isolate it (`breakout/panel-elevations.md` §6). The cells to the right are as first written. | Each shell isolated from the panel AND from its neighbour | Drawing's own description + the body being glass-filled PBT, so the isolation is structural | High — and load-bearing: ten channels on this board route a shield per connector. Asserted by `check_footprint_geometry.py`'s `verify_bnc_dual()` |
 
 Neither mini-XLR footprint drills a PCB mounting hole: both are panel-mount parts whose own
 flange carries the mechanical load against the sheet-metal panel, not the board, so the PCB
@@ -717,6 +739,18 @@ primary drawings rather than from corroborated distributor figures. What is left
    and `check_footprint_geometry.py` asserts that note is still there. **Confirm against MH's
    own drawing or 3D model** — minutes with a document already in hand — and record the answer
    in `hardware/breakout/d3-panel-thickness.md`.
+
+   > **Done 2026-11-20, from the drawing (ruling R46), and most of the paragraph above was
+   > wrong.** MH rev 3.0 does give the map, on "PCB Layout (B)": from the PCB edge inward,
+   > contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd, which was not one of the four
+   > candidates. The same view showed the footprint was **mirrored**, that its row datum is
+   > the PCB edge and not the mating face, that its body is 16.70 mm deep and not 51.32 (a
+   > width), and that its boardlock holes belong on the second row's line. A wrong map is
+   > not always caught by a connector that will not seat: the drawing's map drills the same
+   > holes as one of the candidates. `gen_wl_sync_footprints.py` is corrected,
+   > `check_footprint_geometry.py` asserts the map, the handedness and the hole line in
+   > place of the `PIN MAP UNVERIFIED` note, and `d3-panel-thickness.md` has the record.
+   > Nothing was checked against a part.
 
 2. **The dual BNC's port orientation** — which of the two ports is the upper one. Same class
    of assumption, far lower stakes: the shells are independent either way, so no short is
@@ -1727,6 +1761,18 @@ generated — don't rediscover them.
   isolated-domain and `AGND`/`DGND`/`RWD_CMD`-vs-`RWD_DLVR` checks, use exactly that
   stronger form and need no per-part-class filtering at all.
 
+- **A footprint that states its reference as `(fp_text reference "REF**" ...)` loses its
+  reference when placed.** Found on the breakout board (2026-11-20). The four footprints in
+  `hardware/lib/wl-sync.pretty` are generated in the older style, with `fp_text reference`
+  and `fp_text value` children instead of properties. `Board.place()` copied them into the
+  placed instance after the `(property "Reference" "J20")` it writes, and pcbnew took the
+  later one: `kicad-cli pcb upgrade` re-saved all 22 BNC and MDR68 footprints as `REF**`.
+  DRC showed it only as "Reference field of REF**" in silkscreen warnings, and the
+  generator's own check passed, because it read the text before the upgrade. The placement
+  check run on the upgraded file caught it at once. `Board.place()` now drops both
+  children. The lesson is the recipe's order: check the file KiCad saved, not the one the
+  generator wrote.
+
 ## Byte-reproducibility
 
 Regenerating `mule.kicad_sch` or `mule.kicad_pcb` from the same generator and inputs
@@ -1812,6 +1858,23 @@ python3 hardware/gen/check_breakout_opto_intan_netlist.py hardware/breakout/brea
 python3 hardware/gen/check_breakout_control_usb_i2c_netlist.py hardware/breakout/breakout.net
 python3 hardware/gen/gen_breakout_netlist_contract.py                # hardware/breakout/netlist-contract.json -- run LAST, once every checker above has passed; commit this file alongside any sheet change (see "Whole-board netlist contract" above)
 ```
+
+For the breakout's board, once the netlist above is exported. **Do this only while the
+board is unrouted**: the generator writes the file whole, and refuses to overwrite a board
+with routed items unless given `--force`.
+
+```bash
+python3 hardware/gen/gen_breakout_pcb.py                             # breakout.kicad_pcb, and the net classes and rules in breakout.kicad_pro / breakout.kicad_dru; reads breakout.net and netlist-contract.json, and refuses if they disagree
+kicad-cli pcb upgrade hardware/breakout/breakout.kicad_pcb            # see "Format upgrade" below
+python3 hardware/gen/check_breakout_placement.py                     # on the UPGRADED file: the generator checks its own text, and only this checks what pcbnew made of it
+kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
+```
+
+Expected from DRC on the unrouted board: `unconnected_items` and 24 `silk_edge_clearance`
+(the twelve barrier-straddling parts' own outlines over their slots, which constraints B-21
+accepts); every other class 0. `hardware/breakout/placement.md` §9 has the table. `gen_breakout.py` and the sheet
+generators rewrite `breakout.kicad_pro` as a stub, which drops the net classes: run
+`gen_breakout_pcb.py` after them, or the placement check fails on its item 7.
 
 Regenerating `breakout.kicad_sch` and any of its ten child sheets mints fresh UUIDs on
 every one of their own components too (same byte-reproducibility caveat below), which is

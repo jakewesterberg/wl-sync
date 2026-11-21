@@ -2,8 +2,29 @@
 
 This is the floorplan for plan Task 14, Steps 1 and 1b. It says where the board's edges,
 connectors, ground domains and barriers go, where the barcode runs, and whether the CM5 IO
-Board fits. It is a document, not a board file: no `breakout.kicad_pcb` exists yet, nothing
-here was measured on hardware, and placement is a later task.
+Board fits. It is a document, not a board file. Nothing here was measured on hardware.
+
+> **2026-11-20.** `breakout.kicad_pcb` now exists: it is generated, with every part placed
+> and nothing routed, and `placement.md` records it. Two figures this document builds on
+> were corrected that day from the manufacturers' drawings (ruling R46; `constraints.md`
+> X-4, X-5, M-9):
+>
+> - an **MDR68 takes 12.0 mm** of board from the edge, not 51.32 mm (that is a width);
+> - a **dual BNC takes 15.5 mm**, not 36.2 mm (the other 20.7 mm is the jacks, beyond the
+>   edge), and its tallest point is still 29.25 mm;
+> - there is **no board set-back** from either panel: the panel's inner face is at the
+>   board edge.
+>
+> - the **M12 inlet is not in the back row**: its hole is at X = 210, 50 mm above the
+>   board, above `J2` (`panel-elevations.md` §7). §2.2's row 4, its "M12 at the
+>   `AGND`/`DGND` boundary" judgment, §3.3's 90 mm of lead and §7's drawing show it between
+>   `J3` and `J57`, where `J57`'s insulating sub-plate now is (`panel-elevations.md` §6).
+>
+> The text below is left as written. Where it reserves 51.32 mm or 36.2 mm of depth (§1,
+> §3.1, §5.3, §6.4 and §6.5's comparison table) the regions are deeper than the connectors
+> need, which costs nothing and has not been re-drawn. §6.4's finding that nothing reaches
+> the IO Board's port-edge holes should be looked at again: the connector bodies under
+> them are now 12 to 15.5 mm deep, and those holes are 8 mm in.
 
 It satisfies `constraints.md`, and cites that file by constraint ID.
 

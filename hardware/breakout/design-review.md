@@ -223,11 +223,35 @@ document is not confirmation.
   `hardware/breakout/d3-panel-thickness.md`. Minutes with a document already in hand.
   Switching is a one-line edit and a regenerate.
 
+  > **2026-11-20: resolved from the manufacturer's drawing, per ruling R46** (the user:
+  > "i want you to go based off specs online and manufacturer info"), not from a sample.
+  > MH Connectors drawing 3700-0121-01 rev 3.0 (03-27-15; sha256 `f24b828f…0d27`, recorded in full at `hardware/datasheet-params.toml` `[mdr68]`)
+  > does state the map, on "PCB Layout (B)": from the PCB edge inward the tail rows hold
+  > contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd. That is none of the four
+  > candidates this item describes. The same view shows the footprint was mirrored
+  > (contact 1 is at the right with the edge up), that its row datum is the PCB edge, and
+  > that its body is 16.70 mm deep, not 51.32. All four are corrected in
+  > `gen_wl_sync_footprints.py`, asserted by `check_footprint_geometry.py`, and recorded in
+  > `d3-panel-thickness.md`. This item's claim that a wrong map "will not physically seat"
+  > is also wrong: the drawing's map shares its hole pattern with one of the candidates.
+  > The box is left unticked: nobody has checked a part.
+
 - [ ] **The dual BNC's protrusion through the panel.** Not dimensioned on drawing 31-6575
   rev A, and it sets the board's set-back from the panel — see
   `hardware/breakout/panel-elevations.md` §3. Measure on a sample or take it from the 3D
   model.
   **Human step:** needed before Task 14 fixes the board outline, not before it starts.
+
+  > **2026-11-20: resolved from the manufacturer's drawing, per ruling R46**, not from a
+  > sample. The drawing does dimension it:
+  > Amphenol RF drawing 31-6575 rev A (preliminary, 4/18/13, sheet 2 of 2; sha256 `7ffb0a02…ef34`, recorded in full at `hardware/datasheet-params.toml` `[bnc_dual_isolated]`)
+  > gives 20,7 REF from the body's front face to the tip of the jack, of which 8,6 REF is
+  > thread, and 5,56 REF from that face back to the ground pins. The panel seats on the
+  > body's front face, so the board edge goes at that face and nothing is "set back":
+  > `panel-elevations.md` §3 and `placement.md` §2. Three things the drawing leaves open
+  > are `constraints.md` Open questions 23, 24 and 26; a fourth, whether the bushing is
+  > insulated from the panel, was Open question 25 and is closed: it is not, and the BNCs
+  > go through insulating sub-plates (`panel-elevations.md` §6). The box is left unticked.
 
 ### Mechanical — deferred to Task 15, not checkable yet
 
@@ -352,7 +376,7 @@ scope a fix as its own task** rather than resolving it inside a review document.
 **Layout (Task 14) does not begin until this section is completed by a person.**
 
 - Reviewer name:
-- Date:
+- Date: 2026-11-20
 - Every checklist item above independently confirmed (not merely read): ☐ Yes
 - `parametric-audit.md` read, and its 21 findings accepted as closed: ☐ Yes
 - Physical samples of the **MDR68** and the **dual BNC** (`031-6575`) ordered, and measurement
@@ -361,9 +385,11 @@ scope a fix as its own task** rather than resolving it inside a review document.
   board component, so nothing about it is a PCB dimension any more.)*
 - Procurement items in `hardware/procurement-check.md` §6 acted on (`ADG1206YRUZ`, MDR68,
   `IH1215D` at minimum): ☐ Yes
-- Decision: ☐ Approved for layout ☐ Not yet — blocking items:
+- Decision: ☑ Approved for layout ☐ Not yet — blocking items:
 
-Signature:
+Signature: **"i sign off"**
+
+> On the four confirmations above, the user's answer, given on 2026-11-20 in the Claude Code session that ran layout task L4: "none of the above. i thought the sign off was just to start the pcb design. i want you to go based off specs online and manufacturer info."
 
 ---
 

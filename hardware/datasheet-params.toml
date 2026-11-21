@@ -452,7 +452,32 @@ mounting_hole_dia_mm = 2.77
 mounting_hole_span_mm = 57.93
 row_offsets_from_edge_mm = [5.10, 1.905, 3.81, 5.715]
 overall_width_mm = 63.86
-body_depth_mm = 51.32
+# CORRECTED 2026-11-20 (ruling R46, read from the drawing). 51.32 is a WIDTH: the bottom
+# view dimensions it across the connector, between the two side hooks. The depth is the
+# side view's 16.70 +/- 0.3, nose tip to rear of housing. `body_depth_mm` was 51.32.
+body_depth_mm = 16.70
+hook_span_mm = 51.32
+# "PCB Layout (B)": a leader marked "PCB EDGE" points at the dashed datum, and
+# row_offsets_from_edge_mm[0] = 5.10 +/- 0.2 is measured from it to the tail row NEAREST
+# the edge. So the datum is the board edge, not the mating face.
+row_datum = "PCB EDGE (PCB Layout (B) leader)"
+flange_to_row1_mm = 4.80         # side view, 4.80 +/- 0.2: flange face to the first tail row
+nose_beyond_flange_mm = 5.00     # bottom view, 5.00 +/- 0.15: flange face to the nose tip
+hook_beyond_flange_mm = 3.50     # bottom view, 3.50 +/- 0.2: flange face to the side-hook tips
+mating_shell_width_mm = 46.45    # front view
+# The tail-row map, read off PCB Layout (B) and the front view (2026-11-20): leaders "1"
+# and "3" go to the row FARTHEST from the edge, "2" to the row before it, and "Last
+# Position" (contact 68) to the left end of the row NEAREST the edge; the front view
+# numbers 1-34 along the upper mating row and 35-68 along the lower. Rows from the edge
+# inward: 36..68 even, 35..67 odd, 2..34 even, 1..33 odd.
+tail_rows_from_edge = "B_even,B_odd,A_even,A_odd"
+# PCB Layout (B) is a component-side view: edge at the top, contact 1 at the RIGHT.
+pin1_side_edge_up = "right"
+# Not dimensioned: the boardlock holes are drawn with their centre on the second tail
+# row's extension line, and the side view draws the boardlock peg at that row's depth.
+boardlock_row = 2
+document_sha256 = "f24b828f45cdde79cb6dd388e46944955b4a44acc3b11229067096e6544f0d27"
+document_file = "MH_3700-0121-01.pdf (MH Connectors 3700-0121-01 REV 3.0, 03-27-15); not in this repository"
 body_height_mm = 9.10
 panel_thread = "#2-56, 2 places"
 contact_current_rating_a = 0.5   # NOT the 3 A distributors list
@@ -467,6 +492,30 @@ through this connector at up to 283 mA, which is 57% of the real rating rather t
 The as-built footprint is WRONG: 0.5 mm drill against a required 0.85 mm (pins will not
 fit), 2 rows at 2.84 mm against a 4-row staggered arrangement at 1.905 mm, and no
 mounting holes at all."""
+
+[bnc_sub_plate]
+# The insulating plate that carries every dual BNC through the panel (ruling R8,
+# 2026-11-20; hardware/breakout/panel-elevations.md, section 6). A machined part, not a
+# catalogue one, so this records the material and the figures the design rests on.
+material = "NEMA G-10 / FR-4 glass-epoxy laminate (NEMA LI 1)"
+# Dielectric strength, short-time, through the sheet. As the sources quote it; the pages
+# were found by search on 2026-11-20 and are not in this repository:
+#   The Gund Company, "NEMA G-10 Glass Epoxy Laminate" data sheet: 485 V/mil (ASTM D-149)
+#   McMaster-Carr, Garolite G-10/FR4 sheet listings: 350 to 800 V/mil
+# The lowest figure quoted, 350 V/mil, is 13.8 kV/mm.
+dielectric_strength_v_per_mil_min = 350
+dielectric_strength_sources = [
+  "https://thegundcompany.com/wp-content/uploads/2024/03/NEMA-G-10-Glass-Epoxy-Laminate-by-The-Gund-Co.pdf",
+  "https://www.mcmaster.com/product/8667K62/",
+]
+stock_thickness_note = "Gund lists sheet from 0.006 to 5.0 in; McMaster lists 1/8 in and 1/4 in"
+plates_per_box = 4               # one front window (with the reward button), three back
+in_window_thickness_mm = 3.0     # equals the panel, so the plate's inner face is the panel's
+lip_thickness_mm = 1.6           # over the panel's outer face, round the window
+at_bnc_thickness_mm = 4.6        # in_window + lip: what each bushing passes through
+window_margin_mm = 10.7          # from a port's axis to the window's metal edge: 8.2 + 2.5
+bushing_to_metal_min_mm = 2.5    # constraints B-7's figure, used here as the spacing to hold
+feeds = ["R8"]
 
 [m12_inlet]
 part = "Phoenix Contact SACC-DSI-MS-5CON-M12 SCO, order 1551833"
@@ -525,6 +574,36 @@ title = "50 OHM DUAL PORT BNC R/A JACK, ISOLATED, BLACK"
 ports = 2
 orientation = "right angle"
 port_pitch_mm = 16.00            # centre to centre, STACKED vertically
+# Added 2026-11-20 (ruling R46), read from drawing 31-6575 rev A (preliminary, 4/18/13),
+# side view and "RECOMMENDED MOUNTING HOLE". All are REF dimensions on the drawing.
+document_sha256 = "7ffb0a02af0b59fe2166fce3ea4ce2c49235c44f2bebdb901695629da534ef34"
+document_file = "AmphenolRF_C031-6575.pdf (31-6575 REV A, sheet 2 of 2); not in this repository"
+face_to_tip_mm = 20.7            # body front face to the tip of the jack
+thread_length_mm = 8.6           # body front face to the end of the 1/2-28 thread
+post_to_face_mm = 5.56           # the two 2.01 mm post-mount holes' centres to the body front face
+# The two 2.01 mm holes are POST MOUNT holes, for the brass mounting hooks, per the sibling
+# drawing 31-6576 rev B, Detail A (as read by the L4 re-review, 2026-11-20). They are not
+# ground terminals, though the keys below named `pcb_ground_hole_*` and `ground_terminal`
+# call them that; the names are kept because the generator and the checker read them. The
+# sibling's "GROUNDING TERMINAL - STEEL" is the per-port grounding contact in a 0.89 mm
+# hole. Same detail: the middle hole of the three-hole row is "HIGH PORT SIGNAL", the
+# single hole nearer the face "LOW PORT SIGNAL", and the row's two ends the two ports'
+# grounding contacts. So a centre-for-shell swap is ruled out (constraints GT-4); but the
+# footprint's note that pad 1 is the LOWER port is the wrong way round: pad 1 is the
+# upper port's centre and pad 3 the lower's.
+lower_port_height_mm = 7.0       # seating plane to the lower port's axis; upper is 7 + 16
+panel_hole_flat_mm = 5.56        # single-D hole: hole centre to the flat
+# The sibling 31-6576 rev B (31-JUL-24) dimensions the same cutout as 11,7 across, which
+# is 5.29 mm from centre to flat, gives a 29.00 mm body height, and lists the connector
+# interface as ZAMAC, nickel plated. OPEN: which flat applies to 031-6575 today.
+sibling_document = "4071853954_C31-6576_102124.pdf (31-6576 REV B, 31-JUL-24)"
+sibling_sha256 = "ad0747a8fba264c15b336922f5a2e4664a7daaeb0dc0dc0b4285c663b3fdce49"
+sibling_panel_hole_flat_mm = 5.29
+sibling_interface_material = "ZAMAC, nickel plating"
+# Hex nut 31-5652 rev B: 2.8 +/- 0.13 thick, 14.2 +/- 0.13 across flats.
+nut_document_sha256 = "e5ab963799b05dacef02386f28cb24e6f1265380b58b6c30d13363fdc6e9b4a6"
+nut_thickness_mm = 2.8
+nut_across_flats_mm = 14.2
 panel_hole_dia_mm = 12.83
 panel_hole_pitch_mm = 16.00
 panel_thread = "1/2-28 UNEF"
@@ -547,6 +626,11 @@ insulator = "polypropylene"
 ground_terminal = "steel, tin plated"
 tray_qty = 40
 feeds = ["F6"]
+# CORRECTED 2026-11-20: the note below is wrong about the PANEL. The threaded bushing is
+# the shell (31-6576 rev B lists the connector interface as one ZAMAC part), so a bare
+# hole in a metal panel bonds each shell to it. "Isolated" means the two ports' grounds
+# are separate. See hardware/breakout/constraints.md, Open question 25, and ruling R7 in
+# parametric-audit.md: every BNC is to be insulated from the panel.
 note = """Isolation is structural: the body is glass-filled PBT, so each shell is inherently
 isolated from the panel and from its neighbour. That is what the deferred bulkhead-bonding
 scheme requires, and it cannot wear off the way a coating could.

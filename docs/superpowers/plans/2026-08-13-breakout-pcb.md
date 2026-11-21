@@ -942,6 +942,24 @@ to ±0.1 mm.
 - [ ] **Step 3: Place connectors first, everything else after.** Panel positions are the
   constraint; components serve them.
 
+> **Placement is generated; routing remains. Note added 2026-11-20.**
+> `hardware/gen/gen_breakout_pcb.py` writes `hardware/breakout/breakout.kicad_pcb` with the
+> outline, four layers, both isolation slots, every footprint placed, every pad on its net
+> and the barrier keep-outs, in this step's order: panel connectors, then each domain's
+> parts inside its own region. `hardware/gen/check_breakout_placement.py` checks it, and
+> `hardware/breakout/placement.md` records the positions and which are judgment. The file
+> has no track. A person routes it in pcbnew, as the mule was routed (Task 3's note:
+> `kicad-cli` has no Specctra DSN export). Step 4's "exit code 0" is not met by the
+> unrouted board. Two classes remain (`placement.md` §9): `unconnected_items`, which
+> routing clears, and 24 `silk_edge_clearance` warnings on the barrier-straddling parts'
+> own outlines, which routing does not clear and constraints B-21 accepts. Step 4 as
+> written cannot return 0 while those 24 stand; that is for whoever routes to settle.
+>
+> **2026-11-20.** The design review (Task 13 Step 4; `design-review.md`): approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46).
+> Step 2's "≥2.5 mm clearance slot under every optocoupler" is 2.0 mm under the eight
+> SOIC-16 optocouplers by ruling R6 (`parametric-audit.md`), which leaves 0.5 mm of
+> laminate beside each pad row where 2.5 mm left 0.25 mm.
+
 - [ ] **Step 4: Run DRC**
 
 ```bash

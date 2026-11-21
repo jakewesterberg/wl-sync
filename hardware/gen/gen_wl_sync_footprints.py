@@ -254,41 +254,41 @@ def self_check(modname: str, text: str, expected_numbered_pads: int) -> None:
 # ---------------------------------------------------------------------------
 # 1. MDR68_Male_RightAngle
 # ---------------------------------------------------------------------------
-# WHICH CONTACT NUMBERS LAND IN WHICH TAIL ROW. This is the one thing MH drawing rev 3.0
-# does NOT state. It is isolated here as a single named constant, with every candidate
-# written out, so switching is a one-line edit and a regenerate rather than an archaeology
-# exercise.
+# WHICH CONTACT NUMBERS LAND IN WHICH TAIL ROW, AND WHICH WAY ROUND.
 #
-# CORRECTED 2026-08-16: this was first written as "scrambles 68 signals on a board that
-# passes ERC and every test", which overstates it. All four candidate arrangements produce
-# DIFFERENT HOLE PATTERNS, not merely different numbering -- the four tail rows carry X phases
-# (0,1,0,1), (1,0,1,0), (0,1,1,0) and (1,0,0,1) on the 1.27 mm mating grid, and all four are
-# distinct. A pin would have to move 1.27 mm laterally AND 1.905 mm in depth to seat in the
-# wrong one, which is far beyond any contact compliance. So a wrong choice is caught when the
-# connector will not physically seat -- a respin, which is expensive, but NOT the silent
-# data-corruption hazard it was described as. It also means the answer is visible in any
-# drawing, 3D model or photograph that shows the hole pattern, which is a much lower bar than
-# a manufacturer confirmation.
+# READ FROM THE DRAWING 2026-11-20 (ruling R46: manufacturer drawings in place of samples).
+# Until then this said MH drawing rev 3.0 "does NOT state" the map. It does, on "PCB Layout
+# (B)": leaders "1" and "3" point at the tail row FARTHEST from the PCB edge, "2" at the
+# row before it, and "Last Position" (contact 68) at the left end of the row NEAREST the
+# edge. The front view numbers 1-34 along the upper mating row and 35-68 along the lower.
+# So, from the edge inward:
 #
-# The unknown is smaller than it looks. A right-angle contact runs straight back from its
-# mating position, so each contact's X is FIXED by the mating interface (2 rows x 34 at
-# 1.27 mm); the 4-row stagger only redistributes DEPTH, and it exists solely so an 0.85 mm
-# drill is manufacturable at a 1.27 mm mating pitch. Mating row A (contacts 1-34) reaches
-# the board shallower than row B (35-68). That leaves four candidates, not twenty-four:
+#   row 1 (5.100 mm)   36, 38 .. 68    B even
+#   row 2 (7.005 mm)   35, 37 .. 67    B odd
+#   row 3 (8.910 mm)    2,  4 .. 34    A even
+#   row 4 (10.815 mm)   1,  3 .. 33    A odd
 #
-#   "A_odd,A_even,B_odd,B_even"   <- SELECTED. Rows ordered from the datum edge inward.
-#   "A_even,A_odd,B_even,B_odd"
-#   "A_odd,A_even,B_even,B_odd"
-#   "A_even,A_odd,B_odd,B_even"
+# which is "B_even,B_odd,A_even,A_odd" below. It was NOT one of the four candidates first
+# written here: those all put mating row A nearer the edge, on the reasoning that it
+# "reaches the board shallower". The drawing has it the other way: the upper mating row's
+# contacts are the longer ones and come down farther in.
 #
-# Selected because it is the arrangement in which each mating row's contacts stay in mating
-# order as they fan out (odd numbers to the nearer tail row, even to the farther), which is
-# the ordinary construction for a staggered ribbon-style tail field.
+# TWO EARLIER CLAIMS HERE WERE WRONG, and are recorded because both were reassuring:
+#   - "A wrong choice is caught when the connector will not physically seat." Not so in
+#     general. A hole pattern is fixed by each row's PHASE on the 1.27 mm grid, and two
+#     different maps can share one. The drawing's map (phases 1,0,1,0 from the edge) has
+#     the same holes as "A_even,A_odd,B_even,B_odd": a board built to that would seat the
+#     connector and put every upper-row signal on a lower-row contact, silently.
+#   - The footprint was MIRRORED. PCB Layout (B) is a component-side view with the edge
+#     at the top, and contact 1 is at the RIGHT. That agrees with the front view, where
+#     contact 1 is at the upper left: seen from above and behind, the connector's left is
+#     the viewer's right. This generator put contact 1 at x = 0 with x increasing, edge at
+#     the top: contact 1 on the left. Every contact was at the mirror image of its hole.
+#     Contact k of each mating row is now at x = (34 - k) x 1.27.
 #
-# CONFIRM AGAINST MH's OWN DRAWING OR 3D MODEL BEFORE FAB and record the answer in
-# hardware/breakout/d3-panel-thickness.md. Until then the footprint's own descr says
-# PIN MAP UNVERIFIED, and check_footprint_geometry.py asserts that note is still there.
-MDR68_TAIL_ORDER = "A_odd,A_even,B_odd,B_even"
+# The four candidates first written here are kept in MDR68_TAIL_ORDERS, beside the
+# drawing's, only so the difference stays on record.
+MDR68_TAIL_ORDER = "B_even,B_odd,A_even,A_odd"
 
 # Parity is the 0-based slot index within a mating row: slot 0 holds contact 1 (ODD), slot 1
 # holds contact 2 (EVEN). So "odd contacts" is parity 0, not 1 -- an inversion worth naming,
@@ -297,6 +297,7 @@ _A_ODD, _A_EVEN = ("A", 0), ("A", 1)
 _B_ODD, _B_EVEN = ("B", 0), ("B", 1)
 
 MDR68_TAIL_ORDERS = {
+    "B_even,B_odd,A_even,A_odd": [_B_EVEN, _B_ODD, _A_EVEN, _A_ODD],   # the drawing's
     "A_odd,A_even,B_odd,B_even": [_A_ODD, _A_EVEN, _B_ODD, _B_EVEN],
     "A_even,A_odd,B_even,B_odd": [_A_EVEN, _A_ODD, _B_EVEN, _B_ODD],
     "A_odd,A_even,B_even,B_odd": [_A_ODD, _A_EVEN, _B_EVEN, _B_ODD],
@@ -332,9 +333,11 @@ def build_mdr68() -> str:
       unbuildable and self-consistent-looking.
 
     Mounting holes: `mounting_hole_dia_mm` (2.77) at `mounting_hole_span_mm` (57.93),
-    non-plated, centred on the contact array. Their Y is NOT dimensioned by the drawing and
-    is placed at the array's own centre -- an assembly-fit detail, not a fab-stopper, and
-    recorded as derived rather than read.
+    non-plated, centred on the contact array in X. Their depth is not dimensioned by the
+    drawing; it draws each hole's centre on the second tail row's extension line, and the
+    side view draws the boardlock peg at that row's depth, so they are placed on that line
+    (7.005 mm from the PCB edge). Until 2026-11-20 they were at the centre of the four
+    rows.
     """
     p = _params()["mdr68"]
     PITCH = p["contact_pitch_mm"]              # 1.27 -- mating interface pitch
@@ -346,7 +349,15 @@ def build_mdr68() -> str:
     MOUNT_DRILL = p["mounting_hole_dia_mm"]    # 2.77
     MOUNT_SPACING = p["mounting_hole_span_mm"] # 57.93
     SHELL_W = p["overall_width_mm"]            # 63.86
-    SHELL_D = p["body_depth_mm"]               # 51.32
+    SHELL_D = p["body_depth_mm"]               # 16.70, nose tip to rear of housing
+    # Where the body is against the datum (the PCB edge, y = 0): the flange face is
+    # flange_to_row1 ahead of row 1, the nose tip nose_beyond_flange ahead of the flange,
+    # and the rear SHELL_D behind the nose tip.
+    FLANGE_Y = ROW_OFFSETS[0] - p["flange_to_row1_mm"]        # +0.30: just inside the edge
+    NOSE_Y = FLANGE_Y - p["nose_beyond_flange_mm"]            # -4.70: beyond the edge
+    REAR_Y = NOSE_Y + SHELL_D                                 # 12.00
+    assert p["tail_rows_from_edge"] == MDR68_TAIL_ORDER, "TOML and generator disagree on the tail map"
+    assert p["pin1_side_edge_up"] == "right" and p["boardlock_row"] == 2
     N_PER_MATING_ROW = 34
 
     order = MDR68_TAIL_ORDERS[MDR68_TAIL_ORDER]
@@ -359,28 +370,38 @@ def build_mdr68() -> str:
         positions = [i for i in range(N_PER_MATING_ROW) if i % 2 == parity]
         for slot, i in enumerate(positions):
             num = str(base + i + 1)
-            x = i * PITCH
+            # Edge at the top (y = 0), contact 1 at the RIGHT: see MDR68_TAIL_ORDER's note.
+            x = (N_PER_MATING_ROW - 1 - i) * PITCH
             first = num == "1"
             els.append(fp_pad(num, x, y, PAD_SIZE, DRILL, "rect" if first else "circle"))
             del slot
 
     all_x = [i * PITCH for i in range(N_PER_MATING_ROW)]
     field_cx = (min(all_x) + max(all_x)) / 2
-    field_cy = ROW0_Y + 1.5 * ROW_DY           # centre of the four rows
+    # Boardlock holes on the SECOND tail row's line (corrected 2026-11-20; they were at
+    # the centre of the four rows, 0.95 mm farther in). The drawing does not dimension
+    # their depth: it draws each hole's centre on row 2's extension line, and the side
+    # view draws the boardlock peg at row 2's depth.
+    mount_y = ROW0_Y + (p["boardlock_row"] - 1) * ROW_DY
 
-    els.append(fp_mounting_hole(field_cx - MOUNT_SPACING / 2, field_cy, MOUNT_DRILL, MOUNT_DRILL))
-    els.append(fp_mounting_hole(field_cx + MOUNT_SPACING / 2, field_cy, MOUNT_DRILL, MOUNT_DRILL))
+    els.append(fp_mounting_hole(field_cx - MOUNT_SPACING / 2, mount_y, MOUNT_DRILL, MOUNT_DRILL))
+    els.append(fp_mounting_hole(field_cx + MOUNT_SPACING / 2, mount_y, MOUNT_DRILL, MOUNT_DRILL))
 
-    # Body outline: the drawing's overall width and depth, with the mating face at Y=0 (the
-    # datum the row offsets are measured from) and the body extending back over the board.
+    # Body outline. y = 0 is the PCB EDGE, the drawing's datum. The body runs from the
+    # nose tip, NOSE_Y beyond the edge, to REAR_Y on the board; F.Fab and the courtyard
+    # draw all of it, at the flange's overall width. (Until 2026-11-20 this drew a body
+    # 51.32 mm deep from a "mating face" at y = 0: 51.32 is a width on the drawing.)
     shell_x0, shell_x1 = field_cx - SHELL_W / 2, field_cx + SHELL_W / 2
-    shell_y0, shell_y1 = 0.0, SHELL_D
-    els.append(fp_rect(shell_x0, shell_y0, shell_x1, shell_y1, "F.SilkS", 0.12))
+    shell_y0, shell_y1 = NOSE_Y, REAR_Y
+    # Silkscreen: only the part of the body that is over the board, from just ahead of the
+    # first tail row inboard, so that nothing is drawn across the board edge.
+    silk_y0 = ROW0_Y - PAD_SIZE / 2 - 0.5
+    els.append(fp_rect(shell_x0, silk_y0, shell_x1, shell_y1, "F.SilkS", 0.12))
     els.append(fp_rect(shell_x0 - 0.5, shell_y0 - 0.5, shell_x1 + 0.5, shell_y1 + 0.5, "F.CrtYd", 0.05))
     els.append(fp_rect(shell_x0, shell_y0, shell_x1, shell_y1, "F.Fab", 0.1))
     els.append(fp_text_ref(field_cx, shell_y0 - 1.5))
     els.append(fp_text_val(field_cx, shell_y1 + 1.5, "MDR68_Male_RightAngle"))
-    els.append(f"\t(point\n\t\t(at {_fmt(0.0)} {_fmt(ROW0_Y)})\n\t\t(size 0.5)\n\t\t(layer \"F.Fab\")\n\t)")
+    els.append(f"\t(point\n\t\t(at {_fmt((N_PER_MATING_ROW - 1) * PITCH)} {_fmt(ROW0_Y + 3 * ROW_DY)})\n\t\t(size 0.5)\n\t\t(layer \"F.Fab\")\n\t)")
 
     return assemble(
         "MDR68_Male_RightAngle",
@@ -390,11 +411,11 @@ def build_mdr68() -> str:
         f"array {p['contact_array_width_mm']}mm wide, two {MOUNT_DRILL}mm non-plated "
         f"mounting holes at {MOUNT_SPACING}mm centres. Replaces a version that drilled "
         f"0.5mm (pins do not fit) in 2 rows at 2.84mm. "
-        f"PIN MAP UNVERIFIED: the drawing does not state which contact numbers land in "
-        f"which tail row; this footprint assumes {MDR68_TAIL_ORDER} (see "
-        f"gen_wl_sync_footprints.py's MDR68_TAIL_ORDER for the alternatives and "
-        f"hardware/breakout/d3-panel-thickness.md for how to close it). Confirm against "
-        f"MH's own drawing or 3D model before fab.",
+        f"Y = 0 is the PCB EDGE (the drawing's datum); the nose stands "
+        f"{_fmt(-NOSE_Y)}mm beyond it. PIN MAP READ FROM THE DRAWING 2026-11-20: tail rows "
+        f"from the edge inward {MDR68_TAIL_ORDER} (36..68 even, 35..67 odd, 2..34 even, "
+        f"1..33 odd), contact 1 at the right seen from the component side with the edge "
+        f"up. Not checked against a part.",
         "connector MDR SCSI-3 68pin right-angle PCB",
         els,
     )
@@ -514,7 +535,9 @@ def build_bnc_dual() -> str:
 
     The audit's handoff recommended the Winchester geometry. That is wrong on this board in
     the way that matters most: the 031-6575 is INDEPENDENTLY isolated -- each shell isolated
-    from the panel AND from its neighbour (bnc_dual_isolated.note) -- and ten channels here
+    from its neighbour (bnc_dual_isolated.note; CORRECTED 2026-11-20: this said "from the
+    panel AND", which is false -- the bushing is the shell, and the panel's insulating
+    sub-plates are what keep it off the chassis) -- and ten channels here
     carry a separately-routed shield per connector (A_PD1_SHLD, A_MIC_SHLD, A_MISC1_SHLD
     and the rest), each landing on its own resistor position. Commoning the shells in pairs
     would defeat the deferred bulkhead-bonding scheme entirely and produce a perfectly clean
@@ -580,7 +603,16 @@ def build_bnc_dual() -> str:
     y1 = 1.05
     y0 = y1 - BODY_D
     els.append(fp_rect(x0, y0, x1, y1, "F.Fab", 0.1))
-    els.append(fp_rect(x0, -14.45, x1, y1, "F.SilkS", 0.12))          # PCB-side base only
+    # Silkscreen: the body proper only, which is what sits on the board. Its front face is
+    # post_to_face_mm ahead of the two post-mount holes (31-6575 rev A, side view), 15.5 mm
+    # ahead of the rear, and the jacks beyond it overhang the board edge. The face itself
+    # goes ON the edge (hardware/breakout/placement.md §2), so the outline stops 0.5 mm
+    # short of it: drawn on the face it was reported as silk_edge_clearance on all 18.
+    face_y = gnd_y - p["post_to_face_mm"]
+    assert abs((y1 - face_y) - (BODY_D - p["face_to_tip_mm"])) < 1e-9, (
+        "the body's depth on the board disagrees between the two readings of the drawing"
+    )
+    els.append(fp_rect(x0, face_y + 0.5, x1, y1, "F.SilkS", 0.12))
     els.append(fp_rect(x0 - 0.5, y0 - 0.5, x1 + 0.5, y1 + 0.5, "F.CrtYd", 0.05))
     # The bayonet: ONE circle, because both barrels are on the centreline, one above the
     # other. Drawn at the panel-hole diameter so the panel cutout is visible in layout.
@@ -590,13 +622,15 @@ def build_bnc_dual() -> str:
 
     return assemble(
         "BNC_Dual_RA_Isolated",
-        f"Dual-port 50 ohm BNC jack, RIGHT ANGLE, each shell INDEPENDENTLY isolated from "
-        f"the panel and from its neighbour. Amphenol RF 031-6575, customer outline drawing "
+        f"Dual-port 50 ohm BNC jack, RIGHT ANGLE, each port's shell isolated from the "
+        f"OTHER port's (NOT from the panel: the threaded bushing is the shell, so it "
+        f"needs an insulated panel hole). Amphenol RF 031-6575, customer outline drawing "
         f"31-6575 rev A (2013-04-18). Ports stacked vertically at {p['port_pitch_mm']}mm; "
         f"panel holes {p['panel_hole_dia_mm']}mm at the same pitch, {p['panel_thread']}. "
         f"PCB pattern: 4 x {SIG_DRILL}mm signal (pad 1 = port A centre, 2 = port A shell, "
         f"3 = port B centre, 4 = port B shell) and 2 x {GND_DRILL}mm plated, unnumbered "
-        f"ground/retention terminals. Body {BODY_W} x {BODY_D}mm. Replaces "
+        f"POST-MOUNT holes (the sibling drawing 31-6576 rev B calls them that; they "
+        f"are the mounting hooks, not ground terminals). Body {BODY_W} x {BODY_D}mm. Replaces "
         f"BNC_PanelMountable_Vertical, whose axis was perpendicular to the board (F6). "
         f"NOT KiCad's own BNC_Win_364A2x95_Horizontal, which commons both shells (it models "
         f"a FRONT-isolated part) and draws a different manufacturer's body. PIN MAP "
