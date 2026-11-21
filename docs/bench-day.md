@@ -26,10 +26,18 @@ right, and this file is the one to fix. The sources are:
 **Where each command runs.**
 - **The box:** commands start `ssh wl-rig-sync0`. A sudo step uses `ssh -t`, so that sudo
   can ask for its password.
-- **The Mac, wl-sync:** commands start `git archive`, and run from a wl-sync checkout on the
-  Mac.
-- **The Mac, wl-phantom:** commands start `.venv/bin/`, and run from the wl-phantom checkout,
-  with `BOX`, `GEN` and `MON` set as its `phase-1.md:27-36` says.
+- **The Mac, wl-sync:** commands start `git`, and run from a wl-sync checkout on the Mac.
+- **The Mac, wl-phantom:** commands start `.venv/bin/`, `ssh $BOX`, `rsync` or `curl`, and run
+  from the wl-phantom checkout, with `BOX`, `GEN` and `MON` set as its `phase-1.md:27-36`
+  says. One host name serves throughout, so set `BOX` to the ssh name, not to
+  `phase-1.md:30`'s `wl-rig-sync0.local`:
+
+      BOX=wl-rig-sync0
+      curl -s http://$BOX:8740/session
+
+  The `curl` checks that the name also resolves for HTTP, as a tailnet name does. An ssh-only
+  `Host` alias would not. If it fails to resolve, use `BOX=wl-rig-sync0.local`, as
+  `phase-1.md:30` has it, for the `http://` commands **[composed]**.
 
 **Where results go.**
 - **wl-sync:** each result goes into `docs/next-session.md` Step B, as a new dated entry
@@ -46,7 +54,7 @@ right, and this file is the one to fix. The sources are:
 | B. The jumper-only checks | 5-9 | jumpers from header pin 11 | running beside them |
 | C. wl-phantom: P0, the ±100 µs gate, B2 | 10-20 | wl-phantom's two Picos | stopped (you, sudo), then started again |
 | D. B7 at a reboot | 21 | nothing | restarted by the reboot |
-| E. Leaving `--fake`, and the rate file | 21-23 | nothing | the unit edited (you, sudo) |
+| E. Leaving `--fake`, and the rate file | 22-23 | nothing | the unit edited (you, sudo) |
 | F. The task PC, and afterwards | 24-25 | the rig | the unit on one count |
 
 **Header pins.** Each is the CM5 IO Board's 40-pin header, from the repository's header
@@ -91,10 +99,21 @@ Bring these:
       ssh-add ~/.ssh/wl_sync
       ssh wl-rig-sync0 'hostname; uptime'
 
-- **The commit to deploy, chosen and pushed.** The box runs `fc18551` under `--fake`, and
-  `fc18551` needs shim version 5. Bench day needs version 6, so it needs a deploy of a
-  version-6 commit first (step 3). You approve the push of `main`, and step 3 deploys
-  `origin/main`. `main` carries version 6 since Task 1.21 (`36f1fc9`).
+- **The commit to deploy, pushed: a precondition.**
+  - **Why a deploy.** The box runs `fc18551` under `--fake`, and `fc18551` needs shim
+    version 5. Bench day needs version 6, so it needs a deploy of a version-6 commit first
+    (step 3).
+  - **What origin/main has now.** On 2026-11-21 origin/main is `48a073d`. It has carried
+    version 6 since `64dbe0f` (Task 1.21 fix round 6).
+  - **What it lacks.** Task 1.22 (`431a6c4`), Task 1.24's `--split` (`c8222a6`) and this
+    runbook are on `one-clock-p1`, and not yet on origin/main. Steps 8 and 19 need
+    `--split`.
+  - **So the push comes first.** The deploy commit is whatever origin/main holds after you
+    approve the push of `one-clock-p1`, and you will be asked that separately. Write its
+    hash down on the Mac, after the push:
+
+        git fetch origin && git rev-parse --short origin/main
+
 - **Time.** About three days of bench time, since several runs last 8 h:
   - B6 and B8's day 1, 8 h (step 9);
   - B7, 8 h after a reboot (step 21);
@@ -135,8 +154,9 @@ The third is next-session `:182` and `:186`, with `lib-b3` (below).
 
 ### 3. The deploy, and shim version 6 (you, sudo, for two lines)
 
-The deploy follows the install section's commands: the clone (README `:623-626`) and the
-venv (`:656-657`). Rebuild the shim "whenever `pio/wlsync_pio.c` changes" (`:628`). The box
+This deploys the commit you wrote down in step 1, which is origin/main after the push of
+`one-clock-p1`. The deploy follows the install section's commands: the clone (README
+`:623-626`) and the venv (`:656-657`). Rebuild the shim "whenever `pio/wlsync_pio.c` changes" (`:628`). The box
 must be idle, and the restart must follow the install at once, so that the running process
 is never left over new files **[composed]**.
 
@@ -144,7 +164,16 @@ is never left over new files **[composed]**.
 
 **Pass:** `#define WLSYNC_SHIM_VERSION 6` and `"session_id": null`.
 
-    ssh wl-rig-sync0 'git -C ~/src/wl-sync merge --ff-only origin/main && ~/wl-sync-venv/bin/pip install -q -e ~/src/wl-sync[pi] && git -C ~/src/wl-sync rev-parse --short HEAD'
+    ssh wl-rig-sync0 'git -C ~/src/wl-sync merge --ff-only origin/main && ~/wl-sync-venv/bin/pip install -q -e "$HOME/src/wl-sync[pi]" && git -C ~/src/wl-sync rev-parse --short HEAD && ~/wl-sync-venv/bin/wl-sync record --help | grep -c -- --split'
+
+**Pass:**
+- The hash printed by `git -C ~/src/wl-sync rev-parse --short HEAD` is the one you wrote
+  down in step 1.
+- The `--split` count is 1 or more.
+
+The path is double-quoted so the shell does not glob `[pi]`, and is written `$HOME` because a
+quoted `~` would not expand. README `:657` gives it unquoted.
+
     ssh wl-rig-sync0 '~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp'
 
 **Pass:** "It must compile under `-Wall -Wextra` with no warnings" (P0 item 1, plan
@@ -181,18 +210,26 @@ Then check the shim. This is S.1's check, plan `:1950`, run against the installe
 B1 (step 8) and B2 (step 19) record with `wl-sync record --split` from `~/wl-sync-spike`
 with `lib-b3`. That is the user's ruling, 2026-11-21. `--split` is Task 1.24
 (README `:226-252`).
+- **The spike's code is the deployed code.** `src-b3` is rebuilt from step 3's deployed tree,
+  on the box, as S.1 copied its build (plan `:1947`), and `lib-b3` is rebuilt from it too. It
+  is not a separate copy.
+- **What `rm -rf` removes.** It removes B3's tree, `src-b3` at `ab98afd`, and the shim built
+  from it in `lib-b3`. Git keeps that commit, `ab98afd`. Spike S's `src` and `lib` are not
+  touched.
 
-`src-b3` is at `ab98afd`, which has no `--split`. So copy a commit that has it, as S.1 copied
-its build (plan `:1947`). Copy `15b3c83`, or the deployed commit if that carries Task 1.24.
-Run this on the Mac, from the wl-sync checkout:
+```sh
+ssh wl-rig-sync0 'rm -rf ~/wl-sync-spike/src-b3 && mkdir -p ~/wl-sync-spike/src-b3 && git -C ~/src/wl-sync archive --format=tar HEAD | tar -x -C ~/wl-sync-spike/src-b3 && ~/wl-sync-spike/src-b3/pio/build-shim.sh ~/src/utils/piolib ~/wl-sync-spike/lib-b3'
+ssh wl-rig-sync0 '~/wl-sync-spike/venv/bin/pip install -q --no-deps -e "$HOME/wl-sync-spike/src-b3[pi]" && ~/wl-sync-spike/venv/bin/wl-sync record --help | grep -c -- --split'
+ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib-b3 venv/bin/python -c "from wl_sync.rp1 import backend as b; lib = b._load_shim(); print(lib.wlsync_shim_version(), [l.split()[-1] for l in open(\"/proc/self/maps\") if \"wlsync\" in l][0])"'
+```
 
-    git archive --format=tar 15b3c83 | ssh wl-rig-sync0 'rm -rf ~/wl-sync-spike/src-b3 && mkdir -p ~/wl-sync-spike/src-b3 && tar -x -C ~/wl-sync-spike/src-b3'
-    ssh wl-rig-sync0 '~/wl-sync-spike/venv/bin/pip install -q --no-deps -e "$HOME/wl-sync-spike/src-b3[pi]" && ~/wl-sync-spike/venv/bin/wl-sync record --help | grep -c -- --split'
+**Pass:**
+- the shim compiles "under `-Wall -Wextra` with no warnings" (plan `:1880`);
+- a `--split` count of 1 or more;
+- `6` and the path of `~/wl-sync-spike/lib-b3/libwlsync_pio.so`, which is S.1's check, plan
+  `:1950-1951`, on `lib-b3`.
 
-**Pass:** a count of 1 or more.
-
-`lib-b3` stays as it is: its shim is version 6. Since it was built, `pio/wlsync_pio.c` has
-changed in comments only. The B3 harness runs as before.
+The B3 harness of step 5 now runs from this tree too.
 
 ---
 
@@ -408,6 +445,8 @@ Then take the jumper off. The header must be bare before wl-phantom's wiring.
 Follow wl-phantom's `phase-1.md` as written. It is the procedure, and this part says only
 where the plan's items sit in it.
 
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
+
 **The service stays stopped through this part.** That follows `phase-1.md:428-431` (Ruling
 R73): it keeps the bench recorder's log the only one in play. It is not a PIO need: the
 `--fake` service never opens the block (plan `:1921-1922`).
@@ -435,6 +474,9 @@ Then run wl-phantom's steps 1-3 (`phase-1.md:348-814`):
 
 **Pass:** every step-3 `Result:` passes. "A box result means nothing until the Pico-to-Pico
 run says the phantom is right" (`phase-1.md:11-12`).
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 11. Into the box: the timebase, and P0 item 3's run (the gate's first run)
 
@@ -467,6 +509,9 @@ Then 4.2's run (`phase-1.md:913-922`):
 
 **Pass:** `run valid` with no `run cut` line, and no `graded from` or `graded up to` line
 (`phase-1.md:927-933`).
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 12. Compare: P0 items 3 and 4, Task 5b Steps 3 and 4, and the gate's first half
 
@@ -501,18 +546,25 @@ What this one comparison answers:
   - Record both readings. next-session's items 3 and the known constant (`:226-228`,
     `:249-258`) are what it measures.
 - **Task 5b Step 4, "parity with the fake"** (sync-box plan `:1132-1134`).
+  - The plan's own text: "Replay the bench capture through `Recorder` and confirm the
+    resulting log is byte-identical in structure to one produced by `FakeBackend` given the
+    same injected words. The Task 4 tests already pin that shape, so this is the real payoff
+    of the adapter."
   - **[composed]**, defined by the user's ruling of 2026-11-21, **for you to confirm**: it
     is wl-phantom grading the one-count box with `--expect-timebase one-count` and getting
     PASS.
   - So: `PASSED`, and no `warning:` line that names a timebase.
 - **The gate's first half.** See step 13.
 
-**A fail means:**
+**A fail means** (and if you stop here, do step 20 before you leave):
 - **A FAIL on the residual or the rate.** On a one-count domain it is "a fault of the box's
   W path" (`phase-1.md:1000-1002`). P0 then fails, and "A failure stops Task 5b and this
   design (spec §5, item 0), and needs its own diagnosis" (plan `:1894`).
 - **A `split` domain.** The stamp machine failed its start-up test. Quote the ERROR in
   `rig0.err` (`phase-1.md:1279-1282`), restart the recorder, and run again.
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 13. The ±100 µs gate's second half: repeatability
 
@@ -554,6 +606,9 @@ Stop the recorder with Ctrl-C before the `rsync`.
 
 **Record:** step 6's table (`phase-1.md:1122-1133`).
 
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
+
 ### 14. The GET flood during strobed codes (next-session Step B2, item 3)
 
 "During a burst of strobed codes, flood the endpoint from another machine ... The journal
@@ -575,8 +630,11 @@ Stop the recorder, then copy and compare as in step 12, into `runs/flood-log`.
   is README `:315-316`; next-session `:308-309` quotes its older text.
 - The comparison's `dropped` is empty.
 
-**A fail:** "If codes drop, cap the handler threads" (next-session `:311-312`). That is a code
+**A fail** (and if you stop here, do step 20 before you leave): "If codes drop, cap the handler threads" (next-session `:311-312`). That is a code
 change, for later.
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 15. P0 items 5 and 6: the data hold and the strobe limits [composed]
 
@@ -647,6 +705,9 @@ Until one is used, P0 items 5 and 6 are not complete. Say so to the user before 
 Then "confirm that the task PC holds its code ≥ 2.5 µs **[unverified]**" (plan `:1890`;
 README `:519-522`).
 
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
+
 ### 16. P0 item 7, which is Task 5b Step 5: one run past a counter wrap [composed]
 
 "Run Task 5b Step 5: one run past a counter wrap (> 71.6 min) with strobes flowing. The ticks
@@ -674,6 +735,9 @@ one-count`, as in step 12.
   domain. A domain longer than 20 minutes is fitted in 10-minute pieces (`phase-1.md:1232-1238`),
   so a slope change at the wrap shows as a residual past the budget.
 
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
+
 ### 17. The strobe-margin sweep
 
 This is wl-phantom step 7, as written (`phase-1.md:1165-1253`): its own recorder,
@@ -682,6 +746,9 @@ This is wl-phantom step 7, as written (`phase-1.md:1165-1253`): its own recorder
 
 **Pass:** "the report is written" (`:1247`). The margins are information: they become the
 timing spec that wl-xcon and MonkeyLogic must meet (`:1299-1303`).
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 18. Next-session's silicon conditions, B-1 to B-5, from the runs above
 
@@ -699,6 +766,9 @@ These are next-session `:122-149`.
   should show one recorder and nothing else **[composed]**.
 - **Not on this bench:** next-session item 6, "The frame-time inputs see a high"
   (`:236-238`). It needs a camera group's strobe, wired as the rig will be.
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 19. B2: today's W–B drift, `--split`, at least 1 h, with the service stopped
 
@@ -750,6 +820,9 @@ split box's expected finding (`phase-1.md:979-994`).
 **Record:** `rate_ppm` with `rate_se_ppm`, and both `timesync-status` frequencies. Set them
 beside step 8's B1 rates and step 9's B8 r, which is what "it should match B8's rate against
 B1's" asks.
+
+
+**If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
 ### 20. Put the box back
 
@@ -955,4 +1028,8 @@ days.
 - **wl-preproc.** Tell it the box records on one count, from which commit and since when,
   and the first `process_uuid`. Deliver note 8's two queued additions
   (`docs/pending-wl-preproc-amendments.md:525-545`).
+- **next-session's spike commands.** next-session `:182-186` name `lib`, where spike S's
+  version-3 shim sits. B3 ran on `lib-b3`, and step 4 rebuilds `lib-b3` from the deployed
+  tree. A dated note at next-session `:182` says so (2026-11-21). Read `lib` as `lib-b3`
+  there.
 - **The spike tree.** `~/wl-sync-spike` stays until you say otherwise (plan `:2043`).

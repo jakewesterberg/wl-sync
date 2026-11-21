@@ -108,7 +108,7 @@ the platform does not expose one.
   (2026-11-19)* it is 0 under `"rp1-pio-si"` and `"rp1-pio"`, because the tick is the
   stamp of the edge itself. Under `"split"` the first `B` of a process can be later by an
   amount nothing measures, and the delay is `null` until bench day measures it and the unit
-  passes `--barcode-delay-us` (above).
+  passes `--barcode-delay-us` (above). *[2026-11-21, the bench-day runbook's review: stale for the unit. The unit records one count and is not to pass the flag (`:35-38`; `deploy/wl-sync.service:21-23`), so its headers say 0. A split process's delay stays `null` unless a measurement taken on a `"split"` segment is passed by hand, to a bench run.]*
 - **`timebase`** names the clocks the segment's ticks count. `"fake"` under the `--fake`
   unit. On the RP1 backend, since the one-clock build (2026-11-19), one of three:
   - `"rp1-pio-si"`: code words, barcodes and edges all on RP1's PIO count, scaled to SI µs
