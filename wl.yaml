@@ -115,7 +115,13 @@ status:
     and tests, with nothing changed on the recording path: bench streams'
     --record CSV now names clk_sys and the width meter's machine, so its
     counts give widths, and build-shim.sh warns when piolib is not at utils
-    b57c48e (1351 tests).
+    b57c48e (1351 tests). Task 1.24 (the user's ruling, 2026-11-21, on
+    one-clock-p1, not yet merged or reviewed) adds wl-sync record --split,
+    for the bench only and never the unit: it skips the stamp machine and
+    its start-up test and records the split fallback through its own path,
+    with the fallback's header and records, saying so at ERROR at start, in
+    the health check and in the run's summary; refused with --fake (1363
+    tests).
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
     answers (docs/pending-wl-preproc-amendments.md:425-427), and note 8 the
@@ -123,21 +129,23 @@ status:
     (:525-545). The box runs fc18551 under --fake, from the user's restart of
     2026-11-20; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
-    Bench day, in the order of docs/next-session.md:113-273:
+    Bench day, in the order of docs/next-session.md:113-278:
     rebuild the shim (version 6); then GPIO17 looped to GPIO20, so the box
     decodes its own barcode; then Task 5b Steps 3-5, whose first check is the
     fixed capture program on silicon (P0); then the session endpoint from the
-    task PC and the MonkeyLogic checklist (docs/next-session.md). Leaving
+    task PC and the MonkeyLogic checklist (docs/next-session.md). Bench B2,
+    the split backend's drift, runs on wl-sync record --split
+    (docs/superpowers/plans/2026-11-07-one-clock.md:2049-2051). Leaving
     --fake no longer waits for bench B3a and B3b, which passed on the box
-    2026-11-20/21 (docs/superpowers/plans/2026-11-07-one-clock.md:2057,
-    :2066); it waits for the +-100 us gate (:2104-2105), which needs a strobe
+    2026-11-20/21 (docs/superpowers/plans/2026-11-07-one-clock.md:2058,
+    :2067); it waits for the +-100 us gate (:2105-2106), which needs a strobe
     source, and for the shim v6 rebuild in the deploy. Once the unit
     runs the RP1 backend: run it 1 h, then restart it once, between sessions,
     so it applies a PIO rate (deploy/README.md). Before layout: the task PC
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "431a6c4"
+  describes: "c8222a6"
 
 runs_on: [rig/sync]
 builds_on: [dws]
@@ -165,7 +173,7 @@ third_party:
       its descriptor (pio/wlsync_pio.c:41-52). A utils whose handle has moved
       is caught at start, not misread (every level read -9, so split with no
       W), and pio/build-shim.sh warns when piolib is not at b57c48e
-      (deploy/README.md:616-621).
+      (deploy/README.md:645-650).
   - name: gcc
     where: rig/sync
     why: >-
@@ -185,7 +193,7 @@ third_party:
       docs/superpowers/specs/2026-10-30-one-clock-design.md:268-272;
       wl_sync/calibration.py:89-125). That timesyncd sets the PLL flag is itself
       unverified until bench B7 logs it, and without it no pair passes and no
-      rate file is ever written (deploy/README.md:723-725).
+      rate file is ever written (deploy/README.md:752-754).
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.
