@@ -548,7 +548,7 @@ What matters for the budget is that the map is affine, which it is by constructi
 | B8 | After (or Now: GPIO17 jumpered to GPIO16 makes each lead edge a `W`, against its `B` on MONO) | **RP1 against SI.** The calibration over 8 h, on two days. Report r, r per hour, and day to day. | r within ±200 ppm (that confirms clk_sys = 200 MHz too). **If r moves more than 1 ppm within a day, the fixed-rate target cannot hold: revisit (§5).** Leaves the first calibration file. |
 | B9 | Now | **The board serial** a CM5 exposes (`/proc/device-tree/serial-number` or `/proc/cpuinfo`) **[unverified]**, and whether the RP1 crystal sits on the module **[unverified]**. | It names the calibration key. |
 | B10 | After | **Missed stamps.** Count dropped `B`s over 8 h with the loopback fitted. *[2026-11-07, c-direct: there is no loopback to fit, so it runs on the built box as it stands.]* | Zero. Any drop is investigated, because each costs every device a matched pair. |
-| — | After | **The ±100 µs gate.** Task 5b Step 3 as written (`docs/next-session.md:128-159`), and wl-phantom §5.5 on the B6 run. | ±100 µs. Draft Q5 is withdrawn [mine]: W–B error no longer grows with process age, and the 8 h runs cover several wraps. |
+| — | After | **The ±100 µs gate.** Task 5b Step 3 as written (`docs/next-session.md:128-159`), and wl-phantom §5.5 on the B6 run. | ±100 µs. Draft Q5 is withdrawn [mine]: W–B error no longer grows with process age, and the 8 h runs cover several wraps. *[2026-11-21, the user's ruling on the bench-day runbook's C2, "Separate runs": B6 runs alone with its jumper, and the gate afterwards as wl-phantom §5.5 standalone (the plan's gate, `docs/superpowers/plans/2026-11-07-one-clock.md:2106`).]* |
 
 ---
 

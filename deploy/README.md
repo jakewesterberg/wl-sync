@@ -24,7 +24,7 @@ label (`gpioinfo`):
 
     wl-sync record --out /data/rig0 --gpiochip /dev/gpiochipN
 
-Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`.
+Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`. *[2026-11-21, the user's ruling on the bench-day runbook's C3, "Both": that waits for Task 5b Steps 3–5 and for the ±100 µs gate (`docs/superpowers/plans/2026-11-07-one-clock.md:2106`; `docs/next-session.md:186`). The hand run above writes `/data/rig0`, which the `--fake` service writes too: stop the service first (`sudo systemctl stop wl-sync`), or give the hand run another `--out`, such as `/tmp/wl-bench/rig0`. The day's order is `docs/bench-day.md`.]*
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
 is for a process that records `"split"` alone (below). Such a process writes the flag into
 every header (`wl_sync/rp1/backend.py:802`; `wl_sync/cli.py:555-563`, `:572`), and N is
