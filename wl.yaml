@@ -33,8 +33,12 @@ status:
     resistor (R2) and U3/U4's PowerPAD (R3) added (2026-11-20); its layout
     constraint set (hardware/breakout/constraints.md) and floorplan
     (hardware/breakout/floorplan.md) are written and reviewed, the CM5 IO
-    Board riding above the back connector row (ruled 2026-11-20); placement
-    and routing not started. On 2026-11-07 the strobe-capture
+    Board riding above the back connector row (ruled 2026-11-20); its
+    placement is generated (hardware/gen/gen_breakout_pcb.py writes
+    breakout.kicad_pcb: every footprint placed and on its net, both
+    isolation slots, no track) and checked
+    (hardware/gen/check_breakout_placement.py), on a branch, not merged
+    (2026-11-20); routing, which is a person's, is not started. On 2026-11-07 the strobe-capture
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
     by simulating the program's words but not yet on silicon. One clock
@@ -131,7 +135,7 @@ status:
     line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "0807a68"
+  describes: "1720695"
 
 runs_on: [rig/sync]
 builds_on: [dws]
