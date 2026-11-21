@@ -161,15 +161,15 @@ status:
     and the +-100 us gate (both, the user's ruling); Step 4, parity with the
     fake, is wl-phantom grading the one-count box with --expect-timebase
     one-count, a composed definition the user is to confirm. P0 items 5 and
-    6 need sub-us strobe timing that wl-phantom's whole-us generator cannot
-    play. B3a and B3b passed on the box 2026-11-20/21
+    6 play with wl-phantom at sub-us-tick c4a1252 or its merge (0.5 us strobe
+    timings, docs/bench-day.md step 15). B3a and B3b passed on the box 2026-11-20/21
     (docs/superpowers/plans/2026-11-07-one-clock.md:2058, :2067). Once the
     unit runs the RP1 backend: run it 1 h, then restart it once, between
     sessions, so it applies a PIO rate (deploy/README.md). Before layout: the
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "5b5fea5"
+  describes: "2679b0a"
 
 runs_on: [rig/sync]
 builds_on: [dws]
