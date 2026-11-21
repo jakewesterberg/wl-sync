@@ -49,7 +49,7 @@
   (condition "(A.NetName == 'ISO_P15_RAW' || A.NetName == 'ISO_P15_FILT') && (B.NetName == 'ISO_N15_RAW' || B.NetName == 'ISO_N15_FILT')")
   (constraint clearance (min 0.6mm)))
 
-# N-13 (as amended 2026-11-21): 0.6 mm on outer layers from any net that reaches a
+# N-13 (as amended 2026-11-20): 0.6 mm on outer layers from any net that reaches a
 # panel connector to any other net. The list is every such net in the netlist,
 # grounds and rails excepted.
 (rule "N-13 panel-side nets, outer layers"

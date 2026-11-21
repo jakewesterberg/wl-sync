@@ -929,7 +929,7 @@ the schematic, generators, BOM and checkers are untouched. The fab must still ac
 of copper to a routed edge, which is the question the optocouplers already ask of it at
 0.25 mm (`constraints.md`, B-11).
 
-### R6 — The isolation slot narrows under the SOIC-16 optocouplers — **RULED 2026-11-21**
+### R6 — The isolation slot narrows under the SOIC-16 optocouplers — **RULED 2026-11-20**
 
 R5's sibling. The eight `ACSL-6400`/`-6420` optocouplers (`U56`–`U61`, `U64`, `U65`) are in
 the stock `Package_SO:SOIC-16_3.9x9.9mm_P1.27mm`, whose two pad columns are centred at
@@ -940,7 +940,7 @@ L4) showed what that costs: 128 `copper_edge_clearance` errors, 16 pads on each 
 parts, against KiCad's default 0.5 mm, and no routing would clear them.
 
 `constraints.md` Open question 4 asked what the fab accepts. The user was asked, and
-answered on 2026-11-21: "what is best practice, do some research. i am not an expert in
+answered on 2026-11-20: "what is best practice, do some research. i am not an expert in
 this". What the research found, as reported to this task; the pages are not in this
 repository and were not re-read here:
 
@@ -970,9 +970,27 @@ these eight parts. The plan gives no voltage or standard for the 2.5 mm
 **If it is wrong:** one constant, `SLOT_OPTO_MM` in
 `hardware/gen/check_breakout_placement.py`, and a regenerate, while the board is unrouted.
 
-Built 2026-11-21: `gen_breakout_pcb.py` draws both slots stepped, the check holds the width
+Built 2026-11-20: `gen_breakout_pcb.py` draws both slots stepped, the check holds the width
 under each of the eight parts to 2.0 mm exactly, and DRC reports no `copper_edge_clearance`.
 `constraints.md` B-3, B-11 and B-21 are amended and its Open question 4 is closed.
+
+### R7 — Every BNC is insulated from the panel — **RULED 2026-11-20; the hardware is not chosen**
+
+The dual BNC's threaded bushing is its shell (`constraints.md`, Open question 25, from
+drawing 31-6576 rev B). Through a bare hole in an aluminium panel it would bond `AGND`'s
+shields, `DGND`, `INTAN_GND` and the task PC's `AO_GND_TPC` to the chassis, and the Intan
+bond would bridge the Intan isolation barrier off the board.
+
+**Ruling, the user's, 2026-11-20: "Insulate every BNC".** All 18 dual bodies, `J57` among
+them. No ground reaches the chassis through a BNC, and G-1, G-3, G-17, G-18, G-21 and the
+Intan barrier stand as written.
+
+**Not built.** The ruling asked for a real insulating shoulder washer if one fits. None
+found does: at a 16.0 mm port pitch a flange can be 16.0 mm at most and a shoulder about
+14.5 mm, and the smallest catalogue 1/2 in part found (Essentra 12SWS2578) has a 15.88 mm
+shoulder and a 19.05 mm flange. The alternatives, an insulating sub-plate or an insulating
+panel region, are the user's to choose. The arithmetic and the candidates are in
+`constraints.md`, Open question 25. The board is not affected.
 
 ## 4. Verified correct
 

@@ -898,7 +898,7 @@ def project_json(existing: dict, nets: list[str]) -> str:
 
 
 def panel_side_nets(pin_nets, nets: dict[str, list]) -> tuple[list[str], list[str]]:
-    """N-13's nets, as amended 2026-11-21 (ruling R45): every net with a pin on a panel
+    """N-13's nets, as amended 2026-11-20 (ruling R45): every net with a pin on a panel
     connector, a ground or a rail excepted. These are the nets that see a mis-plug voltage
     directly.
 
@@ -978,7 +978,7 @@ def rules_text(panel_nets: list[str]) -> str:
         + any_of("B", ["ISO_N15_RAW", "ISO_N15_FILT"]) + "\")",
         "  (constraint clearance (min 0.6mm)))",
         "",
-        "# N-13 (as amended 2026-11-21): 0.6 mm on outer layers from any net that reaches a",
+        "# N-13 (as amended 2026-11-20): 0.6 mm on outer layers from any net that reaches a",
         "# panel connector to any other net. The list is every such net in the netlist,",
         "# grounds and rails excepted.",
         '(rule "N-13 panel-side nets, outer layers"',

@@ -356,7 +356,7 @@ def verify_mdr68(params: dict) -> str:
         f"(mdr68.mounting_hole_span_mm)",
     )
 
-    # (g) The tail map and the handedness, as read from the drawing on 2026-11-21 (ruling
+    # (g) The tail map and the handedness, as read from the drawing on 2026-11-20 (ruling
     #     R46; hardware/datasheet-params.toml [mdr68], hardware/breakout/d3-panel-thickness.md).
     #     Until then this asserted only that a "PIN MAP UNVERIFIED" note was present.
     by_num = {int(q.number): q for q in contacts}

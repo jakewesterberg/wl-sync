@@ -3,7 +3,7 @@
 	(generator "wl-sync-gen")
 	(generator_version "10.0")
 	(layer "F.Cu")
-	(descr "68-pin Mini D Ribbon (MDR/SCSI-3), male, right-angle PCB mount. Rebuilt from MH drawing 3700-0121-01 rev 3.0 (2015-03-27): 0.85mm contact holes in 4 staggered rows of 17 at 1.905mm, 2.54mm within-row pitch on two 1.27mm phases, array 41.91mm wide, two 2.77mm non-plated mounting holes at 57.93mm centres. Replaces a version that drilled 0.5mm (pins do not fit) in 2 rows at 2.84mm. Y = 0 is the PCB EDGE (the drawing's datum); the nose stands 4.7mm beyond it. PIN MAP READ FROM THE DRAWING 2026-11-21: tail rows from the edge inward B_even,B_odd,A_even,A_odd (36..68 even, 35..67 odd, 2..34 even, 1..33 odd), contact 1 at the right seen from the component side with the edge up. Not checked against a part.")
+	(descr "68-pin Mini D Ribbon (MDR/SCSI-3), male, right-angle PCB mount. Rebuilt from MH drawing 3700-0121-01 rev 3.0 (2015-03-27): 0.85mm contact holes in 4 staggered rows of 17 at 1.905mm, 2.54mm within-row pitch on two 1.27mm phases, array 41.91mm wide, two 2.77mm non-plated mounting holes at 57.93mm centres. Replaces a version that drilled 0.5mm (pins do not fit) in 2 rows at 2.84mm. Y = 0 is the PCB EDGE (the drawing's datum); the nose stands 4.7mm beyond it. PIN MAP READ FROM THE DRAWING 2026-11-20: tail rows from the edge inward B_even,B_odd,A_even,A_odd (36..68 even, 35..67 odd, 2..34 even, 1..33 odd), contact 1 at the right seen from the component side with the edge up. Not checked against a part.")
 	(tags "connector MDR SCSI-3 68pin right-angle PCB")
 	(attr through_hole)
 	(duplicate_pad_numbers_are_jumpers no)

@@ -740,7 +740,7 @@ primary drawings rather than from corroborated distributor figures. What is left
    own drawing or 3D model** — minutes with a document already in hand — and record the answer
    in `hardware/breakout/d3-panel-thickness.md`.
 
-   > **Done 2026-11-21, from the drawing (ruling R46), and most of the paragraph above was
+   > **Done 2026-11-20, from the drawing (ruling R46), and most of the paragraph above was
    > wrong.** MH rev 3.0 does give the map, on "PCB Layout (B)": from the PCB edge inward,
    > contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd, which was not one of the four
    > candidates. The same view showed the footprint was **mirrored**, that its row datum is

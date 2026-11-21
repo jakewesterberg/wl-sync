@@ -4,7 +4,7 @@ This is the floorplan for plan Task 14, Steps 1 and 1b. It says where the board'
 connectors, ground domains and barriers go, where the barcode runs, and whether the CM5 IO
 Board fits. It is a document, not a board file. Nothing here was measured on hardware.
 
-> **2026-11-21.** `breakout.kicad_pcb` now exists: it is generated, with every part placed
+> **2026-11-20.** `breakout.kicad_pcb` now exists: it is generated, with every part placed
 > and nothing routed, and `placement.md` records it. Two figures this document builds on
 > were corrected that day from the manufacturers' drawings (ruling R46; `constraints.md`
 > X-4, X-5, M-9):

@@ -452,7 +452,7 @@ mounting_hole_dia_mm = 2.77
 mounting_hole_span_mm = 57.93
 row_offsets_from_edge_mm = [5.10, 1.905, 3.81, 5.715]
 overall_width_mm = 63.86
-# CORRECTED 2026-11-21 (ruling R46, read from the drawing). 51.32 is a WIDTH: the bottom
+# CORRECTED 2026-11-20 (ruling R46, read from the drawing). 51.32 is a WIDTH: the bottom
 # view dimensions it across the connector, between the two side hooks. The depth is the
 # side view's 16.70 +/- 0.3, nose tip to rear of housing. `body_depth_mm` was 51.32.
 body_depth_mm = 16.70
@@ -465,7 +465,7 @@ flange_to_row1_mm = 4.80         # side view, 4.80 +/- 0.2: flange face to the f
 nose_beyond_flange_mm = 5.00     # bottom view, 5.00 +/- 0.15: flange face to the nose tip
 hook_beyond_flange_mm = 3.50     # bottom view, 3.50 +/- 0.2: flange face to the side-hook tips
 mating_shell_width_mm = 46.45    # front view
-# The tail-row map, read off PCB Layout (B) and the front view (2026-11-21): leaders "1"
+# The tail-row map, read off PCB Layout (B) and the front view (2026-11-20): leaders "1"
 # and "3" go to the row FARTHEST from the edge, "2" to the row before it, and "Last
 # Position" (contact 68) to the left end of the row NEAREST the edge; the front view
 # numbers 1-34 along the upper mating row and 35-68 along the lower. Rows from the edge
@@ -550,13 +550,23 @@ title = "50 OHM DUAL PORT BNC R/A JACK, ISOLATED, BLACK"
 ports = 2
 orientation = "right angle"
 port_pitch_mm = 16.00            # centre to centre, STACKED vertically
-# Added 2026-11-21 (ruling R46), read from drawing 31-6575 rev A (preliminary, 4/18/13),
+# Added 2026-11-20 (ruling R46), read from drawing 31-6575 rev A (preliminary, 4/18/13),
 # side view and "RECOMMENDED MOUNTING HOLE". All are REF dimensions on the drawing.
 document_sha256 = "7ffb0a02af0b59fe2166fce3ea4ce2c49235c44f2bebdb901695629da534ef34"
 document_file = "AmphenolRF_C031-6575.pdf (31-6575 REV A, sheet 2 of 2); not in this repository"
 face_to_tip_mm = 20.7            # body front face to the tip of the jack
 thread_length_mm = 8.6           # body front face to the end of the 1/2-28 thread
-ground_pin_to_face_mm = 5.56     # ground-pin centres to the body front face
+post_to_face_mm = 5.56           # the two 2.01 mm post-mount holes' centres to the body front face
+# The two 2.01 mm holes are POST MOUNT holes, for the brass mounting hooks, per the sibling
+# drawing 31-6576 rev B, Detail A (as read by the L4 re-review, 2026-11-20). They are not
+# ground terminals, though the keys below named `pcb_ground_hole_*` and `ground_terminal`
+# call them that; the names are kept because the generator and the checker read them. The
+# sibling's "GROUNDING TERMINAL - STEEL" is the per-port grounding contact in a 0.89 mm
+# hole. Same detail: the middle hole of the three-hole row is "HIGH PORT SIGNAL", the
+# single hole nearer the face "LOW PORT SIGNAL", and the row's two ends the two ports'
+# grounding contacts. So a centre-for-shell swap is ruled out (constraints GT-4); but the
+# footprint's note that pad 1 is the LOWER port is the wrong way round: pad 1 is the
+# upper port's centre and pad 3 the lower's.
 lower_port_height_mm = 7.0       # seating plane to the lower port's axis; upper is 7 + 16
 panel_hole_flat_mm = 5.56        # single-D hole: hole centre to the flat
 # The sibling 31-6576 rev B (31-JUL-24) dimensions the same cutout as 11,7 across, which
@@ -592,6 +602,11 @@ insulator = "polypropylene"
 ground_terminal = "steel, tin plated"
 tray_qty = 40
 feeds = ["F6"]
+# CORRECTED 2026-11-20: the note below is wrong about the PANEL. The threaded bushing is
+# the shell (31-6576 rev B lists the connector interface as one ZAMAC part), so a bare
+# hole in a metal panel bonds each shell to it. "Isolated" means the two ports' grounds
+# are separate. See hardware/breakout/constraints.md, Open question 25, and ruling R7 in
+# parametric-audit.md: every BNC is to be insulated from the panel.
 note = """Isolation is structural: the body is glass-filled PBT, so each shell is inherently
 isolated from the panel and from its neighbour. That is what the deferred bulkhead-bonding
 scheme requires, and it cannot wear off the way a coating could.

@@ -109,7 +109,7 @@ PCB, so its port axes are fixed relative to the board's top surface:
 | Lower port axis | **7 mm** |
 | Upper port axis | **23 mm** |
 
-(**Corrected 2026-11-21, ruling R46**, from drawing 31-6575 rev A: "7 REF" from the seating
+(**Corrected 2026-11-20, ruling R46**, from drawing 31-6575 rev A: "7 REF" from the seating
 plane to the lower port's axis, and the 16 mm pitch. These read 6.63 and 22.63 mm, from
 assuming the ports were centred in a 29.25 mm body; the drawing dimensions the lower one.
 The figures below that were built on 6.63 mm move by 0.37 mm.)
@@ -123,7 +123,7 @@ Three consequences, none of which existed when the BNCs were panel-mounted:
    makes itself.
 2. **The MDR68 and BNC rows cannot both be centred.** The MDR68's body is 9.10 mm tall
    (`body_height_mm`) with its tail rows 5.10–10.82 mm inside the **PCB edge** (corrected
-   2026-11-21: this said "behind the mating face"; the drawing's datum is the board edge,
+   2026-11-20: this said "behind the mating face"; the drawing's datum is the board edge,
    and the mating nose stands 4.70 mm beyond it), so its face
    centre sits far lower above the board than the BNC pair's does. Expect the MDR68s to sit
    lower relative to the BNC field, or to be shimmed.
@@ -132,7 +132,7 @@ Three consequences, none of which existed when the BNCs were panel-mounted:
    not dimensioned on the drawing; measure it on a sample, or take it from the 3D model,
    before fixing the board outline.
 
-   > **Superseded 2026-11-21 (ruling R46: manufacturer drawings in place of samples).**
+   > **Superseded 2026-11-20 (ruling R46: manufacturer drawings in place of samples).**
    > Drawing 31-6575 rev A does dimension it. The body proper is 15.5 mm deep and the jacks
    > stand 20,7 REF beyond its front face, 8,6 REF of that thread. The part is a rear-mount
    > bulkhead part: the panel goes over the bushings and seats on the body's front face.
@@ -162,15 +162,16 @@ their thread engagement is not load-bearing.
 | Reward button | Ø ~12 mm, recessed bezel | 1 | spec §3.1 / §9.8 |
 | Panel material | **3.0 mm** aluminium | both faces | `d3-panel-thickness.md` |
 
-**The BNC holes are single-D (added 2026-11-21, R46).** Drawing 31-6575 rev A,
+**The BNC holes are single-D (added 2026-11-20, R46).** Drawing 31-6575 rev A,
 "RECOMMENDED MOUNTING HOLE": 2 × Ø12.83 mm at 16 mm, each with one anti-rotation flat
 5.56 mm from the hole's centre, the upper hole's flat at the top and the lower hole's at
 the bottom. The 2024 sibling drawing 31-6576 rev B gives 11.7 mm across the same cutout,
 which is a flat at 5.29 mm. Which applies today is open (`constraints.md` Open question
 24): test-fit or ask Amphenol before machining. **The nuts** (31-5652) are 14.2 mm across
 flats, about 16.4 mm across corners, and the two ports of a body are 16.0 mm apart, so the
-two nuts must be turned flat to flat. Whether the bushing is insulated from the panel is
-`constraints.md` Open question 25.
+two nuts must be turned flat to flat. **The bushing is the shell, and every BNC is to be insulated from the panel (ruling R47,
+`parametric-audit.md` R7). No stock shoulder washer fits the 16.0 mm port pitch, so the
+hole size waits on how: `constraints.md` Open question 25. Do not machine bare BNC holes.**
 
 **Machine all 34 BNC holes.** They are real ports on real connectors that will be fitted;
 leaving one undrilled would mean a body pressed against blank panel.

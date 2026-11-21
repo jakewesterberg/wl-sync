@@ -223,7 +223,7 @@ document is not confirmation.
   `hardware/breakout/d3-panel-thickness.md`. Minutes with a document already in hand.
   Switching is a one-line edit and a regenerate.
 
-  > **2026-11-21: resolved from the manufacturer's drawing, per ruling R46** (the user:
+  > **2026-11-20: resolved from the manufacturer's drawing, per ruling R46** (the user:
   > "i want you to go based off specs online and manufacturer info"), not from a sample.
   > MH Connectors drawing 3700-0121-01 rev 3.0 (03-27-15; sha256 `f24b828f…0d27`, recorded in full at `hardware/datasheet-params.toml` `[mdr68]`)
   > does state the map, on "PCB Layout (B)": from the PCB edge inward the tail rows hold
@@ -242,7 +242,7 @@ document is not confirmation.
   model.
   **Human step:** needed before Task 14 fixes the board outline, not before it starts.
 
-  > **2026-11-21: resolved from the manufacturer's drawing, per ruling R46**, not from a
+  > **2026-11-20: resolved from the manufacturer's drawing, per ruling R46**, not from a
   > sample. The drawing does dimension it:
   > Amphenol RF drawing 31-6575 rev A (preliminary, 4/18/13, sheet 2 of 2; sha256 `7ffb0a02…ef34`, recorded in full at `hardware/datasheet-params.toml` `[bnc_dual_isolated]`)
   > gives 20,7 REF from the body's front face to the tip of the jack, of which 8,6 REF is
@@ -374,7 +374,7 @@ scope a fix as its own task** rather than resolving it inside a review document.
 **Layout (Task 14) does not begin until this section is completed by a person.**
 
 - Reviewer name:
-- Date: 2026-11-21
+- Date: 2026-11-20
 - Every checklist item above independently confirmed (not merely read): ☐ Yes
 - `parametric-audit.md` read, and its 21 findings accepted as closed: ☐ Yes
 - Physical samples of the **MDR68** and the **dual BNC** (`031-6575`) ordered, and measurement
@@ -387,7 +387,7 @@ scope a fix as its own task** rather than resolving it inside a review document.
 
 Signature: **"i sign off"**
 
-> On the four confirmations above, the user's answer, given on 2026-11-21 in the Claude Code session that ran layout task L4: "none of the above. i thought the sign off was just to start the pcb design. i want you to go based off specs online and manufacturer info."
+> On the four confirmations above, the user's answer, given on 2026-11-20 in the Claude Code session that ran layout task L4: "none of the above. i thought the sign off was just to start the pcb design. i want you to go based off specs online and manufacturer info."
 
 ---
 

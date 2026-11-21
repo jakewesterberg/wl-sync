@@ -96,9 +96,9 @@ conductors and the ±2.54 mm pair are the shells.
 - The 3M-derived **2.00 mm figure is dead** and should not reappear. It came from a part that
   was evaluated and not selected; see this finding's entry in `parametric-audit.md`.
 
-## Recorded 2026-11-21: the answers, from the drawings (ruling R46)
+## Recorded 2026-11-20: the answers, from the drawings (ruling R46)
 
-The user's policy of 2026-11-21 is that these are taken from the manufacturers' published
+The user's policy of 2026-11-20 is that these are taken from the manufacturers' published
 drawings, not from samples. Both PDFs are recorded with their sha256 in
 `../datasheet-params.toml`. Nothing below was checked against a part.
 

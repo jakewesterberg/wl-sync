@@ -83,7 +83,7 @@ it is not a dimensioned panel position.
 
 ### How far each connector is from the board edge
 
-**Per family, from the manufacturers' drawings.** The user, 2026-11-21: "Per family from
+**Per family, from the manufacturers' drawings.** The user, 2026-11-20: "Per family from
 the sources", and then ruling R46: published drawings stand in for physical samples. The
 two drawings are recorded with their sha256 in `hardware/datasheet-params.toml`. I read
 each callout below on the PDF. None was checked against a part.
@@ -105,13 +105,18 @@ What follows from those:
   MDR68's flange is 0.30 mm short of it. **[engineering judgment]** that the BNC, of which
   there are 18, sets the plane; the DB37's cutout or the MDR68s' fixing has to take up the
   rest, and the panel drawing (Task 15) has to say how.
-- The BNC's panel holes are single-D, not round, and its bushing may not be insulated from
-  the panel: `constraints.md` Open questions 24 and 25. Neither moves a footprint.
+- The BNC's panel holes are single-D, not round (`constraints.md` Open question 24). Its
+  bushing is its shell, the user has ruled that every BNC is insulated from the panel
+  (R7), and no stock washer fits the 16 mm port pitch (Open question 25). Neither moves a
+  footprint; the second stops the panels being machined until it is settled.
+- Pad 1 of a dual BNC is the UPPER port's centre and pad 3 the lower's, by the sibling
+  drawing; the footprint's own note has them the other way round (GT-4). Panel labels
+  have to follow the drawing.
 
 **What this replaced.** As first generated, the BNC "face" on the edge was the tip of the
 jacks, and the MDR68's datum was read as its mating face; fix round 1 then pushed both
 3.4 mm outward. Both were guesses, and both were wrong. The MDR68 footprint itself was
-also wrong in four ways the drawing settles, all corrected on 2026-11-21 in
+also wrong in four ways the drawing settles, all corrected on 2026-11-20 in
 `gen_wl_sync_footprints.py` and asserted in `check_footprint_geometry.py`:
 
 - its body was drawn 51.32 mm deep (that figure is a width); it is 16.70 mm, 12.0 on board;
@@ -207,7 +212,7 @@ are routing.
   on the `AGND` side. A through-hole pad on the line would also pierce the L2 and L3 gap.
 - **Two nets therefore cross the split at the inlet:** `P5_RAW` (`J1` pin 3 to `F4`) and
   `FAN_12V_RAW` (`F1` to `D44`), both within 20 mm of `NT1`. G-11 allows them as amended
-  on 2026-11-21 (ruling R45), and the check declares both.
+  on 2026-11-20 (ruling R45), and the check declares both.
 - **`U1`, `D3`, `D44` and fan header `J52` are under the IO Board**, at x < 160.
   **[engineering judgment]**: P-13 wants `U1` at the `+5V` entry, and the entry is at the
   star. X-3's height limit is met, since all four are low parts under a board at least
@@ -240,7 +245,7 @@ are routing.
 
 **`J3`'s series resistors and clamps are within about 25 mm of its contacts**, in the
 strip between the connector's body, which ends 12 mm in, and `U5` to `U7` (K-14, G-23).
-Until 2026-11-21 they were 40 mm away, behind a body drawn 51.32 mm deep.
+Until 2026-11-20 they were 40 mm away, behind a body drawn 51.32 mm deep.
 
 **`H1` and `H2`** are the IO Board's two inboard standoff holes: stock
 `MountingHole_2.7mm_M2.5`, non-plated, no net, marked board-only (M-16). The M2.5 is the
@@ -330,7 +335,7 @@ horizontal, and each has its own free box.
   on `P5_RAW`, a 0.15 mm track on a default net and a 0.2 mm track on `A_PD1` each fail
   DRC as `track_width`; the same nets at 1.0, 0.2 and 0.25 mm, and a 0.15 mm track inside
   `U55`'s courtyard, pass.
-- **N-13 is applied to all 129 nets that reach a panel connector** (as amended 2026-11-21,
+- **N-13 is applied to all 129 nets that reach a panel connector** (as amended 2026-11-20,
   ruling R45). 30 of them have no series resistor: the 24 optocoupler outputs to `J45`,
   `RWD_BTN`, `AO_GND_TPC`, and `U11`'s four outputs to `J3`. The one exemption is between
   `U11`'s own pads, 0.2 mm apart at 0.65 mm pitch. Whether `U11`'s outputs should have
@@ -352,7 +357,7 @@ horizontal, and each has its own free box.
 | `silk_edge_clearance` | 24 | the twelve straddlers' own outlines crossing their slots, two each, which B-21 accepts |
 | every other class | 0 | board-edge clearance, courtyards, clearance, track width, holes, silk over copper, footprint library parity |
 
-Before 2026-11-21 there were also 128 `copper_edge_clearance` errors, at the SOIC-16
+Before 2026-11-20 there were also 128 `copper_edge_clearance` errors, at the SOIC-16
 optocouplers' pads 0.25 mm from a 2.5 mm slot; the 2.0 mm slot of ruling R6 removed them.
 The 24 warnings stay when the board is routed. Nothing else here should.
 
@@ -364,10 +369,11 @@ value, footprint or DNP flag differs.
 ## 10. Open, for the person who routes
 
 1. **The connectors against the panel** (§2; `constraints.md` Open questions 23 to 25):
-   the MDR68's latch hooks behind 3 mm, the BNC hole's flat, whether the BNC's bushing is
-   insulated from the panel, and the 0.4 mm the three families disagree by. The BNC's
+   the MDR68's latching and mating depth behind 3 mm, the BNC hole's flat, HOW every BNC
+   is insulated from the panel (ruled, but no stock washer fits), and the 0.4 mm the
+   three families disagree by. The BNC's
    board-edge datum is inferred from its drawing, not stated.
-2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1: approved for layout by the user (2026-11-21); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
+2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1: approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
 3. **`J1` beside the split** (§4).
 4. **The four fan headers, and what sits under the IO Board** (§4; floorplan Open question 6).
 5. **Board mounting holes, corner radius, stack-up** (§1): none is in the sources, and
@@ -378,5 +384,5 @@ value, footprint or DNP flag differs.
 8. **The regions are deeper than the connectors now need.** `floorplan.md` sized the NI
    and Intan islands and the back row on connector bodies 51.32 and 36.2 mm deep; they are
    12.0 and 15.5 mm. The ICs behind `J3`, `J2`, `J36` and the analog BNCs were moved up to
-   their connectors on 2026-11-21. The region boundaries, the barriers and everything
+   their connectors on 2026-11-20. The region boundaries, the barriers and everything
    placed against them were not re-drawn.

@@ -107,7 +107,7 @@ REGIONS: dict[str, list[tuple[float, float, float, float]]] = {
 
 BAND_MM = 2.5        # B-7: the copper-free band along every barrier line
 SLOT_MM = 2.5        # B-3: the slot under each straddler, at least, except the two below
-SLOT_OPTO_MM = 2.0   # B-11, ruling R6 (2026-11-21): under the eight SOIC-16 optocouplers
+SLOT_OPTO_MM = 2.0   # B-11, ruling R6 (2026-11-20): under the eight SOIC-16 optocouplers
 SLOT_C162_MM = 1.5   # B-14, ruling R5 (2026-11-20): under C162 only
 KEEPOUT_MARGIN_MM = 1.0  # B-8: the keep-out beyond each cutout
 SPLIT_GAP_MM = 1.0   # G-9: the AGND/DGND gap on L2 and L3
@@ -203,7 +203,7 @@ TIE_ON_SPLIT = "NT1"  # G-1, G-2
 EXPECTED_CROSSINGS: dict[str, str] = {
     **{n: "G-11: comparator output, LM339 on AGND, loads on DGND"
        for n in ("PD1_COMP", "PD2_COMP", "ACC_TRIG", "CAM_FRAME_EYE", "CAM_FRAME_BEH")},
-    "A_MISC1_COMP": "G-11 as amended 2026-11-21: the DNP fourth comparator channel (D-2)",
+    "A_MISC1_COMP": "G-11 as amended 2026-11-20: the DNP fourth comparator channel (D-2)",
     "I2C_SCL": "G-11: to U55", "I2C_SDA": "G-11: to U55",
     **{f"MUX{m}_A{a}": "G-11: mux address line from U67/U68"
        for m in range(1, 9) for a in range(4)},
@@ -214,7 +214,7 @@ EXPECTED_CROSSINGS: dict[str, str] = {
                         "buffer's output, because R223 is beside J2 (K-21)",
     **{f"MUX_OUT{n}": "B-17: one of the 16 traces to the Intan-side INA105s"
        for n in range(1, 9)},
-    # G-11 as amended 2026-11-21. J1's two ground pins are both AGND (G-15), so J1 is on
+    # G-11 as amended 2026-11-20. J1's two ground pins are both AGND (G-15), so J1 is on
     # the AGND side of the star and the digital side's supply crosses beside NT1.
     "P5_RAW": "G-11 as amended: J1 pin 3 to F4, crossing at NT1 (G-15, P-2)",
     "FAN_12V_RAW": "G-11 as amended: F1 to D44, crossing at NT1 (G-24, P-2)",
@@ -269,7 +269,7 @@ FAN_STRIP_X = 310.0  # M-6 as amended; floorplan §2.1: no front connector at X 
 BNC_PAD1_TO_BODY_FACE_MM = 14.45
 MDR_ROW1_TO_EDGE_MM = 5.10
 DSUB_SHELL_TO_EDGE_MM = 11.32
-# Depth, per family, from the manufacturers' drawings (the user, 2026-11-21: "Per family
+# Depth, per family, from the manufacturers' drawings (the user, 2026-11-20: "Per family
 # from the sources"; ruling R46: drawings in place of samples). Recorded with their sha256
 # in hardware/datasheet-params.toml, [mdr68] and [bnc_dual_isolated].
 #
@@ -282,7 +282,7 @@ DSUB_SHELL_TO_EDGE_MM = 11.32
 #        edge. [engineering judgment], inferred from the drawing rather than stated by it.
 #   DB37: where the stock footprint puts it, flange at the edge.
 #
-# Until 2026-11-21 both the BNC and the MDR68 were placed by guesswork (first with a
+# Until 2026-11-20 both the BNC and the MDR68 were placed by guesswork (first with a
 # "face" on the edge that was the jack's tip and a mis-read datum, then 3.4 mm beyond it).
 BNC_BODY_FACE_BEYOND_EDGE_MM = 0.0
 PANEL_THICKNESS_MM = 3.0   # d3-panel-thickness.md
