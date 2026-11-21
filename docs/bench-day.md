@@ -86,8 +86,8 @@ Bring these:
   the monitor. Before the day, have their images built and the host tool installed, and
   rehearse with the fakes (`phase-1.md:38-63`). Have its seven scripts saved
   (`phase-1.md:64-344`), and the composed `mk_burst30.py` of step 15.
-  - **Its limit is gone, at wl-phantom `sub-us-tick` `684d895`** (or its merge into main,
-    once pushed). Before it the generator timed in whole µs: `StrobeTiming` held integers
+  - **Its limit is gone, from wl-phantom `684d895`**, on its main since 2026-11-21
+    (origin/main `d3b8706`). Before it the generator timed in whole µs: `StrobeTiming` held integers
     (wl-phantom `wl_phantom/render.py:86-88` at main `e142b14`), and `run` never passed a tick
     but 1000 ns. From `684d895`, `run` takes `--tick-ns` and decimal `--width-us` and
     `--hold-us` (`phase-1.md` §3.2), which plays P0 item 5's 2.5 µs pass point and item 6's
@@ -777,8 +777,8 @@ tolerances were not read from a datasheet **[unverified]**. None of this weakens
 line. It means the contract's "at least 6 µs" (`wl_sync/rp1/backend.py:1017-1024`) has no
 headroom, which matters to wl-xcon and MonkeyLogic.
 
-**Open.** Items 5 and 6 need wl-phantom at the `sub-us-tick` commit `684d895`, or its merge
-once it is pushed (Bring these). "Confirm that the task PC holds its code ≥ 2.5 µs
+**Open.** Items 5 and 6 need wl-phantom at `684d895` or later (its origin/main `d3b8706`,
+2026-11-21; Bring these). "Confirm that the task PC holds its code ≥ 2.5 µs
 **[unverified]**" (plan `:1890`; README `:519-522`). The 2.5 µs pass shows that the box reads
 right when the code is held that long. Whether the task PC holds it that long is for the task
 PC's own check.
@@ -995,7 +995,7 @@ notes. That means all of these:
 - **The ±100 µs gate:** steps 12 and 13 passed.
 - **P0's own pass,** since "A failure stops Task 5b and this design" (plan `:1894`): "items
   3, 5, 6 and 7". Items 5 and 6 are open until step 15's 2.5 µs and 5.5 µs runs have been played, which
-  needs wl-phantom at `sub-us-tick` `684d895` or its merge (Bring these). What happens then
+  needs wl-phantom at `684d895` or later, its main (Bring these). What happens then
   is your call.
 
 **Also confirm with wl-preproc first** that its small follow-up, which it asked for "after its
