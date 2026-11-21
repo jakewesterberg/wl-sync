@@ -554,17 +554,26 @@ def build_bnc_dual() -> str:
     and Winchester footprints were drawn independently from two manufacturers' drawings and
     AGREE on this, which is the corroboration standing in for a numbered callout.
 
-      pad 1 = port A (lower) centre    (0, 0)
+      pad 1 = port A (UPPER) centre    (0, 0)
       pad 2 = port A shell             (-2.54, 0)
-      pad 3 = port B (upper) centre    (0, -2.54)
+      pad 3 = port B (LOWER) centre    (0, -2.54)
       pad 4 = port B shell             (+2.54, 0)
-      unnumbered ground/retention      (+-5.08, -8.89)
+      unnumbered post-mount holes      (+-5.08, -8.89)
 
     Units 1 and 2 of the BNC_Dual_RA_Isolated symbol map to ports A and B respectively.
 
-    PIN MAP UNVERIFIED, on the same terms as MDR68_TAIL_ORDER: which of the two ports is
-    "upper" is an assumption, and swapping it is a net-reassignment fix rather than a
-    re-machined panel -- the shells are independent either way, so no short can result.
+    PIN MAP READ FROM THE DRAWINGS (ruling R11, 2026-11-21; this note said "port A (lower)"
+    and "PIN MAP UNVERIFIED" until then, and only the note was wrong -- no pad moved and no
+    net changed). The sibling drawing 31-6576 rev B (31-JUL-24), Detail A, labels the middle
+    hole of the three-hole row "HIGH PORT SIGNAL CONTACT HOLE" (pad 1), the single hole
+    nearer the post-mount holes "LOW PORT SIGNAL CONTACT HOLE" (pad 3), and the row's two
+    ends the high and low ports' grounding contact holes. 31-6575 rev A has no such labels,
+    but its rear and side views draw the same thing: the centre and one outer tail of the
+    rear row rise to the upper port's axis, and the other outer tail and the forward tail
+    stop at the lower port's. Seen from behind, the tail that rises to the upper port is the
+    left one, which is pad 2: so pad 2 is the upper port's shell and pad 4 the lower's, as
+    numbered. Not checked against a part: continuity from each port's centre to its pad is
+    a bring-up check on the first built box (hardware/assembly-checklist.md).
     """
     p = _params()["bnc_dual_isolated"]
     SIG_DRILL = p["pcb_signal_hole_dia_mm"]      # 0.89
@@ -633,9 +642,12 @@ def build_bnc_dual() -> str:
         f"are the mounting hooks, not ground terminals). Body {BODY_W} x {BODY_D}mm. Replaces "
         f"BNC_PanelMountable_Vertical, whose axis was perpendicular to the board (F6). "
         f"NOT KiCad's own BNC_Win_364A2x95_Horizontal, which commons both shells (it models "
-        f"a FRONT-isolated part) and draws a different manufacturer's body. PIN MAP "
-        f"UNVERIFIED: which port is upper is assumed, not read off a numbered callout -- "
-        f"harmless (independent shells, so no short is possible) but confirm before fab.",
+        f"a FRONT-isolated part) and draws a different manufacturer's body. PIN MAP READ "
+        f"FROM THE DRAWINGS (R11, 2026-11-21): port A (pads 1, 2) is the UPPER port, 23 mm "
+        f"above the board, and port B (pads 3, 4) the LOWER, 7 mm above it -- 31-6576 rev B "
+        f"Detail A labels pad 1's hole HIGH PORT SIGNAL and pad 3's LOW PORT SIGNAL, and "
+        f"31-6575 rev A's rear and side views draw the same. Not checked against a part: "
+        f"continuity from each port's centre to its pad is a first-box bring-up check.",
         "connector BNC coaxial dual right-angle isolated panel Amphenol 031-6575",
         els,
     )

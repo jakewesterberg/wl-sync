@@ -249,7 +249,8 @@ document is not confirmation.
   > thread, and 5,56 REF from that face back to the ground pins. The panel seats on the
   > body's front face, so the board edge goes at that face and nothing is "set back":
   > `panel-elevations.md` §3 and `placement.md` §2. Three things the drawing leaves open
-  > are `constraints.md` Open questions 23, 24 and 26; a fourth, whether the bushing is
+  > are `constraints.md` Open questions 23, 24 and 26 (ruled 2026-11-21 as R12, R10 and
+  > R11 in `parametric-audit.md`; 23 is narrowed, not closed); a fourth, whether the bushing is
   > insulated from the panel, was Open question 25 and is closed: it is not, and the BNCs
   > go through insulating sub-plates (`panel-elevations.md` §6). The box is left unticked.
 

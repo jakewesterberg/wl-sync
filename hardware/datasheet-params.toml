@@ -517,6 +517,55 @@ window_margin_mm = 10.7          # from a port's axis to the window's metal edge
 bushing_to_metal_min_mm = 2.5    # constraints B-7's figure, used here as the spacing to hold
 feeds = ["R8"]
 
+[ni_shc68_68_epm]
+# The cable that mates with J2, J3, J36 and J45 (SPEC "Cables: SHC68-68-EPM x 2 per card";
+# ruling R12, 2026-11-21, parametric-audit.md). Read from NI's own customer drawing, P1,
+# the "68-POS SCSI II CONNECTOR" end, which is the end that meets this board. Every figure
+# is a dimension printed on the drawing; none was scaled, and none was checked on a cable.
+part = "NI SHC68-68-EPM"
+document = "NI customer drawing 192061-XX, SHC68-68-EPM, sheet 1 of 2, rev E (drawing compatible, released)"
+url = "https://www.ni.com/content/dam/web/dimensional-drawings/2007/CU_192061-XX_SHC68-68-EPM.pdf"
+retrieved = "2026-11-21"
+document_sha256 = "fce32f6656ff157bb27b9c27a7c246ddcdb7ac72eef975e49cbe56b7955e2ae7"
+document_file = "CU_192061-XX_SHC68-68-EPM.pdf (copyright 2024 National Instruments); not in this repository"
+board_end = "P1, 68-pos SCSI II (0.050 D-type), female per NI's connector guide"
+retention = "2 x jackscrews with 2-56 UNC-2A threads"   # the drawing's own note; no latch is drawn
+jackscrew_thread = "2-56 UNC-2A"
+jackscrew_spacing_mm = 57.9              # front view; the MH part's #2-56 holes are 57.93 apart
+jackscrew_tip_beyond_backshell_mm = 2.5  # side view: backshell front face to the jackscrew tips, as drawn
+connector_beyond_backshell_mm = 4.1      # side view: backshell front face to the tip of the mating shell
+backshell_width_mm = 64.9                # front view, along the jackscrew axis
+backshell_height_mm = 14.0               # front view, 7.0 each side of the jackscrew axis
+backshell_body_length_mm = 26.7          # backshell front face to the rear of its square section
+backshell_length_to_boot_mm = 55.4       # backshell front face to the start of the strain relief
+plug_length_mm = 67.3                    # backshell front face to the end of the strain relief
+cable_exit_mm = [19.8, 14.0]             # rear view of the strain relief
+cable_bend_radius_mm = 76.2              # "12X CABLE DIAMETER", the drawing's bend-radius example
+# NOT on the drawing: the mating shell's outline (the front view draws it and gives no
+# dimension across it), how far a jackscrew travels beyond the 2.5 mm it is drawn at, the
+# drawing's tolerances, the depth to which the connector seats, and which connector's
+# shell goes inside the other's. MH's drawing has grounding dimples ("H") on the outer
+# face of its nose, which points to the nose going inside this plug's shell.
+# R12's panel opening, 53.3 x 14.0 mm, is hook_span_mm + 2 x 1.0 by backshell_height_mm.
+#
+# NI's connector guide, "NI DAQ Device Custom Cables, Replacement Connectors, and Screws"
+# (ni.com, "Updated Dec 19, 2025", read 2026-11-21; a web page, sha256 of the HTML as
+# served d3c4d13f28c8d1be39b8f3520e4b08b2418edb51a726fe1252d13e030dae5501):
+#   "NI now uses jackscrews to secure 68-pin cables to DAQ devices and accessories. Each
+#    side of the cable connector contains two jackscrews that tighten into jacksockets
+#    located on all DAQ devices and accessories."
+#   "68-Position SCSI-II Jackscrew, Molded Head, Overmold; 2-56 Threads"
+#   "68-Position SCSI-II Jacksocket, M2.5 Screw, .348\" Length, .148\" Head Length"
+#   "68-Position Right Angle PCB-Mount Connector (Male) | 777600-01 | TE Connectivity 2-5174225-5"
+#   "(1) 4 Piece Jacksocket Kit for Connecting Screw Latching Cables 187949-01"  (thread not given)
+#   "100-Position SCSI-II Jacksocket, 2-56 Threads"  (no part number or dimensions given)
+#   "68 or 100-Position SCSI Connector Washers, M2.5, Flat, .030 Thick, SS"
+guide_url = "https://www.ni.com/en/support/documentation/cable-accessory-guide/daq-multifunction-i-o-cable-accessory-compatibility/ni-daq-device-custom-cables--replacement-connectors--and-screws.html"
+ni_jacksocket_head_length_mm = 3.76      # .148 in; NI's own jacksocket, whose stud is M2.5
+ni_jacksocket_length_mm = 8.84           # .348 in overall
+ni_jacksocket_stud = "M2.5"              # will NOT enter the MH part's #2-56 threads
+feeds = ["R12"]
+
 [m12_inlet]
 part = "Phoenix Contact SACC-DSI-MS-5CON-M12 SCO, order 1551833"
 document = "Phoenix 1551833 datasheet + installation drawing 00662206 Index 2 + STEP model"
@@ -591,11 +640,23 @@ post_to_face_mm = 5.56           # the two 2.01 mm post-mount holes' centres to 
 # grounding contacts. So a centre-for-shell swap is ruled out (constraints GT-4); but the
 # footprint's note that pad 1 is the LOWER port is the wrong way round: pad 1 is the
 # upper port's centre and pad 3 the lower's.
+# RULED 2026-11-21 (R11, parametric-audit.md): the labels follow the drawing. Detail A was
+# rendered from the PDF and read for that ruling, and it says the above. 31-6575 rev A has
+# no such labels, but its rear and side views draw the same: the centre tail and one outer
+# tail of the rear row rise to the upper port's axis; the forward tail and the other outer
+# tail stop at the lower port's. From behind, the outer tail that rises to the upper port
+# is the left one, which is pad 2. The footprint's note is corrected; no pad or net moved.
+upper_port_signal_pad = "1"      # port A: pads 1 (centre) and 2 (shell), 23 mm above the board
+lower_port_signal_pad = "3"      # port B: pads 3 (centre) and 4 (shell), 7 mm above the board
 lower_port_height_mm = 7.0       # seating plane to the lower port's axis; upper is 7 + 16
 panel_hole_flat_mm = 5.56        # single-D hole: hole centre to the flat
 # The sibling 31-6576 rev B (31-JUL-24) dimensions the same cutout as 11,7 across, which
 # is 5.29 mm from centre to flat, gives a 29.00 mm body height, and lists the connector
-# interface as ZAMAC, nickel plated. OPEN: which flat applies to 031-6575 today.
+# interface as ZAMAC, nickel plated.
+# RULED 2026-11-21 (R10, parametric-audit.md): the flat is machined at 5.56 mm, this
+# part's own drawing. A 5.56 flat accepts a bushing made to either drawing; a 5.29 flat
+# refuses one made to 5.56. With a 5.29 bushing it leaves up to 0.27 mm of play.
+panel_hole_flat_ruled_mm = 5.56
 sibling_document = "4071853954_C31-6576_102124.pdf (31-6576 REV B, 31-JUL-24)"
 sibling_sha256 = "ad0747a8fba264c15b336922f5a2e4664a7daaeb0dc0dc0b4285c663b3fdce49"
 sibling_panel_hole_flat_mm = 5.29

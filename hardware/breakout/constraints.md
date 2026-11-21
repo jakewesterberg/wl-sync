@@ -62,7 +62,7 @@ judgment.
 | GT-1 | Layout does not begin until a person has completed the sign-off block in `design-review.md`. As read for this document, the reviewer, date, decision and signature fields are blank. **2026-11-20:** approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46). The block records the user's words. | DR:35–37; the Sign-off block, DR:372–390 as the file stands on 2026-11-20 |
 | GT-2 | Take the connector faces from SPEC §9.6 and `panel-elevations.md`, not from PLAN's Task 14 Step 1. The plan puts the rig-facing connectors on the front and the MDR68s, Intan BNCs, inlet and Pi cutouts on the rear. SPEC §9.6 says "The front/rear assignment was backwards" and reverses it, and PE was drawn from the corrected version. SPEC §9.4's own sentence "Rig-facing connectors front, equipment-facing rear" predates the correction in the same way. | PLAN:873–878 (the stale text); PLAN:880–899 (the dated note, recording the ruling of 2026-11-20 that the spec wins); SPEC:789–799; PE:17–25; SPEC:767 |
 | GT-3 | Where a sheet's text note disagrees with the netlist, the netlist governs. Known stale notes: (a) opto-intan still says `ISO_5V` comes from an `LD1117S50`, but the netlist has `U63`, a `TMR 1-0511`; (b) pi-interface still lists GPIO18 and GPIO19 as camera trigger outputs, but `J7` pins 12 and 35 are unconnected and the cameras free-run; (c) analog-frontend still gives the photodiode stage as Rf = 1M and Cf = 3.3 pF, but `R38`/`R40` are 180 kΩ and `C48`/`C50` are 22 pF; (d) the power generator's docstring calls the 3.3 V regulator "U2", and in the netlist it is `U1`. | **[engineering judgment]** No document states a precedence, and the netlist contract is the one artefact a test regenerates and compares on every run. Stale notes: `opto-intan.kicad_sch`:3460 against NET:558 and SPEC:507–511; `pi-interface.kicad_sch`:3348 and :3578 against NET:226 and SPEC:156, 171; `analog-frontend.kicad_sch`:3190 against NET:302, 304, 52, 54 and PA:236, 503; GENPWR:621 against NET:496 |
-| GT-4 | Do not route any dual-BNC pad until pad 1 is confirmed as port A's centre conductor and pad 2 as its shell (and pads 3 and 4 likewise for port B), from the 3D model or by continuity on a sample. **2026-11-20 (R46), largely settled from a drawing:** the sibling 31-6576 rev B, Detail A, labels the middle hole of the three-hole row (pad 1) "HIGH PORT SIGNAL", the single hole nearer the face (pad 3) "LOW PORT SIGNAL", and the row's two ends (pads 2 and 4) the ports' grounding contacts, as the L4 re-review read it. So pads 1 and 3 are centres and 2 and 4 shells: the swap this gate fears is ruled out. Two things remain. Pad 1 is the UPPER port, where the footprint's note says lower, which changes which panel hole carries which signal and so the panel labels (M-20), not the circuit. And which of pads 2 and 4 is the upper port's ground depends on the view's side; a swap there exchanges two shields of one domain. The two 2.01 mm holes are post-mount holes, not ground terminals (X-6). The roles were inferred from one third-party footprint. If they are wrong, every BNC channel drives its shield and grounds its centre, with a clean netlist and a clean ERC, and the cost is a respin. | F6:17–52. Making it a gate on routing is **[engineering judgment]**: the source asks the question and nothing in the repository closes it. See Open question 12. |
+| GT-4 | Do not route any dual-BNC pad until pad 1 is confirmed as port A's centre conductor and pad 2 as its shell (and pads 3 and 4 likewise for port B), from the 3D model or by continuity on a sample. **2026-11-20 (R46), largely settled from a drawing:** the sibling 31-6576 rev B, Detail A, labels the middle hole of the three-hole row (pad 1) "HIGH PORT SIGNAL", the single hole nearer the face (pad 3) "LOW PORT SIGNAL", and the row's two ends (pads 2 and 4) the ports' grounding contacts, as the L4 re-review read it. So pads 1 and 3 are centres and 2 and 4 shells: the swap this gate fears is ruled out. Two things remain. Pad 1 is the UPPER port, where the footprint's note says lower, which changes which panel hole carries which signal and so the panel labels (M-20), not the circuit. And which of pads 2 and 4 is the upper port's ground depends on the view's side; a swap there exchanges two shields of one domain. **2026-11-21 (ruling R11, `parametric-audit.md`), both settled from the drawings, and this gate no longer holds routing:** Detail A was rendered and read again and says the above; the labels follow it, so port A (pads 1 and 2) is the upper port and port B (pads 3 and 4) the lower; and 31-6575 rev A's rear view draws the upper port's ground tail on the side that is pad 2, so the shell pairs are as numbered. A continuity check on the first built box is what remains (`hardware/assembly-checklist.md`). The two 2.01 mm holes are post-mount holes, not ground terminals (X-6). The roles were inferred from one third-party footprint. If they are wrong, every BNC channel drives its shield and grounds its centre, with a clean netlist and a clean ERC, and the cost is a respin. **Lifted 2026-11-21 (R11):** the row above is kept as written, and two of its sentences no longer hold: the roles are now read from Amphenol's own drawings, not "inferred from one third-party footprint". | F6:17–52. Making it a gate on routing was **[engineering judgment]**: the source asks the question. As of 2026-11-21 the repository closes it from the drawings: `parametric-audit.md` R11; `datasheet-params.toml` `[bnc_dual_isolated]` (both drawings' sha256). Open question 12's "who confirms it" is answered the same way, with the first-box continuity check outstanding. |
 
 ---
 
@@ -207,7 +207,7 @@ The mule reports the same 3.58 mm and about 0.5 mm for the same SIP pin spacing 
 | B-18 | Route each `MUX_OUTn` across the gap side by side with its own `AGND` sense trace, taken from the AGND plane at that channel's mux, and keep the two the same length. | **[engineering judgment]** The amplifier rejects the AGND to INTAN_GND difference only as far as its two input legs match. TOML `[ina105].note` (lines 139–141) records how series imbalance in one leg costs CMRR, and a side-by-side pair also keeps the crossing loop small. |
 | B-19 | The eight muxes (`U38`, `U40`, … `U52`) sit entirely in the AGND region and never straddle. Place each mux next to its `INA105`. | `mux-intan.kicad_sch`:7227, :7232; SPEC:390–392; NET:533. Adjacency is **[engineering judgment]**: it keeps the two legs of B-18 short. |
 | B-20 | The NI island and the Intan island do not border each other. If the floorplan forces them adjacent, B-7's band applies between them. | **[engineering judgment]** The plan kept them in separate corners (PLAN:873–878); under SPEC §9.6 both are front-edge regions, and nothing electrical joins them. |
-| B-21 | Expect, and accept, `silk_edge_clearance` warnings on straddling parts' own outlines. Accept no other DRC class at a slot. **Checked 2026-11-20** on the generated placement: 24 such warnings, two on each of the twelve straddlers, and no other class (`placement.md` §9); the 128 `copper_edge_clearance` errors the 2.5 mm slot gave at the optocouplers are gone with B-11's 2.0 mm. | MULE:191–194 |
+| B-21 | Expect, and accept, `silk_edge_clearance` warnings on straddling parts' own outlines. Accept no other DRC class at a slot. **Checked 2026-11-20** on the generated placement: 24 such warnings, two on each of the twelve straddlers, and no other class (`placement.md` §9); the 128 `copper_edge_clearance` errors the 2.5 mm slot gave at the optocouplers are gone with B-11's 2.0 mm. (Noted 2026-11-21: the `unconnected_items` figure that goes with this, 499, is where KiCad's report stops, not a count; `placement.md` §9.) | MULE:191–194 |
 | B-22 | `U62` and its companions `C135`, `C136`, `FB3` and `R170` are placed and routed as if populated, across the NI barrier with its slot, and marked DNP. | DR:307–311; `opto-ni.kicad_sch`:7689–7694; NET:557, 139, 140, 219, 434 |
 | B-23 | The 1.5 mm section of B-14 is as short as it can be: it spans `C162`'s body width and no more, and the slot returns to 2.5 mm on both sides. B-8's keep-out follows the step, 1 mm beyond the cutout on each side. | MURATA p.26: "the length of the slit design should be as short as possible to prevent mechanical damage in the capacitor", with a slit length e of 3.6 to 4.1 mm tabled for the 4.5 × 2.0 mm case; PA:924. The length here is **[engineering judgment]**: Murata's e is for Murata's part, and the stock 1808 land is 2.3 mm wide (KiCad library), so the figure to draw waits on the placed footprint. |
 
@@ -379,7 +379,7 @@ was meant.
 | M-7 | **Corrected 2026-11-20 (R46): BNC port axes are 7 mm and 23 mm above the seating plane** (31-6575 rev A, "7 REF", and the 16 mm pitch). As written: BNC port axes are 6.63 mm and 22.63 mm above the board's top surface, so the standoff height sets where the BNC row lands on both panels. Choose the standoff (anything from about 5 mm up fits) before fixing panel drawings. | PE:104–120; DR:378. See Open question 17. |
 | M-8 | The MDR68 row will not centre on the same height as the BNC row (a 9.10 mm body against a 29.25 mm one). Plan for it to sit lower on the panel, or to be shimmed. | PE:121–124; TOML `[mdr68].body_height_mm` (line 456) |
 | M-9 | **Superseded 2026-11-20 (R46): there is no set-back.** The panel seats on the BNC body's front face, and that face is on the board edge, so the panel's inner face is at the board edge on both faces. The jacks stand 20.7 mm beyond it, 8.6 mm of that thread, and a 3.0 mm panel with a 2.8 mm nut leaves 2.8 mm of thread. The chassis depth is the board's 240 mm plus two panels. The edge datum is inferred from the drawing, which states no board edge: the body's front face runs down to the seating plane, so the board cannot pass it. As written: The board's set-back from each panel equals the BNC body depth (36.2 mm) less its protrusion through the panel, which is not dimensioned. Both the front and back edges carry BNCs, so the board depth and the chassis depth are tied together by twice this figure. | PE:125–128; DR:226–230. The "twice" is arithmetic on M-3. |
-| M-10 | Panels are 3.0 mm aluminium. | PE:130–132; D3:3 |
+| M-10 | Panels are 3.0 mm aluminium. **2026-11-21 (ruling R12):** each MDR68's opening is 53.3 × 14.0 mm, to admit the cable's mating shell, with a jacksocket at each of its two fixings, proposed in a counterbore that leaves a 0.8 mm land (`panel-elevations.md` §8). A coupon test-fit gates all of it. | PE:130–132; D3:3 |
 | M-11 | The MDR68 footprint is built from the MH drawing: four staggered rows of 17 at 1.905 mm, 0.85 mm holes, a 41.91 mm array. **Read from the drawing 2026-11-20 (R46):** rows from the PCB edge inward hold contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd; contact 1 is at the right seen from the component side with the edge up; the row datum is the PCB edge; the boardlock holes are on the second row's line. The footprint had the map wrong, was mirrored, and had the holes 0.95 mm too far in; all are corrected and asserted by `check_footprint_geometry.py`. Not checked against a part. As written: Its tail-row-to-contact map is unverified. Route to it, and do not release for fabrication until the map is confirmed. The sources require that before fab, not before layout. | TOML `[mdr68]` (lines 446–453); DR:207–224 ("required before fab — not before Task 14", :221); DR:376; D3:83 |
 | M-12 | Confirm the MDR68 map before routing the escape from any of the four connectors, not only before fab. **Done from the drawing, 2026-11-20 (M-11).** | **[engineering judgment]** This is deliberately earlier than M-11's source. Each contact's X position is fixed and only its depth row may change (D3:69–71), so a late change re-routes the escape of up to 4 × 68 pins, and the check is minutes with a drawing already in hand. |
 | M-13 | The M12 inlet is panel furniture with flying leads. It has no footprint and puts no load on the board. **Placed 2026-11-20** (the user: "Elsewhere on the back"): X = 210 mm, 50 mm above the board's top surface, above `J2`'s left end, its leads running over `AGND` only to `J1` (`panel-elevations.md` §7). **[engineering judgment]** | TOML `[m12_inlet].termination`, note (lines 482, 502–504); PA:779–782 |
@@ -389,7 +389,7 @@ was meant.
 | M-17 | `J7` (the 40-pin GPIO header) and `J18` (the internal USB header) are placed where the ribbon and the USB cable from the CM5 IO Board reach them, inside the digital region. | NET:226, 235; SPEC:206–209; SPEC:909–912. Position is **[engineering judgment]**; it depends on Step 1b. |
 | M-18 | The four fan headers are 3-pin 2.54 mm on the PC fan pinout, with pin 3 left unconnected but present. | SPEC:880–882; SPEC:903–907; `power.kicad_sch`:3269; NET:254–257 |
 | M-19 | The reward button `J4` belongs to the front face. | SPEC:91; SPEC:798; `taskpc-digital.kicad_sch`:24922. Whether it is soldered to the board at the front edge or panel-mounted and wired is Open question 14. |
-| M-20 | Board silkscreen port labels match the panel's: `J5B` "spare" (front), `J17B` "CAM FRAME EYE" and `J6B` "CAM FRAME BEH" (back). | PE:152–161 |
+| M-20 | Board silkscreen port labels match the panel's: `J5B` "spare" (front), `J17B` "CAM FRAME EYE" and `J6B` "CAM FRAME BEH" (back). **2026-11-21 (ruling R11):** port A of each body is the upper panel hole and port B the lower, so these three are lower holes; `panel-elevations.md` §4 has every port. | PE:152–161 |
 
 ---
 
@@ -551,7 +551,29 @@ was meant.
     its Table 6-1. The standard is not in the repository. Does the lab want these checked
     against a specific revision before they become board rules?
 
-23. **The MDR68 behind a 3 mm panel: latching, mating depth and jackscrew reach.** Added
+23. **Narrowed 2026-11-21 by ruling R12 (`parametric-audit.md`), from NI's drawing
+    192061-XX rev E of the `SHC68-68-EPM`.** Answered: the cable is held by two 2-56
+    jackscrews, not by the hooks; its jackscrews, drawn 2.5 mm proud of the backshell,
+    stop at least 1.60 mm short of the MH threads whatever the panel's thickness and
+    whichever shell goes inside the other, so each MDR68 gets two jacksockets; and the
+    plug's backshell is at most 16.1 mm above the board, so the M12 inlet stays at
+    50 mm. **Proposed, and gated on (a):** an opening 53.3 × 14.0 mm at each MDR68, to
+    admit the cable's mating shell, and a counterbore leaving a 0.8 mm land under each
+    jacksocket (`panel-elevations.md` §8). **Still open:**
+    (a) **a coupon test-fit before any panel is cut**: one cable on one connector
+    through a 3.0 mm aluminium coupon with that opening and those counterbores
+    (`hardware/assembly-checklist.md`). The drawings do not say which shell goes inside
+    the other (MH's dimples point to its nose going inside the cable's shell), how deep
+    the plug seats, or what the cable shell's outline is;
+    (b) the jacksocket, a 2-56 stud with a 2-56 female head about 3.76 mm tall, is not a
+    chosen part and none was found off the shelf. NI's 68-position jacksocket has an
+    M2.5 stud. Leads in NI's guide, neither with a thread and dimensions given: the
+    "4 Piece Jacksocket Kit for Connecting Screw Latching Cables", 187949-01, and a
+    "100-Position SCSI-II Jacksocket, 2-56 Threads". A 0.3 mm washer behind each land
+    is unchosen too;
+    (c) the MH part's gender is not on its drawing (distributors list it male, which
+    the female cable end needs). The board does not change. The question as it stood:
+    **The MDR68 behind a 3 mm panel: latching, mating depth and jackscrew reach.** Added
     2026-11-20 from MH drawing 3700-0121-01 rev 3.0. With the tail rows where the drawing
     puts them, the flange is 0.30 mm inside the board edge, the nose 4.70 mm beyond it, and
     the side hooks reach 3.50 mm ahead of the flange: 3.20 mm beyond the edge. Behind a
@@ -566,7 +588,11 @@ was meant.
     How does the chosen cable latch, and does the panel need a pocket or a thinner land
     round each MDR68?
 
-24. **The BNC panel hole's flat.** Added 2026-11-20. The holes are not round: drawing
+24. **Closed 2026-11-21 by ruling R10 (`parametric-audit.md`): the flat is 5.56 mm from
+    the hole's centre**, 031-6575 rev A's own figure. It accepts a bushing made to either
+    drawing; with one made to 5.29 mm it leaves up to 0.27 mm of play, which the nut
+    takes up. The question as it stood:
+    **The BNC panel hole's flat.** Added 2026-11-20. The holes are not round: drawing
     31-6575 rev A recommends two Ø12.83 mm holes, each with one anti-rotation flat 5.56 mm
     from the hole's centre, the upper hole's flat at the top and the lower hole's at the
     bottom. That drawing is a 2013 preliminary release. The sibling 31-6576 rev B (2024)
@@ -619,7 +645,14 @@ was meant.
     rig-signal plate (`J20` to `J29`) may ever be strapped, to try the shields bonded if
     interference demands it; `panel-elevations.md` §6 has the reasons and what it trades.
 
-26. **Which port of a dual BNC is the upper one.** Added 2026-11-20. The footprint and
+26. **Closed 2026-11-21 by ruling R11 (`parametric-audit.md`), subject to a continuity
+    check on the first built box: the labels follow the drawing.** Port A (pads 1 and 2)
+    is the upper port and port B (pads 3 and 4) the lower. Detail A was rendered and
+    read for the ruling, and 31-6575's own rear and side views draw the same. The
+    footprint's note is corrected, no pad or net moved, and `panel-elevations.md` §4
+    lists every port by hole. `bnc_dual.py` names ports A and B without saying which is
+    upper, so it did not change. The question as it stood:
+    **Which port of a dual BNC is the upper one.** Added 2026-11-20. The footprint and
     `hardware/gen/bnc_dual.py` take pad 1 as port A, the LOWER port, and pad 3 as port B,
     the upper. The sibling drawing 31-6576 rev B, Detail A, labels the middle hole of the
     three-hole row, which is pad 1, "HIGH PORT SIGNAL", and the single hole nearer the
