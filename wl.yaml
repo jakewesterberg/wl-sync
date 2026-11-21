@@ -3,7 +3,7 @@ slug: wl-sync
 class: device
 lifecycle: active
 visibility: public
-remote: https://github.com/jakewesterberg/wl-sync.git
+remote: https://github.com/westerberg-lab-be/wl-sync.git
 
 summary: >-
   The sync box and its breakout board: timing signals, event-code routing and

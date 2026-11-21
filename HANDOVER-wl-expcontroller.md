@@ -133,7 +133,7 @@ checkpoint, as before. "No" and "not now" are answers; "this is the wrong shape"
 
 **Read against** `wl-sync` at `d933deb`. wl-xcon's backlog IDs (`XC-###`) are given so a reply can
 name them. All wl-xcon links are on `main`:
-`https://github.com/jakewesterberg/wl-xcon/blob/main/<path>`.
+`https://github.com/westerberg-lab-be/wl-xcon/blob/main/<path>`.
 
 **Nothing here asks you to change the barcode codec, the log format, or session identity's *form*.**
 Asks 1 to 6 are the 2026-08-31 asks above, still open, with what has changed on our side. Asks 7 and 8
@@ -144,7 +144,7 @@ are new.
 **1. XC-087: a rig host cannot learn the session id.** Unchanged from Ask 1 above. A way for the task PC
 to *read* the id the sync box minted (shared output root, a one-line file, or a read-only endpoint; your
 call). Why: `taskd` names its directory from it and must not guess `_NN`.
-Source: [pending-wl-sync-amendments.md](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/pending-wl-sync-amendments.md).
+Source: [pending-wl-sync-amendments.md](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/pending-wl-sync-amendments.md).
 Not asked: any change to the id's form, or for the task PC to mint anything. Blocks: the first run
 against a real sync box; nothing in a named engine build. (Our directory is `xcon/`, not
 `expcontroller/`; see the naming note at the top.)
@@ -152,14 +152,14 @@ against a real sync box; nothing in a named engine build. (Our directory is `xco
 **2. XC-088: a subject change mints `_02`, and something tells the box.** Unchanged from Ask 2 above.
 `SessionManifest` carries exactly one `subject`, so two animals in one day need two ids. Which actor tells
 the box (task PC, wl.works, a button) is yours to decide; it is also how Ask 1's reader learns the new id.
-Source: [pending-wl-sync-amendments.md](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/pending-wl-sync-amendments.md).
+Source: [pending-wl-sync-amendments.md](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/pending-wl-sync-amendments.md).
 Not asked: a choice of actor. Note that your continuous-recording design (`docs/superpowers/specs/2026-08-16-syncbox-continuous-recording-design.md:70`)
 says "a restart joins that directory ... rather than minting `_02`", so this changes a design rule on
 your side; it is not only a missing feature. Blocks: nothing in a named build.
 
 **3. XC-089: assign a misc analog BNC to the audio verification tap.** Unchanged. One of the three misc
 inputs (`A_MISC1` to `A_MISC3`) carries a copy of the audio output so NI records sound onset. Source:
-[S4 §12 item 3](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S4-stimulus-presentation-design.md).
+[S4 §12 item 3](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S4-stimulus-presentation-design.md).
 Why: validation V7 measures audio onset through it. Not asked: any change to the misc inputs (your
 spec's §12 item 7 records they are input-only, which suits a tap). Blocks: XC-074 (V7), which waits on
 the rig anyway, and the verification half of engine build G.
@@ -170,7 +170,7 @@ optics drawing now says: the field stop is a removable mask at the panel startin
 2026-09-28), giving **3.22 cm strips top and bottom** with the screen at 50 cm, patches in the bottom
 strip, and direct viewing shares the same fixed screen at 50 cm. Please confirm the comparators and the
 photodiode housings work with that placement. Source:
-[optics drawing §8 item 3](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-stereoscope-optics-drawing.md).
+[optics drawing §8 item 3](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-stereoscope-optics-drawing.md).
 Not asked: any board change; a "fine as stated" is the expected answer. Blocks: rig commissioning,
 not an engine build.
 
@@ -180,7 +180,7 @@ on a live read, so session end is enough if that is what you have. What we read 
 reward lines are individual transitions logged as their own record type (`wl_sync/log.py:12-13`), and
 the emit loop flushes every second (`wl_sync/service.py:467-468`). We could not tell from that whether a
 second process can read an open segment. Source:
-[S8 §8 item 2](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S8-session-management-design.md).
+[S8 §8 item 2](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S8-session-management-design.md).
 Not asked: a live interface. Blocks: nothing. Welfare-critical on our side, so please state it exactly.
 
 **6. XC-092: `[flir_bfs_gpio]` cites the BFS-U3-200S6 page's 0.87 V low; our S0 spec's
@@ -190,7 +190,7 @@ which model each rig runs). Your own note
 (`hardware/datasheet-params.toml:591-628`) already says the best published low misses the 0.8 V buffer
 input, so this is about which page the pin cites, not a new defect. Our reading is that nothing breaks:
 the frame-time comparator's 2.50 V threshold leaves 1.58 V of low margin. Source:
-[S0 §7.4](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S0-hosts-and-hardware-design.md#74-the-trigger-fan-out-board-custom-needs-a-design-check).
+[S0 §7.4](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-08-31-S0-hosts-and-hardware-design.md#74-the-trigger-fan-out-board-custom-needs-a-design-check).
 Not asked: a change to the front end. Blocks: wl-xcon's trigger fan-out board design check, which copies
 your frame-time front end (`hardware/breakout/frame-time-inputs.md`) at `92714ce`; a change there is
 visible to us only if you say so.
@@ -203,7 +203,7 @@ on; the speaker tap (Ask 3) then measures the real onset. wl-xcon needs from you
 analog outputs to leave the rig as a line-out the speaker amplifier can take, and (b) confirmation that
 `PD1_COMP` reaches the task PC on a pin the 6343 can use as a start trigger (a PFI line, not only a
 P0.x line read in software). Source:
-[engine spec §9.1 and §21](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-10-07-engine-design.md#9-media-and-sound-n6-nr5-nr6).
+[engine spec §9.1 and §21](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-10-07-engine-design.md#9-media-and-sound-n6-nr5-nr6).
 Two things the spec assumed that your source does not show: the spec says "beside the existing speaker
 tap", but no speaker tap exists in this repository (Ask 3 is unassigned), and the misc BNCs are input-only
 by construction (`docs/superpowers/specs/2026-08-13-syncbox-breakout-pcb-design.md:1044`, an output port
@@ -222,8 +222,8 @@ we need from you is the *sensor side*: can one photodiode be mounted at the top 
 V1 run (a rig procedure, for instance `A_PD2` moved temporarily, or a lead long enough), given that your
 board fixes `A_PD1` and `A_PD2` to the task and flip patches? Or does a top reading need a third
 photodiode channel? Source:
-[engine spec §6.5 and §21](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/superpowers/specs/2026-10-07-engine-design.md#6-when-n3-nr3);
-[validation V1](https://github.com/jakewesterberg/wl-xcon/blob/main/docs/validation.md). Not asked: a
+[engine spec §6.5 and §21](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/superpowers/specs/2026-10-07-engine-design.md#6-when-n3-nr3);
+[validation V1](https://github.com/westerberg-lab-be/wl-xcon/blob/main/docs/validation.md). Not asked: a
 change to the patch roles in normal use, or a measured scan delay (that is V1, on the rig). Blocks: the
 scan-delay term in the engine's contingent-delay figure (spec §6.10), which is labeled a lower bound until
 V1 exists; no engine build.

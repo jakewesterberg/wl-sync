@@ -622,7 +622,7 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
 
        git clone https://github.com/raspberrypi/utils.git ~/src/utils
        git -C ~/src/utils checkout b57c48e
-       git clone https://github.com/jakewesterberg/wl-sync.git ~/src/wl-sync
+       git clone https://github.com/westerberg-lab-be/wl-sync.git ~/src/wl-sync
        ~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp
        sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig
 
