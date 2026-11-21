@@ -107,14 +107,15 @@ BACK_CENTRES: dict[str, float] = {
 
 # Where each connector family's footprint origin is, relative to its body. Read from the
 # footprints themselves (the two custom ones are generated from datasheet-params.toml).
-BNC_ORIGIN_TO_FACE = 35.15    # pad 1 to the body's front face; BNC_Dual_RA_Isolated, F.Fab
-MDR_ORIGIN_TO_CENTRE = 20.955  # contact 1 to the middle of the 34-wide mating row: 16.5 x 1.27
+BNC_ORIGIN_TO_FACE = chk.BNC_PAD1_TO_BODY_FACE_MM   # pad 1 to the body's front face, 14.45
+MDR_ORIGIN_TO_CENTRE = 20.955  # the footprint's x = 0 (contacts 34 and 68) to the middle of
+                               # the 34-wide mating row: 16.5 x 1.27
 DSUB_ORIGIN_TO_CENTRE = 24.93  # pin 1 to the midpoint of the shell holes: (-6.82 + 56.68) / 2
 DSUB_ORIGIN_TO_EDGE = 12.74    # pin 1's row to the PCB edge: 1.42 + 11.32 (the stock footprint)
-# How far each family's face stands beyond the board edge: the check's constants, where
-# the reasoning is. [engineering judgment] until a part is measured.
-BNC_BEYOND = chk.BNC_FACE_BEYOND_EDGE_MM
-MDR_BEYOND = chk.MDR_FACE_BEYOND_EDGE_MM
+# Depth per family, from the manufacturers' drawings: the check's constants, where the
+# reasoning is. The MDR68's y = 0 is the PCB edge by its drawing; the BNC's body face is
+# put on the edge, which is inferred from its drawing.
+BNC_BEYOND = chk.BNC_BODY_FACE_BEYOND_EDGE_MM
 
 
 def panel_anchor(ref: str, lib_id: str) -> tuple[float, float, int]:
@@ -126,8 +127,8 @@ def panel_anchor(ref: str, lib_id: str) -> tuple[float, float, int]:
         return (cx, FRONT_Y - d, 180) if front else (cx, BACK_Y + d, 0)
     if lib_id.endswith("MDR68_Male_RightAngle"):
         if front:
-            return (round(cx + MDR_ORIGIN_TO_CENTRE, 3), round(FRONT_Y + MDR_BEYOND, 3), 180)
-        return (round(cx - MDR_ORIGIN_TO_CENTRE, 3), round(BACK_Y - MDR_BEYOND, 3), 0)
+            return (round(cx + MDR_ORIGIN_TO_CENTRE, 3), FRONT_Y, 180)
+        return (round(cx - MDR_ORIGIN_TO_CENTRE, 3), BACK_Y, 0)
     if "DSUB-37" in lib_id:
         assert not front
         return (round(cx + DSUB_ORIGIN_TO_CENTRE, 3), BACK_Y + DSUB_ORIGIN_TO_EDGE, 180)
@@ -193,9 +194,10 @@ for _i, _ref in enumerate(("J8", "J9", "J10", "J11", "J12")):   # K-8: grouped a
 
 # -- task-PC digital (placement.md §5.2). G-23: U5-U7 and their clamps at J3.
 #    The series resistors and clamps fill the strip between J3's body and these three.
-ANCHORS["U5"] = (88.0, 72.0, 270)
-ANCHORS["U6"] = (107.0, 72.0, 270)
-ANCHORS["U7"] = (126.0, 72.0, 270)
+#    J3's body ends 12 mm in from the edge (MH drawing), so the three sit close behind it.
+ANCHORS["U5"] = (88.0, 34.0, 270)
+ANCHORS["U6"] = (107.0, 34.0, 270)
+ANCHORS["U7"] = (126.0, 34.0, 270)
 # K-33: each LED-driver pair side by side, between J7 and the NI line, level with the
 # optocouplers it drives. rot 180 turns the outputs toward the line.
 for _a, _b, _y in (("U8", "U70", 115.0), ("U9", "U71", 139.0),
@@ -243,23 +245,23 @@ ANCHORS["U55"] = (187.5, 48.0, 0)
 
 # -- buffer banks (placement.md §6.4). K-18, K-19.
 for _i, _ref in enumerate(("U31", "U32", "U33", "U34")):
-    ANCHORS[_ref] = (251.0 + 14.0 * _i, 177.0, 90)
+    ANCHORS[_ref] = (251.0 + 14.0 * _i, 212.0, 90)
 for _i, _ref in enumerate(("U35", "U36", "U37")):
-    ANCHORS[_ref] = (206.0 + 16.0 * _i, 60.0, 90)
+    ANCHORS[_ref] = (206.0 + 16.0 * _i, 26.0, 90)
 
 # -- analog front ends (placement.md §6.5). K-11, K-14, K-16: each behind its own connector.
 for _i, _ref in enumerate(("U16", "U17", "U18", "U19", "U20", "U21")):
     ANCHORS[_ref] = (275.5 + 9.0 * _i, 31.0, 0)
-FE_Y = 54.0
+FE_Y = 34.0   # the BNC bodies end 15.5 mm in from the edge (Amphenol drawing)
 for _j, _a, _b in (("J29", "U29", "U30"), ("J26", "U27", "U28"),
                    ("J24", "U25", "U26"), ("J22", "U23", "U24")):
     ANCHORS[_a] = (BACK_CENTRES[_j] - 4.5, FE_Y + (3.0 if _a == "U23" else 0.0), 0)
     ANCHORS[_b] = (BACK_CENTRES[_j] + 4.5, FE_Y, 0)
 ANCHORS["U22"] = (BACK_CENTRES["J20"], FE_Y, 0)       # K-11: directly behind J20
 # K-23: the three divide-by-1/2 headers, each beside its own difference amplifier.
-ANCHORS["J28"] = (BACK_CENTRES["J26"] + 4.5 - 1.27, 67.0, 0)
-ANCHORS["J30"] = (BACK_CENTRES["J29"] - 4.5 - 1.27, 67.0, 0)
-ANCHORS["J32"] = (BACK_CENTRES["J29"] + 4.5 - 1.27, 67.0, 0)
+ANCHORS["J28"] = (BACK_CENTRES["J26"] + 4.5 - 1.27, 47.0, 0)
+ANCHORS["J30"] = (BACK_CENTRES["J29"] - 4.5 - 1.27, 47.0, 0)
+ANCHORS["J32"] = (BACK_CENTRES["J29"] + 4.5 - 1.27, 47.0, 0)
 
 # Reference text for an anchor that has no free space above, below or beside it.
 # ref -> (x, y) of the text's centre.
@@ -670,10 +672,11 @@ class Placer:
                     if onet == net and opin in self.pads[o]:
                         for (px, py, _hw, _hh) in self.pads[o][opin]:
                             if self.comps[o]["lib_id"].endswith("MDR68_Male_RightAngle"):
-                                # An MDR68's contacts are under 51 mm of body (X-4). Aim
-                                # at the contact's own X at the body's inboard end, so a
-                                # connector's parts line up behind it in contact order
-                                # and are not squeezed down its sides.
+                                # An MDR68's contacts are under its body, which ends
+                                # 12 mm in from the edge (X-4). Aim at the contact's own
+                                # X at the body's inboard end, so a connector's parts
+                                # line up behind it in contact order and are not
+                                # squeezed down its sides.
                                 ob = self.boxes[o]
                                 py = ob[3] + 2.0 if ob[1] < BOARD_H / 2 else ob[1] - 2.0
                             cands.append((self.target_use.get((o, opin), 0), o, opin, px, py))

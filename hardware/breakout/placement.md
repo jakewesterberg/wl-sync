@@ -81,39 +81,55 @@ it is not a dimensioned panel position.
 `J19`'s stock footprint has a courtyard 70.41 mm wide, 1.0 mm more than the 69.4 mm that
 `panel-elevations.md` allows it. The back edge had the room.
 
-### How far each face is from the board edge
+### How far each connector is from the board edge
 
-**Per family, against one panel plane.** The user's ruling of 2026-11-21: "Per family from
-the sources". The sources give three things: the panels are 3.0 mm (`d3-panel-thickness.md`);
-part of the BNC's 36.2 mm body passes through the panel (`panel-elevations.md` §3 item 3;
-M-9); and the stock DB37 footprint puts its flange at the PCB edge.
+**Per family, from the manufacturers' drawings.** The user, 2026-11-21: "Per family from
+the sources", and then ruling R46: published drawings stand in for physical samples. The
+two drawings are recorded with their sha256 in `hardware/datasheet-params.toml`. I read
+each callout below on the PDF. None was checked against a part.
 
 | Family | Where it is | From |
 |---|---|---|
-| DB37 `J19` | **Where its footprint puts it.** Shell holes 11.32 mm in from the board edge; flange from the edge to 0.4 mm beyond it; shell beyond that. | the stock footprint's name and its F.Fab outline |
-| The panel | Its inner face is taken at the DB37 flange's outer face, **0.4 mm beyond the board edge**, and its outer face 3.0 mm farther, at 3.4 mm. | the row above; D3 |
-| Dual BNC, all 18 | Body front face **3.4 mm beyond the board edge**, at the panel's outer face. Pad 1 is 31.75 mm in from the edge. | 35.15 mm from pad 1 to the front face (footprint F.Fab) less 3.4 |
-| MDR68, all 4 | Mating face **3.4 mm beyond the board edge**. The first tail row is 1.70 mm in from the edge; the body ends 47.92 mm in. | 5.10 mm from the footprint's datum to the first row (TOML `[mdr68].row_offsets_from_edge_mm`) less 3.4 |
+| MDR68, all 4 | **The footprint's datum on the board edge.** First tail row 5.10 mm in, the others 7.005, 8.91 and 10.815 mm in. Flange 0.30 mm inside the edge; nose 4.70 mm beyond it; body's rear 12.0 mm in. | MH 3700-0121-01 rev 3.0. "PCB Layout (B)" marks the datum "PCB EDGE" and dimensions 5.10 ± 0.2 from it; side view 4.80 (flange to row 1) and 16.70 (nose to rear); bottom view 5.00 (flange to nose). **Stated by the drawing.** |
+| Dual BNC, all 18 | **Body front face on the board edge.** Ground pins 5.56 mm in, signal rows 11.91 and 14.45 mm in (pad 1 is in the 14.45 mm row), body's rear 15.5 mm in. Jacks 20.7 mm beyond the edge, 8.6 mm of that thread. | Amphenol 31-6575 rev A, side view: 5,56, 6,35 and 2,54 REF; 20,7 and 8,6 REF; 36,2 REF overall. **[engineering judgment] for the edge**: the drawing shows no board edge. Its body front face runs down to the seating plane, so the board cannot pass it, and the part is a rear-mount bulkhead part whose panel seats on that face. |
+| DB37 `J19` | **Where its footprint puts it.** Shell holes 11.32 mm in; flange from the edge to 0.4 mm beyond it; shell beyond that. | the stock footprint's name and its F.Fab outline |
+| The panel | Inner face **at the board edge**, where the BNC bodies seat; outer face 3.0 mm beyond. | the BNC row above; D3. There is no board set-back (M-9, superseded). |
 
-**[engineering judgment], until a part is measured**, for the two 3.4 mm figures and for
-the panel plane:
+What follows from those:
 
-- 3.4 mm is the **least** that takes a face through a 3.0 mm panel. It is not either part's
-  real protrusion, which is not in the sources (M-9; the design review's item "The dual
-  BNC's protrusion through the panel"). A larger measured figure moves that family farther
-  out, which only frees board.
-- Each family has its own constant, `BNC_FACE_BEYOND_EDGE_MM` and
-  `MDR_FACE_BEYOND_EDGE_MM` in the check, because nothing says they protrude alike. The
-  DB37 has none: it does not move.
-- The front panel has no DB37 to fix its plane. The same 0.4 mm is used there.
-- **The MDR68's datum.** The footprint draws the drawing's "edge" datum as the mating face
-  (`gen_wl_sync_footprints.py`). If the drawing means the PCB edge instead, the MDR68's
-  offset is 0 and its tail row belongs 5.10 mm in, not 1.70. The sources do not say which;
-  the same drawing that settles the tail-row map (M-11) settles this.
+- Behind a 3.0 mm panel a BNC shows 17.7 mm of jack, with 5.6 mm of thread for a 2.8 mm
+  nut. An MDR68's nose shows 1.7 mm and its side hooks about 0.2 mm, which may be too
+  little for a cable that latches on them: `constraints.md` Open question 23.
+- **The three families do not agree on the panel's inner face to better than 0.4 mm.**
+  The BNC body puts it at the edge, the DB37's flange is 0.4 mm proud of the edge, and the
+  MDR68's flange is 0.30 mm short of it. **[engineering judgment]** that the BNC, of which
+  there are 18, sets the plane; the DB37's cutout or the MDR68s' fixing has to take up the
+  rest, and the panel drawing (Task 15) has to say how.
+- The BNC's panel holes are single-D, not round, and its bushing may not be insulated from
+  the panel: `constraints.md` Open questions 24 and 25. Neither moves a footprint.
 
-The MDR68 footprint's silkscreen now starts just ahead of its first tail row instead of at
-the mating face, so that no silkscreen is drawn past the board edge
-(`gen_wl_sync_footprints.py`, 2026-11-21). Its F.Fab and courtyard still draw the full body.
+**What this replaced.** As first generated, the BNC "face" on the edge was the tip of the
+jacks, and the MDR68's datum was read as its mating face; fix round 1 then pushed both
+3.4 mm outward. Both were guesses, and both were wrong. The MDR68 footprint itself was
+also wrong in four ways the drawing settles, all corrected on 2026-11-21 in
+`gen_wl_sync_footprints.py` and asserted in `check_footprint_geometry.py`:
+
+- its body was drawn 51.32 mm deep (that figure is a width); it is 16.70 mm, 12.0 on board;
+- its tail-row map was a guess. The drawing gives it: from the edge inward 36…68 even,
+  35…67 odd, 2…34 even, 1…33 odd;
+- **it was mirrored.** "PCB Layout (B)" is a component-side view with the edge up and
+  contact 1 at the right, which agrees with the front view (contact 1 at the upper left:
+  from above and behind, the connector's left is the viewer's right). The footprint had
+  contact 1 at the left. The placement check now fails a mirrored MDR68;
+- its boardlock holes were at the middle of the four rows; the drawing has them on the
+  second row's line, 7.005 mm in.
+
+Pin-to-net assignment did not change: each pad still carries the net of its own contact
+number, as the netlist contract has it, and the check confirms all 2534 pads. What changed
+is where each numbered pad is.
+
+Both footprints' silkscreen now stops short of the board edge
+(`gen_wl_sync_footprints.py`); their F.Fab and courtyards still draw the whole part.
 
 ## 3. Barriers and slots
 
@@ -215,17 +231,16 @@ are routing.
 | `J18`, `U66` | (158, 103.5), (164.5, 109) | K-30; M-17 |
 | `U15`, `U74`, `U14` | (113, 84), (124, 84), (140, 84), beside `J7` and under the IO Board | K-6 |
 | `J8` to `J12` | (82 to 102, 82.5), beside `U15` | K-8 |
-| `U5`, `U6`, `U7` | (88, 72), (107, 72), (126, 72), behind `J3` | G-23 |
+| `U5`, `U6`, `U7` | (88, 34), (107, 34), (126, 34), behind `J3` | G-23 |
 | `R5` to `R23`, `D4` to `D22` | between `J3`'s body and `U5` to `U7` | G-23, K-14 |
 | `U8`/`U70`, `U9`/`U71`, `U11`/`U73`, `U10`/`U72` | (84, y) and (93, y) at y = 115, 139, 157, 171.5: each pair level with its optocouplers | K-33 |
 | `U13`, `U69`, `U12` | (78, 193), (88, 193), (98, 193), in the tongue behind `J5` and `J4` | **[engineering judgment]**: the reward logic at its two front-face parts |
 | `U67`, `U68` | (162, 126), (162, 146), against the split beside the mux bank | K-31 |
 | `H1`, `H2` | (27.5, 77), (149, 77) | floorplan §6.6 |
 
-**`J3`'s series resistors are 40 mm or more from its contacts.** K-14 wants them at the
-connector. The MDR68's body is 51.32 mm deep and covers its own contacts (X-4), so "at the
-connector" can only mean at the body's inboard end. The same holds at `J2`, `J36` and
-`J45`.
+**`J3`'s series resistors and clamps are within about 25 mm of its contacts**, in the
+strip between the connector's body, which ends 12 mm in, and `U5` to `U7` (K-14, G-23).
+Until 2026-11-21 they were 40 mm away, behind a body drawn 51.32 mm deep.
 
 **`H1` and `H2`** are the IO Board's two inboard standoff holes: stock
 `MountingHole_2.7mm_M2.5`, non-plated, no net, marked board-only (M-16). The M2.5 is the
@@ -245,13 +260,13 @@ this board at all (floorplan §6.4).
 | `NT4` | (146, 177.5), 5 mm from `U63` pin 6 | G-6 |
 | `U75` | (168, 188) | **[engineering judgment]**: beside `J50`, whose port it buffers |
 | `U54`, `U76`, `U55` | (178, 52), (178, 66), (187.5, 48) | K-25, G-12, G-13 |
-| NI buffer bank `U31` to `U34` | (251 to 293, 177), behind `J36` | K-18, K-19 |
-| Task-PC bank `U35` to `U37` | (206, 60), (222, 60), (238, 60), behind `J2` | K-18, K-19 |
+| NI buffer bank `U31` to `U34` | (251 to 293, 212), behind `J36` | K-18, K-19 |
+| Task-PC bank `U35` to `U37` | (206, 26), (222, 26), (238, 26), behind `J2` | K-18, K-19 |
 | Eye amplifiers `U16` to `U21` | (275.5 to 320.5, 31), behind `J19` | K-14, K-16 |
-| `U22` | (418, 54), directly behind `J20` | K-11 |
+| `U22` | (418, 34), directly behind `J20` | K-11 |
 | `U23`, `U24` | behind `J22` | K-16, K-17 |
 | `U25` to `U30` | in pairs behind `J24`, `J26`, `J29` | K-16 |
-| `J28`, `J30`, `J32` | at y = 67, each below its own amplifier, about 32 mm clear of the BNC bodies | K-23 |
+| `J28`, `J30`, `J32` | at y = 47, each below its own amplifier, about 29 mm clear of the BNC bodies | K-23 |
 
 The mux pitch of 8.2 mm is **[engineering judgment]**: eight 7.7 mm courtyards between the
 T and the island's right-hand band. It lines each pair of `INA105`s up with its own BNC
@@ -348,12 +363,11 @@ value, footprint or DNP flag differs.
 
 ## 10. Open, for the person who routes
 
-1. **How far each connector family really protrudes** (§2). 3.4 mm is the least that
-   passes the panel. A constant each for the 18 BNCs and the 4 MDR68s; the DB37 does not
-   move. The MDR68's datum is part of the same question.
-2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1 is met: layout
-   waits for the design review's sign-off, and the user gave it on 2026-11-21
-   (`design-review.md`, Sign-off).
+1. **The connectors against the panel** (§2; `constraints.md` Open questions 23 to 25):
+   the MDR68's latch hooks behind 3 mm, the BNC hole's flat, whether the BNC's bushing is
+   insulated from the panel, and the 0.4 mm the three families disagree by. The BNC's
+   board-edge datum is inferred from its drawing, not stated.
+2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1: approved for layout by the user (2026-11-21); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
 3. **`J1` beside the split** (§4).
 4. **The four fan headers, and what sits under the IO Board** (§4; floorplan Open question 6).
 5. **Board mounting holes, corner radius, stack-up** (§1): none is in the sources, and
@@ -361,3 +375,8 @@ value, footprint or DNP flag differs.
 6. **`J4`** (§2; constraints Open question 14).
 7. **The parts placed by rule** (§7). Read the board before routing it; move what should
    move in the generator.
+8. **The regions are deeper than the connectors now need.** `floorplan.md` sized the NI
+   and Intan islands and the back row on connector bodies 51.32 and 36.2 mm deep; they are
+   12.0 and 15.5 mm. The ICs behind `J3`, `J2`, `J36` and the analog BNCs were moved up to
+   their connectors on 2026-11-21. The region boundaries, the barriers and everything
+   placed against them were not re-drawn.

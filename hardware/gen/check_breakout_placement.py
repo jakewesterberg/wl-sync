@@ -255,39 +255,37 @@ FAN_STRIP_X = 310.0  # M-6 as amended; floorplan §2.1: no front connector at X 
 
 # How each connector family is located from its own pads, so the check does not depend on
 # where a footprint's origin happens to be.
-#   BNC: pad 1 is on the body's centreline, 35.15 mm behind the body's front face
-#        (hardware/lib/wl-sync.pretty/BNC_Dual_RA_Isolated.kicad_mod, F.Fab), and pad 3 is
-#        2.54 mm nearer the panel.
-#   MDR68: contacts 1 and 34 are the ends of mating row A, 33 x 1.27 mm apart, in the tail
-#        row 5.10 mm behind the footprint's datum, which gen_wl_sync_footprints.py draws
-#        as the mating face ([mdr68].row_offsets_from_edge_mm); contact 35 is in a row
-#        farther in.
+#   BNC: pad 1 is on the body's centreline, 14.45 mm behind the body's FRONT FACE, the
+#        face the panel seats on: 5.56 mm from the face to the ground pins, 6.35 mm more
+#        to the first signal row and 2.54 mm to the second (Amphenol 31-6575 rev A, side
+#        view). Pad 3 is in the row nearer the panel. The jacks stand 20.7 mm beyond that
+#        face; the footprint's F.Fab draws them, to 35.15 mm from pad 1.
+#   MDR68: contact 36 is in the tail row nearest the edge, 5.10 mm from the PCB EDGE, which
+#        is the drawing's datum (MH 3700-0121-01 rev 3.0, "PCB Layout (B)"); contact 1 is
+#        in the row farthest in. Contacts 1 and 34 are the ends of the upper mating row,
+#        and with the edge up contact 1 is at the right.
 #   DB37: the two shell holes are 63.5 mm apart and 11.32 mm from the PCB edge (the stock
 #        footprint's own name and description); pin 1's row is 1.42 mm farther in.
-BNC_PAD1_TO_FACE_MM = 35.15
-MDR_ROW0_TO_FACE_MM = 5.10
+BNC_PAD1_TO_BODY_FACE_MM = 14.45
+MDR_ROW1_TO_EDGE_MM = 5.10
 DSUB_SHELL_TO_EDGE_MM = 11.32
-# Depth, per family, against ONE panel plane (the user, 2026-11-21: "Per family from the
-# sources"). The sources: the panel is 3.0 mm (d3-panel-thickness.md); part of the BNC's
-# 36.2 mm passes through it (panel-elevations.md §3 item 3; constraints M-9); the stock
-# DB37 footprint puts its flange at the PCB edge.
+# Depth, per family, from the manufacturers' drawings (the user, 2026-11-21: "Per family
+# from the sources"; ruling R46: drawings in place of samples). Recorded with their sha256
+# in hardware/datasheet-params.toml, [mdr68] and [bnc_dual_isolated].
 #
-#   The panel's inner face is where the DB37's flange ends: 0.4 mm outside the board edge
-#   (the footprint's F.Fab draws the flange from 12.74 to 13.14 mm; the PCB edge is 12.74).
-#   The DB37 therefore stays where the footprint puts it.
+#   MDR68: the drawing dimensions its tail rows from the PCB EDGE, so there is nothing to
+#        choose: the footprint's y = 0 goes on the board edge. The flange is then 0.30 mm
+#        inside the edge and the nose 4.70 mm beyond it.
+#   BNC: the drawing gives no board-edge datum. The body's front face runs down to the
+#        seating plane, so the board cannot project past it, and the part is a rear-mount
+#        bulkhead part whose panel seats on that face. So the face is put ON the board
+#        edge. [engineering judgment], inferred from the drawing rather than stated by it.
+#   DB37: where the stock footprint puts it, flange at the edge.
 #
-#   A BNC's jacks and an MDR68's mating face must pass the panel, so each family's face is
-#   at least at the panel's OUTER face: 0.4 + 3.0 = 3.4 mm beyond the board edge.
-#
-# [engineering judgment] until a part is measured. 3.4 mm is the least that passes the
-# panel, not either part's real protrusion, which is not in the sources (M-9; design-review
-# "The dual BNC's protrusion through the panel"). A larger protrusion moves that family
-# farther OUT, which only frees board. The two families have a constant each because
-# nothing says they protrude alike.
-PANEL_THICKNESS_MM = 3.0
-PANEL_INNER_BEYOND_EDGE_MM = 0.4
-BNC_FACE_BEYOND_EDGE_MM = PANEL_INNER_BEYOND_EDGE_MM + PANEL_THICKNESS_MM
-MDR_FACE_BEYOND_EDGE_MM = PANEL_INNER_BEYOND_EDGE_MM + PANEL_THICKNESS_MM
+# Until 2026-11-21 both the BNC and the MDR68 were placed by guesswork (first with a
+# "face" on the edge that was the jack's tip and a mis-read datum, then 3.4 mm beyond it).
+BNC_BODY_FACE_BEYOND_EDGE_MM = 0.0
+PANEL_THICKNESS_MM = 3.0   # d3-panel-thickness.md
 
 MECHANICAL = {"H1", "H2"}  # the CM5 IO Board's two inboard standoff holes (floorplan §6.6)
 
@@ -626,13 +624,18 @@ def run_checks(pcb_text: str, contract: dict,
         if f.lib_id.endswith("BNC_Dual_RA_Isolated"):
             got_x = pad["1"][0].x
             depth = (pad["1"][0].y - edge) * inward
-            want_depth = BNC_PAD1_TO_FACE_MM - BNC_FACE_BEYOND_EDGE_MM
+            want_depth = BNC_PAD1_TO_BODY_FACE_MM - BNC_BODY_FACE_BEYOND_EDGE_MM
             outward_ok = (pad["3"][0].y - pad["1"][0].y) * inward < 0
         elif f.lib_id.endswith("MDR68_Male_RightAngle"):
             got_x = (pad["1"][0].x + pad["34"][0].x) / 2
-            depth = (pad["1"][0].y - edge) * inward
-            want_depth = MDR_ROW0_TO_FACE_MM - MDR_FACE_BEYOND_EDGE_MM
-            outward_ok = (pad["35"][0].y - pad["1"][0].y) * inward > 0
+            depth = (pad["36"][0].y - edge) * inward
+            want_depth = MDR_ROW1_TO_EDGE_MM
+            outward_ok = (pad["1"][0].y - pad["36"][0].y) * inward > 0
+            # Handedness (the drawing's PCB Layout (B)): seen from the component side with
+            # the connector's edge up, contact 1 is at the right. At the back edge that is
+            # +x; at the front edge the part is turned half round and it is -x.
+            if (pad["1"][0].x - pad["34"][0].x) * inward <= 0:
+                fails.append(f"3: {ref} is mirrored: contact 1 is on the wrong side")
         elif "DSUB-37" in f.lib_id:
             sh = pad["SH"]
             got_x = (sh[0].x + sh[1].x) / 2

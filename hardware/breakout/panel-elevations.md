@@ -106,10 +106,13 @@ PCB, so its port axes are fixed relative to the board's top surface:
 
 | | Height above board top surface |
 |---|---|
-| Lower port axis | **6.63 mm** |
-| Upper port axis | **22.63 mm** |
+| Lower port axis | **7 mm** |
+| Upper port axis | **23 mm** |
 
-(From `body_height_mm` 29.25 and `port_pitch_mm` 16.00, ports centred in the body.)
+(**Corrected 2026-11-21, ruling R46**, from drawing 31-6575 rev A: "7 REF" from the seating
+plane to the lower port's axis, and the 16 mm pitch. These read 6.63 and 22.63 mm, from
+assuming the ports were centred in a 29.25 mm body; the drawing dimensions the lower one.
+The figures below that were built on 6.63 mm move by 0.37 mm.)
 
 Three consequences, none of which existed when the BNCs were panel-mounted:
 
@@ -119,13 +122,26 @@ Three consequences, none of which existed when the BNCs were panel-mounted:
    inside the usable band, so this is a real choice to make at layout, not a constraint that
    makes itself.
 2. **The MDR68 and BNC rows cannot both be centred.** The MDR68's body is 9.10 mm tall
-   (`body_height_mm`) with its contacts 5.10–10.82 mm behind the mating face, so its face
+   (`body_height_mm`) with its tail rows 5.10–10.82 mm inside the **PCB edge** (corrected
+   2026-11-21: this said "behind the mating face"; the drawing's datum is the board edge,
+   and the mating nose stands 4.70 mm beyond it), so its face
    centre sits far lower above the board than the BNC pair's does. Expect the MDR68s to sit
    lower relative to the BNC field, or to be shimmed.
 3. **Board set-back from the panel** is set by the BNC body depth, 36.20 mm
    (`body_depth_mm`), less however much of it protrudes through the panel. That protrusion is
    not dimensioned on the drawing; measure it on a sample, or take it from the 3D model,
    before fixing the board outline.
+
+   > **Superseded 2026-11-21 (ruling R46: manufacturer drawings in place of samples).**
+   > Drawing 31-6575 rev A does dimension it. The body proper is 15.5 mm deep and the jacks
+   > stand 20,7 REF beyond its front face, 8,6 REF of that thread. The part is a rear-mount
+   > bulkhead part: the panel goes over the bushings and seats on the body's front face.
+   > That face is put on the board edge, so **the panel's inner face is at the board edge
+   > and there is no set-back**. Behind a 3.0 mm panel 5.6 mm of thread shows, and the
+   > 2.8 mm nut (31-5652) leaves 2.8 mm. The thickest panel the thread takes is about
+   > 5.8 mm, which is inferred (8.6 less the nut), not stated. The board-edge datum is
+   > inferred too: the drawing shows no board edge, only a front face that runs down to the
+   > seating plane.
 
 **Panel thickness: 3.0 mm aluminium**, decided in `d3-panel-thickness.md`. Under the M12's
 3.5 mm maximum, which is the only stated limit on the board, and the BNCs are PCB-anchored so
@@ -137,7 +153,7 @@ their thread engagement is not load-bearing.
 
 | Feature | Size | Count | Source |
 |---|---|---|---|
-| BNC port hole | Ø **12.83** mm | 36 (35 used, 1 spare) — 34 until J57, 2026-10-18 | `bnc_dual_isolated.panel_hole_dia_mm` |
+| BNC port hole — **not round**, see below | Ø **12.83** mm with one flat | 36 (35 used, 1 spare) — 34 until J57, 2026-10-18 | `bnc_dual_isolated.panel_hole_dia_mm` |
 | BNC vertical pitch within a body | **16.00** mm | — | `.panel_hole_pitch_mm` |
 | BNC column pitch | **18.0** mm | — | this document §2 |
 | M12 inlet hole | Ø **13.5** mm + Ø1.2 mm anti-rotation pin at 45° | 1 | `m12_inlet.panel_hole_dia_mm` |
@@ -145,6 +161,16 @@ their thread engagement is not load-bearing.
 | 60 mm fan cutout | ~**65** mm square incl. fixings | 2 front, 2 side | spec §9.7 |
 | Reward button | Ø ~12 mm, recessed bezel | 1 | spec §3.1 / §9.8 |
 | Panel material | **3.0 mm** aluminium | both faces | `d3-panel-thickness.md` |
+
+**The BNC holes are single-D (added 2026-11-21, R46).** Drawing 31-6575 rev A,
+"RECOMMENDED MOUNTING HOLE": 2 × Ø12.83 mm at 16 mm, each with one anti-rotation flat
+5.56 mm from the hole's centre, the upper hole's flat at the top and the lower hole's at
+the bottom. The 2024 sibling drawing 31-6576 rev B gives 11.7 mm across the same cutout,
+which is a flat at 5.29 mm. Which applies today is open (`constraints.md` Open question
+24): test-fit or ask Amphenol before machining. **The nuts** (31-5652) are 14.2 mm across
+flats, about 16.4 mm across corners, and the two ports of a body are 16.0 mm apart, so the
+two nuts must be turned flat to flat. Whether the bushing is insulated from the panel is
+`constraints.md` Open question 25.
 
 **Machine all 34 BNC holes.** They are real ports on real connectors that will be fitted;
 leaving one undrilled would mean a body pressed against blank panel.

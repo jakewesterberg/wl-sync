@@ -452,7 +452,32 @@ mounting_hole_dia_mm = 2.77
 mounting_hole_span_mm = 57.93
 row_offsets_from_edge_mm = [5.10, 1.905, 3.81, 5.715]
 overall_width_mm = 63.86
-body_depth_mm = 51.32
+# CORRECTED 2026-11-21 (ruling R46, read from the drawing). 51.32 is a WIDTH: the bottom
+# view dimensions it across the connector, between the two side hooks. The depth is the
+# side view's 16.70 +/- 0.3, nose tip to rear of housing. `body_depth_mm` was 51.32.
+body_depth_mm = 16.70
+hook_span_mm = 51.32
+# "PCB Layout (B)": a leader marked "PCB EDGE" points at the dashed datum, and
+# row_offsets_from_edge_mm[0] = 5.10 +/- 0.2 is measured from it to the tail row NEAREST
+# the edge. So the datum is the board edge, not the mating face.
+row_datum = "PCB EDGE (PCB Layout (B) leader)"
+flange_to_row1_mm = 4.80         # side view, 4.80 +/- 0.2: flange face to the first tail row
+nose_beyond_flange_mm = 5.00     # bottom view, 5.00 +/- 0.15: flange face to the nose tip
+hook_beyond_flange_mm = 3.50     # bottom view, 3.50 +/- 0.2: flange face to the side-hook tips
+mating_shell_width_mm = 46.45    # front view
+# The tail-row map, read off PCB Layout (B) and the front view (2026-11-21): leaders "1"
+# and "3" go to the row FARTHEST from the edge, "2" to the row before it, and "Last
+# Position" (contact 68) to the left end of the row NEAREST the edge; the front view
+# numbers 1-34 along the upper mating row and 35-68 along the lower. Rows from the edge
+# inward: 36..68 even, 35..67 odd, 2..34 even, 1..33 odd.
+tail_rows_from_edge = "B_even,B_odd,A_even,A_odd"
+# PCB Layout (B) is a component-side view: edge at the top, contact 1 at the RIGHT.
+pin1_side_edge_up = "right"
+# Not dimensioned: the boardlock holes are drawn with their centre on the second tail
+# row's extension line, and the side view draws the boardlock peg at that row's depth.
+boardlock_row = 2
+document_sha256 = "f24b828f45cdde79cb6dd388e46944955b4a44acc3b11229067096e6544f0d27"
+document_file = "MH_3700-0121-01.pdf (MH Connectors 3700-0121-01 REV 3.0, 03-27-15); not in this repository"
 body_height_mm = 9.10
 panel_thread = "#2-56, 2 places"
 contact_current_rating_a = 0.5   # NOT the 3 A distributors list
@@ -525,6 +550,26 @@ title = "50 OHM DUAL PORT BNC R/A JACK, ISOLATED, BLACK"
 ports = 2
 orientation = "right angle"
 port_pitch_mm = 16.00            # centre to centre, STACKED vertically
+# Added 2026-11-21 (ruling R46), read from drawing 31-6575 rev A (preliminary, 4/18/13),
+# side view and "RECOMMENDED MOUNTING HOLE". All are REF dimensions on the drawing.
+document_sha256 = "7ffb0a02af0b59fe2166fce3ea4ce2c49235c44f2bebdb901695629da534ef34"
+document_file = "AmphenolRF_C031-6575.pdf (31-6575 REV A, sheet 2 of 2); not in this repository"
+face_to_tip_mm = 20.7            # body front face to the tip of the jack
+thread_length_mm = 8.6           # body front face to the end of the 1/2-28 thread
+ground_pin_to_face_mm = 5.56     # ground-pin centres to the body front face
+lower_port_height_mm = 7.0       # seating plane to the lower port's axis; upper is 7 + 16
+panel_hole_flat_mm = 5.56        # single-D hole: hole centre to the flat
+# The sibling 31-6576 rev B (31-JUL-24) dimensions the same cutout as 11,7 across, which
+# is 5.29 mm from centre to flat, gives a 29.00 mm body height, and lists the connector
+# interface as ZAMAC, nickel plated. OPEN: which flat applies to 031-6575 today.
+sibling_document = "4071853954_C31-6576_102124.pdf (31-6576 REV B, 31-JUL-24)"
+sibling_sha256 = "ad0747a8fba264c15b336922f5a2e4664a7daaeb0dc0dc0b4285c663b3fdce49"
+sibling_panel_hole_flat_mm = 5.29
+sibling_interface_material = "ZAMAC, nickel plating"
+# Hex nut 31-5652 rev B: 2.8 +/- 0.13 thick, 14.2 +/- 0.13 across flats.
+nut_document_sha256 = "e5ab963799b05dacef02386f28cb24e6f1265380b58b6c30d13363fdc6e9b4a6"
+nut_thickness_mm = 2.8
+nut_across_flats_mm = 14.2
 panel_hole_dia_mm = 12.83
 panel_hole_pitch_mm = 16.00
 panel_thread = "1/2-28 UNEF"

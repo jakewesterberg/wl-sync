@@ -740,6 +740,18 @@ primary drawings rather than from corroborated distributor figures. What is left
    own drawing or 3D model** — minutes with a document already in hand — and record the answer
    in `hardware/breakout/d3-panel-thickness.md`.
 
+   > **Done 2026-11-21, from the drawing (ruling R46), and most of the paragraph above was
+   > wrong.** MH rev 3.0 does give the map, on "PCB Layout (B)": from the PCB edge inward,
+   > contacts 36…68 even, 35…67 odd, 2…34 even, 1…33 odd, which was not one of the four
+   > candidates. The same view showed the footprint was **mirrored**, that its row datum is
+   > the PCB edge and not the mating face, that its body is 16.70 mm deep and not 51.32 (a
+   > width), and that its boardlock holes belong on the second row's line. A wrong map is
+   > not always caught by a connector that will not seat: the drawing's map drills the same
+   > holes as one of the candidates. `gen_wl_sync_footprints.py` is corrected,
+   > `check_footprint_geometry.py` asserts the map, the handedness and the hole line in
+   > place of the `PIN MAP UNVERIFIED` note, and `d3-panel-thickness.md` has the record.
+   > Nothing was checked against a part.
+
 2. **The dual BNC's port orientation** — which of the two ports is the upper one. Same class
    of assumption, far lower stakes: the shells are independent either way, so no short is
    possible and a swap is a net reassignment, not a re-machined panel.

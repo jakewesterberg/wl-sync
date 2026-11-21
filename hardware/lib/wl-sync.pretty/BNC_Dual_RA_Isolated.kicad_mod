@@ -57,7 +57,7 @@
 		(layer "F.Fab")
 	)
 	(fp_rect
-		(start -7.2 -14.45)
+		(start -7.2 -13.95)
 		(end 7.2 1.05)
 		(stroke (width 0.12) (type solid))
 		(fill no)

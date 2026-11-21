@@ -356,22 +356,54 @@ def verify_mdr68(params: dict) -> str:
         f"(mdr68.mounting_hole_span_mm)",
     )
 
-    # (g) The tail-map assumption must travel with the artifact. See
-    #     hardware/breakout/d3-panel-thickness.md for why this is an assumption and not a
-    #     vendor round-trip.
+    # (g) The tail map and the handedness, as read from the drawing on 2026-11-21 (ruling
+    #     R46; hardware/datasheet-params.toml [mdr68], hardware/breakout/d3-panel-thickness.md).
+    #     Until then this asserted only that a "PIN MAP UNVERIFIED" note was present.
+    by_num = {int(q.number): q for q in contacts}
+    want_rows = {
+        ys[0]: list(range(36, 69, 2)), ys[1]: list(range(35, 68, 2)),
+        ys[2]: list(range(2, 35, 2)), ys[3]: list(range(1, 34, 2)),
+    }
+    check(p["tail_rows_from_edge"] == "B_even,B_odd,A_even,A_odd",
+          "MDR68: datasheet-params.toml no longer records the drawing's tail-row map")
+    for y, want in want_rows.items():
+        got = sorted(n for n, q in by_num.items() if _approx(q.y, y, 0.001))
+        check(got == want,
+              f"MDR68: the tail row at y={y} holds contacts {got[:4]}.., the drawing puts "
+              f"{want[:4]}.. there (PCB Layout (B): rows from the PCB edge inward are "
+              f"36..68 even, 35..67 odd, 2..34 even, 1..33 odd)")
+    check(
+        _approx(ys[0], p["row_offsets_from_edge_mm"][0], 0.001),
+        f"MDR68: the first tail row is at y={ys[0]}, not {p['row_offsets_from_edge_mm'][0]} "
+        f"mm from y=0, which is the PCB EDGE on the drawing",
+    )
+    # Handedness. y grows away from the edge, so the footprint is the drawing's
+    # component-side view with the edge up, and contact 1 must be at the RIGHT (larger x).
+    check(
+        by_num[1].x > by_num[34].x and _approx(by_num[1].x - by_num[34].x, 33 * pitch, 0.001),
+        "MDR68: contact 1 is not at the right-hand end of its row with the PCB edge up -- "
+        "the footprint is the mirror image of the drawing's PCB Layout (B)",
+    )
+    check(
+        _approx(by_num[35].x, by_num[1].x, 0.001) and _approx(by_num[68].x, by_num[34].x, 0.001),
+        "MDR68: contact 35 is not behind contact 1, or 68 not behind 34 (front view)",
+    )
+    # Boardlock holes on the second tail row's line.
+    check(
+        all(_approx(q.y, ys[1], 0.001) for q in mounts),
+        f"MDR68: boardlock holes at y={[q.y for q in mounts]}, the drawing draws them on "
+        f"the second tail row's line, y={ys[1]}",
+    )
     descr = footprint_descr(MDR68_LIB, MDR68_MOD)
     check(
-        "PIN MAP UNVERIFIED" in descr,
-        "MDR68: the footprint's own descr no longer carries the 'PIN MAP UNVERIFIED' note. "
-        "The drawing gives the tail geometry but not which contact numbers land in which "
-        "tail row; that assumption must stay attached to the artifact until it is confirmed "
-        "and recorded in hardware/breakout/d3-panel-thickness.md.",
+        "PIN MAP READ FROM THE DRAWING" in descr and "PCB EDGE" in descr,
+        "MDR68: the footprint's descr no longer says where its pin map and datum come from",
     )
     return (
         f"MDR68 (MH 3700-0121-01 rev 3.0): 68 contacts, {want_drill} mm drill, 4 rows at "
         f"{want_spacing} mm x 17, {stagger} mm within-row pitch on two {pitch} mm phases, "
         f"array {width} mm, 2 mounting holes {p['mounting_hole_dia_mm']} mm at {span} mm, "
-        f"{nearest - max_pad:.2f} mm minimum copper gap, pin-map assumption recorded."
+        f"{nearest - max_pad:.2f} mm minimum copper gap, tail map and handedness as the drawing."
     )
 
 
