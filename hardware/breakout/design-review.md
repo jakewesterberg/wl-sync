@@ -351,8 +351,8 @@ scope a fix as its own task** rather than resolving it inside a review document.
 
 **Layout (Task 14) does not begin until this section is completed by a person.**
 
-- Reviewer name:
-- Date:
+- Reviewer name: Jake Westerberg (the git user of this repository, `git config user.name`)
+- Date: 2026-11-21
 - Every checklist item above independently confirmed (not merely read): ☐ Yes
 - `parametric-audit.md` read, and its 21 findings accepted as closed: ☐ Yes
 - Physical samples of the **MDR68** and the **dual BNC** (`031-6575`) ordered, and measurement
@@ -363,7 +363,13 @@ scope a fix as its own task** rather than resolving it inside a review document.
   `IH1215D` at minimum): ☐ Yes
 - Decision: ☐ Approved for layout ☐ Not yet — blocking items:
 
-Signature:
+Signature: **"i sign off"**
+
+> Recorded 2026-11-21. The user gave this sign-off on 2026-11-21 in the Claude Code session
+> that ran layout task L4, in answer to a question the session put to them about this gate.
+> The words in quotation marks are theirs, exactly. They were written into this block by the
+> agent on the user's behalf. The four confirmation boxes and the Decision boxes above were
+> not answered one by one, so they are left as they were.
 
 ---
 

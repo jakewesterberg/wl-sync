@@ -929,6 +929,51 @@ the schematic, generators, BOM and checkers are untouched. The fab must still ac
 of copper to a routed edge, which is the question the optocouplers already ask of it at
 0.25 mm (`constraints.md`, B-11).
 
+### R6 — The isolation slot narrows under the SOIC-16 optocouplers — **RULED 2026-11-21**
+
+R5's sibling. The eight `ACSL-6400`/`-6420` optocouplers (`U56`–`U61`, `U64`, `U65`) are in
+the stock `Package_SO:SOIC-16_3.9x9.9mm_P1.27mm`, whose two pad columns are centred at
+±2.475 mm with pads 1.95 mm long, so the copper gap under each is **3.00 mm** (KiCad 10.0.5
+library file). The plan's 2.5 mm slot, centred, leaves **0.25 mm** of laminate between each
+pad row and the routed edge (`constraints.md`, B-11). The generated placement (layout task
+L4) showed what that costs: 128 `copper_edge_clearance` errors, 16 pads on each of the eight
+parts, against KiCad's default 0.5 mm, and no routing would clear them.
+
+`constraints.md` Open question 4 asked what the fab accepts. The user was asked, and
+answered on 2026-11-21: "what is best practice, do some research. i am not an expert in
+this". What the research found, as reported to this task; the pages are not in this
+repository and were not re-read here:
+
+| Source | What it gives |
+|---|---|
+| JLCPCB, <https://jlcpcb.com/blog/pcb-board-outline> and <https://jlcpcb.com/blog/how-to-avoid-damaged-traces-and-pads> | minimum copper to a routed edge about 0.2 mm; at least 0.3 mm recommended, because the routing tolerance is ±0.2 mm |
+| PCBWay, <https://www.pcbway.com/helpcenter/Engineering_Questions/the_spacing_requirement_from_slot_to_copper_trace.html> | minimum about 0.2 mm from a slot to copper |
+| Eurocircuits, <https://www.eurocircuits.com/copper-and-the-board-edge/> | 0.25 mm |
+| TI SLLA284, <https://ti.com/document-viewer/lit/html/SLLA284G/GUID-70A502C2-0DE5-4A92-8C3A-BE16D8AB564C> | a through-slot wider than about 1 mm counts as air |
+
+So 0.25 mm is at or under every fab's minimum once a ±0.2 mm routing tolerance is taken
+off, and the slot does not need to be 2.5 mm wide to do its work.
+
+**Ruling: a 2.0 mm slot under the eight SOIC-16 optocouplers only.** That leaves **0.50 mm**
+of copper-free laminate each side, which is the mule's own margin (`hardware/mule/floorplan.md`,
+"about 0.5 mm"), is at or above every figure in the table after tolerance, and meets KiCad's
+default edge clearance with no override. The slot stays 2.5 mm under `U62`, `U63` and `U2`,
+and 1.5 mm under `C162` (R5).
+
+**What it costs.** Nothing electrical that the sources name. The slot is still well over
+1 mm, and the 3.00 mm between the two pad columns is the footprint's and does not change.
+It is a departure from the plan's "≥2.5 mm clearance slot under every optocoupler"
+(`docs/superpowers/plans/2026-08-13-breakout-pcb.md`, Task 14 Step 2), by 0.5 mm, under
+these eight parts. The plan gives no voltage or standard for the 2.5 mm
+(`constraints.md` §3).
+
+**If it is wrong:** one constant, `SLOT_OPTO_MM` in
+`hardware/gen/check_breakout_placement.py`, and a regenerate, while the board is unrouted.
+
+Built 2026-11-21: `gen_breakout_pcb.py` draws both slots stepped, the check holds the width
+under each of the eight parts to 2.0 mm exactly, and DRC reports no `copper_edge_clearance`.
+`constraints.md` B-3, B-11 and B-21 are amended and its Open question 4 is closed.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

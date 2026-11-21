@@ -496,7 +496,7 @@
 		(layers "*.Cu" "*.Mask")
 	)
 	(fp_rect
-		(start -10.975 0)
+		(start -10.975 3.9)
 		(end 52.885 51.32)
 		(stroke (width 0.12) (type solid))
 		(fill no)

@@ -375,7 +375,14 @@ def build_mdr68() -> str:
     # datum the row offsets are measured from) and the body extending back over the board.
     shell_x0, shell_x1 = field_cx - SHELL_W / 2, field_cx + SHELL_W / 2
     shell_y0, shell_y1 = 0.0, SHELL_D
-    els.append(fp_rect(shell_x0, shell_y0, shell_x1, shell_y1, "F.SilkS", 0.12))
+    # Silkscreen: the body from just ahead of the first tail row inboard, not the whole
+    # outline (changed 2026-11-21, layout task L4). The mating face stands beyond the board
+    # edge so that it passes the panel (hardware/breakout/placement.md §2), and a silk
+    # outline drawn out to the face crosses the edge: `kicad-cli pcb drc` reported it as
+    # silk_edge_clearance on all four connectors. F.Fab and the courtyard below still draw
+    # the full body. The dual BNC's silk is cut back the same way ("PCB-side base only").
+    silk_y0 = ROW0_Y - PAD_SIZE / 2 - 0.5
+    els.append(fp_rect(shell_x0, silk_y0, shell_x1, shell_y1, "F.SilkS", 0.12))
     els.append(fp_rect(shell_x0 - 0.5, shell_y0 - 0.5, shell_x1 + 0.5, shell_y1 + 0.5, "F.CrtYd", 0.05))
     els.append(fp_rect(shell_x0, shell_y0, shell_x1, shell_y1, "F.Fab", 0.1))
     els.append(fp_text_ref(field_cx, shell_y0 - 1.5))

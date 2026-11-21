@@ -72,7 +72,7 @@ it is not a dimensioned panel position.
 |---|---|---|---|
 | `J13`, `J15`, `J17`, `J6` | 9.5, 27.5, 45.5, 63.5 | 2.3 to 70.7 | `DGND` |
 | `J3` | 107.0 | 75.07 to 138.93 | `DGND` |
-| M12 inlet, panel only | no footprint (M-13) | the stretch from 139 to 174 is left free for it | |
+| M12 inlet, panel only | no footprint (M-13) | 139 to 174 is free of connectors; the inlet belongs at about 162 to 174, at the boundary (floorplan §2.2) and clear of the IO Board's port edge and its bracket, which reach X = 160 (floorplan Open question 2) | |
 | `J57` | 182.0 | 174.8 to 189.2 | `AO_GND_TPC` shells, in the `AGND` region |
 | `J2` | 226.0 | 194.07 to 257.93 | `AGND` |
 | `J19` | 298.0 | courtyard 262.87 to 333.28 | `AGND` |
@@ -83,20 +83,37 @@ it is not a dimensioned panel position.
 
 ### How far each face is from the board edge
 
-**[engineering judgment]**, and the one that most needs a person's eye. No source says
-where the board edge is against a connector body. `floorplan.md` reserves each body's full
-depth from the edge (§3.1, §5.3, §6.4), which puts the body's front face **on** the edge,
-and this placement does the same:
+**Per family, against one panel plane.** The user's ruling of 2026-11-21: "Per family from
+the sources". The sources give three things: the panels are 3.0 mm (`d3-panel-thickness.md`);
+part of the BNC's 36.2 mm body passes through the panel (`panel-elevations.md` §3 item 3;
+M-9); and the stock DB37 footprint puts its flange at the PCB edge.
 
-| Family | What is on the board edge | From |
+| Family | Where it is | From |
 |---|---|---|
-| Dual BNC | the body's front face; pad 1 is 35.15 mm in | the footprint's F.Fab outline |
-| MDR68 | the mating face, the drawing's datum; the first tail row is 5.10 mm in | TOML `[mdr68].row_offsets_from_edge_mm` |
-| DB37 | the PCB edge of the stock footprint; the shell holes are 11.32 mm in | the footprint's own name |
+| DB37 `J19` | **Where its footprint puts it.** Shell holes 11.32 mm in from the board edge; flange from the edge to 0.4 mm beyond it; shell beyond that. | the stock footprint's name and its F.Fab outline |
+| The panel | Its inner face is taken at the DB37 flange's outer face, **0.4 mm beyond the board edge**, and its outer face 3.0 mm farther, at 3.4 mm. | the row above; D3 |
+| Dual BNC, all 18 | Body front face **3.4 mm beyond the board edge**, at the panel's outer face. Pad 1 is 31.75 mm in from the edge. | 35.15 mm from pad 1 to the front face (footprint F.Fab) less 3.4 |
+| MDR68, all 4 | Mating face **3.4 mm beyond the board edge**. The first tail row is 1.70 mm in from the edge; the body ends 47.92 mm in. | 5.10 mm from the footprint's datum to the first row (TOML `[mdr68].row_offsets_from_edge_mm`) less 3.4 |
 
-If a BNC body is meant to overhang the edge, every BNC moves toward its edge by the
-overhang. That is one constant, `FACE_TO_EDGE_MM` in the check, and the board's set-back
-(M-9) waits on the same measurement.
+**[engineering judgment], until a part is measured**, for the two 3.4 mm figures and for
+the panel plane:
+
+- 3.4 mm is the **least** that takes a face through a 3.0 mm panel. It is not either part's
+  real protrusion, which is not in the sources (M-9; the design review's item "The dual
+  BNC's protrusion through the panel"). A larger measured figure moves that family farther
+  out, which only frees board.
+- Each family has its own constant, `BNC_FACE_BEYOND_EDGE_MM` and
+  `MDR_FACE_BEYOND_EDGE_MM` in the check, because nothing says they protrude alike. The
+  DB37 has none: it does not move.
+- The front panel has no DB37 to fix its plane. The same 0.4 mm is used there.
+- **The MDR68's datum.** The footprint draws the drawing's "edge" datum as the mating face
+  (`gen_wl_sync_footprints.py`). If the drawing means the PCB edge instead, the MDR68's
+  offset is 0 and its tail row belongs 5.10 mm in, not 1.70. The sources do not say which;
+  the same drawing that settles the tail-row map (M-11) settles this.
+
+The MDR68 footprint's silkscreen now starts just ahead of its first tail row instead of at
+the mating face, so that no silkscreen is drawn past the board edge
+(`gen_wl_sync_footprints.py`, 2026-11-21). Its F.Fab and courtyard still draw the full body.
 
 ## 3. Barriers and slots
 
@@ -110,9 +127,12 @@ that its pin row lies across the line with the slot between pins 2 and 4 (B-12).
   reference text.
 - `U60` is the last optocoupler in the row, nearest the Intan line, because its driver
   pair `U10`/`U72` also drives `U64`. **[engineering judgment]**
-- The slot is 2.5 mm wide, x = 68.75 to 71.25, and runs from y = 102.3 to 184.93: one run
-  under all seven parts (B-2c), 1.5 mm past the outermost courtyard at each end.
-  **[engineering judgment]** for the 1.5 mm.
+- The slot runs from y = 102.3 to 184.93: one run under all seven parts (B-2c), 1.5 mm
+  past the outermost courtyard at each end. **[engineering judgment]** for the 1.5 mm.
+- It is **2.0 mm wide under the six optocouplers** (B-11, ruling R6), x = 69.0 to 71.0,
+  from y = 102.3 to 175.51, and 2.5 mm wide under `U62`, from 175.51 to 184.93. The step
+  is midway between `U60`'s courtyard and `U62`'s. **[engineering judgment]** for where
+  the step is.
 
 ### 3.2 Intan barrier, DGND part, y = 165
 
@@ -121,8 +141,9 @@ Left to right, in floorplan §3.2's order: `U64` (x = 119.5), `U65` (131.0), `U6
 
 - `C162` is on `U63`'s right, 4.5 mm from its pin row, because `U63`'s body lies to the
   left of its pins. That is the nearest B-13's "beside" can be made.
-- The slot is 2.5 mm wide from x = 113.25 to 163.64. Under `C162` it is 1.5 mm wide (B-14)
-  from x = 146.3 to 149.7, which is 3.4 mm.
+- The slot runs from x = 113.25 to 163.64. It is **2.0 mm wide under `U64` and `U65`**
+  (B-11, R6), to x = 137.165, midway between `U65`'s courtyard and `U63`'s; 2.5 mm under
+  `U63` and `U2`; and 1.5 mm under `C162` (B-14) from x = 146.3 to 149.7, which is 3.4 mm.
 - **[engineering judgment]** for the 3.4 mm (B-23 leaves the length to the placed
   footprint). It is `C162`'s land, 2.3 mm, plus 0.55 mm at each end. The 0.55 mm equals
   the laminate the 1.5 mm section leaves beside each pad, so the corner where the slot
@@ -131,14 +152,20 @@ Left to right, in floorplan §3.2's order: `U64` (x = 119.5), `U65` (131.0), `U6
 
 ### 3.3 Pad-to-slot margins, as placed
 
-Measured by the check from the board file, and equal to `constraints.md` §3's table:
+Measured by the check from the board file, and equal to `constraints.md` §3's table as
+amended:
 
 | Part | Margin each side |
 |---|---|
-| `U56` to `U61`, `U64`, `U65` | 0.25 mm |
+| `U56` to `U61`, `U64`, `U65` | 0.50 mm (2.0 mm slot, R6) |
 | `U62`, `U63` | 0.54 mm |
 | `C162` | 0.55 mm |
 | `U2` | 1.635 mm |
+
+`C162` is reachable with an iron from its pad ends only (B-15, which gives no figure): its
+pads are 0.75 mm from `U63`'s courtyard on one side and 1.4 mm from `U2`'s on the other.
+**[engineering judgment]** that this is enough for a part fitted once and perhaps removed
+once (D-4).
 
 ### 3.4 Keep-outs, as rule areas
 
@@ -162,9 +189,14 @@ are routing.
 - **`J1` is beside the line, not on it. [engineering judgment]** Its two ground pins are
   both `AGND` (G-15) and pins 1 and 2 are the ±12 V feeds, so four of its five pins belong
   on the `AGND` side. A through-hole pad on the line would also pierce the L2 and L3 gap.
-- **Two nets therefore cross the split at the inlet that G-11 does not list:** `P5_RAW`
-  (`J1` pin 3 to `F4`) and `FAN_12V_RAW` (`F1` to `D44`). Both cross within 20 mm of
-  `NT1`. G-8 describes the same current's return. The check declares both.
+- **Two nets therefore cross the split at the inlet:** `P5_RAW` (`J1` pin 3 to `F4`) and
+  `FAN_12V_RAW` (`F1` to `D44`), both within 20 mm of `NT1`. G-11 allows them as amended
+  on 2026-11-21 (ruling R45), and the check declares both.
+- **`U1`, `D3`, `D44` and fan header `J52` are under the IO Board**, at x < 160.
+  **[engineering judgment]**: P-13 wants `U1` at the `+5V` entry, and the entry is at the
+  star. X-3's height limit is met, since all four are low parts under a board at least
+  29 mm up (floorplan §6.6). But `J52`'s fan lead plugs in under the IO Board, and `U1`,
+  a heat source of unbudgeted size (floorplan §5.2), sits in the air the CM5 exhausts.
 - `F1`, `F2`, `F3`, `D1`, `D2` and the ±12 V entry capacitors are on the `AGND` side;
   `F4`, `D3`, `D44`, `U1`, `NT2`, `NT3` and the `+5V` entry capacitors on the `DGND` side
   (G-14, P-2, P-13).
@@ -190,7 +222,7 @@ are routing.
 | `U67`, `U68` | (162, 126), (162, 146), against the split beside the mux bank | K-31 |
 | `H1`, `H2` | (27.5, 77), (149, 77) | floorplan §6.6 |
 
-**`J3`'s series resistors are 41 mm or more from its contacts.** K-14 wants them at the
+**`J3`'s series resistors are 40 mm or more from its contacts.** K-14 wants them at the
 connector. The MDR68's body is 51.32 mm deep and covers its own contacts (X-4), so "at the
 connector" can only mean at the body's inboard end. The same holds at `J2`, `J36` and
 `J45`.
@@ -219,7 +251,7 @@ this board at all (floorplan §6.4).
 | `U22` | (418, 54), directly behind `J20` | K-11 |
 | `U23`, `U24` | behind `J22` | K-16, K-17 |
 | `U25` to `U30` | in pairs behind `J24`, `J26`, `J29` | K-16 |
-| `J28`, `J30`, `J32` | at y = 67, each below its own amplifier, 28 mm clear of the BNC bodies | K-23 |
+| `J28`, `J30`, `J32` | at y = 67, each below its own amplifier, about 32 mm clear of the BNC bodies | K-23 |
 
 The mux pitch of 8.2 mm is **[engineering judgment]**: eight 7.7 mm courtyards between the
 T and the island's right-hand band. It lines each pair of `INA105`s up with its own BNC
@@ -274,17 +306,23 @@ horizontal, and each has its own free box.
 | `Default` | 0.2, clearance 0.2, via 0.6/0.3 | N-8, N-11, N-14 |
 | `USB` | 0.2 | N-9 gives no width; the class only names the pair |
 
-`breakout.kicad_dru` carries N-12, N-13 and S-5.
+`breakout.kicad_dru` carries the minimum widths, N-12, N-13 and S-5.
 
-- **N-13 is applied to 99 nets**: those with a pin on a panel connector and a series or
-  bond resistor. **30 more nets reach a panel connector with no series resistor** and are
-  not given the rule: the 24 optocoupler outputs to `J45`, `RWD_BTN`, `AO_GND_TPC`, and
-  `U11`'s four outputs to `J3` (`PD1_COMP_TPC`, `PD2_COMP_TPC`, `ACC_TRIG_TPC`,
-  `RHS_STIM_OUT_TPC`). `U11`'s are on a 0.65 mm pitch, 0.2 mm from their neighbours, and
-  cannot meet 0.6 mm. This is K-32 and constraints Open question 9, seen from DRC.
-- **S-5's 0.15 mm is forced by three packages, not one.** `constraints.md` names `U55`.
-  `U3` and `U4` (HVSSOP-8, 0.5 mm pads at 0.65 mm pitch) have the same 0.15 mm between
-  their own pads. Each has a rule covering its own pads only.
+- **Minimum track widths are rules, not only class defaults.** KiCad draws a net class's
+  width and does not enforce it. `breakout.kicad_dru` has one `track_width` minimum per
+  class (N-1 to N-7), a 0.2 mm floor for every other net (N-8), and 0.15 mm inside the
+  courtyards of `U55`, `U3` and `U4` only (S-5). Tried on a scratch copy: a 0.2 mm track
+  on `P5_RAW`, a 0.15 mm track on a default net and a 0.2 mm track on `A_PD1` each fail
+  DRC as `track_width`; the same nets at 1.0, 0.2 and 0.25 mm, and a 0.15 mm track inside
+  `U55`'s courtyard, pass.
+- **N-13 is applied to all 129 nets that reach a panel connector** (as amended 2026-11-21,
+  ruling R45). 30 of them have no series resistor: the 24 optocoupler outputs to `J45`,
+  `RWD_BTN`, `AO_GND_TPC`, and `U11`'s four outputs to `J3`. The one exemption is between
+  `U11`'s own pads, 0.2 mm apart at 0.65 mm pitch. Whether `U11`'s outputs should have
+  series resistors at all is K-32 and constraints Open question 9.
+- **S-5's 0.15 mm is forced by three packages, not one.** `U55`, and `U3` and `U4`
+  (HVSSOP-8, 0.5 mm pads at 0.65 mm pitch). Each has a rule covering its own pads only.
+  `constraints.md` S-5 now names all three.
 - `gen_breakout.py` and the sheet generators rewrite `breakout.kicad_pro` as a stub.
   Re-run `gen_breakout_pcb.py`'s project step after them; the check fails if the classes
   are missing.
@@ -296,9 +334,12 @@ horizontal, and each has its own free box.
 | Class | Count | Why |
 |---|---|---|
 | `unconnected_items` | 499 | the board is not routed |
-| `copper_edge_clearance` | 128 | the eight SOIC-16 optocouplers, 16 pads each, 0.25 mm from the slot against KiCad's default 0.5 mm. This is B-11 and constraints Open question 4. The fab's figure is not in the sources, so the default is left in place and the errors are left showing. |
-| `silk_edge_clearance` | 28 | 24 are the twelve straddlers' own outlines crossing their slots, which B-21 accepts. 4 are the MDR68 footprints' outlines, drawn on the mating face, which is on the board edge (§2). |
-| every other class | 0 | courtyards, clearance, holes, silk over copper, footprint library parity |
+| `silk_edge_clearance` | 24 | the twelve straddlers' own outlines crossing their slots, two each, which B-21 accepts |
+| every other class | 0 | board-edge clearance, courtyards, clearance, track width, holes, silk over copper, footprint library parity |
+
+Before 2026-11-21 there were also 128 `copper_edge_clearance` errors, at the SOIC-16
+optocouplers' pads 0.25 mm from a 2.5 mm slot; the 2.0 mm slot of ruling R6 removed them.
+The 24 warnings stay when the board is routed. Nothing else here should.
 
 With `--schematic-parity` there are 30 warnings and no error: 18 ICs whose footprint has
 no Description field, and 12 stock footprints (net ties, test points, the earth stud) that
@@ -307,16 +348,16 @@ value, footprint or DNP flag differs.
 
 ## 10. Open, for the person who routes
 
-1. **Where the board edge is against a BNC body** (§2). One constant moves all 18.
-2. **The fab's copper-to-routed-edge minimum** (§9; constraints Open question 4). It
-   decides the 128 errors.
-3. **GT-1 and GT-4.** This placement was generated without the design review's sign-off
-   block being completed, and BNC pad roles are still unconfirmed. Neither gates
-   placement as generated; both gate routing.
-4. **`J1` beside the split, and the two inlet crossings** (§4).
-5. **The four fan headers** (§4; floorplan Open question 6).
-6. **Board mounting holes, corner radius, stack-up** (§1): none is in the sources, and
+1. **How far each connector family really protrudes** (§2). 3.4 mm is the least that
+   passes the panel. A constant each for the 18 BNCs and the 4 MDR68s; the DB37 does not
+   move. The MDR68's datum is part of the same question.
+2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1 is met: layout
+   waits for the design review's sign-off, and the user gave it on 2026-11-21
+   (`design-review.md`, Sign-off).
+3. **`J1` beside the split** (§4).
+4. **The four fan headers, and what sits under the IO Board** (§4; floorplan Open question 6).
+5. **Board mounting holes, corner radius, stack-up** (§1): none is in the sources, and
    none is in the file.
-7. **`J4`** (§2; constraints Open question 14).
-8. **The parts placed by rule** (§7). Read the board before routing it; move what should
+6. **`J4`** (§2; constraints Open question 14).
+7. **The parts placed by rule** (§7). Read the board before routing it; move what should
    move in the generator.

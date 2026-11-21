@@ -106,8 +106,9 @@ REGIONS: dict[str, list[tuple[float, float, float, float]]] = {
 }
 
 BAND_MM = 2.5        # B-7: the copper-free band along every barrier line
-SLOT_MM = 2.5        # B-3: the slot under each straddler, at least
-SLOT_C162_MM = 1.5   # B-14, ruled 2026-11-20: under C162 only
+SLOT_MM = 2.5        # B-3: the slot under each straddler, at least, except the two below
+SLOT_OPTO_MM = 2.0   # B-11, ruling R6 (2026-11-21): under the eight SOIC-16 optocouplers
+SLOT_C162_MM = 1.5   # B-14, ruling R5 (2026-11-20): under C162 only
 KEEPOUT_MARGIN_MM = 1.0  # B-8: the keep-out beyond each cutout
 SPLIT_GAP_MM = 1.0   # G-9: the AGND/DGND gap on L2 and L3
 _H = BAND_MM / 2
@@ -163,7 +164,11 @@ STRADDLER_LINE: dict[str, tuple[str, float]] = {
     **{f"U{n}": ("x", NI_X) for n in range(56, 63)},
     **{r: ("y", INTAN_LINE_Y) for r in ("U64", "U65", "U63", "U2", "C162")},
 }
-NARROW_SLOT_PARTS = {"C162"}  # B-14
+# The parts under which the slot has a RULED width, which the check holds it to exactly.
+RULED_SLOT_MM: dict[str, tuple[float, str]] = {
+    **{f"U{n}": (SLOT_OPTO_MM, "B-11, R6") for n in (56, 57, 58, 59, 60, 61, 64, 65)},
+    "C162": (SLOT_C162_MM, "B-14, R5"),
+}
 
 # Parts that sit wholly in one region while carrying a pin of another domain, or whose
 # nets alone do not decide. reference -> (region, the constraint that says so).
@@ -182,7 +187,8 @@ DECLARED_HOME: dict[str, tuple[str, str]] = {
     "R218": ("AGND", "K-26; G-13"),
     "R219": ("AGND", "K-26"),
     "R223": ("AGND", "K-21: R221 to R223 beside J2"),
-    "F4": ("DGND", "P-2 and G-14: the +5V chain is on the DGND side of NT1"),
+    "F4": ("DGND", "[engineering judgment], after P-2 and G-14: the +5V chain is kept "
+                   "together on the DGND side of NT1; no row says which side F4 is on"),
     "D44": ("DGND", "G-24: the fan pair stays out of the AGND region"),
 }
 # A seed-net pad that is, by a named constraint, in another domain's region.
@@ -197,7 +203,7 @@ TIE_ON_SPLIT = "NT1"  # G-1, G-2
 EXPECTED_CROSSINGS: dict[str, str] = {
     **{n: "G-11: comparator output, LM339 on AGND, loads on DGND"
        for n in ("PD1_COMP", "PD2_COMP", "ACC_TRIG", "CAM_FRAME_EYE", "CAM_FRAME_BEH")},
-    "A_MISC1_COMP": "G-11 by extension: the DNP fourth comparator channel (D-2)",
+    "A_MISC1_COMP": "G-11 as amended 2026-11-21: the DNP fourth comparator channel (D-2)",
     "I2C_SCL": "G-11: to U55", "I2C_SDA": "G-11: to U55",
     **{f"MUX{m}_A{a}": "G-11: mux address line from U67/U68"
        for m in range(1, 9) for a in range(4)},
@@ -208,10 +214,10 @@ EXPECTED_CROSSINGS: dict[str, str] = {
                         "buffer's output, because R223 is beside J2 (K-21)",
     **{f"MUX_OUT{n}": "B-17: one of the 16 traces to the Intan-side INA105s"
        for n in range(1, 9)},
-    # Not in G-11. J1's two ground pins are both AGND (G-15), so J1 is on the AGND side of
-    # the star and the digital side's supply crosses beside NT1 (G-8 describes the return).
-    "P5_RAW": "inlet: J1 pin 3 to F4, crossing at NT1 (G-8, G-14, P-2)",
-    "FAN_12V_RAW": "inlet: F1 to D44, crossing at NT1 (G-24, P-2)",
+    # G-11 as amended 2026-11-21. J1's two ground pins are both AGND (G-15), so J1 is on
+    # the AGND side of the star and the digital side's supply crosses beside NT1.
+    "P5_RAW": "G-11 as amended: J1 pin 3 to F4, crossing at NT1 (G-15, P-2)",
+    "FAN_12V_RAW": "G-11 as amended: F1 to D44, crossing at NT1 (G-24, P-2)",
 }
 
 # ---------------------------------------------------------------------------
@@ -253,17 +259,35 @@ FAN_STRIP_X = 310.0  # M-6 as amended; floorplan §2.1: no front connector at X 
 #        (hardware/lib/wl-sync.pretty/BNC_Dual_RA_Isolated.kicad_mod, F.Fab), and pad 3 is
 #        2.54 mm nearer the panel.
 #   MDR68: contacts 1 and 34 are the ends of mating row A, 33 x 1.27 mm apart, in the tail
-#        row 5.10 mm from the datum edge ([mdr68].row_offsets_from_edge_mm); contact 35 is
-#        in a row farther in.
+#        row 5.10 mm behind the footprint's datum, which gen_wl_sync_footprints.py draws
+#        as the mating face ([mdr68].row_offsets_from_edge_mm); contact 35 is in a row
+#        farther in.
 #   DB37: the two shell holes are 63.5 mm apart and 11.32 mm from the PCB edge (the stock
 #        footprint's own name and description); pin 1's row is 1.42 mm farther in.
 BNC_PAD1_TO_FACE_MM = 35.15
 MDR_ROW0_TO_FACE_MM = 5.10
 DSUB_SHELL_TO_EDGE_MM = 11.32
-# floorplan.md never says how far a connector's face is from the board edge: it reserves
-# the body's full depth from the edge (§3.1, §5.3, §6.4), which puts the face ON the edge.
-# This placement does the same. See placement.md §2, [engineering judgment].
-FACE_TO_EDGE_MM = 0.0
+# Depth, per family, against ONE panel plane (the user, 2026-11-21: "Per family from the
+# sources"). The sources: the panel is 3.0 mm (d3-panel-thickness.md); part of the BNC's
+# 36.2 mm passes through it (panel-elevations.md §3 item 3; constraints M-9); the stock
+# DB37 footprint puts its flange at the PCB edge.
+#
+#   The panel's inner face is where the DB37's flange ends: 0.4 mm outside the board edge
+#   (the footprint's F.Fab draws the flange from 12.74 to 13.14 mm; the PCB edge is 12.74).
+#   The DB37 therefore stays where the footprint puts it.
+#
+#   A BNC's jacks and an MDR68's mating face must pass the panel, so each family's face is
+#   at least at the panel's OUTER face: 0.4 + 3.0 = 3.4 mm beyond the board edge.
+#
+# [engineering judgment] until a part is measured. 3.4 mm is the least that passes the
+# panel, not either part's real protrusion, which is not in the sources (M-9; design-review
+# "The dual BNC's protrusion through the panel"). A larger protrusion moves that family
+# farther OUT, which only frees board. The two families have a constant each because
+# nothing says they protrude alike.
+PANEL_THICKNESS_MM = 3.0
+PANEL_INNER_BEYOND_EDGE_MM = 0.4
+BNC_FACE_BEYOND_EDGE_MM = PANEL_INNER_BEYOND_EDGE_MM + PANEL_THICKNESS_MM
+MDR_FACE_BEYOND_EDGE_MM = PANEL_INNER_BEYOND_EDGE_MM + PANEL_THICKNESS_MM
 
 MECHANICAL = {"H1", "H2"}  # the CM5 IO Board's two inboard standoff holes (floorplan §6.6)
 
@@ -602,12 +626,12 @@ def run_checks(pcb_text: str, contract: dict,
         if f.lib_id.endswith("BNC_Dual_RA_Isolated"):
             got_x = pad["1"][0].x
             depth = (pad["1"][0].y - edge) * inward
-            want_depth = BNC_PAD1_TO_FACE_MM + FACE_TO_EDGE_MM
+            want_depth = BNC_PAD1_TO_FACE_MM - BNC_FACE_BEYOND_EDGE_MM
             outward_ok = (pad["3"][0].y - pad["1"][0].y) * inward < 0
         elif f.lib_id.endswith("MDR68_Male_RightAngle"):
             got_x = (pad["1"][0].x + pad["34"][0].x) / 2
             depth = (pad["1"][0].y - edge) * inward
-            want_depth = MDR_ROW0_TO_FACE_MM + FACE_TO_EDGE_MM
+            want_depth = MDR_ROW0_TO_FACE_MM - MDR_FACE_BEYOND_EDGE_MM
             outward_ok = (pad["35"][0].y - pad["1"][0].y) * inward > 0
         elif "DSUB-37" in f.lib_id:
             sh = pad["SH"]
@@ -753,7 +777,7 @@ def run_checks(pcb_text: str, contract: dict,
         along = [(p.y - p.hy, p.y + p.hy) if axis == "x" else (p.x - p.hx, p.x + p.hx)
                  for p in numbered]
         lo, hi = min(a for a, _ in along), max(b for _, b in along)
-        want = SLOT_C162_MM if ref in NARROW_SLOT_PARTS else SLOT_MM
+        want, rule = RULED_SLOT_MM.get(ref, (SLOT_MM, "B-3"))
         gap = math.inf
         for at in (lo, (lo + hi) / 2, hi):
             spans = [sp for s in slots if (sp := span_across(s, axis, line, at)) is not None]
@@ -762,9 +786,9 @@ def run_checks(pcb_text: str, contract: dict,
                 break
             a, b = spans[0]
             width = b - a
-            if ref in NARROW_SLOT_PARTS:
+            if ref in RULED_SLOT_MM:
                 if abs(width - want) > 1e-3:
-                    fails.append(f"5: the slot under {ref} is {width:.3f} mm, ruled {want} (B-14)")
+                    fails.append(f"5: the slot under {ref} is {width:.3f} mm, ruled {want} ({rule})")
             elif width < want - 1e-3:
                 fails.append(f"5: the slot under {ref} is {width:.3f} mm, under {want} (B-3)")
             if abs((a + b) / 2 - line) > 1e-3:

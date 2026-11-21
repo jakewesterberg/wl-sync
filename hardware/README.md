@@ -455,11 +455,12 @@ distributor evidence.
 
   **The breakout's placement is generated the same way (layout task L4, 2026-11-20).**
   `gen_breakout_pcb.py` writes `hardware/breakout/breakout.kicad_pcb`: the 430 × 240 mm
-  outline, four copper layers, the two isolation slots (the Intan one narrowing to 1.5 mm
-  under `C162`), all 567 netlist footprints placed with their nets, the barrier keep-outs
+  outline, four copper layers, the two isolation slots (2.0 mm under the SOIC-16
+  optocouplers, 1.5 mm under `C162`, 2.5 mm elsewhere), all 567 netlist footprints placed with their nets, the barrier keep-outs
   as rule areas, and the CM5 IO Board's outline and two standoff holes. It also writes the
-  net classes of `constraints.md` §4 into `breakout.kicad_pro` and three clearance rules
-  into `breakout.kicad_dru`. **It writes no track: routing is a person's**, for the reason
+  net classes of `constraints.md` §4 into `breakout.kicad_pro`, and their minimum track
+  widths and the clearance rules (N-12, N-13, S-5) into `breakout.kicad_dru`: KiCad does
+  not enforce a net class's width as a minimum, so each is a `track_width` rule. **It writes no track: routing is a person's**, for the reason
   above. Panel connectors go at their panel positions, the parts that straddle a barrier
   and every IC at stated coordinates, and the remaining 413 parts beside the part each
   serves, searched for only inside its own ground domain's region.
@@ -1857,10 +1858,9 @@ python3 hardware/gen/check_breakout_placement.py                     # on the UP
 kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
 ```
 
-Expected from DRC on the unrouted board: `unconnected_items`, 128 `copper_edge_clearance`
-(the SOIC-16 optocouplers' pads 0.25 mm from their slot, constraints B-11) and 28
-`silk_edge_clearance` (B-21, and the MDR68 outlines on the board edge); every other class
-0. `hardware/breakout/placement.md` §9 explains each. `gen_breakout.py` and the sheet
+Expected from DRC on the unrouted board: `unconnected_items` and 24 `silk_edge_clearance`
+(the twelve barrier-straddling parts' own outlines over their slots, which constraints B-21
+accepts); every other class 0. `hardware/breakout/placement.md` §9 has the table. `gen_breakout.py` and the sheet
 generators rewrite `breakout.kicad_pro` as a stub, which drops the net classes: run
 `gen_breakout_pcb.py` after them, or the placement check fails on its item 7.
 

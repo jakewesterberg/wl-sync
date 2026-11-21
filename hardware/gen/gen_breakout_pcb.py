@@ -2,10 +2,11 @@
 (layout task L4; plan Task 14 Step 3, "Place connectors first, everything else after").
 
 What it writes: the board outline; four copper layers; the two isolation slots as Edge.Cuts
-cutouts, the Intan one narrowing to 1.5 mm under C162; every footprint in the netlist,
-placed; each pad's net; the barrier keep-outs as rule areas; the CM5 IO Board's outline and
-its two inboard standoff holes. Beside the board it writes the net classes into
-breakout.kicad_pro and two clearance rules into breakout.kicad_dru.
+cutouts (2.0 mm under the SOIC-16 optocouplers, 1.5 mm under C162, 2.5 mm elsewhere);
+every footprint in the netlist, placed; each pad's net; the barrier keep-outs as rule
+areas; the CM5 IO Board's outline and its two inboard standoff holes. Beside the board it
+writes the net classes into breakout.kicad_pro, and their minimum track widths and the
+clearance rules into breakout.kicad_dru.
 
 What it does not write: a track, a via or a pour. `kicad-cli` has no netlist-import and no
 Specctra-DSN export (the mule plan's Task 3 note), so routing is a person's, in pcbnew.
@@ -58,7 +59,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_breakout_placement as chk  # noqa: E402
 from check_breakout_placement import (  # noqa: E402
     BACK_Y, BAND_MM, BOARD_H, BOARD_W, COPPER_LAYERS, FRONT_Y, INTAN_LINE_Y, INTAN_X0,
-    INTAN_X1, KEEPOUT_MARGIN_MM, NI_BACK_Y, NI_X, SLOT_C162_MM, SLOT_MM, SPLIT_GAP_MM,
+    INTAN_X1, KEEPOUT_MARGIN_MM, NI_BACK_Y, NI_X, SLOT_C162_MM, SLOT_MM, SLOT_OPTO_MM,
+    SPLIT_GAP_MM,
     SPLIT_X, fy,
 )
 from gen_breakout_netlist_contract import (  # noqa: E402
@@ -109,7 +111,10 @@ BNC_ORIGIN_TO_FACE = 35.15    # pad 1 to the body's front face; BNC_Dual_RA_Isol
 MDR_ORIGIN_TO_CENTRE = 20.955  # contact 1 to the middle of the 34-wide mating row: 16.5 x 1.27
 DSUB_ORIGIN_TO_CENTRE = 24.93  # pin 1 to the midpoint of the shell holes: (-6.82 + 56.68) / 2
 DSUB_ORIGIN_TO_EDGE = 12.74    # pin 1's row to the PCB edge: 1.42 + 11.32 (the stock footprint)
-FACE_TO_EDGE = chk.FACE_TO_EDGE_MM
+# How far each family's face stands beyond the board edge: the check's constants, where
+# the reasoning is. [engineering judgment] until a part is measured.
+BNC_BEYOND = chk.BNC_FACE_BEYOND_EDGE_MM
+MDR_BEYOND = chk.MDR_FACE_BEYOND_EDGE_MM
 
 
 def panel_anchor(ref: str, lib_id: str) -> tuple[float, float, int]:
@@ -117,12 +122,12 @@ def panel_anchor(ref: str, lib_id: str) -> tuple[float, float, int]:
     front = ref in FRONT_CENTRES
     cx = FRONT_CENTRES[ref] if front else BACK_CENTRES[ref]
     if lib_id.endswith("BNC_Dual_RA_Isolated"):
-        d = BNC_ORIGIN_TO_FACE + FACE_TO_EDGE
+        d = round(BNC_ORIGIN_TO_FACE - BNC_BEYOND, 3)
         return (cx, FRONT_Y - d, 180) if front else (cx, BACK_Y + d, 0)
     if lib_id.endswith("MDR68_Male_RightAngle"):
         if front:
-            return (round(cx + MDR_ORIGIN_TO_CENTRE, 3), FRONT_Y - FACE_TO_EDGE, 180)
-        return (round(cx - MDR_ORIGIN_TO_CENTRE, 3), BACK_Y + FACE_TO_EDGE, 0)
+            return (round(cx + MDR_ORIGIN_TO_CENTRE, 3), round(FRONT_Y + MDR_BEYOND, 3), 180)
+        return (round(cx - MDR_ORIGIN_TO_CENTRE, 3), round(BACK_Y - MDR_BEYOND, 3), 0)
     if "DSUB-37" in lib_id:
         assert not front
         return (round(cx + DSUB_ORIGIN_TO_CENTRE, 3), BACK_Y + DSUB_ORIGIN_TO_EDGE, 180)
@@ -751,45 +756,68 @@ class Placer:
 # ===========================================================================
 # Slots and keep-outs.
 # ===========================================================================
-def slot_outlines(pl: Placer) -> dict[str, list[tuple[float, float]]]:
-    """The two cutouts, from where the straddlers were actually placed."""
-    h = SLOT_MM / 2
-    ni = [r for r, (axis, _l) in chk.STRADDLER_LINE.items() if axis == "x"]
-    y0 = max(min(pl.boxes[r][1] for r in ni) - SLOT_END_MM, NI_BACK_Y + BAND_MM / 2)
-    y1 = max(pl.boxes[r][3] for r in ni) + SLOT_END_MM
-    ni_slot = [(NI_X - h, y0), (NI_X + h, y0), (NI_X + h, y1), (NI_X - h, y1)]
+def slot_profile(sections, line: float, axis: str, grow: float = 0.0):
+    """The outline of a slot that changes width along its barrier line.
 
-    it = [r for r, (axis, _l) in chk.STRADDLER_LINE.items() if axis == "y"]
-    # ...and never into the band of the island's own corner, or past the T (B-2c)
-    x0 = max(min(pl.boxes[r][0] for r in it) - SLOT_END_MM, INTAN_X0 + BAND_MM / 2)
-    x1 = min(max(pl.boxes[r][2] for r in it) + SLOT_END_MM, SPLIT_X - BAND_MM / 2)
-    # B-14, B-23: 1.5 mm under C162, for the width of its land and no farther than
-    # C162_NARROW_PAST_PAD_MM beyond it.
+    `sections` is [(from, to, width), ...] along the line, end to end, no two neighbours the
+    same width. `axis` is "y" for a line y = `line` (sections run in x) and "x" for a line
+    x = `line` (sections run in y). `grow` offsets the outline outward, for the keep-out
+    that follows the steps (B-8, B-23): each section widens by 2 x grow, the slot's two
+    ends move out by grow, and at a step the wider section's grown outline advances by
+    grow into the narrower one.
+    """
+    secs = []
+    for i, (a, b, w) in enumerate(sections):
+        left = sections[i - 1][2] if i else None
+        right = sections[i + 1][2] if i + 1 < len(sections) else None
+        assert left != w and right != w, "merge neighbouring sections of one width"
+        a2 = a - grow if left is None or left < w else a + grow
+        b2 = b + grow if right is None or right < w else b - grow
+        assert b2 > a2, "a section is too short for the keep-out to follow"
+        secs.append((a2, b2, w + 2 * grow))
+    near = [pt for a, b, w in secs for pt in ((a, line - w / 2), (b, line - w / 2))]
+    far = [pt for a, b, w in secs for pt in ((a, line + w / 2), (b, line + w / 2))]
+    pts = near + far[::-1]
+    out = []
+    for along, across in pts:
+        pt = (round(along, 4), round(across, 4)) if axis == "y" else (round(across, 4), round(along, 4))
+        if not out or out[-1] != pt:
+            out.append(pt)
+    return out
+
+
+def slot_sections(pl: Placer) -> dict[str, list[tuple[float, float, float]]]:
+    """Each slot as sections along its line, from where the straddlers were placed.
+
+    One run per line under every straddler (B-2c, B-5), at 2.5 mm (B-3) except: 2.0 mm
+    under the SOIC-16 optocouplers (B-11, ruling R6) and 1.5 mm under C162 (B-14, R5).
+    A step between two parts is midway between their courtyards.
+    """
+    def mid(a: str, b: str, k: int) -> float:
+        return (pl.boxes[a][k + 2] + pl.boxes[b][k]) / 2
+
+    ni = sorted((r for r, (axis, _l) in chk.STRADDLER_LINE.items() if axis == "x"),
+                key=lambda r: pl.at[r][1])
+    assert ni[-1] == "U62" and all(r in chk.RULED_SLOT_MM for r in ni[:-1]), ni
+    y0 = max(pl.boxes[ni[0]][1] - SLOT_END_MM, NI_BACK_Y + BAND_MM / 2)
+    y1 = pl.boxes[ni[-1]][3] + SLOT_END_MM
+    ni_sections = [(y0, mid(ni[-2], ni[-1], 1), SLOT_OPTO_MM),
+                   (mid(ni[-2], ni[-1], 1), y1, SLOT_MM)]
+
+    it = sorted((r for r, (axis, _l) in chk.STRADDLER_LINE.items() if axis == "y"),
+                key=lambda r: pl.at[r][0])
+    assert it == ["U64", "U65", "U63", "C162", "U2"], it
+    # ...never into the band of the island's own corner, or past the T (B-2c)
+    x0 = max(pl.boxes[it[0]][0] - SLOT_END_MM, INTAN_X0 + BAND_MM / 2)
+    x1 = min(pl.boxes[it[-1]][2] + SLOT_END_MM, SPLIT_X - BAND_MM / 2)
+    # B-14, B-23: 1.5 mm under C162, for its land and C162_NARROW_PAST_PAD_MM beyond.
     c_pads = [p for ps in pl.pads["C162"].values() for p in ps]
     nx0 = min(p[0] - p[2] for p in c_pads) - C162_NARROW_PAST_PAD_MM
     nx1 = max(p[0] + p[2] for p in c_pads) + C162_NARROW_PAST_PAD_MM
-    n = SLOT_C162_MM / 2
-    Y = INTAN_LINE_Y
-    intan_slot = [
-        (x0, Y - h), (nx0, Y - h), (nx0, Y - n), (nx1, Y - n), (nx1, Y - h), (x1, Y - h),
-        (x1, Y + h), (nx1, Y + h), (nx1, Y + n), (nx0, Y + n), (nx0, Y + h), (x0, Y + h),
-    ]
-    return {"ni": [(round(x, 4), round(y, 4)) for x, y in ni_slot],
-            "intan": [(round(x, 4), round(y, 4)) for x, y in intan_slot]}
-
-
-def grow_stepped(pts, m: float):
-    """Offset the Intan slot's 12-point outline outward by m (B-8, B-23: the keep-out
-    follows the step). The notch's side walls move toward each other, so the grown notch
-    is 2m narrower than the slot's."""
-    (x0, yt), (nx0, _), (_, ytn), (nx1, _), _, (x1, _), (_, yb), _, (_, ybn), _, _, _ = pts
-    assert nx1 - nx0 > 2 * m, "the narrow section is too short for the keep-out to follow"
-    return [
-        (x0 - m, yt - m), (nx0 + m, yt - m), (nx0 + m, ytn - m), (nx1 - m, ytn - m),
-        (nx1 - m, yt - m), (x1 + m, yt - m),
-        (x1 + m, yb + m), (nx1 - m, yb + m), (nx1 - m, ybn + m), (nx0 + m, ybn + m),
-        (nx0 + m, yb + m), (x0 - m, yb + m),
-    ]
+    step = mid("U65", "U63", 0)
+    intan_sections = [(x0, step, SLOT_OPTO_MM), (step, nx0, SLOT_MM),
+                      (nx0, nx1, SLOT_C162_MM), (nx1, x1, SLOT_MM)]
+    return {"ni": ni_sections, "intan": intan_sections}
 
 
 # ===========================================================================
@@ -799,6 +827,8 @@ NET_CLASS_WIDTH_MM = {   # N-1 .. N-8
     "INLET": 1.0, "INLET_N12": 0.8, "FAN": 0.8, "NI_PWR": 0.6, "ISO_PWR": 0.5,
     "RAIL_BRANCH": 0.4, "ANALOG": 0.25,
 }
+NET_CLASS_RULE = {"INLET": "N-1", "INLET_N12": "N-2", "FAN": "N-3", "NI_PWR": "N-4",
+                  "ISO_PWR": "N-5", "RAIL_BRANCH": "N-6", "ANALOG": "N-7"}
 DEFAULT_WIDTH_MM = 0.2        # N-8: DIGITAL is the default class
 DEFAULT_CLEARANCE_MM = 0.2    # N-11
 MIN_TRACK_GAP_MM = 0.15       # S-5
@@ -865,21 +895,20 @@ def project_json(existing: dict, nets: list[str]) -> str:
 
 
 def panel_side_nets(pin_nets, nets: dict[str, list]) -> tuple[list[str], list[str]]:
-    """N-13's nets, read literally: "any net between a panel connector and its series
-    resistor (*_RAW, *_DAC, *_BNC, *_SHLD and the like)". A net qualifies if it has a pin
-    on a panel connector and a resistor that is not a pull-up: one whose other end is a
-    signal net (a series resistor) or a ground (a shield or return bond).
+    """N-13's nets, as amended 2026-11-21 (ruling R45): every net with a pin on a panel
+    connector, a ground or a rail excepted. These are the nets that see a mis-plug voltage
+    directly.
 
-    Returns (those nets, the nets that reach a panel connector with NO such resistor).
-    The second list is not given the rule -- several are IC outputs on a 0.65 mm pitch,
-    which cannot be 0.6 mm from their neighbours -- and is printed for placement.md,
-    because those nets do see a mis-plug directly (constraints K-32, Open question 9)."""
-    with_r, without = [], []
+    Returns (all of them, those among them with no series or bond resistor). The second
+    list is informational: the amendment brought them under the rule, and they are the
+    ones K-32 and Open question 9 are about."""
+    every, direct = [], []
     for net, nodes in nets.items():
         if net in chk.SEED_DOMAIN or net.startswith("unconnected-"):
             continue
         if not any(r in PANEL_REFS for r, _ in nodes):
             continue
+        every.append(net)
         series = False
         for r, _pin in nodes:
             if not r.startswith("R"):
@@ -887,27 +916,58 @@ def panel_side_nets(pin_nets, nets: dict[str, list]) -> tuple[list[str], list[st
             other = [n for n in pin_nets[r].values() if n != net]
             if other and (other[0] in GROUND_NETS or other[0] not in chk.SEED_DOMAIN):
                 series = True
-        (with_r if series else without).append(net)
-    return sorted(with_r, key=_natural_key), sorted(without, key=_natural_key)
+        if not series:
+            direct.append(net)
+    return sorted(every, key=_natural_key), sorted(direct, key=_natural_key)
+
+
+# N-13's one exemption (R45): U11 drives four nets straight to J3 from a TSSOP-20, whose
+# pads are 0.2 mm apart at 0.65 mm pitch. Between U11's own pads the default holds.
+N13_EXEMPT_PART = "U11"
 
 
 def rules_text(panel_nets: list[str]) -> str:
+    """breakout.kicad_dru. In a KiCad rules file a later rule outranks an earlier one, so
+    each group below runs from the general rule to its exceptions."""
     def any_of(side: str, names: list[str]) -> str:
         return "(" + " || ".join(f"{side}.NetName == '{n}'" for n in names) + ")"
+
+    def own_pads(ref: str) -> str:
+        return (f"A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('{ref}') "
+                f"&& B.memberOfFootprint('{ref}')")
+
     lines = [
         "(version 1)",
         "# Generated by hardware/gen/gen_breakout_pcb.py from hardware/breakout/constraints.md §4.",
-        "# Net-class widths and the default clearance are in breakout.kicad_pro.",
+        "# Net-class membership, default widths and the default clearance are in",
+        "# breakout.kicad_pro. KiCad treats a net class's width as what the router draws,",
+        "# not as a minimum DRC enforces, so the minimums are stated here (V-2).",
         "",
-        "# S-5: 0.15 mm, used only where a package forces it. Three packages do: U55's",
-        "# MSOP-10 (0.35 mm pads at 0.5 mm pitch) and the HVSSOP-8 of U3 and U4 (0.5 mm",
-        "# pads at 0.65 mm pitch). The rule covers each part's own pads and nothing else.",
-        *[line for u in FINE_PITCH_PARTS for line in (
-            f'(rule "S-5 {u} own pad gap"',
-            f"  (condition \"A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('{u}') && B.memberOfFootprint('{u}')\")",
-            "  (constraint clearance (min 0.15mm)))",
-        )],
+        "# ---- track widths --------------------------------------------------------------",
+        "# N-8: 0.2 mm is the floor for every net.",
+        '(rule "N-8 default track width"',
+        "  (condition \"A.Type == 'Track'\")",
+        f"  (constraint track_width (min {DEFAULT_WIDTH_MM}mm)))",
+    ]
+    for name, width in sorted(NET_CLASS_WIDTH_MM.items(), key=lambda kv: kv[1]):
+        lines += [
+            f'(rule "{NET_CLASS_RULE[name]} {name} track width"',
+            f"  (condition \"A.Type == 'Track' && A.NetClass == '{name}'\")",
+            f"  (constraint track_width (min {width}mm)))",
+        ]
+    lines += [
+        "# S-5: 0.15 mm only where a package forces it -- inside the courtyards of the three",
+        "# fine-pitch parts, where a track leaving a 0.35 or 0.5 mm pad cannot be wider.",
+    ]
+    for u in FINE_PITCH_PARTS:
+        lines += [
+            f'(rule "S-5 {u} escape track width"',
+            f"  (condition \"A.Type == 'Track' && A.intersectsCourtyard('{u}')\")",
+            f"  (constraint track_width (min {MIN_TRACK_GAP_MM}mm)))",
+        ]
+    lines += [
         "",
+        "# ---- clearances ----------------------------------------------------------------",
         "# N-12: about 33 V between the raw +15 V and -15 V nets; IPC-2221 Table 6-1 B2.",
         '(rule "N-12 raw 15 V pair, outer layers"',
         "  (layer outer)",
@@ -915,14 +975,29 @@ def rules_text(panel_nets: list[str]) -> str:
         + any_of("B", ["ISO_N15_RAW", "ISO_N15_FILT"]) + "\")",
         "  (constraint clearance (min 0.6mm)))",
         "",
-        "# N-13: 0.6 mm on outer layers from any net that reaches a panel connector to any",
-        "# other net. The list is every such net in the netlist, grounds and rails excepted.",
+        "# N-13 (as amended 2026-11-21): 0.6 mm on outer layers from any net that reaches a",
+        "# panel connector to any other net. The list is every such net in the netlist,",
+        "# grounds and rails excepted.",
         '(rule "N-13 panel-side nets, outer layers"',
         "  (layer outer)",
         "  (condition \"A.Net != B.Net && " + any_of("A", panel_nets) + "\")",
         "  (constraint clearance (min 0.6mm)))",
+        f"# N-13's one exemption: {N13_EXEMPT_PART}'s own pads, 0.2 mm apart at 0.65 mm pitch.",
+        f'(rule "N-13 exemption, {N13_EXEMPT_PART} own pads"',
+        f"  (condition \"{own_pads(N13_EXEMPT_PART)}\")",
+        f"  (constraint clearance (min {DEFAULT_CLEARANCE_MM}mm)))",
         "",
+        "# S-5: 0.15 mm, used only where a package forces it. Three packages do: U55's",
+        "# MSOP-10 (0.35 mm pads at 0.5 mm pitch) and the HVSSOP-8 of U3 and U4 (0.5 mm",
+        "# pads at 0.65 mm pitch). Each rule covers that part's own pads and nothing else.",
     ]
+    for u in FINE_PITCH_PARTS:
+        lines += [
+            f'(rule "S-5 {u} own pad gap"',
+            f"  (condition \"{own_pads(u)}\")",
+            f"  (constraint clearance (min {MIN_TRACK_GAP_MM}mm)))",
+        ]
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -985,16 +1060,12 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
     b = Board(project="breakout", width=BOARD_W, height=BOARD_H,
               sch_filename="breakout.kicad_sch", copper_layers=4)
     b.edge_rect(0, 0, BOARD_W, BOARD_H)
-    slots = slot_outlines(pl)
-    b.edge_poly(slots["ni"])
-    b.edge_poly(slots["intan"])
-
+    sections = slot_sections(pl)
     m = KEEPOUT_MARGIN_MM
-    nb = chk.bbox(slots["ni"])
-    b.keepout_poly([(nb[0] - m, nb[1] - m), (nb[2] + m, nb[1] - m),
-                    (nb[2] + m, nb[3] + m), (nb[0] - m, nb[3] + m)],
-                   "ni_slot_keepout", layers=COPPER_LAYERS)
-    b.keepout_poly(grow_stepped(slots["intan"], m), "intan_slot_keepout", layers=COPPER_LAYERS)
+    for name, axis, line in (("ni", "x", NI_X), ("intan", "y", INTAN_LINE_Y)):
+        b.edge_poly(slot_profile(sections[name], line, axis))
+        b.keepout_poly(slot_profile(sections[name], line, axis, grow=m),
+                       f"{name}_slot_keepout", layers=COPPER_LAYERS)
     for name, rect, tracks_ok in chk.BANDS:
         b.keepout_poly([(rect[0], rect[1]), (rect[2], rect[1]), (rect[2], rect[3]),
                         (rect[0], rect[3])], name, layers=COPPER_LAYERS, tracks=tracks_ok)
@@ -1062,8 +1133,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"parts per region: {report['parts_per_region']}; "
           f"straddlers: {report['straddlers']}; pads on the wrong side: "
           f"{report['pads_on_wrong_side']}")
-    print(f"wrote {PRO_PATH.name} (net classes) and {DRU_PATH.name} (N-12, N-13, S-5)")
-    print(f"N-13 covers {len(panel_nets)} nets; {len(direct_nets)} more reach a panel "
+    print(f"wrote {PRO_PATH.name} (net classes) and {DRU_PATH.name} (minimum widths, N-12, N-13, S-5)")
+    print(f"N-13 covers {len(panel_nets)} nets; {len(direct_nets)} of them reach a panel "
           f"connector with no series resistor")
     if "--plan" in argv:
         print("  no series resistor: " + ", ".join(direct_nets))

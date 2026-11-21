@@ -950,7 +950,15 @@ to ±0.1 mm.
 > `hardware/breakout/placement.md` records the positions and which are judgment. The file
 > has no track. A person routes it in pcbnew, as the mule was routed (Task 3's note:
 > `kicad-cli` has no Specctra DSN export). Step 4's "exit code 0" is not met by the
-> unrouted board and is not meant to be: `placement.md` §9 lists what DRC reports and why.
+> unrouted board. Two classes remain (`placement.md` §9): `unconnected_items`, which
+> routing clears, and 24 `silk_edge_clearance` warnings on the barrier-straddling parts'
+> own outlines, which routing does not clear and constraints B-21 accepts. Step 4 as
+> written cannot return 0 while those 24 stand; that is for whoever routes to settle.
+>
+> **2026-11-21.** The design review is signed off (Task 13 Step 4; `design-review.md`).
+> Step 2's "≥2.5 mm clearance slot under every optocoupler" is 2.0 mm under the eight
+> SOIC-16 optocouplers by ruling R6 (`parametric-audit.md`), which leaves 0.5 mm of
+> laminate beside each pad row where 2.5 mm left 0.25 mm.
 
 - [ ] **Step 4: Run DRC**
 
