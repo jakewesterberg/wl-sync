@@ -555,10 +555,31 @@ What this one comparison answers:
     resulting log is byte-identical in structure to one produced by `FakeBackend` given the
     same injected words. The Task 4 tests already pin that shape, so this is the real payoff
     of the adapter."
-  - **[composed]**, defined by the user's ruling of 2026-11-20, **for you to confirm**: it
-    is wl-phantom grading the one-count box with `--expect-timebase one-count` and getting
-    PASS.
-  - So: `PASSED`, and no `warning:` line that names a timebase.
+  - **The user, 2026-11-21: "Do both."** The question was whether the old plan's test (the
+    real box's log matches the fake's in shape) or the new one (wl-phantom grades the real
+    box and says PASS) should stand. Run both, on this run's box segment.
+  - **First, the new test [composed]**, from the user's ruling of 2026-11-20: wl-phantom
+    grading the one-count box with `--expect-timebase one-count` and getting `PASSED`, and
+    no `warning:` line that names a timebase.
+  - **Second, the plan's test**, which `wl_sync/parity.py` now runs (Task 1.25). From the
+    wl-sync checkout on the Mac, on the same rsync'd directory:
+
+        .venv/bin/python -m wl_sync.bench parity runs/box-1-log
+
+    (give the path relative to your own directory, or absolute). It replays each segment's
+    `W` words, `E` edges and `B` barcodes, in file order, through `Recorder` over
+    `FakeBackend` into a segment of the box's own format, then compares the two. **Pass:**
+    the last line begins `PASS:` and the exit status is 0. A `FAIL <segment>: ...` line names
+    the first difference, and the exit status is 1.
+  - **What "byte-identical in structure" means** is `wl_sync/parity.py`'s docstring, from
+    what the Task 4 tests pin (plan `:695-800`; `tests/test_service.py`): the header has the
+    same keys, in the same order, of the same JSON types; the records are the same types in
+    the same order, with the same fields; a `W`'s word, an `E`'s gpio and level and a `B`'s
+    value are the same; the trailer is present. The command prints what it does **not**
+    compare, each with its reason: every record's `tick_us`, `L` records, the header's
+    values, the JSON type of `barcode_delay_us` (null in the fake), and the trailer's values.
+  - Do not read a `PASS` here as the timing check. It says the box writes what `Recorder`
+    writes, not that its ticks are right: that is wl-phantom's.
 - **The gate's first half.** See step 13.
 
 **A fail means** (and if you stop here, do step 20 before you leave):
@@ -992,7 +1013,7 @@ user before step 22.
 notes. That means all of these:
 
 - **Task 5b Step 3:** step 12 passed.
-- **Task 5b Step 4:** step 12's composed parity passed, and you confirmed the definition.
+- **Task 5b Step 4:** both of step 12's tests passed: wl-phantom's `PASSED`, and `wl_sync.bench parity` printing `PASS:` (the user, 2026-11-21: "Do both").
 - **Task 5b Step 5:** step 16 passed.
 - **The ±100 µs gate:** steps 12 and 13 passed.
 - **P0's own pass,** since "A failure stops Task 5b and this design" (plan `:1894`): "items

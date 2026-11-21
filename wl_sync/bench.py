@@ -6,6 +6,7 @@
     python -m wl_sync.bench streams [--dense-pin {18,19}] [--duration S] [--rate R]
                                     [--marker] [--probe-only] [--record CSV]
     python -m wl_sync.bench override [--pin {18,19} [--clear]]
+    python -m wl_sync.bench parity <segment or day directory> [<segment> ...]
 
 THE LOOPBACK. With the barcode output jumpered to an edge input, every frame the box
 emits lands in its own segment twice: as the `B` record it logged, and as the edges it
@@ -1472,6 +1473,17 @@ def _segment_of(path: Path) -> Path:
     return path
 
 
+def _parity(paths: list[Path]) -> int:
+    import tempfile
+
+    from wl_sync import parity
+
+    with tempfile.TemporaryDirectory(prefix="wl-sync-parity-") as workdir:
+        passed, text = parity.run(paths, Path(workdir))
+    print(text)
+    return 0 if passed else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m wl_sync.bench")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1525,6 +1537,12 @@ def main(argv: list[str] | None = None) -> int:
     override.add_argument("--clear", action="store_true",
                           help="clear an override left set on --pin")
     override.add_argument("--gpiochip", default="/dev/gpiochip0")
+    parity_command = commands.add_parser(
+        "parity", help="Task 5b Step 4: a box segment's structure against the fake's, "
+                       "replayed from the same inputs (wl_sync/parity.py)"
+    )
+    parity_command.add_argument("paths", type=Path, nargs="+",
+                                help="segments, or directories of them")
     args = parser.parse_args(argv)
     if args.command == "override" and args.clear and args.pin is None:
         parser.error("override --clear needs --pin")
@@ -1539,6 +1557,8 @@ def main(argv: list[str] | None = None) -> int:
                         args.seed)
     if args.command == "override":
         return _override(args.pin, args.clear, args.gpiochip)
+    if args.command == "parity":
+        return _parity(args.paths)
     report = loopback(_segment_of(args.path), args.gpio)
     print(report.summary())
     return 0 if report.passed else 1
