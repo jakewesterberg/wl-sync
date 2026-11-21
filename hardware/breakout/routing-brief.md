@@ -21,7 +21,7 @@ Nothing on this board has been built or measured.
 project file carries the net classes and `breakout.kicad_dru` the custom rules; pcbnew
 loads both with the board.
 
-**Read before the first track:** `placement.md` (all of it, 390 lines), then
+**Read before the first track:** `placement.md` (all of it), then
 `constraints.md` §2 to §6. `floorplan.md` §7 is a plan view of the regions.
 
 **What the board file already has:** the 430 × 240 mm outline, four copper layers, the two
@@ -55,7 +55,7 @@ move it in pcbnew and say so in `placement.md`.
   moves.
 - **The twelve parts that straddle a barrier**, and the slots under them: `U56` to `U61`
   and `U62` on the NI line, `U64`, `U65`, `U63`, `C162` and `U2` on the Intan line. Their
-  pad-to-slot margins are 0.50 to 0.55 mm (`placement.md` §3.3).
+  pad-to-slot margins are 0.50 to 0.55 mm, and 1.635 mm at `U2` (`placement.md` §3.3).
 - **`NT1`**, on the `AGND`/`DGND` split at (170, 94.5), and `J1` beside it.
 - **The slots, the rule areas and the outline.**
 - No part may cross into another domain's region; the check fails on it.
@@ -74,11 +74,29 @@ kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/
 
 | Class | Count | |
 |---|---|---|
-| `unconnected_items` | 499 | the board is unrouted; routing takes this to 0 |
+| `unconnected_items` | 499 reported | **a cap, not a count.** The board has 1791 unrouted connections; see below. Routing takes it to 0. |
 | `silk_edge_clearance` | 24 | two on each of the twelve straddlers, their own outlines over their slots. B-21 accepts these and they stay. |
 | every other class | 0 | and must stay 0 |
 
 The placement check prints `PASS` and `routed items (tracks, vias): 0`.
+
+**DRC will not show you progress.** KiCad's report lists at most 499 unconnected items.
+This board has **1791** unrouted connections (KiCad's own connectivity count, which
+equals the sum over the 747 nets of pads less one), so DRC will go on saying 499 until
+fewer than 499 are left anywhere on the board, and only then start to fall. To see where
+you are, ask KiCad's connectivity directly, with the Python that ships inside KiCad
+(the path is macOS's; measured with 10.0.5):
+
+```bash
+/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 -c "
+import pcbnew; b = pcbnew.LoadBoard('hardware/breakout/breakout.kicad_pcb')
+b.BuildConnectivity(); print(b.GetConnectivity().GetUnconnectedCount(False))"
+```
+
+It prints 1791 today, after a wxApp assertion message that can be ignored. pcbnew's status
+bar has an "Unrouted" field as well; it was not compared with this count. To check one region on its own, do it on
+a copy whose other pads have had their nets removed: a copy holding only the 28 nets of
+the NI island reports 144 by both this count and DRC.
 
 ## 2. Stack-up and net classes
 
@@ -114,15 +132,16 @@ Every class has 0.2 mm clearance and a 0.6 mm via on a 0.3 mm drill (N-11, N-14)
 | N-13 | 0.6 mm on outer layers from each of the 129 nets that reach a panel connector to any other net. One exemption: between `U11`'s own pads. |
 | S-5 | 0.15 mm track and gap allowed only inside the courtyards, and between the own pads, of `U55`, `U3` and `U4` |
 
-**Three widths DRC does not enforce.** The class system holds one class per net, and
-these rules are about part of a net:
+**Two widths DRC does not enforce, and one pin rule.** The class system holds one class
+per net, and the first two rules are about part of a net:
 
 - N-1: **`+5V` from `D3` to its plane is 1.0 mm.** `+5V` is in `RAIL_BRANCH`, so DRC
   accepts 0.4 mm there.
 - N-2: **`-12V` from `D2` to its plane is 0.8 mm**, for the same reason. By N-1's
   reasoning `+12V` from `D1` to its plane is copper behind a 0.5 A fuse too; N-1 does not
   name it, so its width is yours.
-- N-4: 0.6 mm from *each* `J45` pin, using both `NI_5V` pins (8 and 14) symmetrically and
+- N-4's 0.6 mm *is* enforced, on every `NI_5V` and `NI_GND` track. What DRC cannot see
+  is its pin rule: both `NI_5V` pins of `J45` (8 and 14) used, with symmetric copper, and
   all twelve `NI_GND` pins.
 
 Two more that only a person can hold: N-10 (`+5V` copper drops no more than 25 mV from
@@ -290,8 +309,10 @@ relying on the line.
 - **K-3, if taken:** over the barcode strip L3 must be `+5V` or `+3V3`.
 - No outer-layer ground flood is asked for anywhere. If you add one, G-1, G-3, G-16 to
   G-20, X-6 and B-16 all bear on it.
-- No mounting hole other than `J56` is on the board, and none is in the sources (M-16,
-  Open question 8). If holes are added they are isolated from every plane.
+- The only holes for hardware on the board are `J56`, the earth stud, and `H1` and `H2`,
+  the IO Board's two standoff holes, which are non-plated and carry no net (M-16). No
+  board mounting hole is placed and none is in the sources (Open question 8). If holes
+  are added they are isolated from every plane.
 
 ### 4.7 Supplies, thermal and the PowerPAD
 
@@ -356,8 +377,9 @@ for it (Open question 9).
 - *Which BNC port is upper:* port A, pads 1 and 2 (R11; Open question 26). Only the
   footprint's description changed.
 - *The NI cable* (R12; Open question 23, narrowed). It is held by jackscrews into
-  jacksockets, in panel counterbores at the eight MDR68 fixing positions. A panel
-  matter. What is left open is the jacksocket part and a bench trial.
+  jacksockets at the eight MDR68 fixing positions, and each panel opening has to admit
+  the cable's own mating shell. A panel matter. What is left open is the jacksocket
+  part and a coupon test-fit that gates the panel.
 
 **Still open, and bearing on routing:**
 
@@ -379,14 +401,15 @@ for it (Open question 9).
 **Panel matters that do not touch the board:** the BNC sub-plates and their one unfitted
 strap point each, of which only the rig-signal plate may ever be strapped (R8, R9;
 `panel-elevations.md` §6); the M12 inlet at X = 210, 50 mm above the board, whose leads
-run over `AGND` to `J1` (§7 there; M-13); the MDR68 counterbores (§8 there).
+run over `AGND` to `J1` (§7 there; M-13); the MDR68 openings and jacksockets (§8 there).
 
 ## 7. Checks after routing, and what Task 15 needs
 
 1. `python3 hardware/gen/check_breakout_placement.py` prints `PASS`. It still checks
    every pad's net, every connector's position, every part's region and the slots.
 2. DRC with `--severity-all`: **0 `unconnected_items`, 24 `silk_edge_clearance`, 0 of
-   every other class.** Run it with `--schematic-parity` as well: 30 warnings and no
+   every other class.** Confirm the 0 with the connectivity count of §1, which must
+   print 0 as well. Run it with `--schematic-parity` as well: 30 warnings and no
    error is what the unrouted board gives (`placement.md` §9).
 3. `python3 hardware/gen/check_footprint_geometry.py hardware/breakout/breakout.net`.
 4. The Python suite: `python -m pytest -q`.
@@ -394,8 +417,8 @@ run over `AGND` to `J1` (§7 there; M-13); the MDR68 counterbores (§8 there).
    board.
 5. **By eye, because no tool checks them:** G-10 (only G-11 nets cross x = 170, in the
    corridor); K-2 (no barcode net over, under or in `AGND`); G-1 and G-3 (one tie each,
-   nothing flooded); G-16 to G-20 (no pour on the nets of §4.2); P-5 and P-8; the three
-   widths of §2; N-10's 83 squares.
+   nothing flooded); G-16 to G-20 (no pour on the nets of §4.2); P-5 and P-8; the two
+   widths and the pin rule of §2; N-10's 83 squares.
 6. V-4, the plan's Task 15 Step 4: render top and bottom, and confirm the slots are
    unbroken, no copper crosses them, and the barcode is away from the analog region.
 7. Record in `placement.md` anything you moved, and commit `drc.rpt`.
@@ -404,8 +427,8 @@ run over `AGND` to `J1` (§7 there; M-13); the MDR68 counterbores (§8 there).
 
 - the final position of every panel connector, unchanged, for the panel drawings (M-2,
   V-3). The plan's Step 1 exports `User.Drawings`, which is empty today: the panel
-  outlines, the sub-plate windows of `panel-elevations.md` §6 and the counterbores of §8
-  have still to be drawn;
+  outlines, the sub-plate windows of `panel-elevations.md` §6 and the MDR68 openings and
+  counterbores of §8 have still to be drawn, the last after the coupon test-fit;
 - Gerbers, drill and position files from the routed board (Step 3), which want a
   stack-up and a fab house first (Open question 8);
 - the renders of Step 4;

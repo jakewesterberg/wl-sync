@@ -1884,7 +1884,9 @@ python3 hardware/gen/check_breakout_placement.py                     # on the UP
 kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
 ```
 
-Expected from DRC on the unrouted board: `unconnected_items` and 24 `silk_edge_clearance`
+Expected from DRC on the unrouted board: `unconnected_items` (reported as 499, which is
+where KiCad's report stops: the board has 1791 unrouted connections, `placement.md` §9)
+and 24 `silk_edge_clearance`
 (the twelve barrier-straddling parts' own outlines over their slots, which constraints B-21
 accepts); every other class 0. `hardware/breakout/placement.md` §9 has the table. `gen_breakout.py` and the sheet
 generators rewrite `breakout.kicad_pro` as a stub, which drops the net classes: run

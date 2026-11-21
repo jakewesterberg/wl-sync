@@ -137,17 +137,20 @@ added, and the table at the top needs one correction.
 **The MDR68 row of that table is wrong about what binds.** It says the MDR68 states no
 limit and that "screw length is our selection". The connector states none, but its
 cable does. NI's drawing of the `SHC68-68-EPM` (192061-XX rev E) puts the jackscrew tips
-2.5 mm beyond the plug's backshell, and the plug rests on the connector's nose, 5.00 mm
-ahead of the flange where the #2-56 threads are. The jackscrews stop 2.50 mm short of
-those threads whatever the panel's thickness. NI's cables are made for jacksockets with
-a 3.76 mm head, and for the head to end under the plug the jacksocket has to seat no
-more than 0.94 mm outside the board edge. A 3.0 mm panel's face is at 3.00.
+2.5 mm beyond the plug's backshell and its mating shell 4.1 mm beyond it; the connector's
+#2-56 threads are at its flange, and its nose is 5.00 mm long. Whichever shell goes
+inside the other, the jackscrews stop short of those threads, by 1.60 mm at the least,
+and the panel's thickness is not in that figure. NI's cables are made for jacksockets
+with a 3.76 mm head.
 
-**So (R12): a counterbore at each of the eight jacksocket positions, leaving a 0.8 mm
-land**, at most 7.0 mm across, and a jacksocket in each. `panel-elevations.md` §8 has
-the drawing's figures and the arithmetic. The 3.0 mm panel does not limit the plug's
-mating depth, and the M12's 3.5 mm limit is not touched. Not tried on a cable: one
-should be tried on one connector before a panel is cut.
+**So (R12): each MDR68 gets a jacksocket at each of its two fixings, and an opening
+53.3 × 14.0 mm that admits the cable's mating shell**, which may pass through the whole
+thickness of the panel. The proposed seat for each jacksocket is a counterbore leaving a
+0.8 mm land; the panel is 3.0 mm everywhere else and the M12's 3.5 mm limit is not
+touched. `panel-elevations.md` §8 has the figures. **The drawings do not give the cable
+shell's outline or the plug's seated depth, so a coupon test-fit gates the panel**: one
+cable, one connector, a 3.0 mm aluminium coupon with that opening and those counterbores
+(`../assembly-checklist.md`). The jacksocket is not a chosen part.
 
 **The BNC hole's flat is 5.56 mm (R10)**, and **port A of each BNC is the upper port
 (R11)**, the second subject to a continuity check on the first built box.

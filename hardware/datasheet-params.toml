@@ -541,8 +541,12 @@ backshell_length_to_boot_mm = 55.4       # backshell front face to the start of 
 plug_length_mm = 67.3                    # backshell front face to the end of the strain relief
 cable_exit_mm = [19.8, 14.0]             # rear view of the strain relief
 cable_bend_radius_mm = 76.2              # "12X CABLE DIAMETER", the drawing's bend-radius example
-# NOT on the drawing: how far a jackscrew travels beyond the 2.5 mm it is drawn at, the
-# drawing's tolerances, and the depth to which the connector seats.
+# NOT on the drawing: the mating shell's outline (the front view draws it and gives no
+# dimension across it), how far a jackscrew travels beyond the 2.5 mm it is drawn at, the
+# drawing's tolerances, the depth to which the connector seats, and which connector's
+# shell goes inside the other's. MH's drawing has grounding dimples ("H") on the outer
+# face of its nose, which points to the nose going inside this plug's shell.
+# R12's panel opening, 53.3 x 14.0 mm, is hook_span_mm + 2 x 1.0 by backshell_height_mm.
 #
 # NI's connector guide, "NI DAQ Device Custom Cables, Replacement Connectors, and Screws"
 # (ni.com, "Updated Dec 19, 2025", read 2026-11-21; a web page, sha256 of the HTML as
@@ -553,6 +557,9 @@ cable_bend_radius_mm = 76.2              # "12X CABLE DIAMETER", the drawing's b
 #   "68-Position SCSI-II Jackscrew, Molded Head, Overmold; 2-56 Threads"
 #   "68-Position SCSI-II Jacksocket, M2.5 Screw, .348\" Length, .148\" Head Length"
 #   "68-Position Right Angle PCB-Mount Connector (Male) | 777600-01 | TE Connectivity 2-5174225-5"
+#   "(1) 4 Piece Jacksocket Kit for Connecting Screw Latching Cables 187949-01"  (thread not given)
+#   "100-Position SCSI-II Jacksocket, 2-56 Threads"  (no part number or dimensions given)
+#   "68 or 100-Position SCSI Connector Washers, M2.5, Flat, .030 Thick, SS"
 guide_url = "https://www.ni.com/en/support/documentation/cable-accessory-guide/daq-multifunction-i-o-cable-accessory-compatibility/ni-daq-device-custom-cables--replacement-connectors--and-screws.html"
 ni_jacksocket_head_length_mm = 3.76      # .148 in; NI's own jacksocket, whose stud is M2.5
 ni_jacksocket_length_mm = 8.84           # .348 in overall

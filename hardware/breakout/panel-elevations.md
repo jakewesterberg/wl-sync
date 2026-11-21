@@ -146,7 +146,8 @@ Three consequences, none of which existed when the BNCs were panel-mounted:
 **Panel thickness: 3.0 mm aluminium**, decided in `d3-panel-thickness.md`. Under the M12's
 3.5 mm maximum, which is the only stated limit on the board, and the BNCs are PCB-anchored so
 their thread engagement is not load-bearing. **2026-11-21 (R12):** it stays 3.0 mm, with
-one local exception: a counterbore leaving a 0.8 mm land at each MDR68 jacksocket (§8).
+one local exception proposed: a counterbore leaving a 0.8 mm land at each MDR68
+jacksocket (§8), to be confirmed by a coupon test-fit.
 
 ---
 
@@ -158,7 +159,8 @@ one local exception: a counterbore leaving a 0.8 mm land at each MDR68 jacksocke
 | BNC vertical pitch within a body | **16.00** mm | — | `.panel_hole_pitch_mm` |
 | BNC column pitch | **18.0** mm | — | this document §2 |
 | M12 inlet hole | Ø **13.5** mm + Ø1.2 mm anti-rotation pin at 45° | 1 | `m12_inlet.panel_hole_dia_mm` |
-| MDR68 panel fixing | **#2-56**, 2 places, 57.93 mm apart: a jacksocket through a counterbore, Ø 7.0 mm at most, that leaves a 0.8 mm land (R12, §8) | 4 connectors, 8 counterbores | `mdr68.panel_thread`; `ni_shc68_68_epm` |
+| MDR68 opening | **53.3 × 14.0** mm, to admit the cable's mating shell (R12, §8); gated on the coupon test-fit | 4 | `mdr68.hook_span_mm`; `ni_shc68_68_epm.backshell_height_mm` |
+| MDR68 panel fixing | **#2-56**, 2 places, 57.93 mm apart: a jacksocket through a counterbore, Ø 7.0 mm at most, that leaves a 0.8 mm land (R12, §8); gated on the same test-fit | 4 connectors, 8 counterbores | `mdr68.panel_thread`; `ni_shc68_68_epm` |
 | 60 mm fan cutout | ~**65** mm square incl. fixings | 2 front, 2 side | spec §9.7 |
 | Reward button | Ø ~12 mm, recessed bezel | 1 | spec §3.1 / §9.8 |
 | Panel material | **3.0 mm** aluminium | both faces | `d3-panel-thickness.md` |
@@ -177,7 +179,8 @@ two nuts must be turned flat to flat. **The bushing is the shell, and every BNC 
 `parametric-audit.md`). The D-holes are NOT machined in the aluminium: they are in an
 insulating sub-plate, and the aluminium gets a window. See §6.**
 
-**Machine all 34 BNC holes.** They are real ports on real connectors that will be fitted;
+**Machine all 36 BNC holes** (34 until `J57` was added on 2026-10-18; corrected here
+2026-11-21). They are real ports on real connectors that will be fitted;
 leaving one undrilled would mean a body pressed against blank panel.
 
 **Updated 2026-08-16 — only ONE is a spare now, and it is on the FRONT.** The two BACK-face
@@ -230,15 +233,18 @@ matters more now that the reward remote sits among fourteen identical Intan BNCs
 
 ## 5. What is still open
 
-- **Board set-back** (§3 item 3) — needs the protrusion depth off a sample or the 3D model.
+- ~~**Board set-back** (§3 item 3)~~ — closed 2026-11-20 by the note under §3 item 3:
+  there is no set-back, the BNC body's front face is on the board edge. (Struck
+  2026-11-21; this line had been left standing.)
 - **Standoff height** (§3 item 1) — a layout decision, now coupled to panel appearance.
 - **MDR68 tail-row-to-pin map** — the one genuine unknown, tracked in `d3-panel-thickness.md`
   and asserted by `check_footprint_geometry.py`. Nothing on this page depends on it.
 - **The BNC sub-plates** (§6) are a proposal to be drawn. The hole's flat is 5.56 mm
   (R10) and port A is the upper port (R11), both ruled 2026-11-21; the second waits on a
   continuity check on the first built box.
-- **The MDR68s' jacksockets** (§8, R12): the part is not chosen, and one cable should be
-  tried on one connector before a panel is cut.
+- **The MDR68s' openings and jacksockets** (§8, R12): the jacksocket is not chosen, the
+  cable's shell outline and seated depth are not in the sources, and a coupon test-fit
+  gates the panel.
 
 ## 6. The BNC sub-plates (ruling R8, 2026-11-20)
 
@@ -418,52 +424,68 @@ longer in the row: the row's slack is 27.2 mm, not 7.2 mm. The table is left as 
 
 The cable for `J2`, `J3`, `J36` and `J45` is NI's `SHC68-68-EPM` (SPEC §9.3). Its drawing
 is NI customer drawing 192061-XX rev E; the figures are in `datasheet-params.toml`
-`[ni_shc68_68_epm]` with the document's sha256, and the arithmetic is in
-`parametric-audit.md` R12. Nothing here was tried on a cable.
+`[ni_shc68_68_epm]` with the document's sha256, and the reasoning is in
+`parametric-audit.md` R12. **Nothing here was tried on a cable, and no panel is cut until
+the coupon test-fit below is done.**
 
 **What the drawing says of the end that meets this box.** Two jackscrews, 2-56 UNC-2A,
 57.9 mm apart; no latch. The mating shell stands 4.1 mm beyond the backshell's front
 face and the jackscrew tips 2.5 mm. The backshell is 64.9 mm across the jackscrews and
-14.0 mm tall, and the plug is 67.3 mm long behind its face.
+14.0 mm tall, and the plug is 67.3 mm long behind its face. **The mating shell's own
+width and height are not dimensioned**, and neither is the depth to which the plug
+seats.
 
-**Against the 3.0 mm panel.** With x measured outward from the board edge:
+**Against the 3.0 mm panel.** With x measured outward from the board edge, the MH flange
+and the mouth of its #2-56 threads are at −0.30, the panel's faces at 0 and +3.00, the
+hooks' tips at +3.20 and the nose tip at +4.70. The drawings do not say which shell goes
+inside the other. MH's nose has grounding dimples on its outer face, which points to the
+nose going inside the cable's shell **[engineering judgment]**:
 
-| | x, mm |
-|---|---|
-| MH flange and the mouth of its #2-56 threads | −0.30 |
-| panel, inner and outer face | 0 and +3.00 |
-| MH nose tip, where the plug's backshell comes to rest | +4.70 |
-| jackscrew tips, 2.5 mm back from that | +2.20 |
-
-- **Mating is not limited by the panel.** The nose is 1.70 mm proud of it and the
-  backshell stops on the nose. **[engineering judgment]** for where the plug stops; NI
-  gives no seated depth.
-- **The jackscrews do not reach the MH threads**: they stop 2.50 mm short, panel or no
-  panel. NI's cables are made to screw into jacksockets, whose heads are 3.76 mm tall
-  (.148 in, NI's connector guide).
-- **A jacksocket's seat has to be at x ≤ 4.70 − 3.76 = +0.94 mm**, and the panel's outer
-  face is at +3.00.
-
-**So each MDR68 gets two counterbores in the panel's outer face**, one on each #2-56
-axis:
-
-| | | |
+| | Nose inside the cable's shell (likelier) | Cable's shell inside the nose |
 |---|---|---|
-| Land left under the counterbore | **0.8 mm** (at most 0.94) | **[engineering judgment]** within the bound |
-| Counterbore diameter | **7.0 mm at most** | 64.9 − 57.9: the plug's own envelope round a jackscrew, so the plug hides it |
-| Through the land | a clearance hole for a 2-56 stud | size for the panel drawing |
-| In it | a jacksocket: 2-56 male stud into the MH bracket, 2-56 female head about 3.76 mm tall | **not a chosen part**; NI's own has an M2.5 stud |
-| Jackscrew thread engaged | 0.8 + 3.76 − 2.20 = 2.36 mm, 5.2 turns | |
-| Count | 8 per box | |
+| Backshell face, at the least | +3.80 | +4.70 |
+| The cable's shell | passes through the panel's thickness, to −0.30 at the least | stays inside the nose |
+| Jackscrew tips, at the least | +1.30 | +2.20 |
+| Short of the MH threads by, at the least | 1.60 mm | 2.50 mm |
 
-The panel is 3.0 mm everywhere else. The nose's cut-out has to pass the nose and the two
-side hooks, which are 51.32 mm across and reach x = +3.20; each counterbore is 3.3 mm
-outboard of a hook, so the cut-out and the two counterbores may be drawn as one stepped
-opening. The jacksockets also fix each connector to the panel, and tightening them takes
-up the 0.30 mm between the land and the MH flange.
+- **The jackscrews do not reach the MH threads either way**, whatever the panel's
+  thickness. NI's cables are made to screw into jacksockets, whose heads are 3.76 mm
+  tall (.148 in, NI's connector guide). **Each MDR68 gets two jacksockets.**
+- **The opening has to admit the cable's shell**, not only the connector's nose. Cut to
+  the nose alone, it would stop the shell on the panel's outer face, with 1.7 mm of the
+  nose engaged and the jackscrews out of reach of anything.
+
+**The opening and the fixings, per MDR68.**
+
+| | | From |
+|---|---|---|
+| Through opening | **53.3 × 14.0 mm**, centred on the line through the two #2-56 axes | Width: the hooks' 51.32 mm (MH) plus 1.0 mm a side; a plug's shell passes between the hooks. Height: the backshell's own 14.0 mm (NI), which the shell cannot exceed. Margins **[engineering judgment]**: the shell's outline is not in the sources. |
+| Height of that line above the board | **not in the sources**: MH's drawing does not dimension it | take it from the part |
+| Jacksockets | 2, one on each #2-56 axis, 57.93 mm apart: 2-56 male stud into the MH bracket, 2-56 female head about 3.76 mm tall | **not a chosen part; none found off the shelf.** NI's own has an M2.5 stud. |
+| Proposed seat | a counterbore in the panel's outer face at each axis, leaving a **0.8 mm land** | **[engineering judgment]**; see below |
+| Counterbore diameter | from the chosen jacksocket's hex and its driver; **7.0 mm at the most** | 64.9 − 57.9: the plug's own envelope round a jackscrew, so the plug hides it |
+| Through the land | a clearance hole for the 2-56 stud | size for the panel drawing |
+| Behind the land | a **0.3 mm washer** on each stud, filling the 0.30 mm to the MH flange | **[engineering judgment]**, so that tightening neither bows the land nor loads the solder joints; not a chosen part |
+| Count | 4 openings, 8 jacksockets, 8 counterbores, 8 washers per box | |
+
+**What the 0.8 mm land does in each case.** The jacksocket's head ends at
+0.8 + 3.76 = +4.56.
+
+| | Nose inside the shell | Shell inside the nose |
+|---|---|---|
+| Plug | held 0.76 mm short of the flange; the shell still overlaps the nose for its whole 4.1 mm | not held off; 0.14 mm to spare |
+| Jackscrew thread engaged | 2.50 mm, 5.5 turns | 2.36 mm, 5.2 turns |
+
+Whether the contacts are fully engaged 0.76 mm short of the flange is not in the
+sources. With the opening above, the land between the opening's end and the stud's hole
+is only about 1.1 mm wide. **If the coupon shows the land is wrong, the alternative is no
+land**: widen the opening to pass the jacksockets and seat them on the MH bracket. Their
+heads then end at +3.46, under the backshell in either case, with 2.16 mm (4.8 turns) or
+1.26 mm (2.8 turns) of thread, and the connector is held by its solder joints and
+boardlocks alone.
 
 **Where the plug crowds its neighbours.** The backshell is 64.9 mm wide, 1.04 mm wider
-than the connector's body, and its face is 1.70 mm off the panel.
+than the connector's body, and its face may be as little as 0.80 mm off the panel.
 
 | Plug | Its end | Nearest thing | Gap |
 |---|---|---|---|
@@ -473,15 +495,15 @@ than the connector's body, and its face is 1.70 mm off the panel.
 | `J45` | X = 66.95 | front window, from X = 70.3 | 3.35 mm |
 | `J36` | X = 242.55 | front window, to X = 239.7 | 2.85 mm |
 
-At the first two, a sub-plate's 1.6 mm lip would lie under the backshell with 0.1 mm to
-spare, and a 7.0 mm counterbore would leave 0.3 and 0.8 mm of aluminium to the window.
-§6 already has those two lips narrow and without a screw; the panel drawing should stop
-the lip at the window there, and may run the counterbore into the window.
+At the first two, **a sub-plate's 1.6 mm lip must stop at the window**: under the
+backshell it would foul it by up to 0.8 mm. §6 already has those two lips narrow and
+without a screw. A 7.0 mm counterbore there would leave 0.3 and 0.8 mm of aluminium to
+the window, which is one reason to make it smaller.
 
-**Depth outside the panel.** Each plug stands 1.7 + 67.3 = 69.0 mm off the panel, and its
-cable then wants a 76.2 mm bend radius. That is on both faces of the box.
+**Depth outside the panel.** Each plug stands 0.8 to 1.7 mm off the panel and is 67.3 mm
+long, and its cable then wants a 76.2 mm bend radius. That is on both faces of the box.
 
-**Before a panel is cut**, try one cable on one connector: how far a jackscrew reaches
-beyond the backshell face, and where the backshell stops. If the jackscrews reach the MH
-threads after all, the counterbores and jacksockets are not needed. And choose the
-jacksocket. `constraints.md` Open question 23 has what is left.
+**The gate: a coupon test-fit.** Before any panel is cut, fit one `SHC68-68-EPM` to one MH
+`3700-0121-01` through a 3.0 mm aluminium coupon cut with this opening and these
+counterbores (`../assembly-checklist.md`). It decides which case is real, the land, the
+opening and the counterbore. `constraints.md` Open question 23 has what is left.
