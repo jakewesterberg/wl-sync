@@ -142,7 +142,8 @@ status:
     and tests, with nothing changed on the recording path: bench streams'
     --record CSV now names clk_sys and the width meter's machine, so its
     counts give widths, and build-shim.sh warns when piolib is not at utils
-    b57c48e (1351 tests). Task 1.24 (the user's ruling, 2026-11-20,
+    b57c48e (1351 tests; Task 1.25, 2026-11-21, makes it refuse unless
+    WLSYNC_ALLOW_UNCHECKED_PIOLIB=1). Task 1.24 (the user's ruling, 2026-11-20,
     reviewed and merged to main) adds wl-sync record --split,
     for the bench only and never the unit: it skips the stamp machine and
     its start-up test and records the split fallback through its own path,

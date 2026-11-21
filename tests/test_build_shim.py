@@ -136,3 +136,36 @@ def test_the_checked_commit_builds_silently(tmp_path, stub_path):
     assert done.returncode == 0, done.stderr
     assert calls.exists()
     assert done.stderr == ""
+
+
+def test_a_refusal_removes_a_stale_so_from_an_earlier_build(tmp_path, stub_path):
+    """An install after a refused build must not copy an earlier build's library."""
+    piolib = _fake_piolib(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "libwlsync_pio.so").write_text("stale")
+    done, out, calls = _run(tmp_path, stub_path, piolib)
+    assert done.returncode != 0
+    assert not (out / "libwlsync_pio.so").exists()
+    assert "removed" in done.stderr
+
+
+@pytest.mark.parametrize("value", ["yes", "true", "", " 1", "2"])
+def test_only_exactly_1_overrides_and_the_refusal_says_the_value_was_seen(
+        tmp_path, stub_path, value):
+    piolib = _fake_piolib(tmp_path)
+    done, _out, calls = _run(tmp_path, stub_path, piolib,
+                             {"WLSYNC_ALLOW_UNCHECKED_PIOLIB": value})
+    assert done.returncode != 0
+    assert not calls.exists()
+    if value:
+        assert f"WLSYNC_ALLOW_UNCHECKED_PIOLIB={value}" in done.stderr
+        assert "ignored" in done.stderr
+    assert "exactly 1" in done.stderr
+
+
+def test_a_missing_piolib_directory_is_named_as_missing(tmp_path, stub_path):
+    done, _out, calls = _run(tmp_path, stub_path, tmp_path / "nowhere" / "piolib")
+    assert done.returncode != 0
+    assert not calls.exists()
+    assert "not a directory" in done.stderr

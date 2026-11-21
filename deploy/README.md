@@ -647,14 +647,14 @@ This is what first ran the RP1 backend on silicon, on `wl-rig-sync0` on 2026-10-
    find the block's descriptor (`pio/wlsync_pio.c:41-52`). The clone above is checked out at
    that commit; a newer one's handle may have moved. That is caught, not misread: every level
    read gives `-9`, and the process records split with no `W` (`deploy/README.md:203-204`).
-   `build-shim.sh` refuses to build against another commit (`pio/build-shim.sh:23-45`): it exits
-   non-zero before compiling, so no `.so` is left, and its message names the commit it found,
-   `b57c48e`, why it matters, and the override. A directory that is not a git checkout reads as
-   `unknown` and is refused too. To build at the checked one, clone without `--depth 1`, then
-   `git -C ~/src/utils checkout b57c48e`. To build against another commit anyway, set
-   `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1`; the build goes ahead and prints the warning
-   (the user, 2026-11-21: "Refuse, with an override"). The box's `~/src/utils` is at `b57c48e`
-   (checked read-only on 2026-11-21), so the bench-day commands need no override.
+   `build-shim.sh` refuses any other commit (`pio/build-shim.sh:31-57`): it exits non-zero
+   before compiling and removes an earlier build's `.so`, so none is left to install. Its
+   message names the commit found, `b57c48e`, why it matters and the override; a directory
+   that is not a git checkout reads as `unknown` and is refused too. To build at the checked
+   commit, check it out as above. To build another anyway, set `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1`
+   (only exactly `1`: `yes`, `true`, `0` and an empty value are refused, and the message says
+   the value was ignored); it builds and prints a warning (the user, 2026-11-21: "Refuse, with
+   an override"). The box's `~/src/utils` is at `b57c48e` (checked read-only on 2026-11-21).
 
    `/dev/pio0` should already be `root:gpio` with mode `0660`, and the first user is in
    `gpio`. If it is `root:root`, piolib's README gives a udev rule.

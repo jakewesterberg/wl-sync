@@ -265,7 +265,8 @@ def _segment_factory(
 ) -> tuple[Path, Callable[[], SegmentWriter]]:
     """The path of the next segment in `folder`, and a zero-argument factory that writes it.
 
-    THE ONLY PLACE A SEGMENT HEADER IS DEFINED. The start of run() and every roll build
+    THE ONLY PLACE A SEGMENT HEADER IS DEFINED. `wl_sync.parity` imports this function to
+    build the fake's header, so renaming or re-signing it breaks `bench parity`. The start of run() and every roll build
     their segment here, so a field added to the header cannot reach the first segment of
     a run and miss the ones after a session change. `process_uuid`, `barcode_delay_us`
     and `timebase` have no defaults here for the same reason: a call that forgot one

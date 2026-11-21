@@ -159,7 +159,7 @@ The third is next-session `:182` and `:186`, with `lib-b3` (below).
 
 This deploys the commit you wrote down in step 1, which is origin/main after the push of
 `one-clock-p1`. The deploy follows the install section's commands: the clone (README
-`:623-626`) and the venv (`:656-657`). Rebuild the shim "whenever `pio/wlsync_pio.c` changes" (`:628`). The box
+`:623-627`) and the venv (`:663-664`). Rebuild the shim "whenever `pio/wlsync_pio.c` changes" (`:629`). The box
 must be idle, and the restart must follow the install at once, so that the running process
 is never left over new files **[composed]**.
 
@@ -177,14 +177,16 @@ is never left over new files **[composed]**.
 The path is double-quoted so the shell does not glob `[pi]`, and is written `$HOME` because a
 quoted `~` would not expand. README `:664` gives it unquoted.
 
-    ssh wl-rig-sync0 '~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp'
+    ssh wl-rig-sync0 '~/src/wl-sync/pio/build-shim.sh ~/src/utils/piolib /tmp' && ssh -t wl-rig-sync0 'sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig'
 
-**Pass:** "It must compile under `-Wall -Wextra` with no warnings" (P0 item 1, plan
-`:1880`). The script refuses, and writes no `.so`, if piolib is not at `b57c48e` (README `:646-658`; `pio/build-shim.sh:23-45`). The box's `~/src/utils` is at `b57c48e` (checked read-only on 2026-11-21), so this command needs no override and the refusal is not expected; do not set `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1` here, because a refusal would mean the checkout moved.
+The two are chained with `&&` so the install runs only if the build succeeded: a refused build
+exits non-zero and removes any `/tmp/libwlsync_pio.so` an earlier one left, so a stale library
+cannot be installed.
 
-    ssh -t wl-rig-sync0 'sudo install -m 0644 /tmp/libwlsync_pio.so /usr/local/lib/ && sudo ldconfig'
+**Pass of the build:** "It must compile under `-Wall -Wextra` with no warnings" (P0 item 1, plan
+`:1880`). The script refuses, and writes no `.so`, if piolib is not at `b57c48e` (README `:646-658`; `pio/build-shim.sh:31-57`). The box's `~/src/utils` is at `b57c48e` (checked read-only on 2026-11-21), so this command needs no override and the refusal is not expected; do not set `WLSYNC_ALLOW_UNCHECKED_PIOLIB=1` here, because a refusal would mean the checkout moved.
 
-**(you, sudo)** This is README `:627` and P0 item 1's "Install it and run `ldconfig`".
+**(you, sudo, the second command)** This is README `:627` and P0 item 1's "Install it and run `ldconfig`".
 
     ssh -t wl-rig-sync0 'sudo systemctl restart wl-sync'
 
@@ -226,7 +228,7 @@ ssh wl-rig-sync0 '~/wl-sync-spike/venv/bin/pip install -q --no-deps -e "$HOME/wl
 ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib-b3 venv/bin/python -c "from wl_sync.rp1 import backend as b; lib = b._load_shim(); print(lib.wlsync_shim_version(), [l.split()[-1] for l in open(\"/proc/self/maps\") if \"wlsync\" in l][0])"'
 ```
 
-This build-shim.sh call also refuses a piolib not at utils `b57c48e` (`pio/build-shim.sh:23-45`); the same `~/src/utils` serves it, so it needs no override.
+This build-shim.sh call also refuses a piolib not at utils `b57c48e` (`pio/build-shim.sh:31-57`); the same `~/src/utils` serves it, so it needs no override.
 
 **Pass:**
 - the shim compiles "under `-Wall -Wextra` with no warnings" (plan `:1880`);
@@ -561,25 +563,35 @@ What this one comparison answers:
   - **First, the new test [composed]**, from the user's ruling of 2026-11-20: wl-phantom
     grading the one-count box with `--expect-timebase one-count` and getting `PASSED`, and
     no `warning:` line that names a timebase.
-  - **Second, the plan's test**, which `wl_sync/parity.py` now runs (Task 1.25). From the
-    wl-sync checkout on the Mac, on the same rsync'd directory:
+  - **Second, the plan's test**, which `wl_sync/parity.py` now runs (Task 1.25). Run it from
+    the wl-sync checkout on the Mac, **at the commit the box runs** (step 1's hash), because
+    the fake's header comes from that checkout and a field added since would read as a fault of
+    the box. `$PHANTOM` is the wl-phantom checkout you ran step 12 in:
 
-        .venv/bin/python -m wl_sync.bench parity runs/box-1-log
+        PHANTOM=/path/to/wl-phantom   # where runs/box-1-log is
+        cd /path/to/wl-sync && git rev-parse --short HEAD && .venv/bin/python -m wl_sync.bench parity $PHANTOM/runs/box-1-log
 
-    (give the path relative to your own directory, or absolute). It replays each segment's
-    `W` words, `E` edges and `B` barcodes, in file order, through `Recorder` over
-    `FakeBackend` into a segment of the box's own format, then compares the two. **Pass:**
-    the last line begins `PASS:` and the exit status is 0. A `FAIL <segment>: ...` line names
-    the first difference, and the exit status is 1.
+    It replays each segment's `W` words, `E` edges, `B` barcodes and `L` losses, in file order,
+    through `Recorder` over `FakeBackend` into a segment of the box's own format, then
+    compares the two, a line at a time. **Pass:** the last line begins `PASS:` and the exit
+    status is 0. A `FAIL <segment>: ...` line names the first difference, and the exit status
+    is 1. A torn final line (a crash) is dropped and named; a segment with no trailer is
+    crash-closed and its trailer is not compared.
   - **What "byte-identical in structure" means** is `wl_sync/parity.py`'s docstring, from
     what the Task 4 tests pin (plan `:695-800`; `tests/test_service.py`): the header has the
-    same keys, in the same order, of the same JSON types; the records are the same types in
-    the same order, with the same fields; a `W`'s word, an `E`'s gpio and level and a `B`'s
-    value are the same; the trailer is present. The command prints what it does **not**
-    compare, each with its reason: every record's `tick_us`, `L` records, the header's
-    values, the JSON type of `barcode_delay_us` (null in the fake), and the trailer's values.
-  - Do not read a `PASS` here as the timing check. It says the box writes what `Recorder`
-    writes, not that its ticks are right: that is wl-phantom's.
+    same keys, in the same order, of the same JSON types, and the same `schema_version` and
+    `ordering`; the records are the same types in the same order, with the same fields; a
+    `W`'s word, an `E`'s gpio and level, a `B`'s value and an `L`'s path, gpio, count, bound
+    and cause are the same; the trailer is present. The command prints what it does **not**
+    compare, each with its reason: every record's `tick_us` (and an `L`'s two window ticks),
+    the header's values other than `schema_version` and `ordering`, the JSON type of
+    `barcode_delay_us` (null in the fake), and the trailer's values.
+  - **What a `PASS` shows, plainly.** Recorder and the fake deliver synchronously and in
+    order, so the replay reproduces the box's record order and values by construction. A
+    `PASS` therefore shows that the box's header has the keys, types, `schema_version` and
+    `ordering` that this checkout writes; that every record line has the grammar `Recorder`
+    writes (including each `L`'s blank pattern); and that the trailer is there. It is not
+    the timing check: whether the ticks are right is wl-phantom's.
 - **The gate's first half.** See step 13.
 
 **A fail means** (and if you stop here, do step 20 before you leave):

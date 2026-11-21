@@ -139,17 +139,64 @@ def test_a_missing_trailer_fails(tmp_path):
     real = _segment(tmp_path / "real.log", RECORDS)
     fake = _segment(tmp_path / "fake.log", RECORDS, close=False)
     message = parity.first_difference(parity.shape_of(real), parity.shape_of(fake))
-    assert message is not None and "T" in message
+    assert message is not None and "a trailer T" in message
 
 
-def test_l_records_are_excluded_and_counted(tmp_path):
-    loss = Loss(tick_us=1_500, path="W", gpio=None, count=1, bound="at_least",
+def _loss(**fields):
+    base = dict(tick_us=1_500, path="W", gpio=None, count=1, bound="at_least",
                 cause="desync", before_us=1_500, after_us=None)
-    real = _segment(tmp_path / "real.log", [RECORDS[0], loss, *RECORDS[1:]])
-    shape = parity.shape_of(real)
-    assert shape.losses_excluded == 1
+    base.update(fields)
+    return Loss(**base)
+
+
+def test_l_records_are_in_the_compared_sequence(tmp_path):
+    """An L record the fake lacks, or has where the box has none, is a difference."""
+    real = _segment(tmp_path / "real.log", [RECORDS[0], _loss(), *RECORDS[1:]])
     fake = _segment(tmp_path / "fake.log", RECORDS)
-    assert parity.first_difference(shape, parity.shape_of(fake)) is None
+    message = parity.first_difference(parity.shape_of(real), parity.shape_of(fake))
+    assert message is not None and "record 2" in message and "L" in message
+    message = parity.first_difference(parity.shape_of(fake), parity.shape_of(real))
+    assert message is not None and "record 2" in message
+
+
+def test_an_l_records_blank_pattern_is_compared(tmp_path):
+    a = _segment(tmp_path / "a.log", [RECORDS[0], _loss(before_us=1_500), *RECORDS[1:]])
+    b = _segment(tmp_path / "b.log", [RECORDS[0], _loss(before_us=None), *RECORDS[1:]])
+    message = parity.first_difference(parity.shape_of(a), parity.shape_of(b))
+    assert message is not None and "record 2" in message
+
+
+def test_replay_writes_every_cause_of_l_record_through_the_fake(tmp_path):
+    records = [
+        CodeWord(tick_us=1_000, word=1),
+        _loss(tick_us=1_000, before_us=1_000),
+        Edge(tick_us=2_000, gpio=FRAME_GPIO, level=1),
+        _loss(tick_us=2_100, path="E", gpio=FRAME_GPIO, count=2, bound="exact",
+              cause="buffer_overflow", before_us=2_000, after_us=2_100),
+        Edge(tick_us=2_100, gpio=FRAME_GPIO, level=0),
+        _loss(tick_us=2_200, path="E", gpio=FRAME_GPIO, count=1, bound="at_least",
+              cause="coalesced", before_us=2_100, after_us=2_200),
+        Edge(tick_us=2_200, gpio=FRAME_GPIO, level=0),
+        _loss(tick_us=2_300, path="E", gpio=None, count=1, bound="at_least",
+              cause="unaccounted", before_us=2_200, after_us=2_300),
+        Edge(tick_us=2_300, gpio=FRAME_GPIO, level=1),
+    ]
+    path = _segment(tmp_path / "seg-000.log", records)
+    result = parity.check_segment(path, tmp_path / "work")
+    assert result.passed, result.difference
+
+
+def test_schema_version_and_ordering_are_compared(tmp_path):
+    for key, value in (("ordering", "global"), ("schema_version", 2)):
+        real = _segment(tmp_path / f"{key}.log", RECORDS)
+        lines = real.read_text().split("\n")
+        head = json.loads(lines[0])
+        head[key] = value
+        lines[0] = json.dumps(head)
+        real.write_text("\n".join(lines))
+        fake = _segment(tmp_path / f"{key}-fake.log", RECORDS)
+        message = parity.first_difference(parity.shape_of(real), parity.shape_of(fake))
+        assert message is not None and key in message, key
 
 
 def test_a_segment_from_the_fake_round_trips(tmp_path):
@@ -174,7 +221,7 @@ def test_a_segment_from_the_fake_round_trips(tmp_path):
 
 
 def test_a_real_looking_segment_past_a_counter_wrap_passes(tmp_path):
-    """Ticks past 2^32 (the box's clock unwraps them), scaled-timebase header, an L record."""
+    """Ticks past 2^32 (the box's clock unwraps them), a scaled-timebase header."""
     wrap = 1 << 32
     records = [
         CodeWord(tick_us=wrap - 500, word=1),
@@ -198,6 +245,70 @@ def test_check_fails_on_a_segment_whose_shape_the_replay_cannot_reproduce(tmp_pa
     assert not result.passed and "Q" in result.difference
 
 
+def test_a_torn_final_line_is_dropped_as_iter_records_drops_it_and_said_so(tmp_path, capsys):
+    from wl_sync import bench
+    path = _segment(tmp_path / "seg-000.log", RECORDS, close=False)
+    with path.open("a") as handle:
+        handle.write("E,4294971296,26")  # no newline: a crash caught mid-write
+    assert bench.main(["parity", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "torn final line" in out and "dropped" in out
+    assert out.splitlines()[-1].startswith("PASS")
+
+
+@pytest.mark.parametrize("header", ["", "\n", "not json\n", "[1, 2]\n"])
+def test_a_bad_header_is_a_fail_with_a_reason_not_a_traceback(tmp_path, capsys, header):
+    from wl_sync import bench
+    path = tmp_path / "seg-000.log"
+    path.write_text(header + "W,1,2\n")
+    assert bench.main(["parity", str(path)]) == 1
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1].startswith("FAIL") and "header" in out
+
+
+def test_a_record_that_does_not_parse_is_a_fail(tmp_path, capsys):
+    from wl_sync import bench
+    path = _segment(tmp_path / "seg-000.log", RECORDS)
+    lines = path.read_text().split("\n")
+    lines.insert(2, "E,1,2")
+    path.write_text("\n".join(lines))
+    assert bench.main(["parity", str(path)]) == 1
+    assert capsys.readouterr().out.splitlines()[-1].startswith("FAIL")
+
+
+def test_a_directory_with_two_same_named_segments_checks_each_with_its_own_fake(tmp_path, capsys):
+    from wl_sync import bench
+    day = tmp_path / "day"
+    for folder, records in (("unassigned/syncbox", RECORDS), ("2026-11-21_01/syncbox", RECORDS[:3])):
+        (day / folder).mkdir(parents=True)
+        _segment(day / folder / "seg-000.log", records)
+    assert bench.main(["parity", str(day)]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[-1].startswith("PASS: 2 segment(s)")
+
+
+def test_the_check_streams_a_long_segment_in_bounded_memory(tmp_path):
+    """The old comparison held ~700 bytes per record (2 GB for 3,000,000). A segment of tens of
+    millions of records must cost no more than a short one, so the peak is bounded here, well
+    under what holding 60,000 records' shapes would take."""
+    import tracemalloc
+
+    def records():
+        for k in range(30_000):
+            yield CodeWord(tick_us=1_000 + 2 * k, word=k & 0xFFFF)
+            yield Edge(tick_us=1_001 + 2 * k, gpio=FRAME_GPIO, level=k & 1)
+
+    path = _segment(tmp_path / "seg-000.log", records())
+    tracemalloc.start()
+    try:
+        result = parity.check_segment(path, tmp_path / "work")
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert result.passed, result.difference
+    assert peak < 8_000_000, peak
+
+
 def test_the_command_prints_pass_and_the_exclusions(tmp_path, capsys):
     from wl_sync import bench
     path = _segment(tmp_path / "seg-000.log", RECORDS)
@@ -205,7 +316,7 @@ def test_the_command_prints_pass_and_the_exclusions(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.splitlines()[-1].startswith("PASS")
     assert "not compared" in out
-    for name in ("tick_us", "timebase", "process_uuid", "written_at"):
+    for name in ("tick_us", "timebase", "process_uuid", "written_at", "gpio_map"):
         assert name in out
 
 

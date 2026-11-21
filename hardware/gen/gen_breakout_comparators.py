@@ -456,7 +456,7 @@ FRAME_THR_NET = "CAM_FRAME_THR"
 # (key, LM339 unit, net arriving from the owning sheet's own spare BNC port, output net
 # reaching the Pi, on-sheet description). The two BNCs are spare ports on bodies owned by
 # OTHER sheets -- J17B on pi-interface.kicad_sch, J6B on taskpc-digital.kicad_sch -- because
-# those are the only two spare ports on the BACK face, and their panel holes are already
+# those were the only two spare ports on the BACK face (now used, here), and their panel holes are already
 # machined (hardware/breakout/panel-elevations.md §4: 36 BNC holes, 35 used, 1 spare, J5B on the
 # front; it was 34 holes until J57 was added on 2026-10-18). Those sheets wire centre and
 # shell; everything else is here.
