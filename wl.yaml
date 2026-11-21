@@ -144,8 +144,8 @@ status:
   next: >-
     Note 7 was delivered to wl-preproc on 2026-11-20, with notes 4-6 and the
     answers (docs/pending-wl-preproc-amendments.md:425-427), and note 8 the
-    same day (:488); two additions to note 8 are queued, not delivered
-    (:525-545). The box runs fc18551 under --fake, from the user's restart of
+    same day (:488); two additions to note 8 were delivered on 2026-11-21
+    (:525), and wl-preproc answered that neither changes anything there. The box runs fc18551 under --fake, from the user's restart of
     2026-11-20; a fit lost beyond the restart's reach still drops every B
     until a restart, now with a WARNING.
     Bench day, in the order of docs/bench-day.md (Task 1.23, 2026-11-20), one
@@ -169,7 +169,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "ef0f94a"
+  describes: "5b5fea5"
 
 runs_on: [rig/sync]
 builds_on: [dws]
