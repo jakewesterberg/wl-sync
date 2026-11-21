@@ -2146,7 +2146,9 @@ def test_the_hardware_backend_is_built_on_the_chip_it_is_given(monkeypatch):
     built = []
     monkeypatch.setattr(rp1, "Rp1Backend", lambda *args, **kwargs: built.append((args, kwargs)))
     cli._hardware_backend("/dev/gpiochip4")
-    assert built == [((), {"chip_path": "/dev/gpiochip4"})]
+    cli._hardware_backend("/dev/gpiochip4", split=True)  # Task 1.24's --split
+    assert built == [((), {"chip_path": "/dev/gpiochip4", "force_split": False}),
+                     ((), {"chip_path": "/dev/gpiochip4", "force_split": True})]
 
 
 def test_the_shim_is_the_library_looked_for(monkeypatch):
@@ -4957,6 +4959,192 @@ def test_run_on_a_box_that_refuses_the_sync_enable_records_split(
         "the sync enable was refused: the test machine stamped GPIO17's rise only when "
         "enabled alone"
     )]
+
+
+# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-21) -----
+#
+# B2 measures the split backend's drift on current code (the plan's B2), so the bench
+# asks for the fallback a failed start-up test gives: the capture machine alone, B and E
+# on MONO. One ERROR at start, the health check's episode and an ERROR in the run's
+# summary say so, so a process recording split by force never passes silently.
+
+_FORCED = "forced by --split, for the bench only"
+_FORCED_ERROR = (
+    "the stamp machine was not started (forced by --split, for the bench only): this "
+    "process records timebase split, with B and E on CLOCK_MONOTONIC, until a restart "
+    "without --split"
+)
+_FORCED_HEALTH = (
+    "timebase split forced by --split, for the bench only: B and E are on "
+    "CLOCK_MONOTONIC in this process, not on RP1's count"
+)
+_FORCED_SUMMARY = (
+    "this run recorded timebase split, forced by --split, for the bench only: B and E "
+    "were on CLOCK_MONOTONIC throughout"
+)
+
+
+def test_split_forced_puts_the_process_where_a_failed_start_up_test_does(
+    lib, gpiod, caplog, monkeypatch
+):
+    """The fallback's own path (`_fall_back_to_split`), with no stamp machine and no test:
+    the capture machine alone, enabled the plain way, its pump counting on half the FIFO
+    as a failed test leaves it. The test's pulses never reach GPIO17."""
+    import logging
+
+    gpiod.pio_sees_barcode = False
+    failed = Rp1Backend()
+    failed_words = failed._rx_words
+    failed.close()
+    gpiod.sets.clear()
+    caplog.clear()
+
+    shim = _FakeShim()
+    monkeypatch.setattr(rp1, "_load_shim", lambda: shim)
+    gpiod.shim = shim
+    with caplog.at_level(logging.INFO, logger=rp1.log.name):
+        backend = Rp1Backend(force_split=True)
+    try:
+        assert _is_split(backend)
+        assert backend.split_forced
+        assert backend.stamp_test_failure == _FORCED  # so bench stamps refuses it
+        assert backend.capture_failure == ""
+        assert "start_stamp" not in shim.log
+        assert shim.enables == [] and gpiod.sets == []
+        assert backend._rx_words == failed_words == shim.word_depth // 2
+        assert _errors(caplog) == [_FORCED_ERROR]
+        enables, synced = _capture_enables(shim, backend)
+        assert enables == [(0, True)] and not synced
+    finally:
+        backend.close()
+    assert shim.disabled == [0]
+
+
+def test_split_forced_still_refuses_a_block_that_cannot_be_trusted(lib):
+    """The flag skips the stamp machine, not the capture machine's checks (`_configure`):
+    an impossible clk_sys still refuses the start, as without it."""
+    lib.clk_sys_hz = 0xFFFF_FFFF
+    with pytest.raises(rp1.PiolibError):
+        Rp1Backend(force_split=True)
+    assert lib.log.count("open") == 1 and lib.log[-1] == "close"
+
+
+def test_split_forced_reaches_the_health_check_on_every_call(lib, gpiod):
+    """As a capture machine that did not start is (`_records_without_w`): on every call
+    once capture has started, so the run loop holds one episode for the run."""
+    from wl_sync.backend import CaptureDegraded
+
+    backend = Rp1Backend(force_split=True)
+    try:
+        backend.check_health()  # before capture starts, nothing is running on the clock
+        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+        for _ in range(2):
+            with pytest.raises(CaptureDegraded) as raised:
+                backend.check_health()
+            assert raised.value.kinds == {"timebase: split forced"}
+            assert str(raised.value) == _FORCED_HEALTH
+    finally:
+        backend.close()
+
+
+def test_split_forced_is_in_the_runs_summary_once(lib, gpiod, caplog):
+    backend = Rp1Backend(force_split=True)
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    caplog.clear()
+    backend.close()
+    backend.close()
+    assert _errors(caplog) == [_FORCED_SUMMARY]
+
+
+def test_without_split_nothing_says_forced(lib, gpiod, caplog):
+    gpiod.pio_sees_barcode = False
+    backend = Rp1Backend()
+    backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+    backend.check_health()
+    backend.close()
+    assert not backend.split_forced
+    assert not [e for e in _errors(caplog) if "--split" in e]
+
+
+def test_split_forced_on_a_box_whose_capture_machine_cannot_run_records_anyway(
+    lib, gpiod, caplog
+):
+    """The box records anyway (Task 1.16): the capture fault's ERROR, then the flag's,
+    and the health check holds both."""
+    from wl_sync.backend import CaptureDegraded
+
+    lib.start_result = -16
+    reason = "the capture machine did not start (errno 16)"
+    backend = Rp1Backend(force_split=True)
+    try:
+        assert _is_split(backend) and backend.split_forced
+        assert backend.stamp_test_failure == reason  # the fault's, which says more
+        assert _errors(caplog) == [_NO_CAPTURE_ERROR.format(reason), _FORCED_ERROR]
+        backend.start_strobed_capture(0, DATA, DATA, lambda tick, word: None)
+        with pytest.raises(CaptureDegraded) as raised:
+            backend.check_health()
+        assert raised.value.kinds == {
+            "event-code capture: did not start", "timebase: split forced",
+        }
+    finally:
+        backend.close()
+
+
+def _five_split_frames(tmp_path, monkeypatch, gpiod, **kwargs):
+    """cli.run for five frames on a fresh shim fake, one strobe pushed at the first frame;
+    the first segment's header and records."""
+    from wl_sync.log import read_log
+
+    shim = _FakeShim()
+    monkeypatch.setattr(rp1, "_load_shim", lambda: shim)
+    gpiod.shim = shim
+    gpiod.pio_sees_barcode = kwargs.pop("pio_sees_barcode", True)
+    backend = Rp1Backend(**kwargs)
+    sets, pushed = len(gpiod.sets), []
+
+    def tick(seconds):
+        if not pushed and len(gpiod.sets) > sets:
+            pushed.append(True)
+            shim.push(stream((10, 7)))
+
+    tmp_path.mkdir(parents=True)
+    segments = _run_for_five_frames(tmp_path, backend, monkeypatch, tick)
+    return read_log(segments[0])
+
+
+def test_run_split_by_force_writes_the_header_and_records_a_failed_test_writes(
+    tmp_path, lib, gpiod, caplog, monkeypatch
+):
+    """The point of the flag (the user's ruling, 2026-11-21): B2 measures the fallback the
+    box would really record. So the header is the failed test's, field for field but the
+    process's own, and so are the records, kind for kind and value for value; ticks stay
+    whole numbers. The journal's ERRORs are the flag's three: start, episode, summary."""
+    from wl_sync.log import BarcodeEmitted, CodeWord
+
+    failed_header, failed = _five_split_frames(
+        tmp_path / "failed" / "rig0", monkeypatch, gpiod, pio_sees_barcode=False)
+    caplog.clear()
+    forced_header, forced = _five_split_frames(
+        tmp_path / "forced" / "rig0", monkeypatch, gpiod, force_split=True)
+
+    volatile = {"process_uuid", "written_at", "boot_id"}
+    assert forced_header.timebase == "split" and forced_header.barcode_delay_us is None
+    assert (forced_header.model_dump(exclude=volatile)
+            == failed_header.model_dump(exclude=volatile))
+
+    def shape(records):
+        return [(type(r).__name__, getattr(r, "value", None), getattr(r, "word", None))
+                for r in records]
+
+    assert shape(forced) == shape(failed)
+    assert len([r for r in forced if isinstance(r, BarcodeEmitted)]) == 5
+    assert [r.word for r in forced if isinstance(r, CodeWord)] == [7]
+    assert all(type(r.tick_us) is int for r in forced if hasattr(r, "tick_us"))
+    assert _journal_errors(caplog) == [
+        _FORCED_ERROR,
+        "capture degraded, still recording: " + _FORCED_HEALTH,
+        _FORCED_SUMMARY,
+    ]
 
 
 def _declare_all(lib):

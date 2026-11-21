@@ -537,8 +537,8 @@ it was sent:*
 - *A process start now drives the barcode line ten times, not once. Where the start-up test
   runs and its first pulse is stamped, the 1 ms test pulse is followed by nine of about
   100 µs, high and low, that fill the PIO's FIFO to measure its depth (wl-sync
-  `wl_sync/rp1/backend.py:847-849`, `:943-947`; `STAMP_TEST_SETTLE_US`, `:108`), and then
-  0.5 s of low before the first frame (`:870`). That is 20 edges on GPIO17 where there were
+  `wl_sync/rp1/backend.py:895-897`, `:991-995`; `STAMP_TEST_SETTLE_US`, `:108`), and then
+  0.5 s of low before the first frame (`:918`). That is 20 edges on GPIO17 where there were
   2. No decoder takes them for a frame's lead, which must still be high 2.5 ms after its
   rise (`wl_sync/barcode.py:135-138`). NI and Intan record the line raw, so a reader that
   audits the barcode channel's edges outside frames will find these at each process

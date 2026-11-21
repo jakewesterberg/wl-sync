@@ -112,7 +112,7 @@ NVMe, with wl-sync in `~/wl-sync-venv` and `libwlsync_pio.so` installed (§0, an
 
 **Before anything runs the box, rebuild and install the shim, version 6** (P0 item 1,
 `docs/superpowers/plans/2026-11-07-one-clock.md:1880`). The backend refuses to use an older
-shim (`deploy/README.md:599-606`). Since 2026-11-20 that no longer stops the unit: it stays
+shim (`deploy/README.md:628-635`). Since 2026-11-20 that no longer stops the unit: it stays
 active and records split with no `W`, and the journal's `event-code capture cannot run
 (libwlsync_pio is version N, and this wl-sync needs 6: rebuild ...)` names the rebuild.
 *[2026-11-20: version 4, Task 1.20's fix round (Ruling R40): a level read that can fail
@@ -124,7 +124,7 @@ full FIFO read as 16 from RP1's saturating level field and its full flag. Then v
 when the drain's own FIFO counts prove it whole (`wl_sync/rp1/pio_capture.py:170-338`). The
 proof holds given these:
 - **B-1. The FIFO's depth and join.** The start-up check now measures it
-  (`deploy/README.md:307-321`): the start-up INFO `the RX FIFO holds 16 words,
+  (`deploy/README.md:336-350`): the start-up INFO `the RX FIFO holds 16 words,
   measured at start-up: the code-word pairing counts on 16` says it passed. Confirm by hand
   once too: stop draining SM 0, send at least 20 strobes, and read the level. It must read 16.
   *Found (bench probe, wl-rig-sync0, 2026-11-20, at 3a58cbb, on the test machine): the
@@ -172,7 +172,7 @@ with nothing wired and beside the `--fake` service. S.0 to S.6 all passed:
 S's files stay in `~/wl-sync-spike` on the box until the user says otherwise; nothing the
 service reads is there (`:2043`).
 
-**B3a and B3b, with no wire** *(added 2026-11-20, Task 1.21; **both PASSED on wl-rig-sync0, 2026-11-20/21**, at `ab98afd` with shim v6 in `~/wl-sync-spike/lib-b3`: results below and in the plan's B3a and B3b, `docs/superpowers/plans/2026-11-07-one-clock.md:2057`, `:2066`)*.
+**B3a and B3b, with no wire** *(added 2026-11-20, Task 1.21; **both PASSED on wl-rig-sync0, 2026-11-20/21**, at `ab98afd` with shim v6 in `~/wl-sync-spike/lib-b3`: results below and in the plan's B3a and B3b, `docs/superpowers/plans/2026-11-07-one-clock.md:2058`, `:2067`)*.
 `python -m wl_sync.bench skew` and `streams` (`wl_sync/rp1/harness.py`) run from
 `~/wl-sync-spike` beside the `--fake` service, as S did, with no sudo. The controller runs
 each over ssh, in this order, with the user's go-ahead before each; never two at once, as
@@ -183,7 +183,7 @@ each opens the PIO block. The full expected output is in the build's report,
 3. The probe, about 30 s: `ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib venv/bin/python -m wl_sync.bench streams --probe-only --record out/b3-probe.csv > out/b3-probe.txt 2>&1; echo "exit $?"; cat out/b3-probe.txt'`. Pass: `independent streams (B3b) probe: PASS`, each pin's 100 rises stamped by its own machine alone, every libgpiod shape 200 of 200, and `short-exit path (meter width <= 5.0 us): shown`: the PIO's width meter on the dense pin, not the CPU, says which path each high took (the user's ruling, 2026-11-20, "A PIO width meter"), and it must measure every dense high exactly once. If GPIO18 is blind, the same with `--dense-pin 19`; if that is blind too, B3b waits for the 12→36 jumper. *Result (2026-11-20, `out/b3-probe3.txt`): PASS. GPIO18 100 of 100 by A, B 0; GPIO17 100 of 100 by B, A 0; meter medians inside the CPU bounds for every libgpiod shape; writer holds 1.0/1.5/2.0 µs measured 3.2/3.7/4.2 µs, short 199/200/200 of 200.*
 4. B3a, about 4 min: `skew --machines 3 --edges 100000 --record out/b3a.csv`; then 20 fresh starts of `skew --machines 3 --edges 5000`, one process each. Pass, every one: `start skew (B3a): PASS`, each pair's difference one value of at most 1 on every edge. *Result (2026-11-20, `out/b3a.txt`, `out/b3a-start-*.txt`): PASS. 100,000 edges, every pair 0 on 100,000 of 100,000, 0 missed or extra, words 0, slips 0, 200 s; then 20 of 20 fresh starts PASS, every pair 0 on 5,000 of 5,000.*
 5. B3b, about 62 min, detached: `streams --duration 3600 --rate 100 --marker --record out/b3b.csv` under `nohup`, read after the hour. Pass: `independent streams (B3b): PASS`, `A - B` within 0.01 ppm with 1 sigma at most 0.0033 ppm, both paths each at least a quarter of A's fitted events, and no `fails:` or `inconclusive:` line (both bounds are the user's rulings, 2026-11-20). `pkill -f '[w]l_sync.bench streams'` ends it early (the bracket keeps the pattern from matching the `bash -c` that runs it), closed and INCONCLUSIVE. Under `nohup` a SIGHUP stays ignored; a run in the foreground that gets one ends as `pkill` ends it. The run's dense pin is the one in its `A (GPIO18, SM1)` line: GPIO18, or 19 if step 3 needed `--dense-pin 19`. *Result (2026-11-20 23:26 to 2026-11-21 00:26 CET, `out/b3b.txt`): PASS. A − B 0.0000 ppm, 1σ 0.00008 ppm; A 363,600 rises all stamped, held 183,989 and short 176,846 by the meter (2,764 neither); B 36,923 rises all stamped; words, full, slips and level errors 0; marker A − B 0 ×2,859, 1 ×741 (informational).*
-6. Afterwards, read-only: `python -m wl_sync.bench override`, from `~/wl-sync-spike` with `LD_LIBRARY_PATH` as above. Pass: `no override` on GPIO18 and GPIO19, and exit 0; `pinctrl` cannot show the override. Only SIGKILL between a writer pulse's two stores can leave one set, the pin forced high: harmless, since GPIO18 and GPIO19 are no-connect on the bench and on the breakout. The clear command `override` prints beside a set override, `python -m wl_sync.bench override --pin <the run's dense pin> --clear`, clears it with no sudo, after checking the map against libgpiod. It clears only OUTOVER 3, the value the harness writes, and writes nothing on any refusal; on a pin with nothing set it prints `NOT CLEARED` and exits 1. *Result: no override on GPIO18 or GPIO19, and the service stayed active.* **What still gates leaving `--fake`:** the ±100 µs gate (plan `:2104-2105`), which needs a strobe source, and then a deploy the user starts (below: "After acceptance").
+6. Afterwards, read-only: `python -m wl_sync.bench override`, from `~/wl-sync-spike` with `LD_LIBRARY_PATH` as above. Pass: `no override` on GPIO18 and GPIO19, and exit 0; `pinctrl` cannot show the override. Only SIGKILL between a writer pulse's two stores can leave one set, the pin forced high: harmless, since GPIO18 and GPIO19 are no-connect on the bench and on the breakout. The clear command `override` prints beside a set override, `python -m wl_sync.bench override --pin <the run's dense pin> --clear`, clears it with no sudo, after checking the map against libgpiod. It clears only OUTOVER 3, the value the harness writes, and writes nothing on any refusal; on a pin with nothing set it prints `NOT CLEARED` and exits 1. *Result: no override on GPIO18 or GPIO19, and the service stayed active.* **What still gates leaving `--fake`:** the ±100 µs gate (plan `:2105-2106`), which needs a strobe source, and then a deploy the user starts (below: "After acceptance").
 
 **First, with one jumper wire and nothing else: the box decoding its own barcode.** Connect
 GPIO17 (the barcode output, header pin 11) to GPIO20 (an edge input, header pin 38), then:
@@ -220,7 +220,7 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    silicon. The entire ±100 µs argument rests on it. Its first step builds and installs the
    shim; the backend refuses to use a shim that is not version 6, and records split with no
    `W`, saying `event-code capture cannot run (libwlsync_pio is version N, ...)`
-   (`deploy/README.md:599-606`, `wl_sync/rp1/backend.py:264`).
+   (`deploy/README.md:628-635`, `wl_sync/rp1/backend.py:268`).
 2. ~~**Which chardev carries RP1's bank.**~~ **Settled 2026-10-18:** it is `gpiochip0
    [pinctrl-rp1] (54 lines)`, the default.
 3. **The timebase origin offset** between capturing `_origin_ns` and
@@ -238,13 +238,13 @@ bits); P0 covers them. One tick is one µs, because the counter runs at 1 MHz.
    as the rig will be. See `hardware/breakout/frame-time-inputs.md` §4.
 
 7. **The data hold.** The task PC must hold the code lines at least 2.5 µs after raising the
-   strobe (`wl_sync/rp1/backend.py:969-974`). The strobe is tested every 2 PIO cycles (1 µs), so
+   strobe (`wl_sync/rp1/backend.py:1017-1022`). The strobe is tested every 2 PIO cycles (1 µs), so
    a real edge is seen 0–1 µs late, and `in pins` runs 2 cycles after that, so the data is
    read 1.0–2.0 µs after the strobe rises. The read ends before 2.0 µs at the box's pins, and
    the extra 0.5 µs covers skew between the strobe and data paths. The old program needed
    1.0 µs for edges on cycle boundaries and 1.5 µs for an edge at any instant.
    Strobes must be high at least 1 µs, low at least 1 µs, and rise at least 6 µs after the
-   previous one (`wl_sync/rp1/backend.py:975-976`).
+   previous one (`wl_sync/rp1/backend.py:1023-1024`).
 
 There is also a **known constant** latency of 3.0–4.0 µs, a mean of about 3.5. `mov isr,
 x` latches the count 6 cycles after the `jmp pin` that sees the strobe, and the strobe is
@@ -254,7 +254,7 @@ spread is the 2-cycle test interval. The pair is in the FIFO within 5.5 µs of t
 latched count, inverted (`wl_sync/rp1/pio_capture.py:301`) and handed on as it is (`:551`).
 The spread is jitter. So in P0 item 4 the median of (recovered − truth) is about 3.5 µs
 minus the origin offset of item 3 above, unless truth is taken on the counter's own origin:
-`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:1069-1085`),
+`_origin_ns` is read before the state machine is enabled (`wl_sync/rp1/backend.py:1117-1133`),
 so W ticks run early by that offset. Measure it rather than trusting the comment.
 
 **For the one-clock decision (added 2026-10-30).** `docs/superpowers/specs/2026-10-30-one-clock-design.md`
@@ -263,6 +263,11 @@ The cheapest two can be done on this same bench day:
 - **B1:** `dmesg | grep arch_timer` on the box. Then, with GPIO16 jumpered to GPIO20, find the
   rate of code words against edges converted to `CLOCK_MONOTONIC_RAW`. Under 0.01 ppm means RP1
   and the CPU share a reference, and the design's simplest option is enough.
+- **B2** *(added 2026-11-21, Task 1.24)*: today's W–B drift on the split backend, wl-phantom
+  §5.5 for at least 1 h (`docs/superpowers/plans/2026-11-07-one-clock.md:2049-2051`). A box whose start-up test passes records one
+  count, so B2 runs on `wl-sync record --split`, which forces the split fallback through its
+  own path and says so at ERROR at start, in the health check and at the run's end
+  (`deploy/README.md:226-252`). Bench only: never put `--split` in the unit.
 - **B4:** whether a PIO state machine can see GPIO17's barcode with no extra wire.
   *Answered 2026-11-07 by spike S.4: it can (above).*
 
@@ -346,7 +351,7 @@ left, so no further panel connector fits. One fix-up came with it:
   pump pairs the stream again and goes on. It writes only the pairs the drain's own counts
   prove are one strobe's two words, and drops and counts every other word, as a `desync`
   L record and one ERROR an episode (`CodeWordPairer`, `wl_sync/rp1/pio_capture.py:170-338`;
-  `deploy/README.md:274-294`).]*
+  `deploy/README.md:303-323`).]*
 - **Four minor review findings, recorded rather than fixed.**
   - `close()` carries on to `release()` and `pio_close` even when a thread's join timed
     out, so a thread could still be inside piolib.
@@ -392,7 +397,7 @@ left, so no further panel connector fits. One fix-up came with it:
 
 - **Code words and barcodes are timed by different clocks, and NTP slews one of them.**
   - Code-word ticks come from RP1's PIO counter, which runs off the crystal and is joined to
-    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:420-424`).
+    `CLOCK_MONOTONIC` once, when capture starts (`wl_sync/rp1/backend.py:424-428`).
   - Barcode (`B`) and edge ticks come from `CLOCK_MONOTONIC`, which follows NTP's frequency
     correction.
   - On the box NTP was applying **−6.5 ppm** (`timedatectl timesync-status`), so the two paths

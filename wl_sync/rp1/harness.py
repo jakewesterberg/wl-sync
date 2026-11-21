@@ -4,8 +4,8 @@
     python -m wl_sync.bench streams   B3b: a dense pin's machine against GPIO17's, 1 h
 
 WHY NOT Rp1Backend. Its sync mask is the capture and stamp machines alone
-(wl_sync/rp1/backend.py:1076), its start-up test keeps a third machine claimed for the
-life of the block (:784-786), and it claims a spare stamp pin for the PIO (:666), which
+(wl_sync/rp1/backend.py:1124), its start-up test keeps a third machine claimed for the
+life of the block (:832-834), and it claims a spare stamp pin for the PIO (:681), which
 would take GPIO18 from libgpiod. So this module calls the shim itself, through the exports
 it already has (pio/wlsync_pio.c, version 6), as the start-up test does (backend.py:
 832-845). Nothing here is imported by the recording path, and nothing in it changes it.

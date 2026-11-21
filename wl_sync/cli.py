@@ -856,7 +856,7 @@ def run(
             # change"). Every receiving device reports a frame by its lead rising edge
             # (`Barcode.start_us`), so this box's own record must mean that instant. On the
             # box it is the stamp machine's count of GPIO17 rising, matched once the frame
-            # has ended (wl_sync/rp1/backend.py:1589-1684); under --fake, the fake's clock
+            # has ended (wl_sync/rp1/backend.py:1646-1741); under --fake, the fake's clock
             # as the frame starts (wl_sync/backend.py:255-260). The loop used to read the
             # clock itself just before the frame, which on the box is the CPU's reading of
             # MONO, not the edge.
@@ -896,7 +896,7 @@ def run(
 
             # THE NEXT PROCESS'S RATE, from this frame's clock pair (spec §2.2, "The
             # estimate"). Taken every frame, keeper or not: the RP1 backend holds each pair
-            # until it is taken (wl_sync/rp1/backend.py:509-511, :1682-1683), so pairs left
+            # until it is taken (wl_sync/rp1/backend.py:522-524, :1739-1740), so pairs left
             # untaken would pile up, one a second, for the life of the process. The gate
             # takes NTP's state as this run last knew it, the kernel's as it is now. An
             # hourly write is two fsyncs on this thread, in the ~0.75 s a frame leaves (see
@@ -1322,13 +1322,13 @@ _DROP_ADVICE = {
     ),
     # Ruling R15, a guard now that such a process records split (Task 1.10a). The start
     # fails with EBUSY when the block has no unused state machine (pio/wlsync_pio.c:220-222);
-    # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:669-682).
+    # the start-up ERROR gives the errno (wl_sync/rp1/backend.py:684-697).
     STAMPS_NOT_STARTED: (
         "the stamp machine did not start; restart once nothing else holds the PIO "
         "block's state machines"
     ),
     # Ruling R16. Why it stopped is in the health report's ERROR, "capture degraded, still
-    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1462-1466, :1478-1482).
+    # recording: barcode stamping: ..." (wl_sync/rp1/backend.py:1510-1514, :1526-1530).
     STAMPS_STOPPED: (
         "the stamp drain stopped (the barcode stamping ERROR says why); a restart starts "
         "it again"
@@ -1443,9 +1443,9 @@ class _StampsBetweenFrames:
     WHERE THEY COME FROM. Stamps before the frame's lead, or before its window when its
     rises align on no lead (wl_sync/clockmap.py:296-298). A drain that gave up on the
     frame before at STAMP_DRAIN_WAIT_S left its stamps unmatched
-    (wl_sync/rp1/backend.py:1636-1643). A fit that has drifted leaves them too, the
+    (wl_sync/rp1/backend.py:1693-1700). A fit that has drifted leaves them too, the
     frame's own when its rises align on none. And GPIO17 is this process's own output
-    (wl_sync/rp1/backend.py:444-445), so anything else is a fault on the line. The frame's
+    (wl_sync/rp1/backend.py:452-453), so anything else is a fault on the line. The frame's
     `B` is not touched here: a frame with stamps between can keep it.
 
     EDGE-TRIGGERED (the user, 2026-11-20, "Edge-trigger it"). Task 1.7 gave a WARNING for
@@ -1455,11 +1455,11 @@ class _StampsBetweenFrames:
     so frames hit now and then, fewer than that apart, are one episode. Its first frame is
     one WARNING, in Task 1.7's text, and its end one more, at that clean frame or at
     `close()`, with the frames it held and their stamps. One frame alone, as the RP1
-    backend's carried misread is (wl_sync/rp1/backend.py:1644-1652), is an episode of
+    backend's carried misread is (wl_sync/rp1/backend.py:1701-1709), is an episode of
     one: two lines, not a flood.
 
     BOTH LINES ARE WARNINGS, as Task 1.15's extrapolation episode's are
-    (wl_sync/rp1/backend.py:1768-1770): the journal filtered at WARNING (`journalctl -p
+    (wl_sync/rp1/backend.py:1825-1827): the journal filtered at WARNING (`journalctl -p
     warning`) then shows the end of every start it shows. At INFO its end would be
     filtered out, and a reader would think the episode ran on. `close()` also gives the
     run's totals, at INFO, as `_DroppedBarcodes` does.
@@ -1760,12 +1760,13 @@ class _StopFlag:
         self.set = True
 
 
-def _hardware_backend(chip_path: str):
+def _hardware_backend(chip_path: str, split: bool = False):
     """The RP1 backend, imported only here: building it needs libpiolib and a GPIO chip,
-    which exist on the box and nowhere else, so `--fake` never touches either."""
+    which exist on the box and nowhere else, so `--fake` never touches either. `split` is
+    `--split`'s, the bench's forced fallback (`Rp1Backend._force_split`)."""
     from wl_sync.rp1.backend import Rp1Backend
 
-    return Rp1Backend(chip_path=chip_path)
+    return Rp1Backend(chip_path=chip_path, force_split=split)
 
 
 def _listen_address(text: str) -> tuple[str, int]:
@@ -1899,7 +1900,21 @@ def main(argv: list[str] | None = None) -> int:
         "none, meaning unmeasured. Not used, with a warning, where the backend stamps "
         "the lead edge itself and declares its own",
     )
+    record.add_argument(
+        "--split",
+        action="store_true",
+        help="FOR THE BENCH ONLY, never in the unit: record timebase split, the RP1 "
+        "backend's fallback, as a failed start-up test does, saying so at ERROR at "
+        "start, in the health check and in the run's summary. Refused with --fake",
+    )
     args = parser.parse_args(argv)
+    # Task 1.24: FakeBackend has no split to force (its timebase is "fake",
+    # wl_sync/backend.py:242), and a flag that did nothing would pass silently.
+    if args.split and args.fake:
+        parser.error(
+            "--split forces the RP1 backend's split fallback, and --fake runs no RP1 "
+            "backend: give one or the other"
+        )
 
     # To stderr, which systemd routes to the journal via StandardError=journal. Only
     # the entry point configures handlers; `run()` is a library call and must not.
@@ -1914,7 +1929,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         day = run(
             out=args.out,
-            backend=FakeBackend() if args.fake else _hardware_backend(args.gpiochip),
+            backend=(FakeBackend() if args.fake
+                     else _hardware_backend(args.gpiochip, split=args.split)),
             now_fn=lambda: datetime.datetime.now(datetime.timezone.utc),
             duration_s=args.duration,
             tick_fn=time.sleep,

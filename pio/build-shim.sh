@@ -26,7 +26,7 @@ echo "built $out/libwlsync_pio.so against piolib at $(git -C "$piolib" rev-parse
 # The shim reads the start of piolib's private RP1 handle to find its descriptor, checked
 # against utils b57c48e only (wlsync_pio.c, struct wlsync_rp1_handle_prefix). A commit
 # whose handle has moved is caught at start, not misread: every level read is -9, and the
-# process records split with no W (deploy/README.md:616-621). Say so here, at build time.
+# process records split with no W (deploy/README.md:645-650). Say so here, at build time.
 at=$(git -C "$piolib" rev-parse HEAD 2>/dev/null || echo unknown)
 case $at in
     b57c48e*) ;;

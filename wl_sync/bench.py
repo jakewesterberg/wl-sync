@@ -174,7 +174,7 @@ def loopback(path: Path, gpio: int = DEFAULT_LOOP_GPIO) -> LoopbackReport:
             # On a one-count segment the run loop logs a `B` for every frame it emits
             # unless the frame's lead edge went unstamped (wl_sync/cli.py:880-884); a
             # "split" process's `B` is a software tick, read for every frame
-            # (wl_sync/rp1/backend.py:1525-1528), so a frame with none there is not a drop.
+            # (wl_sync/rp1/backend.py:1582-1585), so a frame with none there is not a drop.
             (report.dropped if one_count else report.unexpected).append(frame.value)
     for index, barcode in enumerate(barcodes):
         if barcode.value in seen:
@@ -188,7 +188,7 @@ STAMP_RUN_PERIOD_S = INTERVAL_US / 1_000_000
 
 _NS_PER_US = 1_000
 
-# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1659-1667),
+# The kind of miss whose cause text carries its distance (wl_sync/rp1/backend.py:1716-1724),
 # under which `missed` counts them all: keyed by the text, a drifting map gave one
 # summary line per distance. The distances are kept in `far_us`.
 STAMP_TOO_FAR = "the stamp lies too far from the frame's lead edge"
@@ -334,7 +334,7 @@ def _terminate(signum: int, frame) -> None:
 
 def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
     """`python -m wl_sync.bench stamps`: on the box, with the shim. Writes no file."""
-    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1763-1768): building
+    # Imported here, as `wl-sync record` imports it (wl_sync/cli.py:1763-1769): building
     # it needs the shim and a GPIO chip, which `loopback` never touches.
     from wl_sync.rp1.backend import Rp1Backend
 
@@ -361,7 +361,7 @@ def _stamps(stamp_pin: int, frames: int, chip_path: str) -> int:
         backend.close()
         return 1
     if backend.stamp_test_failure:
-        # The process is split (wl_sync/rp1/backend.py:1525-1528): each frame's B is the
+        # The process is split (wl_sync/rp1/backend.py:1582-1585): each frame's B is the
         # clock read before it, and nothing is stamped or matched. Were it run, every frame
         # would count as stamped (`stamp_run`), and it would pass on stamps never seen.
         print(f"start-up test failed ({backend.stamp_test_failure}): this process records "
@@ -637,7 +637,7 @@ HELD_SHAPES_NS = (("back-to-back", 0), ("10 us", 10_000), ("50 us", 50_000),
 RUN_HELD_SHAPES = ("10 us", "50 us", "1 ms")
 # The register writer's holds, each a spin from the RAW read after its SET's read-back
 # (`PulseWriter.pulse`, fix round 4). That read-back makes the hold a proven lower bound
-# on the high, so 1 us, the high the program needs to see (wl_sync/rp1/backend.py:975-976),
+# on the high, so 1 us, the high the program needs to see (wl_sync/rp1/backend.py:1023-1024),
 # is enough at the least; and the upper bound is the hold plus two read-backs, so the
 # holds stop at 2 us, to leave the read-backs room under SHORT_EXIT_MAX_NS. Until fix
 # round 4 they were 1.5-2.5 us, timed from a store with no read-back (review I2). The
@@ -1180,7 +1180,7 @@ class StreamsReport:
 def _drive_frame(rig, report: StreamsReport, pulses, start_ns: int, marker: bool) -> None:
     """One barcode frame on GPIO17 against absolute deadlines (`pulse_deadlines`,
     wl_sync/rp1/gpio.py:217-240), each rise bracketed and drained, ending low as `_drive`
-    ends every frame (backend.py:1551-1556). With `marker`, the lead rises with the dense
+    ends every frame (backend.py:1608-1613). With `marker`, the lead rises with the dense
     pin in one call."""
     from wl_sync.rp1.gpio import pulse_deadlines
     from wl_sync.rp1.harness import wait_until

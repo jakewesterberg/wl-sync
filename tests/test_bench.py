@@ -1110,7 +1110,7 @@ def test_the_streams_record_says_how_its_meter_counts_become_widths(
 
 def test_the_default_writer_holds_are_proven_highs_of_at_least_one_microsecond():
     """The hold is timed from the SET's read-back, so it is a proven lower bound on the
-    high (fix round 4): 1 us, the program's minimum (backend.py:975-976), is enough, and
+    high (fix round 4): 1 us, the program's minimum (backend.py:1023-1024), is enough, and
     the holds stop at 2 us to leave two read-backs room under 5 us."""
     from wl_sync import bench
 

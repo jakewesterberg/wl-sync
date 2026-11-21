@@ -747,7 +747,7 @@ class _Board:
         if not level:
             high = self.clock.true_ns - self.rose_at.get(pin, self.clock.true_ns)
             if high < 1_000:
-                # Under the 1 us the program needs (backend.py:975-976): unseen, so the
+                # Under the 1 us the program needs (backend.py:1023-1024): unseen, so the
                 # stamps the rise pushed are taken back (fix round 4's fake).
                 for sm, words in self.pushed.pop(pin, []):
                     fifo = shim.fifo[sm]
@@ -1071,7 +1071,7 @@ def test_the_running_check_passes_when_every_machine_stamps_the_pulse(board):
 
 def test_the_running_check_tells_a_refused_sync_enable(board):
     """No stamp after the sync enable, then a stamp with each machine enabled alone, the
-    plain way: the start-up test's reading (wl_sync/rp1/backend.py:856-860)."""
+    plain way: the start-up test's reading (wl_sync/rp1/backend.py:904-908)."""
     board.shim.refuse_sync = True
     rig = _rig(board, [17, 17])
     rig.block.enable_in_sync()

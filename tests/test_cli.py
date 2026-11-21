@@ -521,7 +521,7 @@ def test_frames_in_a_row_with_stamps_between_are_one_episode_of_two_warnings(
     stamps between frames, 65 in all: one WARNING at the first, in Task 1.7's text, and one
     at the BETWEEN_CLEAN_FRAMES-th clean frame after them, giving the frames and the
     stamps. Both WARNINGs, as Task 1.15's episode lines are, so a journal filtered at
-    WARNING shows every end of a start it shows (wl_sync/rp1/backend.py:1768-1770). One a
+    WARNING shows every end of a start it shows (wl_sync/rp1/backend.py:1825-1827). One a
     frame was 86,400 a day."""
     backend = _StampsBetween({n: n for n in range(2, 12)})
     wire, written = _dropping(tmp_path, backend, 11 + K, caplog)
@@ -568,7 +568,7 @@ def test_an_episode_ends_after_exactly_between_clean_frames_frames(tmp_path, cap
 
 def test_one_carried_misread_is_one_episode_of_one_frame(tmp_path, caplog):
     """Task 1.15's carry: a misread after a lost stamp word is counted between frames once,
-    at one frame (tests/test_rp1_backend.py:3485-3488). That is one episode: one WARNING
+    at one frame (tests/test_rp1_backend.py:3487-3490). That is one episode: one WARNING
     to open it and one to close it, a minute later."""
     backend = _StampsBetween({5: 1})
     wire, _ = _dropping(tmp_path, backend, 5 + K, caplog)
@@ -596,7 +596,7 @@ def test_two_episodes_of_stamps_between_frames_give_two_pairs(tmp_path, caplog):
 
 def test_an_episode_of_stamps_between_frames_open_at_shutdown_is_closed(tmp_path, caplog):
     """As Task 1.15's extrapolation episode is closed at close()
-    (wl_sync/rp1/backend.py:1932-1949): the run's end closes the episode, with what it
+    (wl_sync/rp1/backend.py:2003-2020): the run's end closes the episode, with what it
     held, then the totals."""
     backend = _StampsBetween({3: 2, 4: 5})
     wire, _ = _dropping(tmp_path, backend, 4, caplog)
@@ -1715,12 +1715,15 @@ def test_a_healthy_clock_never_trips_the_clamp_however_the_run_is_phased(tmp_pat
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
-def _hardware_stand_in(monkeypatch):
-    """Replaces the RP1 constructor, which needs libpiolib, and records its argument."""
+def _hardware_stand_in(monkeypatch, splits=None):
+    """Replaces the RP1 constructor, which needs libpiolib, and records its argument;
+    `splits`, when given, collects each call's `split` too (Task 1.24)."""
     chips = []
 
-    def hardware(chip_path):
+    def hardware(chip_path, split=False):
         chips.append(chip_path)
+        if splits is not None:
+            splits.append(split)
         return FakeBackend()
 
     monkeypatch.setattr(cli, "_hardware_backend", hardware, raising=False)
@@ -1743,6 +1746,47 @@ def test_the_gpio_chip_is_chosen_on_the_command_line(tmp_path, monkeypatch):
     chips = _hardware_stand_in(monkeypatch)
     main(["record", "--out", str(tmp_path), "--duration", "1", "--gpiochip", "/dev/gpiochip4"])
     assert chips == ["/dev/gpiochip4"]
+
+
+# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-21) -----
+
+
+@pytest.mark.parametrize("given", [True, False], ids=["split", "default"])
+def test_split_reaches_the_hardware_backend_and_is_off_by_default(tmp_path, monkeypatch, given):
+    """B2 measures the split backend's drift on current code (the plan's B2), so the bench
+    asks for the fallback a failed start-up test gives. Off unless asked."""
+    splits = []
+    _hardware_stand_in(monkeypatch, splits)
+    argv = ["record", "--out", str(tmp_path), "--duration", "1"]
+    assert main(argv + (["--split"] if given else [])) == 0
+    assert splits == [given]
+
+
+def test_split_with_fake_is_refused(tmp_path, monkeypatch, capsys):
+    """--split forces the RP1 backend's fallback, and FakeBackend has none: its timebase
+    is "fake" whatever is asked (wl_sync/backend.py:242). A flag that did nothing would be
+    the silent pass the ruling forbids, so the pair is an argparse error (exit 2), as a
+    typo in --listen is, and nothing records."""
+    seen = _main_captures_run(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        main(["record", "--out", str(tmp_path), "--fake", "--split"])
+    assert excinfo.value.code == 2
+    assert seen == {}
+    err = capsys.readouterr().err
+    assert "--split" in err and "--fake" in err
+
+
+def test_the_shipped_unit_never_records_split_by_force():
+    """--split is for the bench and never for the unit (deploy/README.md). The unit's
+    whole text, comments too, so no edit can slip it into ExecStart beside them."""
+    unit = Path(__file__).resolve().parent.parent / "deploy" / "wl-sync.service"
+    assert "--split" not in unit.read_text()
+
+
+def test_the_readme_says_split_is_for_the_bench_and_never_for_the_unit():
+    readme = Path(__file__).resolve().parent.parent / "deploy" / "README.md"
+    text = " ".join(readme.read_text().split())
+    assert "`--split` is for the bench, never for the unit" in text
 
 
 class _DegradedWithACount(FakeBackend):
@@ -4136,7 +4180,7 @@ def test_the_rate_never_changes_within_a_process(tmp_path, monkeypatch):
 def test_the_pairs_are_taken_every_frame_where_no_keeper_runs(tmp_path):
     """A backend that scales nothing runs no keeper, but the loop still takes its pairs
     each frame: the RP1 backend holds every pair until it is taken
-    (wl_sync/rp1/backend.py:509-511), and left there they would pile up, one a second,
+    (wl_sync/rp1/backend.py:522-524), and left there they would pile up, one a second,
     for the life of the process."""
 
     class _CountsTakes(FakeBackend):

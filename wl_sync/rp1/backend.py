@@ -99,7 +99,7 @@ STAMP_TEST_HIGH_US = 1_000
 # for the end of the idle a lead must follow, so the first frame must rise more than
 # IDLE_MIN_US, 0.4 s, after it or no decoder finds it (wl_sync/barcode.py:37, :128). The
 # first frame comes later still: run() begins only once the backend exists
-# (wl_sync/cli.py:1915-1917, :457).
+# (wl_sync/cli.py:1930-1933, :457).
 STAMP_TEST_QUIET_S = 0.5
 # How long the test waits for a pair to land: after the enable, before what the FIFO holds
 # is discarded, and after the rise, before the FIFO is read. A pair is in 5.5 us after its
@@ -116,6 +116,10 @@ STAMP_TEST_SYNC_REFUSED = (
 STAMP_TEST_BLIND = (
     "no stamp when GPIO17 rose, enabled in sync or alone: the PIO does not see GPIO17 rise"
 )
+# Why a process given `wl-sync record --split` records split, as the journal gives it
+# (Task 1.24; the user's ruling, 2026-11-21): the bench's forced fallback, for B2, never
+# the unit's (deploy/README.md; tests/test_cli.py guards the shipped unit).
+SPLIT_FORCED = "forced by --split, for the bench only"
 
 # Shifted frames in a row, each offset within LEAD_STAMP_TOLERANCE of the one before, that
 # restart the RAW->P fit (Ruling R19; the rule is the plan's,
@@ -421,7 +425,9 @@ class Rp1Backend:
         machine cannot be trusted: `_fall_back_to_split`, which `__init__` calls when the
         stamp machine does not start or fails its start-up test (`_test_stamp_machine`).
         The capture machine runs alone, joined to MONO once at the origin, and B, E and
-        now_us() count MONO us since that origin.
+        now_us() count MONO us since that origin. `force_split` (`wl-sync record
+        --split`, for the bench only; Task 1.24) puts a process here on purpose, through
+        `_force_split`.
     """
 
     # One count's: W and B count P at RP1's own rate, until `apply_calibration` is given
@@ -440,6 +446,8 @@ class Rp1Backend:
         pio_index: int = 0,
         chip_path: str = "/dev/gpiochip0",
         stamp_pin: int = BARCODE_PIN,
+        *,
+        force_split: bool = False,
     ) -> None:
         # The stamp machine reads GPIO17 itself and leaves it to libgpiod, which drives
         # it (c-direct). A spare pin, claimed, is for the bench controls: an unwired pin
@@ -489,6 +497,11 @@ class Rp1Backend:
         # threads that read the mode start after it is fixed.
         self._split = False
         self._split_reason: str | None = None
+        # True in a process given `force_split` (`_force_split`), for good: check_health
+        # reports it on every call once capture has started, and `close` in the run's
+        # summary. Written on this thread only.
+        self.split_forced = False
+        self._mode_summarised = False
         self._started = False
         # Why this process records no W, or "" while it can (Task 1.16): the capture
         # machine could not be configured, or the PIO could not be reached at all (here),
@@ -542,7 +555,7 @@ class Rp1Backend:
 
         # BOTH MACHINES ARE CONFIGURED HERE, BEFORE THE FIRST SEGMENT, and enabled when
         # capture starts (`start_strobed_capture`). main() builds the backend before run()
-        # (wl_sync/cli.py:1915-1917), and run() names the timebase in the first header
+        # (wl_sync/cli.py:1930-1933), and run() names the timebase in the first header
         # (:565-575), so the start-up test's result reaches every segment. Configuring runs
         # nothing: the shim leaves each machine disabled (pio/wlsync_pio.c:135, :198), and
         # a disabled machine pushes nothing, so no code word reaches a FIFO before a
@@ -550,7 +563,7 @@ class Rp1Backend:
         failure = self._configure(pio_index)
         if failure:
             # THE BOX RECORDS ANYWAY (Task 1.16; the user's rulings of 2026-11-20). Until
-            # then this raised, nothing above caught it (wl_sync/cli.py:1914-1925), and
+            # then this raised, nothing above caught it (wl_sync/cli.py:1929-1941), and
             # under Restart=always (deploy/wl-sync.service:30-31) the unit crash-looped.
             # With no capture machine there is no program for a stamp machine to run on
             # (pio/wlsync_pio.c:213-214), so B is read in software and E counts MONO:
@@ -566,8 +579,10 @@ class Rp1Backend:
                 failure,
             )
             self._fall_back_to_split(failure)
-        else:
+        elif not force_split:
             self._start_stamp_machine()
+        if force_split:
+            self._force_split()
 
         # THE SHARED ORIGIN. The PIO counter starts at 0xFFFFFFFF when the state
         # machine is enabled, so its ticks are microseconds since that instant. E and
@@ -659,7 +674,7 @@ class Rp1Backend:
         lib = self._lib
         # THE BOX RECORDS ANYWAY. A stamp machine that cannot start (-EBUSY, -EIO;
         # pio/wlsync_pio.c:220-222, :242-247) must not stop the capture machine, and
-        # raising here would: nothing above catches it (wl_sync/cli.py:1914-1925). The
+        # raising here would: nothing above catches it (wl_sync/cli.py:1929-1941). The
         # process records split instead, with the errno in the ERROR below.
         stamps = lib.wlsync_start_stamp(
             program.WRAP_TARGET, program.WRAP, program.ENTRY,
@@ -705,6 +720,39 @@ class Rp1Backend:
                 "the stamp machine saw GPIO17 rise at start-up: B is the stamp machine's "
                 "count of each lead edge"
             )
+
+    def _force_split(self) -> None:
+        """`force_split`'s split (`wl-sync record --split`; Task 1.24, the user's ruling
+        of 2026-11-21), for bench check B2, which measures the split backend's drift on
+        current code (docs/superpowers/plans/2026-11-07-one-clock.md:2049-2051). THE
+        FALLBACK'S OWN PATH, `_fall_back_to_split`, as a stamp machine that does not start
+        takes it (`_start_stamp_machine`), so the header and the records are a failed
+        start-up test's.
+
+        NO STAMP MACHINE AND NO START-UP TEST. The test witnesses what one count's B needs:
+        the PIO's sight of GPIO17's rise, and the sync enable (`_test_stamp_machine`).
+        Split's B is read in software and its capture machine is enabled alone
+        (`start_strobed_capture`), so neither is a check split needs. Its third result,
+        the FIFO's measured depth, is one only a pass uses: a failed test leaves the word
+        pump counting on half the FIFO (`_configure`), and so does this. Every check the
+        capture machine's W rests on is `_configure`'s, which has run, and still raises or
+        records without W as it does without the flag. Skipping the test also keeps its
+        pulses off GPIO17, and a pass's INFO line, which would say B is the stamp
+        machine's, out of the journal.
+
+        ONE ERROR, ALWAYS, worded as the other causes are. A process whose capture machine
+        cannot run is split already, with its own ERROR and reason (`__init__`), which
+        `stamp_test_failure` keeps; this ERROR follows it, and the flag still reaches the
+        health check and the summary."""
+        self.split_forced = True
+        log.error(
+            "the stamp machine was not started (%s): this process records timebase split, "
+            "with B and E on CLOCK_MONOTONIC, until a restart without --split",
+            SPLIT_FORCED,
+        )
+        if not self._split:
+            self.stamp_test_failure = SPLIT_FORCED  # so `bench stamps` refuses it too
+            self._fall_back_to_split(SPLIT_FORCED)
 
     def now_us(self) -> int:
         """The box's estimate of the count W and B are stamped in, raw, 32 bits.
@@ -1488,6 +1536,15 @@ class Rp1Backend:
                 f"event-code capture did not start ({self.capture_failure}): no code word "
                 "is recorded in this process",
             ))
+        # The same, for a split forced by `wl-sync record --split` (Task 1.24): on every
+        # call, so a process recording split by force holds one episode for the run, and
+        # never passes silently.
+        if self._started and self.split_forced:
+            problems.append((
+                "timebase: split forced",
+                f"timebase split {SPLIT_FORCED}: B and E are on CLOCK_MONOTONIC in this "
+                "process, not on RP1's count",
+            ))
         if problems:
             raise CaptureDegraded(problems) from (held[0] if held else None)
 
@@ -1900,6 +1957,20 @@ class Rp1Backend:
             self._lib.wlsync_pio_close()
         self._summarise_words()
         self._summarise_stamps()
+        self._summarise_mode()
+
+    def _summarise_mode(self) -> None:
+        """The run's end, for a split forced by `wl-sync record --split` (Task 1.24): one
+        ERROR, beside the start's and the health check's episode. Once: a second close
+        says nothing again."""
+        if not self.split_forced or self._mode_summarised:
+            return
+        self._mode_summarised = True
+        log.error(
+            "this run recorded timebase split, %s: B and E were on CLOCK_MONOTONIC "
+            "throughout",
+            SPLIT_FORCED,
+        )
 
     def _summarise_words(self) -> None:
         """The run's end, in either mode (Task 1.20): the word stream's desyncs, as
