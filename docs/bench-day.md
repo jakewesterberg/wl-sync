@@ -86,9 +86,12 @@ Bring these:
   the monitor. Before the day, have their images built and the host tool installed, and
   rehearse with the fakes (`phase-1.md:38-63`). Have its seven scripts saved
   (`phase-1.md:64-344`), and the composed `mk_burst30.py` of step 15.
-  - **Its limit.** The generator times in whole µs (`phase-1.md:484-485`; wl-phantom
-    `wl_phantom/render.py:86-88`). P0 item 5's 2.5 µs pass point and item 6's 5.5 µs case
-    need a source with sub-µs edges (step 15).
+  - **Its limit is gone, at wl-phantom `sub-us-tick` `c4a1252`** (or its merge into main,
+    once pushed). Before it the generator timed in whole µs: `StrobeTiming` held integers
+    (wl-phantom `wl_phantom/render.py:86-88` at main `e142b14`), and `run` never passed a tick
+    but 1000 ns. From `c4a1252`, `run` takes `--tick-ns` and decimal `--width-us` and
+    `--hold-us` (`phase-1.md` §3.2), which plays P0 item 5's 2.5 µs pass point and item 6's
+    5.5 µs case (step 15). An older host tool refuses `--tick-ns`; install this one.
 - **Jumper wires,** female to female:
   - two from header pin 11 (GPIO17): one to pin 38 (GPIO20), one to pin 36 (GPIO16);
   - for wl-phantom: 25 signal wires, the GPIO17 wire to both Picos' GP28, and three grounds,
@@ -646,12 +649,18 @@ The sources:
   some merge" (plan `:1892`).
 
 **How the generator holds a word.** It holds the data `width + hold` µs after the strobe
-rises (wl-phantom `wl_phantom/render.py`, `end = rise + width + hold`), in whole µs. So:
-- 2.0 µs is `--width-us 1 --hold-us 1`, and 1.0 µs is `--width-us 1 --hold-us 0`. A 1 µs
-  strobe is the box's minimum high (README `:519-522`).
-- 2.5 µs cannot be played. `--width-us 1 --hold-us 2`, 3.0 µs, is the nearest above it, and
-  is information only.
-- **Item 5's pass waits for a sub-µs source,** and so does item 6's 5.5 µs case.
+rises (wl-phantom `wl_phantom/render.py`, `end = rise + width + hold`). The timings are whole
+numbers of the generator's tick, which is 1000 ns unless `--tick-ns` says otherwise; at
+`--tick-ns 500` they can be halves (wl-phantom `c4a1252`; the firmware takes any multiple of
+125 ns, `firmware/generator/CMakeLists.txt:26-31`). A timing that is not a whole number of
+ticks is refused before anything plays, so a 1000 ns run still refuses 1.5. So:
+- 3.0 µs is `--width-us 1 --hold-us 2`, 2.5 µs is `--tick-ns 500 --width-us 1 --hold-us 1.5`,
+  2.0 µs is `--width-us 1 --hold-us 1`, and 1.0 µs is `--width-us 1 --hold-us 0`. A 1 µs
+  strobe is the box's minimum high (README `:519-522`). The 3 µs run is information only.
+- 2.5 µs is exactly the box's "at least 2.5 µs after raising the strobe" (README `:519-522`),
+  the pass line of item 5.
+- The 5.5 µs case is `mk_burst30.py 5.5` at `--tick-ns 500 --setup-us 1 --width-us 1
+  --hold-us 2`. At 1000 ns a 5.5 µs spacing would play as alternating 5 and 6 µs.
 
 Save `mk_burst30.py` in the wl-phantom checkout, untracked, as `phase-1.md:64-66` says of its
 scripts:
@@ -673,9 +682,12 @@ json.dump({"frame_trains": [], "pulses": []}, open(f"{prefix}.extras.json", "w")
 ```
 
 Rehearse every run below on the fakes first (`--generator fake --monitor fake --box none`;
-`phase-1.md:61-63`). This script's 6 µs timeline renders at `--setup-us 1 --width-us 1
---hold-us 2`. Those timings keep the data 3 µs after each rise and the strobe low 5 µs,
-inside the box's contract (README `:519-522`).
+`phase-1.md:61-63`), the 500 ns ones too. This script's 6 µs timeline renders at `--setup-us 1
+--width-us 1 --hold-us 2`. Those timings keep the data 3 µs after each rise and the strobe low
+5 µs, inside the box's contract (README `:519-522`). Its 5.5 µs timeline renders at the same
+timings and `--tick-ns 500`, and keeps the data 3 µs after each rise (at least 2.5 µs) and the
+strobe low 4.5 µs (at least 1 µs). Only the spacing, 5.5 µs, is under the contract's 6 µs,
+which is what the case tests.
 
 All of these runs share one recorder, of at least 10 minutes (`phase-1.md:890-895`):
 
@@ -684,27 +696,57 @@ All of these runs share one recorder, of at least 10 minutes (`phase-1.md:890-89
 On the Mac:
 
     .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline t60.timeline.json --extras t60.extras.json --width-us 1 --hold-us 2 --out runs/p0-hold3
+    .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline t60.timeline.json --extras t60.extras.json --tick-ns 500 --width-us 1 --hold-us 1.5 --out runs/p0-hold2.5
     .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline t60.timeline.json --extras t60.extras.json --width-us 1 --hold-us 1 --out runs/p0-hold2
     .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline t60.timeline.json --extras t60.extras.json --width-us 1 --hold-us 0 --out runs/p0-hold1
     .venv/bin/python mk_burst30.py 6 burst6
     .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline burst6.timeline.json --extras burst6.extras.json --setup-us 1 --width-us 1 --hold-us 2 --out runs/p0-burst6
+    .venv/bin/python mk_burst30.py 5.5 burst5.5
+    .venv/bin/wl-phantom run --generator $GEN --monitor $MON --box http://$BOX:8741 --timeline burst5.5.timeline.json --extras burst5.5.extras.json --tick-ns 500 --setup-us 1 --width-us 1 --hold-us 2 --out runs/p0-burst5.5
 
 Stop the recorder and copy its log to `runs/p0-log`, as in step 12. Then compare each run:
 
-    for r in p0-hold3 p0-hold2 p0-hold1 p0-burst6; do .venv/bin/wl-phantom compare --run runs/$r --box-log $(find runs/p0-log -name 'seg-*.log' | sort) --report runs/$r-report.json --expect-timebase one-count; done
+    for r in p0-hold3 p0-hold2.5 p0-hold2 p0-hold1 p0-burst6 p0-burst5.5; do .venv/bin/wl-phantom compare --run runs/$r --box-log $(find runs/p0-log -name 'seg-*.log' | sort) --report runs/$r-report.json --expect-timebase one-count; done
 
 **Read:** a word latched with the wrong data shows as a dropped word and an extra one
 (`phase-1.md:1221-1224`).
-- **At 3 µs and at 6 µs:** every word should be matched. Item 6's "captured whole" is
-  `dropped` and `extra` empty for `p0-burst6`.
-- **At 2 µs:** record the share wrong.
+- **At 3 µs and at 2.5 µs:** every word should be matched. 2.5 µs is item 5's pass.
+- **At 2 µs:** record the share wrong (`extra` over the words sent). It measures the skew.
 - **At 1 µs:** nearly all should be wrong.
+- **At 6 µs:** every word should be matched. Item 6's "captured whole" is `dropped` and
+  `extra` empty for `p0-burst6`.
+- **At 5.5 µs:** some should merge (plan `:1892`). A merge is a dropped word with no extra.
+  In the simulator (below) about half of each 30-strobe burst is lost at 5.5 µs, so a run that
+  loses none differs from the simulator, and is worth noting.
 
-**Open.** Item 5's 2.5 µs pass and item 6's 5.5 µs case need a generator with sub-µs edges.
-Until one is used, P0 items 5 and 6 are not complete. Say so to the user before step 22.
-Then "confirm that the task PC holds its code ≥ 2.5 µs **[unverified]**" (plan `:1890`;
-README `:519-522`).
+**The 6 µs line has no margin.** In wl-sync's simulator (`tests/piosim.py`, running
+`STROBE_CAPTURE`, with the rise stepped across the box's 1 µs test period in 40 phases), 30
+strobes 6.000 µs apart are captured whole at every phase, and 5.999 µs merges at one phase, 5.99
+µs at eleven, 5.5 µs at all forty (15 or 16 of 30 captured). Reproduced on 2026-11-21 with a short
+script over `tests.piosim.run` and `high_during`; the simulator's own merge tests are
+`tests/test_rp1_program.py:136` and `:142`. The generator's edges are exact on its own
+crystal, so on the box's clock its spacing is 6 µs × (1 + the generator's rate excess over
+RP1's crystal), and a generator that runs fast puts every pair a little under 6 µs.
+**[derived]** `p0-burst6` plays 50 bursts of 29 pairs, so it expects about 1450 × 6 µs × the
+excess merges: 0.09 at 10 ppm fast and 0.26 at 30 ppm, and none if the generator runs slow. So
+one rare merge at exactly 6 µs may be the model's prediction and not a box fault. Merges
+in many bursts are far more than the model predicts for any plausible crystal difference. Do not judge it against the run's `rate_ppm`: on a one-clock box
+that reads about 0 by construction (`phase-1.md:1007-1009`), whatever the crystals do. The
+generator's own rate against the box's clock is in the run's `truth.json`:
 
+    .venv/bin/python -c "import json,sys; t=json.load(open(sys.argv[1])); print([round((t['tick_ns']*1e-9/p[2][1]-1)*1e6,2) for p in t['fit'][0]])" runs/p0-burst6/truth.json
+
+That prints, for each 10-minute piece of the truth's clock fit, the generator's ppm fast
+against the box's barcode clock, as the box's log scales its ticks **[derived]**. The two crystals' tolerances were not read from a
+datasheet **[unverified]**. This does not weaken item 6's pass line. It means the contract's
+"at least 6 µs" (`wl_sync/rp1/backend.py:1017-1024`) has no headroom, which matters to
+wl-xcon and MonkeyLogic.
+
+**Open.** Items 5 and 6 need wl-phantom at the `sub-us-tick` commit `c4a1252`, or its merge
+once it is pushed (Bring these). "Confirm that the task PC holds its code ≥ 2.5 µs
+**[unverified]**" (plan `:1890`; README `:519-522`). The 2.5 µs pass shows that the box reads
+right when the code is held that long. Whether the task PC holds it that long is for the task
+PC's own check.
 
 **If you stop for any reason between steps 10 and 19, do step 20 (restart the service) before you leave.** A stopped box must never be left unrecording.
 
@@ -917,8 +959,9 @@ notes. That means all of these:
 - **Task 5b Step 5:** step 16 passed.
 - **The ±100 µs gate:** steps 12 and 13 passed.
 - **P0's own pass,** since "A failure stops Task 5b and this design" (plan `:1894`): "items
-  3, 5, 6 and 7". Items 5 and 6 are open until a sub-µs source has run them (step 15). What
-  happens then is your call.
+  3, 5, 6 and 7". Items 5 and 6 are open until step 15's 2.5 µs and 5.5 µs runs have been played, which
+  needs wl-phantom at `sub-us-tick` `c4a1252` or its merge (Bring these). What happens then
+  is your call.
 
 **Also confirm with wl-preproc first** that its small follow-up, which it asked for "after its
 3b-2, before one count is deployed", has merged. Only the build's ledger records the ask
@@ -1022,7 +1065,7 @@ days.
   B1, B2, B6, B7, B8 and B10, as B3a and B3b have (plan `:2058`, `:2067`). Then commit
   wl-phantom's `phase-1.md` with its `Result:` lines filled (`phase-1.md:1262`).
 - **`wl.yaml`.** Update `status` and `next`: what the box runs, its timebase, what passed,
-  and what is open (items 5 and 6, if so). Run `wl-check` (CLAUDE.md).
+  and what is open (items 5 and 6, if step 15 did not run them). Run `wl-check` (CLAUDE.md).
 - **The repository's unit.** Make the step-22 change in `deploy/wl-sync.service` (plan
   `:645`).
 - **wl-preproc.** Tell it the box records on one count, from which commit and since when,
