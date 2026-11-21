@@ -186,7 +186,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "5ae5e6e"
+  describes: "d8f4cc5"
 
 runs_on: [rig/sync]
 builds_on: [dws]
