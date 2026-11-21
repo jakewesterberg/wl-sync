@@ -55,6 +55,12 @@ schematic or the private spec:
   per functional block (power, task-PC digital, Pi interface, analog front end, analog-to-NI,
   mux-to-Intan, comparators, opto-to-NI, opto-to-Intan, USB/I²C control).
 
+**To route the breakout board, start at `hardware/breakout/routing-brief.md`** (2026-11-21).
+The placement is generated and merged, and the brief is the handoff to the person who
+routes it: what to open, what must not move, the net classes, the order to route in, the
+rules by ID, the checks afterwards and what is still open. It cites the documents below
+and changes none of their rules.
+
 **Before laying out the breakout board, read `hardware/breakout/constraints.md`.** It is the
 layout constraint set for plan Task 14: ground domains and the four net ties, the isolation
 barriers and their slot margins, net classes, sensitive-net placement, keep-outs and the
@@ -755,6 +761,14 @@ primary drawings rather than from corroborated distributor figures. What is left
 2. **The dual BNC's port orientation** — which of the two ports is the upper one. Same class
    of assumption, far lower stakes: the shells are independent either way, so no short is
    possible and a swap is a net reassignment, not a re-machined panel.
+
+   > **2026-11-21: read from the drawings, ruling R11** (`breakout/parametric-audit.md`).
+   > Port A (pads 1 and 2) is the upper port and port B (pads 3 and 4) the lower: 31-6576
+   > rev B's Detail A labels pad 1's hole "HIGH PORT SIGNAL CONTACT HOLE", and 31-6575
+   > rev A's rear and side views draw the same. The footprint's note said the opposite
+   > and is corrected; no pad or net moved, and the panel labels follow the drawing
+   > (`breakout/panel-elevations.md` §4). Continuity on the first built box is the check
+   > that remains (`assembly-checklist.md`).
 
 3. **The dual BNC's protrusion through the panel** — how much of the 36.20 mm body depth sits
    forward of the panel's rear face. Not dimensioned on the drawing, and it sets the board's
