@@ -493,6 +493,29 @@ The as-built footprint is WRONG: 0.5 mm drill against a required 0.85 mm (pins w
 fit), 2 rows at 2.84 mm against a 4-row staggered arrangement at 1.905 mm, and no
 mounting holes at all."""
 
+[bnc_sub_plate]
+# The insulating plate that carries every dual BNC through the panel (ruling R8,
+# 2026-11-20; hardware/breakout/panel-elevations.md, section 6). A machined part, not a
+# catalogue one, so this records the material and the figures the design rests on.
+material = "NEMA G-10 / FR-4 glass-epoxy laminate (NEMA LI 1)"
+# Dielectric strength, short-time, through the sheet. As the sources quote it; the pages
+# were found by search on 2026-11-20 and are not in this repository:
+#   The Gund Company, "NEMA G-10 Glass Epoxy Laminate" data sheet: 485 V/mil (ASTM D-149)
+#   McMaster-Carr, Garolite G-10/FR4 sheet listings: 350 to 800 V/mil
+# The lowest figure quoted, 350 V/mil, is 13.8 kV/mm.
+dielectric_strength_v_per_mil_min = 350
+dielectric_strength_sources = [
+  "https://thegundcompany.com/wp-content/uploads/2024/03/NEMA-G-10-Glass-Epoxy-Laminate-by-The-Gund-Co.pdf",
+  "https://www.mcmaster.com/product/8667K62/",
+]
+stock_thickness_note = "Gund lists sheet from 0.006 to 5.0 in; McMaster lists 1/8 in and 1/4 in"
+in_window_thickness_mm = 3.0     # equals the panel, so the plate's inner face is the panel's
+lip_thickness_mm = 1.6           # over the panel's outer face, round the window
+at_bnc_thickness_mm = 4.6        # in_window + lip: what each bushing passes through
+window_margin_mm = 10.7          # from a port's axis to the window's metal edge: 8.2 + 2.5
+bushing_to_metal_min_mm = 2.5    # constraints B-7's figure, used here as the spacing to hold
+feeds = ["R8"]
+
 [m12_inlet]
 part = "Phoenix Contact SACC-DSI-MS-5CON-M12 SCO, order 1551833"
 document = "Phoenix 1551833 datasheet + installation drawing 00662206 Index 2 + STEP model"

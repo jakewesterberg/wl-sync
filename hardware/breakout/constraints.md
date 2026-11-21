@@ -575,9 +575,14 @@ was meant.
     Amphenol, before the panels are machined. Until then `panel-elevations.md` §4 records
     both.
 
-25. **The dual BNC's bushing is its shell, so a bare panel bonds every BNC ground to the
-    chassis. Ruled: insulate every BNC. How is not settled.** Added 2026-11-20; rewritten
-    the same day after the L4 re-review and the user's ruling.
+25. **Closed 2026-11-20 by rulings R7 and R8 (`parametric-audit.md`): every dual BNC goes
+    through an insulating G-10/FR-4 sub-plate in a window of the panel
+    (`panel-elevations.md` §6), so no ground reaches the chassis through a BNC.** G-1, G-3,
+    G-5, G-17, G-18, G-21, G-22 and the Intan barrier stand as written, and SPEC:330–342's
+    bulkhead choice is made as "not bonded". What is left is mechanical and belongs to the
+    panel drawing. The question as it stood, with the reasoning:
+    **The dual BNC's bushing is its shell, so a bare panel bonds every BNC ground to the
+    chassis.** Added 2026-11-20; rewritten the same day after the L4 re-review.
 
     *What the drawings show.* 31-6576 rev B, the white-body twin of 31-6575, lists one
     outer metal part, "CONNECTER INTERFACE – ZAMAC, NICKEL PLATING": the threaded bushing
@@ -627,6 +632,18 @@ was meant.
     - an **insulating panel region**, or the whole panel in an insulating material;
     - a custom-turned washer inside the limits above, which is not a stock part.
 
-    Until one is chosen, **the panels must not be machined with bare BNC holes.** The
-    board does not change with the choice. Continuity from bushing to pads 2 and 4 on one
+    **Chosen 2026-11-20: the sub-plate (R8).** The panels are not machined with bare BNC
+    holes. The board does not change. Continuity from bushing to pads 2 and 4 on one
     part would turn "high confidence" into fact; under R46 that is optional.
+
+26. **Which port of a dual BNC is the upper one.** Added 2026-11-20. The footprint and
+    `hardware/gen/bnc_dual.py` take pad 1 as port A, the LOWER port, and pad 3 as port B,
+    the upper. The sibling drawing 31-6576 rev B, Detail A, labels the middle hole of the
+    three-hole row, which is pad 1, "HIGH PORT SIGNAL", and the single hole nearer the
+    face, pad 3, "LOW PORT SIGNAL", as the L4 re-review read it. If that holds for
+    031-6575, every body's two signals are in the opposite holes from the ones the panel
+    labels assume: on `J17` the eye-camera frame-time input is the upper or the lower
+    port, and so on for all 18. Nothing electrical changes, and the footprint is left as it
+    is. Before the sub-plates are labelled (M-20; `panel-elevations.md` §4 and §6),
+    confirm on 31-6575's own drawing or a part which hole is which port, and either
+    correct the footprint's note and `bnc_dual.py`'s port names or swap the labels.

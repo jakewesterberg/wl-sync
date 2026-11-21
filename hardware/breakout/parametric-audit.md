@@ -992,6 +992,26 @@ shoulder and a 19.05 mm flange. The alternatives, an insulating sub-plate or an 
 panel region, are the user's to choose. The arithmetic and the candidates are in
 `constraints.md`, Open question 25. The board is not affected.
 
+### R8 — The BNCs go through insulating sub-plates — **RULED 2026-11-20**
+
+R7 asked for a shoulder washer if a real one fits, and none does. The user was offered an
+insulating sub-plate or an insulating panel region, and ruled, 2026-11-20: **"Insulating
+sub-plate"**.
+
+Each group of dual BNCs passes through a G-10/FR-4 plate in a window of the aluminium
+panel: two windows on the front, three on the back. The plate is 3.0 mm thick in the
+window, flush with the panel's inner face so that the BNC bodies still seat at the board
+edge, with a 1.6 mm lip on the panel's outer face. Each bushing passes 4.6 mm of plate and
+takes a 2.8 mm Amphenol nut, 7.4 of its 8.6 mm of thread. No BNC metal comes within 2.5 mm
+of chassis metal, the figure `constraints.md` B-7 holds between ground domains on the
+board. Only the nuts are metal on the plate.
+
+The specification, with its arithmetic, is `panel-elevations.md` §6; the material data is
+`datasheet-params.toml` `[bnc_sub_plate]`; the parts are in `procurement-check.md` §2.
+Apart from Amphenol's dimensions it is engineering judgment and a proposal for the panel
+drawing (Task 15). **The board does not change.** `constraints.md` Open question 25 is
+closed by it.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

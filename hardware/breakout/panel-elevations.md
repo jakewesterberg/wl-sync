@@ -169,9 +169,9 @@ the bottom. The 2024 sibling drawing 31-6576 rev B gives 11.7 mm across the same
 which is a flat at 5.29 mm. Which applies today is open (`constraints.md` Open question
 24): test-fit or ask Amphenol before machining. **The nuts** (31-5652) are 14.2 mm across
 flats, about 16.4 mm across corners, and the two ports of a body are 16.0 mm apart, so the
-two nuts must be turned flat to flat. **The bushing is the shell, and every BNC is to be insulated from the panel (ruling R47,
-`parametric-audit.md` R7). No stock shoulder washer fits the 16.0 mm port pitch, so the
-hole size waits on how: `constraints.md` Open question 25. Do not machine bare BNC holes.**
+two nuts must be turned flat to flat. **The bushing is the shell, and every BNC is insulated from the panel (rulings R7 and R8,
+`parametric-audit.md`). The D-holes are NOT machined in the aluminium: they are in an
+insulating sub-plate, and the aluminium gets a window. See §6.**
 
 **Machine all 34 BNC holes.** They are real ports on real connectors that will be fitted;
 leaving one undrilled would mean a body pressed against blank panel.
@@ -198,3 +198,108 @@ matters more now that the reward remote sits among fourteen identical Intan BNCs
 - **Standoff height** (§3 item 1) — a layout decision, now coupled to panel appearance.
 - **MDR68 tail-row-to-pin map** — the one genuine unknown, tracked in `d3-panel-thickness.md`
   and asserted by `check_footprint_geometry.py`. Nothing on this page depends on it.
+- **The BNC sub-plates** (§6) are a proposal to be drawn; and which BNC port is the upper
+  one (`constraints.md` Open question 26) and the hole's flat (Open question 24) are open.
+
+## 6. The BNC sub-plates (ruling R8, 2026-11-20)
+
+The user ruled "Insulating sub-plate" on 2026-11-20, after no stock shoulder washer was
+found to fit the 16.0 mm port pitch (`constraints.md` Open question 25). Every dual BNC
+passes through an insulating plate, not through the aluminium. **Everything in this
+section but the Amphenol dimensions is [engineering judgment]**: it is a proposal for the
+panel drawing (Task 15) to draw, with its arithmetic shown, and nothing here was built.
+
+**Windows.** One window in the aluminium per group of BNC bodies, and one plate per
+window. A single window per face is not possible on the back, where two MDR68s and the
+DB37 sit between the groups and fix to the metal; on the front `J5` gets its own, so that
+the aluminium between it and the Intan row stays.
+
+| Face | Bodies | Window in X (board frame) | Width |
+|---|---|---|---|
+| front | `J5` | 70.3 to 91.7 | 21.4 |
+| front | `J46`, `J48`, `J50`, `J37`, `J39`, `J41`, `J43` | 110.3 to 239.7 | 129.4 |
+| back | `J13`, `J15`, `J17`, `J6` | −1.2 to 74.2 | 75.4 |
+| back | `J57` | 171.3 to 192.7 | 21.4 |
+| back | `J29`, `J26`, `J24`, `J22`, `J20` | 335.3 to 428.7 | 93.4 |
+
+Each window runs from 10.7 mm outside the first body's centre to 10.7 mm outside the
+last's, and in height from 3.7 mm below the board's top surface to 33.7 mm above it (the
+port axes at 7 and 23 mm, ±10.7). The back-left window starts 1.2 mm outside the board's
+left edge; the panel overhangs the board there (`floorplan.md` §1).
+
+**Why 10.7 mm.** The nut is 14.2 mm across flats, so 8.2 mm from the port's axis to a
+corner. The board keeps 2.5 mm free of copper between ground domains (`constraints.md`
+B-7), which is the widest spacing it holds anywhere, and the same 2.5 mm is held here
+between any BNC metal and any chassis metal. 8.2 + 2.5 = 10.7. That leaves:
+
+| From | To the window's metal edge |
+|---|---|
+| a nut's corner, on the outer face | 2.5 mm, over the plate's surface |
+| a bushing in its Ø12.83 hole, through the plate | 10.7 − 6.4 = 4.3 mm |
+
+The sources state no working voltage for any of these domains against the chassis
+(`constraints.md` §3), so no standard's creepage figure applies; the board's own rules are
+0.6 mm for a mis-plugged input (N-13) and the 2.5 mm above. G-10/FR-4 at 4.6 mm withstands
+tens of kilovolts through the sheet (at least 350 V/mil as quoted,
+`datasheet-params.toml` `[bnc_sub_plate]`), so the plate is not the limit.
+
+**The plate, and why it is stepped.** G-10/FR-4 glass-epoxy laminate. The BNC's body
+face is on the board edge, and so is the aluminium's inner face (§3). For that to stay
+true the plate's inner face has to lie in the same plane, so the plate cannot simply be
+bolted to the back of the panel (it would stand where the board is) or to the front (its
+inner face would be 3.0 mm ahead of the body). It is stepped:
+
+- **3.0 mm thick inside the window**, the panel's own thickness, with its inner face
+  flush with the aluminium's. The BNC bodies seat on it exactly as they would on the panel.
+- **A 1.6 mm lip** beyond the window, lying on the aluminium's outer face.
+- So **4.6 mm at each BNC.**
+
+Thread: 8.6 mm stands beyond the body's face (31-6575 rev A).
+
+| | mm |
+|---|---|
+| plate at the BNC | 4.6 |
+| nut, Amphenol 31-5652 | 2.8 |
+| **used** | **7.4** |
+| **left of 8.6** | **1.2** |
+
+No washer is fitted: there is 1.2 mm for one, and none is needed on an insulator. A lip
+thicker than 2.8 mm would leave the nut no thread. The part can be machined from one
+sheet of 1/4 in stock, or made as a 3.0 mm piece bonded to a 1.6 mm one; 4.6 mm is not a
+stock thickness.
+
+**The holes.** In the plate, per body: 2 × Ø12.83 mm at 16.0 mm, each with its flat,
+5.56 mm from centre by 31-6575 rev A or 5.29 mm by the 2024 sibling (`constraints.md` Open
+question 24, still open: test-fit before cutting plates). The flat now does its job
+against an insulator, and it is the only thing that stops a bushing turning in a
+glass-epoxy hole, so it should not be left round.
+
+**Fixing.** Screws through the lip into the aluminium, along the **top** edge of each
+plate and at whichever **ends** have room. Three things limit where:
+
+- every screw is chassis metal, so each is at least 2.5 mm from any nut's corner. A screw
+  in the lip is outside the window, so it is farther than the window's edge already;
+- the windows' bottom edges are about 2.9 mm above the chassis floor with the board on its
+  5 mm standoff (5 + 1.6 − 3.7), so there is no room for a lip and screws below. The
+  bottom edge is held by the step alone;
+- three ends have a neighbour's fixing close by: `J3`'s jack socket is about 3.8 mm from
+  the back-left window, `J2`'s 4.3 mm from `J57`'s, and `J19`'s jackpost 5.5 mm from the
+  back-right one. The lip is narrow there and carries no screw.
+
+Screw size, count and the lip's width are for the panel drawing.
+
+**Hardware on the plate: nuts only.** One Amphenol 31-5652 hex nut per port, 2.8 mm thick,
+14.2 mm across flats, turned flat to flat on each body (§4). 36 per box. No metal washer,
+no solder lug, no bracket: anything metal that spans from a bushing toward the plate's
+edge shortens the 2.5 mm.
+
+**What it changes elsewhere.**
+- The **M12 inlet** cannot be at X 162 to 174 at the BNC row's height: `J57`'s plate
+  takes 171.3 to 192.7 and its lip more. It goes above the plate or farther left, clear of
+  the IO Board's bracket. Its position was never dimensioned (§2).
+- The **IO Board's port cutouts** are above the back-left plate, whose top is 33.7 mm
+  above the board plus its lip.
+- The panel's **stiffness**: five windows, the longest 129.4 mm, in 3.0 mm aluminium.
+  Not assessed.
+- **Port labels** go on the plate, and which port of a body is the upper one needs
+  settling first (`constraints.md` Open question 26).

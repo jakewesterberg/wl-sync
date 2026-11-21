@@ -106,9 +106,10 @@ What follows from those:
   there are 18, sets the plane; the DB37's cutout or the MDR68s' fixing has to take up the
   rest, and the panel drawing (Task 15) has to say how.
 - The BNC's panel holes are single-D, not round (`constraints.md` Open question 24). Its
-  bushing is its shell, the user has ruled that every BNC is insulated from the panel
-  (R7), and no stock washer fits the 16 mm port pitch (Open question 25). Neither moves a
-  footprint; the second stops the panels being machined until it is settled.
+  bushing is its shell, so every BNC goes through an insulating G-10/FR-4 sub-plate in a
+  window of the panel (rulings R7 and R8; `panel-elevations.md` §6). The plate is 3.0 mm
+  in the window, so the body face still seats at the board edge. Neither moves a
+  footprint.
 - Pad 1 of a dual BNC is the UPPER port's centre and pad 3 the lower's, by the sibling
   drawing; the footprint's own note has them the other way round (GT-4). Panel labels
   have to follow the drawing.
@@ -368,10 +369,10 @@ value, footprint or DNP flag differs.
 
 ## 10. Open, for the person who routes
 
-1. **The connectors against the panel** (§2; `constraints.md` Open questions 23 to 25):
-   the MDR68's latching and mating depth behind 3 mm, the BNC hole's flat, HOW every BNC
-   is insulated from the panel (ruled, but no stock washer fits), and the 0.4 mm the
-   three families disagree by. The BNC's
+1. **The connectors against the panel** (§2; `constraints.md` Open questions 23, 24 and 26):
+   the MDR68's latching and mating depth behind 3 mm, the BNC hole's flat, which BNC port
+   is the upper one (Open question 26), the sub-plates' drawing (`panel-elevations.md`
+   §6), and the 0.4 mm the three families disagree by. The BNC's
    board-edge datum is inferred from its drawing, not stated.
 2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1: approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
 3. **`J1` beside the split** (§4).
