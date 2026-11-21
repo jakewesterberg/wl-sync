@@ -145,7 +145,8 @@ Three consequences, none of which existed when the BNCs were panel-mounted:
 
 **Panel thickness: 3.0 mm aluminium**, decided in `d3-panel-thickness.md`. Under the M12's
 3.5 mm maximum, which is the only stated limit on the board, and the BNCs are PCB-anchored so
-their thread engagement is not load-bearing.
+their thread engagement is not load-bearing. **2026-11-21 (R12):** it stays 3.0 mm, with
+one local exception: a counterbore leaving a 0.8 mm land at each MDR68 jacksocket (§8).
 
 ---
 
@@ -153,11 +154,11 @@ their thread engagement is not load-bearing.
 
 | Feature | Size | Count | Source |
 |---|---|---|---|
-| BNC port hole — **not round**, see below | Ø **12.83** mm with one flat | 36 (35 used, 1 spare) — 34 until J57, 2026-10-18 | `bnc_dual_isolated.panel_hole_dia_mm` |
+| BNC port hole — **not round**, see below | Ø **12.83** mm with one flat **5.56 mm** from centre (R10) | 36 (35 used, 1 spare) — 34 until J57, 2026-10-18 | `bnc_dual_isolated.panel_hole_dia_mm`, `.panel_hole_flat_ruled_mm` |
 | BNC vertical pitch within a body | **16.00** mm | — | `.panel_hole_pitch_mm` |
 | BNC column pitch | **18.0** mm | — | this document §2 |
 | M12 inlet hole | Ø **13.5** mm + Ø1.2 mm anti-rotation pin at 45° | 1 | `m12_inlet.panel_hole_dia_mm` |
-| MDR68 panel fixing | **#2-56**, 2 places | 4 connectors | `mdr68.panel_thread` |
+| MDR68 panel fixing | **#2-56**, 2 places, 57.93 mm apart: a jacksocket through a counterbore, Ø 7.0 mm at most, that leaves a 0.8 mm land (R12, §8) | 4 connectors, 8 counterbores | `mdr68.panel_thread`; `ni_shc68_68_epm` |
 | 60 mm fan cutout | ~**65** mm square incl. fixings | 2 front, 2 side | spec §9.7 |
 | Reward button | Ø ~12 mm, recessed bezel | 1 | spec §3.1 / §9.8 |
 | Panel material | **3.0 mm** aluminium | both faces | `d3-panel-thickness.md` |
@@ -166,8 +167,11 @@ their thread engagement is not load-bearing.
 "RECOMMENDED MOUNTING HOLE": 2 × Ø12.83 mm at 16 mm, each with one anti-rotation flat
 5.56 mm from the hole's centre, the upper hole's flat at the top and the lower hole's at
 the bottom. The 2024 sibling drawing 31-6576 rev B gives 11.7 mm across the same cutout,
-which is a flat at 5.29 mm. Which applies today is open (`constraints.md` Open question
-24): test-fit or ask Amphenol before machining. **The nuts** (31-5652) are 14.2 mm across
+which is a flat at 5.29 mm. **Ruled 2026-11-21 (R10, `parametric-audit.md`): machine the
+flat at 5.56 mm.** It accepts a bushing made to either drawing, where a 5.29 mm flat
+would refuse one made to 5.56; with a 5.29 mm bushing it leaves up to 0.27 mm of play,
+which the nut's clamp takes up **[engineering judgment]**. `constraints.md` Open question
+24 is closed. **The nuts** (31-5652) are 14.2 mm across
 flats, about 16.4 mm across corners, and the two ports of a body are 16.0 mm apart, so the
 two nuts must be turned flat to flat. **The bushing is the shell, and every BNC is insulated from the panel (rulings R7 and R8,
 `parametric-audit.md`). The D-holes are NOT machined in the aluminium: they are in an
@@ -181,11 +185,43 @@ spares were taken by the camera frame-time inputs (`frame-time-inputs.md`): J17B
 eye/ohDPI strobe and J6B the behaviour strobe. Labelling those two "spare" would put a wrong
 label on a live input, so:
 
-| Port | Face | Label |
-|---|---|---|
-| J5B | front | **spare** |
-| J17B | back | **CAM FRAME EYE** (or equivalent — one exposure strobe per camera group) |
-| J6B | back | **CAM FRAME BEH** |
+| Port | Face | Hole | Label |
+|---|---|---|---|
+| J5B | front | lower | **spare** |
+| J17B | back | lower | **CAM FRAME EYE** (or equivalent — one exposure strobe per camera group) |
+| J6B | back | lower | **CAM FRAME BEH** |
+
+**Which hole is which port (ruling R11, 2026-11-21, `parametric-audit.md`).** Port A of
+every body (unit 1, pads 1 and 2) is the **upper** hole, 23 mm above the board. Port B
+(unit 2, pads 3 and 4) is the **lower** hole, 7 mm above it. That is Amphenol's drawing
+31-6576 rev B, Detail A ("HIGH PORT SIGNAL CONTACT HOLE" is pad 1's), and 31-6575 rev A's
+rear and side views draw the same. The footprint's note had it the other way round until
+this date; only the note was wrong. So the three ports above are the lower holes of their
+bodies. Every port, from `netlist-contract.json` (pad 1's net above pad 3's):
+
+| Body | Face | Upper hole (port A, pad 1) | Lower hole (port B, pad 3) | Shells |
+|---|---|---|---|---|
+| `J5` | front | `RWD_BTN`, the reward remote | spare (no net) | `DGND` |
+| `J46` | front | `EVT_STROBE_INTAN_BNC` | `BARCODE_INTAN_BNC` | `INTAN_GND` |
+| `J48` | front | `RWD_CMD_INTAN_BNC` | `RWD_DLVR_INTAN_BNC` | `INTAN_GND` |
+| `J50` | front | `STIM_TRIG_INTAN_BNC` | `RHS_STIM_BNC` | `INTAN_GND` |
+| `J37` | front | `INTAN_AO1` | `INTAN_AO2` | `INTAN_GND` |
+| `J39` | front | `INTAN_AO3` | `INTAN_AO4` | `INTAN_GND` |
+| `J41` | front | `INTAN_AO5` | `INTAN_AO6` | `INTAN_GND` |
+| `J43` | front | `INTAN_AO7` | `INTAN_AO8` | `INTAN_GND` |
+| `J13` | back | `CAM_SYNC_EYE` | `CAM_SYNC_BEH1` | `DGND` |
+| `J15` | back | `CAM_SYNC_BEH2` | `CAM_SYNC_BEH3` | `DGND` |
+| `J17` | back | `CAM_SYNC_BEH4` | `CAM_FRAME_EYE_BNC` | `DGND` |
+| `J6` | back | `RWD_DLVR_BNC`, the reward driver out | `CAM_FRAME_BEH_BNC` | `DGND` |
+| `J57` | back | `AO_L_BNC` | `AO_R_BNC` | `AO_GND_TPC` |
+| `J29` | back | `A_MISC2_RAW` | `A_MISC3_RAW` | each its own `*_SHLD` |
+| `J26` | back | `A_JOY_Y_RAW` | `A_MISC1_RAW` | each its own `*_SHLD` |
+| `J24` | back | `A_ACC_RAW` | `A_JOY_X_RAW` | each its own `*_SHLD` |
+| `J22` | back | `A_MIC_RAW` | `A_AMB_RAW` | each its own `*_SHLD` |
+| `J20` | back | `A_PD1_RAW` | `A_PD2_RAW` | each its own `*_SHLD` |
+
+Not checked on a part. Before the plates are labelled, check continuity from each port's
+centre to its pad on the first built box (`../assembly-checklist.md`).
 
 Colour-code the reward group while doing it, which spec §9.6 already asks for and which
 matters more now that the reward remote sits among fourteen identical Intan BNCs.
@@ -198,8 +234,11 @@ matters more now that the reward remote sits among fourteen identical Intan BNCs
 - **Standoff height** (§3 item 1) — a layout decision, now coupled to panel appearance.
 - **MDR68 tail-row-to-pin map** — the one genuine unknown, tracked in `d3-panel-thickness.md`
   and asserted by `check_footprint_geometry.py`. Nothing on this page depends on it.
-- **The BNC sub-plates** (§6) are a proposal to be drawn; and which BNC port is the upper
-  one (`constraints.md` Open question 26) and the hole's flat (Open question 24) are open.
+- **The BNC sub-plates** (§6) are a proposal to be drawn. The hole's flat is 5.56 mm
+  (R10) and port A is the upper port (R11), both ruled 2026-11-21; the second waits on a
+  continuity check on the first built box.
+- **The MDR68s' jacksockets** (§8, R12): the part is not chosen, and one cable should be
+  tried on one connector before a panel is cut.
 
 ## 6. The BNC sub-plates (ruling R8, 2026-11-20)
 
@@ -280,9 +319,10 @@ thicker than 2.8 mm would leave the nut no thread. The part can be machined from
 sheet of 1/4 in stock, or made as a 3.0 mm piece bonded to a 1.6 mm one; 4.6 mm is not a
 stock thickness.
 
-**The holes.** In the plate, per body: 2 × Ø12.83 mm at 16.0 mm, each with its flat,
-5.56 mm from centre by 31-6575 rev A or 5.29 mm by the 2024 sibling (`constraints.md` Open
-question 24, still open: test-fit before cutting plates). The flat now does its job
+**The holes.** In the plate, per body: 2 × Ø12.83 mm at 16.0 mm, each with its flat
+**5.56 mm from the hole's centre** (ruling R10, 2026-11-21: 31-6575 rev A's own figure,
+which also accepts the 2024 sibling's 5.29 mm bushing), the upper hole's flat at the top
+and the lower hole's at the bottom. The flat now does its job
 against an insulator, and it is the only thing that stops a bushing turning in a
 glass-epoxy hole, so it should not be left round.
 
@@ -334,8 +374,9 @@ Neither the lug nor the tag is a chosen part.
   above the board plus its lip.
 - The panel's **stiffness**: four windows, the front one 169.4 mm long, in 3.0 mm
   aluminium. Not assessed.
-- **Port labels** go on the plate, and which port of a body is the upper one needs
-  settling first (`constraints.md` Open question 26).
+- **Port labels** go on the plate. Port A is the upper hole and port B the lower
+  (ruling R11; the table in §4), to be confirmed by continuity on the first built box
+  before the plates are labelled.
 
 ## 7. The M12 inlet's position (2026-11-20)
 
@@ -356,7 +397,7 @@ Why this place:
 |---|---|---|
 | its own allocation | 20 mm: the 16.5 mm flange and clearance (§2) | X 200 to 220, 40 to 60 mm above the board |
 | `J57`'s plate | X ≤ 192.7 and its lip; top at 33.7 mm and its lip | 7 mm to the side of the allocation, and above the plate's height |
-| `J2` | X 194.07 to 257.93, body 9.10 mm tall | 31 mm above the body. **The height of `J2`'s mating plug and its jackscrews is not in the sources**; if a backshell is taller than about 30 mm above the board the inlet goes higher. |
+| `J2` | X 194.07 to 257.93, body 9.10 mm tall | 31 mm above the body. **Settled 2026-11-21 (R12, §8):** `J2`'s plug is NI's SHC68-68-EPM, whose backshell is 14.0 mm tall, 7.0 mm each side of an axis that lies inside the 9.10 mm body, so its top is at most 16.1 mm above the board and its sides are at X 193.55 to 258.45. The inlet's allocation starts at 40 mm. The inlet stays where it is. This row said the plug's height was not in the sources. |
 | the IO Board and its bracket | X ≤ 160 | 40 mm |
 | `J19` and the rig-signal plate | X ≥ 262.87 | 43 mm |
 | the fans | front panel, X ≥ 310; left side panel | a different panel |
@@ -372,3 +413,75 @@ the split, the `DGND` region or the barcode strip, and they reach `J1` from its 
 
 **What it frees.** The 20.0 mm the inlet took in the back row's width (§2's table) is no
 longer in the row: the row's slack is 27.2 mm, not 7.2 mm. The table is left as drawn.
+
+## 8. The MDR68s and NI's cable (ruling R12, 2026-11-21)
+
+The cable for `J2`, `J3`, `J36` and `J45` is NI's `SHC68-68-EPM` (SPEC §9.3). Its drawing
+is NI customer drawing 192061-XX rev E; the figures are in `datasheet-params.toml`
+`[ni_shc68_68_epm]` with the document's sha256, and the arithmetic is in
+`parametric-audit.md` R12. Nothing here was tried on a cable.
+
+**What the drawing says of the end that meets this box.** Two jackscrews, 2-56 UNC-2A,
+57.9 mm apart; no latch. The mating shell stands 4.1 mm beyond the backshell's front
+face and the jackscrew tips 2.5 mm. The backshell is 64.9 mm across the jackscrews and
+14.0 mm tall, and the plug is 67.3 mm long behind its face.
+
+**Against the 3.0 mm panel.** With x measured outward from the board edge:
+
+| | x, mm |
+|---|---|
+| MH flange and the mouth of its #2-56 threads | −0.30 |
+| panel, inner and outer face | 0 and +3.00 |
+| MH nose tip, where the plug's backshell comes to rest | +4.70 |
+| jackscrew tips, 2.5 mm back from that | +2.20 |
+
+- **Mating is not limited by the panel.** The nose is 1.70 mm proud of it and the
+  backshell stops on the nose. **[engineering judgment]** for where the plug stops; NI
+  gives no seated depth.
+- **The jackscrews do not reach the MH threads**: they stop 2.50 mm short, panel or no
+  panel. NI's cables are made to screw into jacksockets, whose heads are 3.76 mm tall
+  (.148 in, NI's connector guide).
+- **A jacksocket's seat has to be at x ≤ 4.70 − 3.76 = +0.94 mm**, and the panel's outer
+  face is at +3.00.
+
+**So each MDR68 gets two counterbores in the panel's outer face**, one on each #2-56
+axis:
+
+| | | |
+|---|---|---|
+| Land left under the counterbore | **0.8 mm** (at most 0.94) | **[engineering judgment]** within the bound |
+| Counterbore diameter | **7.0 mm at most** | 64.9 − 57.9: the plug's own envelope round a jackscrew, so the plug hides it |
+| Through the land | a clearance hole for a 2-56 stud | size for the panel drawing |
+| In it | a jacksocket: 2-56 male stud into the MH bracket, 2-56 female head about 3.76 mm tall | **not a chosen part**; NI's own has an M2.5 stud |
+| Jackscrew thread engaged | 0.8 + 3.76 − 2.20 = 2.36 mm, 5.2 turns | |
+| Count | 8 per box | |
+
+The panel is 3.0 mm everywhere else. The nose's cut-out has to pass the nose and the two
+side hooks, which are 51.32 mm across and reach x = +3.20; each counterbore is 3.3 mm
+outboard of a hook, so the cut-out and the two counterbores may be drawn as one stepped
+opening. The jacksockets also fix each connector to the panel, and tightening them takes
+up the 0.30 mm between the land and the MH flange.
+
+**Where the plug crowds its neighbours.** The backshell is 64.9 mm wide, 1.04 mm wider
+than the connector's body, and its face is 1.70 mm off the panel.
+
+| Plug | Its end | Nearest thing | Gap |
+|---|---|---|---|
+| `J3` | X = 74.55 | back-left sub-plate window, to X = 74.2 | 0.35 mm |
+| `J2` | X = 193.55 | `J57`'s window, to X = 192.7 | 0.85 mm |
+| `J2` | X = 258.45 | `J19`'s courtyard, from X = 262.87 | 4.4 mm |
+| `J45` | X = 66.95 | front window, from X = 70.3 | 3.35 mm |
+| `J36` | X = 242.55 | front window, to X = 239.7 | 2.85 mm |
+
+At the first two, a sub-plate's 1.6 mm lip would lie under the backshell with 0.1 mm to
+spare, and a 7.0 mm counterbore would leave 0.3 and 0.8 mm of aluminium to the window.
+§6 already has those two lips narrow and without a screw; the panel drawing should stop
+the lip at the window there, and may run the counterbore into the window.
+
+**Depth outside the panel.** Each plug stands 1.7 + 67.3 = 69.0 mm off the panel, and its
+cable then wants a 76.2 mm bend radius. That is on both faces of the box.
+
+**Before a panel is cut**, try one cable on one connector: how far a jackscrew reaches
+beyond the backshell face, and where the backshell stops. If the jackscrews reach the MH
+threads after all, the counterbores and jacksockets are not needed. And choose the
+jacksocket. `constraints.md` Open question 23 has what is left.

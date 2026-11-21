@@ -10,6 +10,33 @@ The barcode counter is derived from the wall clock, and the RTC is what carries 
 
 Include the one remaining spare on the front face (J5B). See `hardware/breakout/panel-elevations.md` for the per-port label table. Two ports that were spare are now the camera frame-time inputs and must NOT be labelled "spare".
 
+## Check each BNC port against its pad before the plates are labelled
+
+Ruling R11 (`hardware/breakout/parametric-audit.md`, 2026-11-21). The panel labels take
+port A of every dual BNC (pads 1 and 2) as the **upper** hole and port B (pads 3 and 4) as
+the **lower**, from Amphenol's drawings; `hardware/breakout/panel-elevations.md` §4 lists
+every port by hole. No part was checked. On the first built box, with the board unpowered
+and nothing plugged in, on one body of each kind (`J5`, an Intan body, a camera body,
+`J57` and an analog body):
+
+- continuity from the **upper** jack's centre contact to pad 1, and from the **lower**
+  jack's to pad 3;
+- continuity from the upper jack's bushing to pad 2, and from the lower's to pad 4. On
+  `J20` to `J29` the two shells are different nets, so this one matters there.
+
+If a part disagrees with the drawing, change the labels, not the board. Nothing in the
+netlist, ERC or DRC can see this.
+
+## Try one NI cable on one MDR68 before a panel is cut
+
+Ruling R12 (same file, 2026-11-21). The panel's counterbores and jacksockets at the four
+MDR68s come from NI's drawing of the `SHC68-68-EPM`, which draws the jackscrew tips 2.5 mm
+beyond the plug's backshell and gives no travel. With one cable and one MH `3700-0121-01`
+on the bench: mate them, and measure how far a jackscrew reaches beyond the backshell's
+face and where the face stops against the connector's nose. If the jackscrews reach the
+connector's own #2-56 threads, the counterbores and jacksockets are not needed. Record
+the two figures beside R12 either way.
+
 ## Colour-code the reward group
 
 Per spec §9.6, to distinguish the reward remote from fourteen identical Intan BNCs.

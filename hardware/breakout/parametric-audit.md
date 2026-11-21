@@ -1039,6 +1039,201 @@ back-right plate can be strapped to the chassis and measured, and the quieter ar
 kept. Only that plate is ever strapped. This is R2's and R4's way of leaving a choice to a
 measurement. Specified in `panel-elevations.md` §6; no part is chosen for the lug or tag.
 
+### R10 — The BNC panel flat is 5.56 mm — **RULED 2026-11-21**
+
+`constraints.md` Open question 24 asked which anti-rotation flat to machine. Amphenol's
+drawing of the part bought, 31-6575 rev A (2013, preliminary), recommends 2 × Ø12.83 mm
+holes with the flat 5.56 mm from each hole's centre. The 2024 drawing of the white-bodied
+twin, 31-6576 rev B, dimensions the same cutout 11.7 mm across, which puts the flat
+5.29 mm from centre.
+
+**Ruling, the user's, 2026-11-21: "5.56 mm (Recommended)"**, offered as "Fits either
+version of the part; slight rotation play, which the nut takes up."
+
+**Why.** 5.56 mm is 031-6575 rev A's own recommended hole. A flat at 5.56 mm accepts a
+bushing made to either drawing. A flat at 5.29 mm refuses a bushing made to 5.56.
+
+**The cost.** With a bushing made to 5.29 mm there is up to 5.56 − 5.29 = 0.27 mm between
+its flat and the hole's, so the bushing can turn a little until the nut is tight.
+**[engineering judgment]** that the nut's clamp takes that up: the flat only has to stop
+the bushing turning while the nut is tightened and a plug is twisted on.
+
+The hole is in the sub-plates of R8: 2 × Ø12.83 mm at 16.0 mm, each with its flat 5.56 mm
+from centre, the upper hole's flat at the top and the lower hole's at the bottom
+(`panel-elevations.md` §4 and §6; `datasheet-params.toml`
+`[bnc_dual_isolated].panel_hole_flat_ruled_mm`). Open question 24 is closed. The board
+does not change.
+
+### R11 — The BNC panel labels follow the drawing: port A is the upper port — **RULED 2026-11-21, subject to a first-box check**
+
+`constraints.md` Open question 26. The footprint's note called pad 1 "port A (lower)" and
+pad 3 "port B (upper)". That was an assumption.
+
+**Ruling, the user's, 2026-11-21: "Follow the drawing (Recommended)"**, offered as
+"Signal 1 = upper port; fix our note; check on the first built box."
+
+**What the drawings show.** I rendered both PDFs and read them for this ruling.
+
+- *31-6576 rev B (31-JUL-24), Detail A, scale 2.* Four small holes and two large. The
+  middle hole of the three-hole row is labelled "HIGH PORT SIGNAL CONTACT HOLE". The
+  single hole beside it, on the side of the two "POST MOUNT HOLE"s, is "LOW PORT SIGNAL
+  CONTACT HOLE". The row's two ends are "HIGH PORT GROUNDING CONTACT HOLE" and "LOW PORT
+  GROUNDING CONTACT HOLE". In the footprint the three-hole row is pads 2, 1, 4 and the
+  single hole, 2.54 mm nearer the face, is pad 3. So **pad 1 is the upper port's centre
+  and pad 3 the lower's.**
+- *31-6575 rev A, the part bought.* It has no Detail A and no such labels, so it does
+  not show the opposite. Its views draw the same thing. In the side view the rearmost
+  tail bends forward at the upper port's axis, and the tail 2.54 mm ahead of it at the
+  lower port's. In the rear view the centre tail and the left tail rise to the upper
+  port, and the right tail stops at the lower.
+- *Which shell pad is which port's.* Seen from behind, the outer tail that rises to the
+  upper port is on the left, which is the footprint's −X, pad 2. So pad 2 is the upper
+  port's shell and pad 4 the lower's: the pairs are as numbered, (1, 2) and (3, 4).
+  **[engineering judgment]** for this last step, because it is read from how a view is
+  drawn and not from a label; Detail A agrees if it is a component-side view.
+
+**What changes.** Port A, unit 1, pads 1 and 2, is the **upper** port, 23 mm above the
+board. Port B, unit 2, pads 3 and 4, is the **lower** port, 7 mm above it. Only words
+change: the footprint's description and its generator's note
+(`gen_wl_sync_footprints.py`), and the label table in `panel-elevations.md` §4, which now
+says which hole each signal is in. **No pad moved and no net changed.** GT-4's two
+remaining doubts are settled from the drawings, and Open question 26 is closed.
+
+**The check.** Nothing here was verified on a part. On the first built box, before the
+plates are labelled: continuity from each port's centre contact to its pad, and from each
+bushing to its shell pad, on one body of each kind (`hardware/assembly-checklist.md`). If
+a part disagrees with the drawing, the fix is the labels.
+
+### R12 — The NI cable through the panel: jacksockets on a thinned land — **RULED 2026-11-21 from NI's drawing; the jacksocket is not chosen**
+
+`constraints.md` Open question 23. **The user's ruling, 2026-11-21: "Research the NI cable
+(Recommended)"**, offered as "Read NI's drawings, then keep 3 mm or thin the panel just
+around those connectors." This entry is that research and the decision it leads to. It is
+made from two drawings and one NI web page. Nothing was tried on a cable.
+
+**Which cable.** The spec names it: "Cables: `SHC68-68-EPM` × 2 per card" (SPEC §9.3), and
+the plan's order list has eight (PLAN, the NI order table). `J2`, `J3`, `J36` and `J45`
+each take one.
+
+**The sources.**
+
+| | Document | sha256 |
+|---|---|---|
+| NI | customer drawing 192061-XX, "SHC68-68-EPM", sheet 1 of 2, rev E "drawing compatible, released", © 2024; fetched from ni.com on 2026-11-21 | `fce32f66…2ae7`, in full at `datasheet-params.toml` `[ni_shc68_68_epm]` |
+| NI | "NI DAQ Device Custom Cables, Replacement Connectors, and Screws", ni.com, "Updated Dec 19, 2025", read 2026-11-21 | a web page; URL and the HTML's sha256 in the same section |
+| MH | 3700-0121-01 rev 3.0 | `f24b828f…0d27`, `[mdr68]` |
+
+**What NI's drawing gives for P1, the "68-POS SCSI II CONNECTOR" end.**
+
+| | mm | Where on the drawing |
+|---|---|---|
+| Retention | "2X JACKSCREWS WITH 2-56 UNC-2A THREADS". No latch is drawn. | side view, note |
+| Jackscrew spacing | 57.9 | front view. The MH part's "#2-56 (2 Places)" are 57.93 apart. |
+| Jackscrew tips beyond the backshell's front face | 2.5 | side view |
+| Mating shell beyond the backshell's front face | 4.1 | side view |
+| Backshell, across the jackscrews × height | 64.9 × 14.0, 7.0 each side of the axis | front view |
+| Backshell front face to the end of the strain relief | 67.3 (26.7 and 55.4 to the two steps before it) | side view |
+| Cable bend radius | 76.2 | bend-radius example |
+| Jackscrew travel beyond the 2.5 mm drawn; tolerances; seated depth | **not in the sources** | |
+
+NI's guide adds: the cables are held by jackscrews that "tighten into jacksockets located
+on all DAQ devices and accessories"; NI's jacksocket is "M2.5 Screw, .348" Length, .148"
+Head Length", so its head is 3.76 mm; and NI's own board connector for this cable is male
+(777600-01, TE 2-5174225-5).
+
+**The arithmetic.** x is measured outward from the board edge, which is the panel's inner
+face (`placement.md` §2).
+
+| Surface | x, mm | From |
+|---|---|---|
+| MH flange face, and the mouth of its #2-56 threads | −0.30 | 5.10 − 4.80 (MH) |
+| Panel inner face | 0 | |
+| Panel outer face, at 3.0 mm | +3.00 | D3 |
+| MH side hooks' tips | +3.20 | −0.30 + 3.50 (MH) |
+| MH nose tip | +4.70 | −0.30 + 5.00 (MH) |
+
+1. *It latches by jackscrews, not on the hooks.* So the hooks' 0.2 mm beyond the panel
+   does not matter. They have only to be clear of the plug, and they are: the plug's
+   backshell does not come nearer than the nose tip (step 2), 1.5 mm beyond them.
+2. *Mating depth: a 3.0 mm panel does not limit it.* The nose stands 4.70 − 3.00 =
+   1.70 mm proud of the panel. The plug's mating shell is 4.1 mm long and the nose is
+   5.00, so the nose is the longer and the plug comes to rest with its backshell face on
+   the nose tip, at x = +4.70, or sooner. The backshell is then 1.70 mm outside the
+   panel and never touches it. **[engineering judgment]** for "rests on the nose tip":
+   NI's drawing shows a flat backshell face and gives no seated depth. If the plug
+   stopped on the panel's outer face instead, its shell would reach x = 3.00 − 4.1 =
+   −1.10, 0.8 mm past the flange, so the panel still would not be what stops it.
+3. *Jackscrew reach: they do not reach the MH threads, with or without a panel.* With
+   the backshell face at +4.70, the tips are at 4.70 − 2.5 = **+2.20**. The MH threads
+   begin at −0.30. The tips stop **2.50 mm short**, and that figure is 5.00 − 2.5, the
+   nose against the jackscrew: the panel's thickness is not in it. A thinner panel does
+   not close it. In a 3.0 mm panel the tips end 0.8 mm inside the panel's own thickness.
+4. *This is how NI's own system works.* NI's cables do not screw into the connector.
+   They screw into jacksockets, which stand 3.76 mm proud of whatever they are fixed to.
+5. *Where a jacksocket has to sit here.* Its head must end at or below the backshell
+   face: seat + 3.76 ≤ 4.70, so **the seat is at x ≤ +0.94 mm.** The outer face of a
+   3.0 mm panel is at +3.00. A jacksocket there would end at +6.76 and hold the plug
+   2.06 mm off, leaving 4.1 − 2.06 = 2.0 mm of the mating shell engaged.
+
+**So "keep 3 mm" fails on the jackscrews, and the panel is thinned locally.**
+
+- **A counterbore from the outer face at each of the eight #2-56 positions** (two per
+  connector, 57.93 mm apart on the connector's axis), leaving a land **0.8 mm thick**.
+  The bound is 0.94 mm, from step 5. **[engineering judgment]** for 0.8: it keeps the
+  jacksocket's head 0.14 mm under the backshell face at nominal. The MH drawing's
+  tolerances on the three dimensions used (±0.2, ±0.2, ±0.15) can move the nose tip
+  0.55 mm either way; at the worst the head stands 0.41 mm proud and the plug seats
+  that much short, which leaves 3.7 of its 4.1 mm engaged.
+- **Counterbore diameter: 7.0 mm at most.** That is the plug's own envelope round a
+  jackscrew: 64.9 − 57.9 = 7.0, so 3.5 mm from a jackscrew's axis to the backshell's
+  end. A counterbore inside it is hidden by the plug and takes no panel that anything
+  else was given. The jacksocket's head has to fit inside it; its size is not in the
+  sources.
+- **The panel stays 3.0 mm everywhere else**, the M12's 3.5 mm limit is untouched, and
+  the nose's cut-out is as before, wide enough for the hooks (51.32 mm across).
+- **A jacksocket at each position: 2-56 male stud, 2-56 female head, head about
+  3.76 mm.** The stud passes the land and screws into the MH bracket, which fixes the
+  connector to the panel as NI's guide asks ("NI recommends mounting the connector to a
+  panel, enclosure, or similar mechanical support"). **The part is not chosen.** NI's
+  own jacksocket has an M2.5 stud and will not enter the MH part's #2-56 threads; the
+  depth of those threads is not on the MH drawing, so the stud's length is not in the
+  sources either. Eight per box.
+- **Thread engagement.** The jacksocket's head ends at 0.8 + 3.76 = +4.56 and the
+  jackscrew's tip is at +2.20, so 2.36 mm of 2-56 thread is engaged: 2.36 ÷ 0.4536 mm
+  = 5.2 turns. On a full-thickness panel it would be none.
+- **The 0.30 mm between the land and the MH flange** is taken up when the jacksocket is
+  tightened, by the land or by a 0.3 mm washer. **[engineering judgment]**; it is the
+  0.30 mm `placement.md` §2 already left to "the MDR68s' fixing".
+
+**What else NI's drawing settles.**
+
+- *The M12 inlet's height* (`panel-elevations.md` §7 kept it conditional on `J2`'s plug).
+  The backshell is 14.0 mm tall, 7.0 mm each side of the jackscrew axis, and that axis is
+  inside the MH body, which is 9.10 mm tall. So the plug's top is at most 9.10 + 7.0 =
+  16.1 mm above the board. The inlet's allocation starts 40 mm above it. The inlet stays
+  at 50 mm.
+- *The plug is wider than the row allows the connector.* 64.9 mm against the 63.86 mm
+  body, inside the 66.0 mm allowed. But at two places it comes close to a BNC sub-plate:
+  `J3`'s backshell ends at X = 74.55, 0.35 mm from the back-left window's edge at 74.2,
+  and `J2`'s at X = 193.55, 0.85 mm from `J57`'s window at 192.7. The plate's 1.6 mm lip
+  must not run under the backshell there: the backshell face is only 1.70 mm off the
+  panel. `panel-elevations.md` §6 already has those two lips narrow and without a screw.
+- *Depth behind each panel.* The plug is 67.3 mm long from its face, which is 1.7 mm off
+  the panel, and the cable then needs a 76.2 mm bend radius.
+
+**What is not settled, and how to settle it.**
+
+1. The jacksocket (above).
+2. Whether the jackscrews travel further than the 2.5 mm NI draws. If they reach the MH
+   threads directly, no jacksocket or counterbore is needed. NI's drawing does not say,
+   and NI's guide says the cables are made for jacksockets. **Before a panel is cut, try
+   one SHC68-68-EPM on one MH 3700-0121-01**: measure how far a jackscrew reaches past
+   the backshell face, and where the backshell face stops against the nose.
+3. The MH part's gender is not on its drawing. Distributors list it as male (RS
+   813-3313), which is what a female cable end needs. Worth seeing on the same trial.
+
+`constraints.md` Open question 23 is narrowed to those three. The board does not change.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

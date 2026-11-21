@@ -124,7 +124,30 @@ always "caught when the connector will not seat", because the drawing's map and
 arise: drawing 31-6575 rev A gives 8.6 mm of thread beyond the body's front face, and the
 nut is 2.8 mm. No spot-face is needed at 3.0 mm.
 
-**New, and open:** the MDR68's latching and mating depth behind a 3 mm panel, the BNC
-hole's flat, and which BNC port is the upper one (`constraints.md` Open questions 23, 24
-and 26). Whether the BNC's bushing is insulated from the panel was Open question 25: it
+**New, and open on 2026-11-20:** the MDR68's latching and mating depth behind a 3 mm
+panel, the BNC hole's flat, and which BNC port is the upper one (`constraints.md` Open
+questions 23, 24 and 26). **All three were ruled on 2026-11-21; see the next section.** Whether the BNC's bushing is insulated from the panel was Open question 25: it
 is not, and every BNC goes through an insulating sub-plate (`panel-elevations.md` §6).
+
+## Recorded 2026-11-21: rulings R10 to R12 (`parametric-audit.md`)
+
+**The decision above stands: the panels are 3.0 mm aluminium.** One local exception was
+added, and the table at the top needs one correction.
+
+**The MDR68 row of that table is wrong about what binds.** It says the MDR68 states no
+limit and that "screw length is our selection". The connector states none, but its
+cable does. NI's drawing of the `SHC68-68-EPM` (192061-XX rev E) puts the jackscrew tips
+2.5 mm beyond the plug's backshell, and the plug rests on the connector's nose, 5.00 mm
+ahead of the flange where the #2-56 threads are. The jackscrews stop 2.50 mm short of
+those threads whatever the panel's thickness. NI's cables are made for jacksockets with
+a 3.76 mm head, and for the head to end under the plug the jacksocket has to seat no
+more than 0.94 mm outside the board edge. A 3.0 mm panel's face is at 3.00.
+
+**So (R12): a counterbore at each of the eight jacksocket positions, leaving a 0.8 mm
+land**, at most 7.0 mm across, and a jacksocket in each. `panel-elevations.md` §8 has
+the drawing's figures and the arithmetic. The 3.0 mm panel does not limit the plug's
+mating depth, and the M12's 3.5 mm limit is not touched. Not tried on a cable: one
+should be tried on one connector before a panel is cut.
+
+**The BNC hole's flat is 5.56 mm (R10)**, and **port A of each BNC is the upper port
+(R11)**, the second subject to a continuity check on the first built box.

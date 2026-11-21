@@ -98,22 +98,26 @@ each callout below on the PDF. None was checked against a part.
 What follows from those:
 
 - Behind a 3.0 mm panel a BNC shows 17.7 mm of jack, with 5.6 mm of thread for a 2.8 mm
-  nut. An MDR68's nose shows 1.7 mm and its side hooks about 0.2 mm, which may be too
-  little for a cable that latches on them: `constraints.md` Open question 23.
+  nut. An MDR68's nose shows 1.7 mm and its side hooks about 0.2 mm. **2026-11-21
+  (ruling R12):** NI's cable does not latch on the hooks. It is held by 2-56 jackscrews,
+  which need a jacksocket in a counterbore at each of the eight positions
+  (`panel-elevations.md` §8; `constraints.md` Open question 23, narrowed).
 - **The three families do not agree on the panel's inner face to better than 0.4 mm.**
   The BNC body puts it at the edge, the DB37's flange is 0.4 mm proud of the edge, and the
   MDR68's flange is 0.30 mm short of it. **[engineering judgment]** that the BNC, of which
   there are 18, sets the plane; the DB37's cutout or the MDR68s' fixing has to take up the
   rest, and the panel drawing (Task 15) has to say how.
-- The BNC's panel holes are single-D, not round (`constraints.md` Open question 24). Its
+- The BNC's panel holes are single-D, not round, with the flat 5.56 mm from centre
+  (ruling R10, 2026-11-21). Its
   bushing is its shell, so every BNC goes through an insulating G-10/FR-4 sub-plate in a
   window of the panel (rulings R7 and R8; `panel-elevations.md` §6), with an unfitted
   strap point for bring-up (R9). The plate is 3.0 mm
   in the window, so the body face still seats at the board edge. Neither moves a
   footprint.
 - Pad 1 of a dual BNC is the UPPER port's centre and pad 3 the lower's, by the sibling
-  drawing; the footprint's own note has them the other way round (GT-4). Panel labels
-  have to follow the drawing.
+  drawing. The footprint's own note had them the other way round until 2026-11-21, when
+  ruling R11 corrected the note and nothing else: panel labels follow the drawing
+  (`panel-elevations.md` §4).
 
 **What this replaced.** As first generated, the BNC "face" on the edge was the tip of the
 jacks, and the MDR68's datum was read as its mating face; fix round 1 then pushed both
@@ -370,12 +374,16 @@ value, footprint or DNP flag differs.
 
 ## 10. Open, for the person who routes
 
-1. **The connectors against the panel** (§2; `constraints.md` Open questions 23, 24 and 26):
-   the MDR68's latching and mating depth behind 3 mm, the BNC hole's flat, which BNC port
-   is the upper one (Open question 26), the sub-plates' drawing (`panel-elevations.md`
-   §6), and the 0.4 mm the three families disagree by. The BNC's
-   board-edge datum is inferred from its drawing, not stated.
-2. **GT-4.** BNC pad roles are unconfirmed, and that gates routing. GT-1: approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
+1. **The connectors against the panel** (§2). Ruled on 2026-11-21: the BNC hole's flat
+   (R10), which BNC port is the upper one (R11), and the MDR68s' jacksockets and
+   counterbores (R12). Still open: the jacksocket part and a trial of one cable on one
+   connector (`constraints.md` Open question 23), the sub-plates' drawing
+   (`panel-elevations.md` §6), and the 0.4 mm the three families disagree by. The BNC's
+   board-edge datum is inferred from its drawing, not stated. None of it moves a
+   footprint.
+2. **GT-4.** Settled from the drawings on 2026-11-21 (R11) and no longer gates routing;
+   a continuity check on the first built box remains. **`routing-brief.md` is the
+   handoff for routing.** GT-1: approved for layout by the user (2026-11-20); the checklist confirmations were not given; dimensions are taken from manufacturer drawings (R46) (`design-review.md`, Sign-off).
 3. **`J1` beside the split** (§4).
 4. **The four fan headers, and what sits under the IO Board** (§4; floorplan Open question 6).
 5. **Board mounting holes, corner radius, stack-up** (§1): none is in the sources, and
