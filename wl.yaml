@@ -53,9 +53,13 @@ status:
     footprint's note and nothing else, with a continuity check left for the
     first built box; and NI's SHC68-68-EPM cable, read from NI's drawing,
     needs a jacksocket at each MDR68 fixing and a panel opening that
-    admits its mating shell, the jacksocket not chosen, nothing tried on a
-    cable, and a coupon test-fit gating the panel (constraints.md, Open
-    question 23, narrowed). The slot
+    admits its mating shell, nothing tried on a cable, and a coupon
+    test-fit gating the panel (constraints.md, Open question 23, narrowed).
+    R13 (2026-11-21, the user: TE first, RAF fallback) chooses the
+    jacksocket: TE 786585-2 on the MH bracket, RAF 4500A-256-SS-20 as the
+    fallback, a few of each to be bought for the coupon, which also measures
+    MH's 2-56 thread (parametric-audit.md R13; docs only, the board is
+    unchanged). The slot
     is 2.0 mm under the SOIC-16 optocouplers (ruling R6), and DRC on the
     unrouted board reports only unconnected items (it lists 499, where its
     report stops; the board has 1791 unrouted connections) and the 24
@@ -182,7 +186,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "7ca7c15"
+  describes: "5ae5e6e"
 
 runs_on: [rig/sync]
 builds_on: [dws]
