@@ -134,7 +134,8 @@ status:
     Bench day, in the order of docs/bench-day.md (Task 1.23, 2026-11-21), one
     checklist built from docs/next-session.md Step B, the one-clock plan's
     bench section, deploy/README.md and wl-phantom's docs/bench/phase-1.md,
-    which stay the authority: deploy a shim-v6 commit and rebuild the shim;
+    which stay the authority: once the user approves the push of
+    one-clock-p1, deploy that origin/main and rebuild the shim (version 6);
     P0's 30 s run; GPIO17 looped to GPIO20; B1 and B2 on wl-sync record
     --split; B6, B10 and B8's first day in one 8 h run; then wl-phantom, for
     P0, Task 5b Steps 3-5 and the +-100 us gate (separate runs, the jumper
@@ -151,7 +152,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "9b17a64"
+  describes: "c167763"
 
 runs_on: [rig/sync]
 builds_on: [dws]
