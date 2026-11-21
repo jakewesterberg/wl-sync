@@ -222,11 +222,11 @@ with `lib-b3`. That is the user's ruling, 2026-11-20. `--split` is Task 1.24
 
 ```sh
 ssh wl-rig-sync0 'rm -rf ~/wl-sync-spike/src-b3 && mkdir -p ~/wl-sync-spike/src-b3 && git -C ~/src/wl-sync archive --format=tar HEAD | tar -x -C ~/wl-sync-spike/src-b3 && ~/wl-sync-spike/src-b3/pio/build-shim.sh ~/src/utils/piolib ~/wl-sync-spike/lib-b3'
-
-This build-shim.sh call also refuses a piolib not at utils `b57c48e` (`pio/build-shim.sh:23-45`); the same `~/src/utils` serves it, so it needs no override.
 ssh wl-rig-sync0 '~/wl-sync-spike/venv/bin/pip install -q --no-deps -e "$HOME/wl-sync-spike/src-b3[pi]" && ~/wl-sync-spike/venv/bin/wl-sync record --help | grep -c -- --split'
 ssh wl-rig-sync0 'cd ~/wl-sync-spike && LD_LIBRARY_PATH=$HOME/wl-sync-spike/lib-b3 venv/bin/python -c "from wl_sync.rp1 import backend as b; lib = b._load_shim(); print(lib.wlsync_shim_version(), [l.split()[-1] for l in open(\"/proc/self/maps\") if \"wlsync\" in l][0])"'
 ```
+
+This build-shim.sh call also refuses a piolib not at utils `b57c48e` (`pio/build-shim.sh:23-45`); the same `~/src/utils` serves it, so it needs no override.
 
 **Pass:**
 - the shim compiles "under `-Wall -Wextra` with no warnings" (plan `:1880`);
