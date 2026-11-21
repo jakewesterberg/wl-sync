@@ -117,7 +117,7 @@ STAMP_TEST_BLIND = (
     "no stamp when GPIO17 rose, enabled in sync or alone: the PIO does not see GPIO17 rise"
 )
 # Why a process given `wl-sync record --split` records split, as the journal gives it
-# (Task 1.24; the user's ruling, 2026-11-21): the bench's forced fallback, for B2, never
+# (Task 1.24; the user's ruling, 2026-11-20): the bench's forced fallback, for B2, never
 # the unit's (deploy/README.md; tests/test_cli.py guards the shipped unit).
 SPLIT_FORCED = "forced by --split, for the bench only"
 
@@ -723,7 +723,7 @@ class Rp1Backend:
 
     def _force_split(self) -> None:
         """`force_split`'s split (`wl-sync record --split`; Task 1.24, the user's ruling
-        of 2026-11-21), for bench check B2, which measures the split backend's drift on
+        of 2026-11-20), for bench check B2, which measures the split backend's drift on
         current code (docs/superpowers/plans/2026-11-07-one-clock.md:2049-2051). THE
         FALLBACK'S OWN PATH, `_fall_back_to_split`, as a stamp machine that does not start
         takes it (`_start_stamp_machine`), so the header and the records are a failed

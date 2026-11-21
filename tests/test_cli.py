@@ -1748,7 +1748,7 @@ def test_the_gpio_chip_is_chosen_on_the_command_line(tmp_path, monkeypatch):
     assert chips == ["/dev/gpiochip4"]
 
 
-# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-21) -----
+# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-20) -----
 
 
 @pytest.mark.parametrize("given", [True, False], ids=["split", "default"])

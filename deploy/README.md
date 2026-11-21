@@ -24,7 +24,7 @@ label (`gpioinfo`):
 
     wl-sync record --out /data/rig0 --gpiochip /dev/gpiochipN
 
-Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`. *[2026-11-21, the user's ruling on the bench-day runbook's C3, "Both": that waits for Task 5b Steps 3–5 and for the ±100 µs gate (`docs/superpowers/plans/2026-11-07-one-clock.md:2106`; `docs/next-session.md:186`). The hand run above writes `/data/rig0`, which the `--fake` service writes too: stop the service first (`sudo systemctl stop wl-sync`), or give the hand run another `--out`, such as `/tmp/wl-bench/rig0`. The day's order is `docs/bench-day.md`.]*
+Once Task 5b Steps 3–5 pass, drop `--fake` from `ExecStart` and add that `--gpiochip`. *[2026-11-20, the user's ruling on the bench-day runbook's C3, "Both": that waits for Task 5b Steps 3–5 and for the ±100 µs gate (`docs/superpowers/plans/2026-11-07-one-clock.md:2106`; `docs/next-session.md:186`). The hand run above writes `/data/rig0`, which the `--fake` service writes too: stop the service first (`sudo systemctl stop wl-sync`), or give the hand run another `--out`, such as `/tmp/wl-bench/rig0`. The day's order is `docs/bench-day.md`.]*
 *(Added 2026-10-30; amended 2026-11-19 for the one-clock build.)* `--barcode-delay-us N`
 is for a process that records `"split"` alone (below). Such a process writes the flag into
 every header (`wl_sync/rp1/backend.py:802`; `wl_sync/cli.py:555-563`, `:572`), and N is
@@ -108,7 +108,7 @@ the platform does not expose one.
   (2026-11-19)* it is 0 under `"rp1-pio-si"` and `"rp1-pio"`, because the tick is the
   stamp of the edge itself. Under `"split"` the first `B` of a process can be later by an
   amount nothing measures, and the delay is `null` until bench day measures it and the unit
-  passes `--barcode-delay-us` (above). *[2026-11-21, the bench-day runbook's review: stale for the unit. The unit records one count and is not to pass the flag (`:35-38`; `deploy/wl-sync.service:21-23`), so its headers say 0. A split process's delay stays `null` unless a measurement taken on a `"split"` segment is passed by hand, to a bench run.]*
+  passes `--barcode-delay-us` (above). *[2026-11-20, the bench-day runbook's review: stale for the unit. The unit records one count and is not to pass the flag (`:35-38`; `deploy/wl-sync.service:21-23`), so its headers say 0. A split process's delay stays `null` unless a measurement taken on a `"split"` segment is passed by hand, to a bench run.]*
 - **`timebase`** names the clocks the segment's ticks count. `"fake"` under the `--fake`
   unit. On the RP1 backend, since the one-clock build (2026-11-19), one of three:
   - `"rp1-pio-si"`: code words, barcodes and edges all on RP1's PIO count, scaled to SI µs
@@ -121,7 +121,7 @@ the platform does not expose one.
     from 2026-10-30, when the field was added, until the build says it; earlier ones say
     `null` (above). Since the build a process writes it only when its stamp machine
     failed its start-up test, or when it cannot capture code words at all (both below),
-    or, on the bench alone, when `--split` forces it *(added 2026-11-21; below)*.
+    or, on the bench alone, when `--split` forces it *(added 2026-11-20; below)*.
 
 **A process on the RP1 backend that records `"split"` says why, once, at start** *(added
 2026-11-19)*. Before the first segment the box tests the stamp machine, which counts each
@@ -223,7 +223,7 @@ package's, and an impossible `clk_sys` (either would put wrong ticks in every `W
 `bench stamps` refuses such a process, printing `event-code capture cannot run (<cause>):
 this process records split, and has no stamps to count` (`wl_sync/bench.py:356-362`).
 
-**`--split` forces the fallback, for bench check B2 alone** *(added 2026-11-21, Task 1.24;
+**`--split` forces the fallback, for bench check B2 alone** *(added 2026-11-20, Task 1.24;
 the user's ruling)*. `--split` is for the bench, never for the unit: the shipped
 `deploy/wl-sync.service` must not carry it, and a test fails if it does
 (`tests/test_cli.py`, `test_the_shipped_unit_never_records_split_by_force`). B2 measures

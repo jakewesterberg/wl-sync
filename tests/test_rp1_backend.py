@@ -4961,7 +4961,7 @@ def test_run_on_a_box_that_refuses_the_sync_enable_records_split(
     )]
 
 
-# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-21) -----
+# --- --split, the bench's forced fallback (Task 1.24; the user's ruling, 2026-11-20) -----
 #
 # B2 measures the split backend's drift on current code (the plan's B2), so the bench
 # asks for the fallback a failed start-up test gives: the capture machine alone, B and E
@@ -5115,7 +5115,7 @@ def _five_split_frames(tmp_path, monkeypatch, gpiod, **kwargs):
 def test_run_split_by_force_writes_the_header_and_records_a_failed_test_writes(
     tmp_path, lib, gpiod, caplog, monkeypatch
 ):
-    """The point of the flag (the user's ruling, 2026-11-21): B2 measures the fallback the
+    """The point of the flag (the user's ruling, 2026-11-20): B2 measures the fallback the
     box would really record. So the header is the failed test's, field for field but the
     process's own, and so are the records, kind for kind and value for value; ticks stay
     whole numbers. The journal's ERRORs are the flag's three: start, episode, summary."""

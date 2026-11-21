@@ -36,7 +36,7 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 *Added 2026-11-20, delivered 2026-11-20 (by message to the wl-preproc session):*
 
 - **Note 8:** a `desync` `L` record no longer ends a process's code words: `W` records follow
-  it, and its count is what the box dropped. *[2026-11-21: two additions to note 8, at its end, not yet delivered.]*
+  it, and its count is what the box dropped. *[2026-11-20: two additions to note 8, at its end, not yet delivered.]*
 
 ---
 
@@ -522,7 +522,7 @@ shape note 6 gave it: path `W`, no GPIO, `at_least`, `before_us` optional, `afte
 
 The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
 
-*[2026-11-21, added after the delivery above, NOT YET DELIVERED (wl-sync Task 1.22; Task
+*[2026-11-20, added after the delivery above, NOT YET DELIVERED (wl-sync Task 1.22; Task
 1.20's re-review, N-M4 and N-M5). Two additions to this note; the delivered text is kept as
 it was sent:*
 

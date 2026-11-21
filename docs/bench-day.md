@@ -1,7 +1,7 @@
 # Bench day: the sync box from `--fake` to one count
 
 One ordered checklist, followed by hand at the rig, to take `wl-rig-sync0` (a CM5) from the
-`--fake` unit to recording on one count. *(Written 2026-11-21, Task 1.23, at `15b3c83`.)*
+`--fake` unit to recording on one count. *(Written 2026-11-20, Task 1.23, at `15b3c83`.)*
 
 The sources stay the authority. This file orders their steps and gives each one's command and
 pass line, and it changes none of them. Where a step here and its source differ, the source is
@@ -18,7 +18,7 @@ right, and this file is the one to fix. The sources are:
 - **Pass.** A pass line in quotation marks is quoted from its source, never paraphrased.
 - **Composed.** **[composed]** means *composed, not from a source*: no source gives that
   command, so it is written from the code and tools that exist (the user's ruling,
-  2026-11-21, "Compose, marked").
+  2026-11-20, "Compose, marked").
 - **Sudo.** **(you, sudo)** marks every step that needs sudo. The box's rule is that you
   run anything with sudo (plan `:1904`).
 - **Where.** Every other step can be run by you or by the controller over ssh.
@@ -103,7 +103,7 @@ Bring these:
   - **Why a deploy.** The box runs `fc18551` under `--fake`, and `fc18551` needs shim
     version 5. Bench day needs version 6, so it needs a deploy of a version-6 commit first
     (step 3).
-  - **What origin/main has now.** On 2026-11-21 origin/main is `48a073d`. It has carried
+  - **What origin/main has now.** On 2026-11-20 origin/main is `48a073d`. It has carried
     version 6 since `64dbe0f` (Task 1.21 fix round 6).
   - **What it lacks.** Task 1.22 (`431a6c4`), Task 1.24's `--split` (`c8222a6`) and this
     runbook are on `one-clock-p1`, and not yet on origin/main. Steps 8 and 19 need
@@ -208,7 +208,7 @@ Then check the shim. This is S.1's check, plan `:1950`, run against the installe
 ### 4. The spike tree, brought up to `--split`, no sudo [composed]
 
 B1 (step 8) and B2 (step 19) record with `wl-sync record --split` from `~/wl-sync-spike`
-with `lib-b3`. That is the user's ruling, 2026-11-21. `--split` is Task 1.24
+with `lib-b3`. That is the user's ruling, 2026-11-20. `--split` is Task 1.24
 (README `:226-252`).
 - **The spike's code is the deployed code.** `src-b3` is rebuilt from step 3's deployed tree,
   on the box, as S.1 copied its build (plan `:1947`), and `lib-b3` is rebuilt from it too. It
@@ -397,7 +397,7 @@ Take the jumper to pin 36 off.
   `python -m wl_sync.bench loopback`. "Report E's constant and its p50, p99 and p99.9 spread
   (Task 1.12)". It has no pass line, by the user's decision (plan `:2082-2084`).
 - **The order.** B6 is its own 8 h run, and the ±100 µs gate comes after it, with this
-  jumper off (the user's ruling, 2026-11-21, "Separate runs"; plan `:2106`'s dated note).
+  jumper off (the user's ruling, 2026-11-20, "Separate runs"; plan `:2106`'s dated note).
 
 **What is composed.** This one run also carries two other checks:
 - **B10:** "Count dropped `B`s over 8 h"; with c-direct it "runs on the built box as it
@@ -550,7 +550,7 @@ What this one comparison answers:
     resulting log is byte-identical in structure to one produced by `FakeBackend` given the
     same injected words. The Task 4 tests already pin that shape, so this is the real payoff
     of the adapter."
-  - **[composed]**, defined by the user's ruling of 2026-11-21, **for you to confirm**: it
+  - **[composed]**, defined by the user's ruling of 2026-11-20, **for you to confirm**: it
     is wl-phantom grading the one-count box with `--expect-timebase one-count` and getting
     PASS.
   - So: `PASSED`, and no `warning:` line that names a timebase.
@@ -570,7 +570,7 @@ What this one comparison answers:
 
 **The gate.** "Run Task 5b Step 3 as written, and wl-phantom §5.5 on the B6 run. **Pass:**
 ±100 µs. A long process is not needed (spec §4; draft Q5 withdrawn)" (plan `:2106`).
-- **Separate runs.** By the user's ruling of 2026-11-21, it is wl-phantom §5.5 standalone,
+- **Separate runs.** By the user's ruling of 2026-11-20, it is wl-phantom §5.5 standalone,
   after B6, with the jumper off and wl-phantom's own recorders on 8741 (plan `:2106`'s dated
   note).
 - **Process age.** A fresh recorder process is enough (Ruling R43; spec `:52`, decision 14;
@@ -774,7 +774,7 @@ These are next-session `:122-149`.
 
 "Run wl-phantom §5.5 for at least 1 h on the split backend. Report the ppm; it should match
 B8's rate against B1's" (plan `:2049-2052`). It is expected to fail. It runs on `wl-sync
-record --split` (the user's ruling, 2026-11-21; README `:226-252`; next-session `:266-270`).
+record --split` (the user's ruling, 2026-11-20; README `:226-252`; next-session `:266-270`).
 
 **Where it runs.** It runs from `~/wl-sync-spike` with `lib-b3`, as the ruling says. Step 4
 brought that tree up to `--split`. The command is README `:234`, with this part's `--out` and
@@ -908,7 +908,7 @@ user before step 22.
 
 ### 22. Leaving `--fake` (you, sudo)
 
-**What gates it.** By the user's ruling of 2026-11-21, "Both": Task 5b Steps 3–5, and the
+**What gates it.** By the user's ruling of 2026-11-20, "Both": Task 5b Steps 3–5, and the
 ±100 µs gate. README `:27`, next-session `:186` and plan `:2106` carry the ruling as dated
 notes. That means all of these:
 
@@ -1030,6 +1030,6 @@ days.
   (`docs/pending-wl-preproc-amendments.md:525-545`).
 - **next-session's spike commands.** next-session `:182-186` name `lib`, where spike S's
   version-3 shim sits. B3 ran on `lib-b3`, and step 4 rebuilds `lib-b3` from the deployed
-  tree. A dated note at next-session `:182` says so (2026-11-21). Read `lib` as `lib-b3`
+  tree. A dated note at next-session `:182` says so (2026-11-20). Read `lib` as `lib-b3`
   there.
 - **The spike tree.** `~/wl-sync-spike` stays until you say otherwise (plan `:2043`).
