@@ -46,12 +46,20 @@ status:
     against a part. Every BNC is insulated from the panel by a G-10/FR-4
     sub-plate (ruled 2026-11-20; specified in panel-elevations.md, not
     drawn or built), unbonded, with an unfitted strap point for bring-up;
-    the M12 inlet is placed above J2; and three questions about the connectors and the
-    panel are open (constraints.md, Open questions 23, 24 and 26). The slot
+    the M12 inlet is placed above J2. Three questions about the connectors
+    and the panel were ruled on 2026-11-21 (parametric-audit.md, R10 to
+    R12), on the breakout-routing branch, not merged: the BNC hole's flat
+    is 5.56 mm; port A of each BNC is the upper port, which corrected the
+    footprint's note and nothing else, with a continuity check left for the
+    first built box; and NI's SHC68-68-EPM cable, read from NI's drawing,
+    needs a jacksocket in a panel counterbore at each MDR68 fixing, the
+    jacksocket not chosen and nothing tried on a cable (constraints.md,
+    Open question 23, narrowed). The slot
     is 2.0 mm under the SOIC-16 optocouplers (ruling R6), and DRC on the
     unrouted board reports only unconnected items and the 24 silkscreen
     warnings constraints B-21 accepts. Routing, which is a person's, is not
-    started. On 2026-11-07 the strobe-capture
+    started; hardware/breakout/routing-brief.md is the handoff for it
+    (2026-11-21). On 2026-11-07 the strobe-capture
     program was fixed. It lost 1.5 ticks per strobe and could leave its program
     when its counter wrapped. The fix counts 2:1 on every path, which is proven
     by simulating the program's words but not yet on silicon. One clock
@@ -169,7 +177,7 @@ status:
     task PC line-out and the PFI copy of PD1_COMP (spec Sec.12 item 11).
   # The tip this block was written from. Quoted: an all-digit SHA would be
   # read by YAML as an integer.
-  describes: "ef0f94a"
+  describes: "dbf7949"
 
 runs_on: [rig/sync]
 builds_on: [dws]
