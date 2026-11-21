@@ -420,7 +420,7 @@ the split, the `DGND` region or the barcode strip, and they reach `J1` from its 
 **What it frees.** The 20.0 mm the inlet took in the back row's width (§2's table) is no
 longer in the row: the row's slack is 27.2 mm, not 7.2 mm. The table is left as drawn.
 
-## 8. The MDR68s and NI's cable (ruling R12, 2026-11-21)
+## 8. The MDR68s and NI's cable (rulings R12 and R13, 2026-11-21)
 
 The cable for `J2`, `J3`, `J36` and `J45` is NI's `SHC68-68-EPM` (SPEC §9.3). Its drawing
 is NI customer drawing 192061-XX rev E; the figures are in `datasheet-params.toml`
@@ -503,7 +503,36 @@ the window, which is one reason to make it smaller.
 **Depth outside the panel.** Each plug stands 0.8 to 1.7 mm off the panel and is 67.3 mm
 long, and its cable then wants a 76.2 mm bend radius. That is on both faces of the box.
 
+**R13 (2026-11-21, the user: "TE first, RAF fallback") chooses the jacksocket, and changes
+the stack above.** Each of the 8 fixings takes **TE 786585-2** (drawing C-786585 rev B2:
+2-56 both ends, head 2.54 mm, flange Ø4.75 mm, female thread 2.29 mm minimum), **seated by
+its collar on the MH bracket** at x = −0.30. The collar, 1.27 mm long, is **derived from
+TE's web listing (stud 5.21 mm below it) and not dimensioned on TE's drawing**. Its head
+top is at **+3.51**, below the backshell face in both cases: clear by 0.29 mm in case A
+(jackscrew engaged 2.21 mm, 4.9 turns, with 0.08 mm to spare against the 2.29 mm minimum
+depth) and by 1.19 mm in case B (1.31 mm, 2.9 turns). The fallback is **RAF
+4500A-256-SS-20** (catalog p. 111; DigiKey 1772-3524-ND; 3/16 in hex, 5/32 in body, 2-56
+both ends), **on the bracket and fitted before the panel**: top at +3.67, clear by 0.13 mm
+in case A (2.37 mm, 5.2 turns) and 1.03 mm in case B (1.47 mm, 3.2 turns). On a land it
+would foul case B by 0.07 mm at R12's 0.8 mm land plus washer. In the table above:
+
+- **The 0.3 mm washer can be dropped with TE**: its collar spans the gap to the flange
+  **[engineering judgment]**. MH's ±0.2 on both dimensions of that gap means collar and
+  flange may not both bear; settle it at the coupon.
+- **The land-or-bracket choice is the bracket.** The "proposed seat" row (a 0.8 mm land)
+  and the 0.8 mm land's figures give way to a hole at each axis, about Ø5.3 to 5.5 mm for
+  TE (it only has to pass the Ø4.75 flange; the slot is turned with a screwdriver) and
+  about Ø6.0 mm for RAF. The 7.0 mm counterbore ceiling then no longer binds. At `J3` a
+  Ø5.5 hole leaves about 1.05 mm to the window instead of 0.3 mm, and at `J2` about 1.55
+  mm instead of 0.8 mm **[derived]**; a Ø5.3 hole centred on the axis reaches the 53.3 mm
+  opening (26.32 mm from centre, against the opening's end at 26.65), so the opening is
+  widened locally there. Panel features stay gated on the coupon.
+- Both parts are **[derived]** figures from the drawings and R12's datums, not measured. The
+  record, with every source and sha256, is `parametric-audit.md` R13.
+
 **The gate: a coupon test-fit.** Before any panel is cut, fit one `SHC68-68-EPM` to one MH
 `3700-0121-01` through a 3.0 mm aluminium coupon cut with this opening and these
-counterbores (`../assembly-checklist.md`). It decides which case is real, the land, the
-opening and the counterbore. `constraints.md` Open question 23 has what is left.
+counterbores (`../assembly-checklist.md`). It decides which case is real, the seat, the
+opening and the hole, and it adds (R13): where MH's 2-56 thread starts, how deep it runs and
+whether it is blind or through; and a fit of TE 786585-2 and of RAF 4500A-256-SS-20, keeping
+the one that seats and engages. `constraints.md` Open question 23 has what is left.

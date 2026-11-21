@@ -55,9 +55,25 @@ coupon's inner face on that edge, as the panel will be.
 4. If step 3 holds the plug off, repeat with the jacksockets seated on the connector's
    bracket (open the coupon out to pass them).
 
-Write the figures beside R12 and fix the land, the opening and the counterbore from
-them. The jacksocket itself, a 2-56 stud with a 2-56 female head about 3.76 mm tall, is
-not a chosen part and has to be found or made first.
+**Added by ruling R13 (2026-11-21, "TE first, RAF fallback").** The jacksocket is TE
+786585-2 (fallback RAF 4500A-256-SS-20); buy a few of each for the coupon. Both seat on the
+MH bracket, so steps 3 and 4 above use that seat first, with holes of about Ø5.5 mm (TE) and
+Ø6.0 mm (RAF) in place of the counterbores. Also:
+
+5. **Measure MH's thread.** With a 2-56 screw and a depth gauge: where the thread starts
+   behind the flange face, how deep it runs, and whether the hole is blind or through.
+   (MH's drawing gives "#2-56 (2 Places)" and none of these.) Both parts have an unthreaded
+   length under the shoulder (TE about 1.0 mm, RAF up to 0.68 mm), so the depth behind the
+   thread matters: 4.0 mm or more for RAF, 5.2 mm or more for TE.
+6. **Fit TE 786585-2 and RAF 4500A-256-SS-20, each**, on the bracket. Record whether TE's
+   collar bears on the bracket and is about 1.27 mm long, and whether the 0.3 mm washer is
+   needed; the turns each takes in the jackscrew; and whether the plug seats. RAF goes on
+   before the coupon.
+7. **Keep the one that seats and engages.** TE first; RAF if TE does not fit or cannot be
+   bought.
+
+Write the figures beside R12 and R13 and fix the seat, the opening and the hole from
+them.
 
 ## Colour-code the reward group
 

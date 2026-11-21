@@ -1294,6 +1294,129 @@ land (0.8 mm, another figure, or none), the opening and the counterbore. The ste
 
 The board does not change.
 
+### R13 — The jacksocket at each MDR68 fixing: TE 786585-2 seated by its collar on the MH bracket, RAF 4500A-256-SS-20 as the fallback — **RULED 2026-11-21; gated on the coupon test-fit; neither part has been tried**
+
+`constraints.md` Open question 23(b), the jacksocket R12 left unchosen. **The user's
+ruling, 2026-11-21: "TE first, RAF fallback (Recommended)"**, offered as "Record both; buy
+a few of each for the cable test-fit, and keep whichever fits." The research is
+`.superpowers/sdd/2026-11-07-one-clock/jacksocket-research.md`. This entry records its
+figures, and says which were read from a drawing and which are arithmetic or judgment.
+Nothing here was tried on a part. Docs only: the board, footprints and schematics do not
+change.
+
+**The ruling.**
+
+- **The jacksocket at each of the 8 MDR68 fixings** (4 connectors, 2 fixings each) **is TE
+  786585-2** (TE customer drawing C-786585 rev B2), **seated by its collar on the MH
+  bracket**, at x = −0.30.
+- **The fallback is RAF 4500A-256-SS-20** (RAF catalog p. 111; DigiKey 1772-3524-ND),
+  **seated on the bracket, and fitted before the panel**.
+- **Buy a few of each for the coupon, and keep whichever seats and engages.**
+
+**The sources** (both opened and read on 2026-11-21; I checked the numbers below against
+the saved PDFs).
+
+| Document | Revision | sha256 |
+|---|---|---|
+| TE C-786585, "Screwlock kit, female, unassembled, AMPLIMITE .050 series" | **B2**, 19 SEP 2025 (ECR-25-235176) | `fc321ebf…887a4b`, in full at `datasheet-params.toml` `[te_786585_2]` |
+| RAF Electronic Hardware catalog p. 111, "3/16 hex male-female standoffs" | print 287771_085-168.v1, 9/26/08 | `f0c3202e…e2d59`, in full at `[raf_4500a_256_ss_20]` |
+
+**TE 786585-2.** *Drawing* means printed on C-786585 rev B2.
+
+| | Value | Source |
+|---|---|---|
+| Female thread | 2-56 UNC, **2.29 [.090] min deep** | drawing |
+| Male thread | 2-56 UNC | drawing |
+| Head height, top to the flange's bearing face | **2.54 ± 0.08 [.100 ± .003]** | drawing |
+| Flange diameter | **Ø4.75 [.187]** | drawing. The head is round, not hex. |
+| Drive | slot **0.69 ± 0.08** wide | drawing |
+| Overall length | **9.02 [.355]** | drawing |
+| Length below the flange | 6.48 | **[derived]** 9.02 − 2.54. DigiKey lists 0.255 in (6.48 mm) **[distributor]** |
+| Stud below the collar | 5.21 | TE's web page, "Thread Length: 5.21 mm" **[TE web listing, not on the drawing]** |
+| **Collar below the flange** | **1.27** | **[derived] from TE's web listing, not dimensioned on TE's drawing:** 6.48 − 5.21. Scaling the 4:1 drawing agrees (collar about 1.27, Ø about 3.2; plain neck about 1.0; thread about 4.2), but those are scaled. |
+| Material | stainless steel | drawing |
+| Packaging | 786585-2, 2 per bag; 786585-3, bulk, **OBSOLETE** | drawing |
+| Supply | TE web: "Active" but "not currently available"; DigiKey: no longer available. element14/Farnell 1557056 and RS 680-9399 were found; a snippet showed 930 in stock, **not confirmed** | **[distributor]** |
+
+**RAF 4500A-256-SS-20.** *Catalog* means printed on p. 111.
+
+| | Value | Source |
+|---|---|---|
+| Thread | 2-56 both ends (code 256). Female depth "A" 3/16 in. (in short lengths, tapped to maximum depth) | catalog |
+| Male thread length "B" | **5/32 in = 3.97 mm**, with "1½ threads max. to minor dia." at the shoulder (up to 0.68 mm of runout, **[derived]**) | catalog |
+| Body length "L" (code 4500A) | **5/32 in = 3.97 mm** | catalog |
+| Hex across flats | **3/16 in = 4.76 mm**; across corners 5.50 mm **[derived]** | catalog |
+| Material and finish | SS stainless; "-20" is passivated **[distributor]** | catalog; DigiKey |
+| Supply | DigiKey 1772-3524-ND: 98 in stock (digikey.ca), 7-week lead time, overall 0.313 in (7.94 mm) **[distributor]** | DigiKey |
+
+**Where each seats, in R12's datums** (x outward from the board edge; MH flange face and
+thread mouth at −0.30; backshell face at least +3.80 in case A, +4.70 in case B; jackscrew
+tips at least +1.30 in case A, +2.20 in case B; a turn of 2-56 is 0.4536 mm). All
+**[derived]** from the figures above and R12's.
+
+| Seat | Head top, x | Case A | Case B |
+|---|---|---|---|
+| **TE 786585-2, collar on the bracket** (−0.30 + 1.27 + 2.54) | **+3.51** | clear by **0.29**; jackscrew engaged **2.21 mm, 4.9 turns**, which is within the 2.29 mm minimum female depth with **0.08 mm to spare** | clear by **1.19**; engaged **1.31 mm, 2.9 turns** |
+| **RAF 4500A, body on the bracket** (−0.30 + 3.97) | **+3.67** | clear by **0.13**; engaged **2.37 mm, 5.2 turns** | clear by **1.03**; engaged **1.47 mm, 3.2 turns** |
+| RAF 4500A on R12's 0.8 mm land plus 0.3 mm washer | +4.77 | holds the plug **0.97 mm off** | **fouls by 0.07** |
+
+So RAF is used **on the bracket only**: on a land it fails case B at R12's 0.8 mm, and
+holds the plug off in case A at any land. TE's head top is **+3.51 in either seat**
+(on the bracket, or on a land of about 0.97 mm that the collar spans), below the backshell
+face in both cases.
+
+**What this changes in R12.**
+
+1. **R12's 0.3 mm washer is not needed with TE.** Its collar spans the gap from the
+   bracket to the flange. **[engineering judgment]**: MH's ±0.2 is on both the 4.80 and
+   the 5.10 that make the 0.30 gap, so the collar and the flange cannot both be
+   guaranteed to bear. Settle it at the coupon.
+2. **The land is no longer the proposed seat; the bracket is.** R12 proposed a counterbore
+   leaving a 0.8 mm land, with "no land" as the alternative. By this ruling both
+   parts seat on the MH bracket, and the panel gets a hole, not a land. (R12's land
+   held the plug 0.76 mm off in case A, and R12's own alternative was the bracket.)
+3. **The counterbore near 7.0 mm is not needed.** TE is turned by a screwdriver in its
+   slot, so the hole need only clear the Ø4.75 flange: about Ø5.3 to 5.5 **[engineering
+   judgment]**. At `J3` a Ø5.5 hole would leave about 1.05 mm to the sub-plate window
+   instead of 0.3 mm, and at `J2` about 1.55 mm instead of 0.8 mm **[derived]**. A Ø5.3
+   hole centred on the axis runs into the 53.3 mm opening, whose end is 26.65 mm from the
+   centre while the hole starts at 28.965 − 2.65 = 26.32 **[derived]**, so in practice the
+   opening is widened locally there.
+4. **RAF's hole is about Ø6.0**, to pass its 5.50 mm across corners. It is fitted **before
+   the panel**, because a 3/16 in nut driver cannot reach a hex only 0.67 mm proud of the
+   panel in a Ø6.0 hole **[engineering judgment]**, so the panel slides over the standoffs.
+
+**The coupon gate, added to R12's.** (The steps are in `hardware/assembly-checklist.md`.)
+
+- **Measure where MH's 2-56 thread starts, how deep it runs, and whether the hole is blind
+  or through**, with a 2-56 screw and a depth gauge. MH's drawing calls out "#2-56 (2
+  Places)" on the bracket and does not give the depth, whether it is through, or where
+  the first full thread begins. Both parts carry an unthreaded length under the shoulder
+  (TE about 1.0 mm, scaled; RAF up to 0.68 mm of runout), so a thread that is only the
+  bracket's sheet thickness at the mouth may not engage them. Clear depth wanted behind
+  the thread: at least 4.0 mm for RAF, at least 5.2 mm for TE **[derived]**.
+- **Fit TE 786585-2 and RAF 4500A-256-SS-20, each.** Record, for TE, whether its collar
+  really bears on the bracket and is about 1.27 mm long; and for each the turns the
+  jackscrew takes in the case that proves real.
+- **Keep the one that seats and engages.** TE is first; RAF only if TE does not, or cannot
+  be bought.
+
+**What no source settles:** MH's thread depth and form; the collar's diameter and length on
+786585-2 (derived from TE's web listing, not dimensioned on its drawing); whether 786585-2
+can be bought at all; and the 0.08 mm margin in case A, which rests on the *minimum*
+female depth.
+
+**Checked and rejected** (research §2.3-2.4): TE 749087 (its male stud is 4-40, which will
+not enter a 2-56); RAF 4500-256-SS (4.76 mm body, holds the plug 0.66 mm off in case A);
+Cinch DCJP9-51 (head 4.83 mm, holds the plug 0.73 mm off in case A, works only in case B;
+the one candidate that comes with a nut); Cinch DCJS9 jackscrews (male only); NI 187949-01
+(no thread stated; NI's connectors take M2.5); NI's "SCSI-II Jacksocket, 2-56 Threads" (no
+part number or dimensions); 3M 3341 (M2.5 main thread). A different receptacle, 3M
+N10268-52E2PC (4-40 panel lock, 2.00 mm maximum panel), was flagged and not recommended: it
+needs a new footprint and a thinner panel.
+
+The board does not change.
+
 ## 4. Verified correct
 
 Recorded because a clean result is evidence too.

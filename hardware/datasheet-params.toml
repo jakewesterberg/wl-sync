@@ -566,6 +566,62 @@ ni_jacksocket_length_mm = 8.84           # .348 in overall
 ni_jacksocket_stud = "M2.5"              # will NOT enter the MH part's #2-56 threads
 feeds = ["R12"]
 
+[te_786585_2]
+# The jacksocket at each MDR68 fixing (ruling R13, 2026-11-21, parametric-audit.md): TE first,
+# RAF fallback. Figures marked "drawing" are printed on the TE drawing; "derived" is arithmetic;
+# collar_length_mm comes from TE's web listing, NOT from the drawing. Nothing was tried on a part.
+part = "TE Connectivity 786585-2 (AMP), screwlock kit, female, unassembled, AMPLIMITE .050 series"
+document = "TE customer drawing C-786585, rev B2, 19 SEP 2025 (ECR-25-235176)"
+url = "https://www.te.com.cn/commerce/DocumentDelivery/DDEController?Action=srchrtrv&DocNm=786585&DocType=Customer+Drawing&DocLang=English"
+retrieved = "2026-11-21"
+document_sha256 = "fc321ebf3d846f6eb5a69723e5516922fdcd4fa87f10800735a55e95dc887a4b"
+document_file = "TEcn_786585_cd.pdf (TE customer drawing C-786585 rev B2); not in this repository"
+female_thread = "2-56 UNC"               # drawing
+female_thread_depth_min_mm = 2.29        # drawing, .090 in min deep
+male_thread = "2-56 UNC"                 # drawing
+head_height_mm = 2.54                    # drawing, +/- 0.08: head top to the flange's bearing face
+head_height_tol_mm = 0.08
+flange_diameter_mm = 4.75                # drawing, .187 in. The head is round, driven by a slot
+slot_width_mm = 0.69                     # drawing, +/- 0.08
+overall_length_mm = 9.02                 # drawing, .355 in
+length_below_flange_mm = 6.48            # derived: 9.02 - 2.54 (DigiKey lists 0.255 in)
+stud_below_collar_mm = 5.21              # TE's web page "Thread Length"; not on the drawing
+collar_length_mm = 1.27                  # DERIVED from TE's web listing (6.48 - 5.21); NOT dimensioned on TE's drawing
+material = "stainless steel"             # drawing
+packaging = "786585-2: 2 per bag, individually. 786585-3, bulk: OBSOLETE"   # drawing
+supply = "TE web: Active, but not currently available; DigiKey: no longer available; element14 1557056, RS 680-9399 not confirmed"
+head_top_on_bracket_mm = 3.51            # derived: -0.30 + 1.27 + 2.54, in R12's datums
+note = """Seated by its collar on the MH bracket. Case A (backshell face +3.80): clear by 0.29 mm,
+jackscrew engaged 2.21 mm, 4.9 turns, 0.08 mm inside the 2.29 mm minimum female depth. Case B
+(+4.70): clear by 1.19 mm, 1.31 mm, 2.9 turns. The collar's diameter (about 3.2 mm, scaled) and
+the plain neck under it (about 1.0 mm, scaled) are not dimensioned. The coupon measures MH's thread."""
+feeds = ["R13", "R12"]
+
+[raf_4500a_256_ss_20]
+# The fallback jacksocket (ruling R13): on the MH bracket only, fitted before the panel.
+part = "RAF Electronic Hardware 4500A-256-SS-20, 3/16 hex male-female standoff, 2-56, 5/32 in body, stainless, passivated"
+document = "RAF Electronic Hardware catalog p. 111, '3/16 hex male-female standoffs' (print 287771_085-168.v1, 9/26/08)"
+url = "https://dpk3n3gg92jwt.cloudfront.net/domains/raf/pdf/RAF_catalog_0121.pdf"
+retrieved = "2026-11-21"
+document_sha256 = "f0c3202e97a5477e83c37ffe98ab3829acf8d08a4f940cda7d6e2a26e45e2d59"
+document_file = "RAF_catalog_0121.pdf (RAF catalog p. 111, PDF of 2016-09-21); not in this repository"
+thread = "2-56"                          # catalog, thread code 256
+female_thread_depth_mm = 4.76            # catalog "A" 3/16 in; tapped to maximum depth in short lengths
+male_thread_length_mm = 3.97             # catalog "B" 5/32 in
+male_thread_runout_max_mm = 0.68         # derived: the catalog's 1.5 threads max to minor diameter, x 0.4536
+body_length_mm = 3.97                    # catalog, 5/32 in (code 4500A; 3/16 in is 4500)
+hex_across_flats_mm = 4.76               # catalog, 3/16 in
+hex_across_corners_mm = 5.50             # derived
+finish = "passivated (-20)"              # DigiKey, not the catalog page saved
+digikey_part = "1772-3524-ND"
+head_top_on_bracket_mm = 3.67            # derived: -0.30 + 3.97
+note = """On the bracket only. Case A: clear by 0.13 mm, engaged 2.37 mm, 5.2 turns. Case B: clear by
+1.03 mm, 1.47 mm, 3.2 turns. On R12's 0.8 mm land plus a 0.3 mm washer the top is at +4.77, which
+holds the plug 0.97 mm off in case A and fouls case B by 0.07 mm. A hole of about 6.0 mm passes
+the 5.50 mm across corners; a nut driver cannot reach it after the panel is on, so it is fitted
+before the panel."""
+feeds = ["R13", "R12"]
+
 [m12_inlet]
 part = "Phoenix Contact SACC-DSI-MS-5CON-M12 SCO, order 1551833"
 document = "Phoenix 1551833 datasheet + installation drawing 00662206 Index 2 + STEP model"

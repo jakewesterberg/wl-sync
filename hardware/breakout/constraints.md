@@ -565,7 +565,13 @@ was meant.
     (`hardware/assembly-checklist.md`). The drawings do not say which shell goes inside
     the other (MH's dimples point to its nose going inside the cable's shell), how deep
     the plug seats, or what the cable shell's outline is;
-    (b) the jacksocket, a 2-56 stud with a 2-56 female head about 3.76 mm tall, is not a
+    (b) **Chosen 2026-11-21 by ruling R13 (the user: "TE first, RAF fallback"), subject to the
+    coupon:** TE 786585-2, seated by its collar on the MH bracket (head top +3.51; the
+    collar length is derived from TE's web listing, not dimensioned on its drawing), with
+    RAF 4500A-256-SS-20 on the bracket, fitted before the panel, as the fallback
+    (`parametric-audit.md` R13; `panel-elevations.md` §8). The coupon also measures where
+    MH's 2-56 thread starts, how deep it runs and whether it is blind or through. As R12
+    left it: the jacksocket, a 2-56 stud with a 2-56 female head about 3.76 mm tall, was not a
     chosen part and none was found off the shelf. NI's 68-position jacksocket has an
     M2.5 stud. Leads in NI's guide, neither with a thread and dimensions given: the
     "4 Piece Jacksocket Kit for Connecting Screw Latching Cables", 187949-01, and a
