@@ -36,7 +36,7 @@ its `HANDOVER-wl-sync.md`, "wl-preproc's answers, 2026-10-22":
 *Added 2026-11-20, delivered 2026-11-20 (by message to the wl-preproc session):*
 
 - **Note 8:** a `desync` `L` record no longer ends a process's code words: `W` records follow
-  it, and its count is what the box dropped. *[2026-11-20: two additions to note 8, at its end, not yet delivered.]*
+  it, and its count is what the box dropped. *[2026-11-20: two additions to note 8, at its end; delivered 2026-11-21.]*
 
 ---
 
@@ -522,8 +522,12 @@ shape note 6 gave it: path `W`, no GPIO, `at_least`, `before_us` optional, `afte
 
 The definitions are the `Loss` docstring in wl-sync's `wl_sync/log.py`.
 
-*[2026-11-20, added after the delivery above, NOT YET DELIVERED (wl-sync Task 1.22; Task
-1.20's re-review, N-M4 and N-M5). Two additions to this note; the delivered text is kept as
+*[2026-11-20, added after the delivery above (wl-sync Task 1.22; Task 1.20's re-review,
+N-M4 and N-M5); **delivered 2026-11-21** by message to the wl-preproc session, which
+answered that neither changes anything in wl-preproc: a desync with no `W` after it is
+already open and failing there, and its only reader of GPIO17's edges is wl-sync's
+`decode_edges` at its pin fc18551, which needs 400 ms of idle before a lead, so none of the
+start-up pulses can lead a frame; it counts no edges outside frames on that line. Two additions to this note; the delivered text is kept as
 it was sent:*
 
 - *Point 5 is narrower than it reads. It also rests on nothing but wl-sync reading the PIO's
