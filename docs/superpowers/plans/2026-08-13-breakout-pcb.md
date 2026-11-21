@@ -942,6 +942,16 @@ to ±0.1 mm.
 - [ ] **Step 3: Place connectors first, everything else after.** Panel positions are the
   constraint; components serve them.
 
+> **Placement is generated; routing remains. Note added 2026-11-20.**
+> `hardware/gen/gen_breakout_pcb.py` writes `hardware/breakout/breakout.kicad_pcb` with the
+> outline, four layers, both isolation slots, every footprint placed, every pad on its net
+> and the barrier keep-outs, in this step's order: panel connectors, then each domain's
+> parts inside its own region. `hardware/gen/check_breakout_placement.py` checks it, and
+> `hardware/breakout/placement.md` records the positions and which are judgment. The file
+> has no track. A person routes it in pcbnew, as the mule was routed (Task 3's note:
+> `kicad-cli` has no Specctra DSN export). Step 4's "exit code 0" is not met by the
+> unrouted board and is not meant to be: `placement.md` §9 lists what DRC reports and why.
+
 - [ ] **Step 4: Run DRC**
 
 ```bash

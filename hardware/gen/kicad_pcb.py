@@ -235,6 +235,7 @@ def _inject_before_close(block: str, fields: str) -> str:
     return block[:-1].rstrip() + fields + "\n\t)"
 
 
+_LEGACY_FIELD_RE = re.compile(r'^\(fp_text\s+(?:reference|value)\s')
 _PAD_NUM_RE = re.compile(r'^\(pad\s+"([^"]*)"')
 _COORD_RE = re.compile(r'\((?:start|end|center|xy)\s+(-?[\d.]+)\s+(-?[\d.]+)\)')
 # A footprint child's OWN placement: always its first `(at ...)`, in the footprint's local
@@ -344,6 +345,47 @@ def footprint_courtyard(libname: str, modname: str) -> tuple[float, float, float
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
+_CIRCLE_RE = re.compile(
+    r'\(center\s+(-?[\d.]+)\s+(-?[\d.]+)\)\s*\(end\s+(-?[\d.]+)\s+(-?[\d.]+)\)'
+)
+
+
+def footprint_courtyard_bbox(
+    libname: str, modname: str
+) -> tuple[float, float, float, float] | None:
+    """Like footprint_courtyard(), but right for a courtyard drawn as a circle.
+
+    footprint_courtyard() takes every `(start|end|center|xy ...)` coordinate as a point of
+    the outline. That is true of lines, rectangles and polygons, and false of an
+    `fp_circle`, whose `center` and `end` are a centre and one point on the rim:
+    `MountingHole_3.2mm_M3_Pad` (centre 0,0; end 3.45,0) comes back as the degenerate box
+    (0, 0, 3.45, 0). This one expands a circle to centre +- radius. Added for the breakout
+    board (2026-11-20), the first board to place a footprint with a circular courtyard;
+    footprint_courtyard() is left as it was so the mule's generated label positions do not
+    move.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    for child in _split_children(extract_footprint(libname, modname)):
+        tag = _child_tag(child)
+        if tag not in ("fp_line", "fp_rect", "fp_circle", "fp_poly", "fp_arc"):
+            continue
+        if '"F.CrtYd"' not in child and '"B.CrtYd"' not in child:
+            continue
+        if tag == "fp_circle":
+            m = _CIRCLE_RE.search(child)
+            assert m, f"{libname}:{modname}: fp_circle without center/end"
+            cx, cy, ex, ey = (float(g) for g in m.groups())
+            r = math.hypot(ex - cx, ey - cy)
+            xs += [cx - r, cx + r]
+            ys += [cy - r, cy + r]
+            continue
+        for m in _COORD_RE.finditer(child):
+            xs.append(float(m.group(1)))
+            ys.append(float(m.group(2)))
+    return (min(xs), min(ys), max(xs), max(ys)) if xs else None
+
+
 _REF_PROP_RE = re.compile(r'\(property\s+"Reference"\s+"([^"]*)"')
 
 
@@ -393,8 +435,12 @@ class Board:
     width: float
     height: float
     sch_filename: str = ""
+    # 2 or 4. Four adds In1.Cu and In2.Cu as plane layers between F.Cu and B.Cu (signal /
+    # plane / plane / signal). The default leaves the mule's two-layer file as it was.
+    copper_layers: int = 2
 
     def __post_init__(self):
+        assert self.copper_layers in (2, 4), "only 2- and 4-layer boards are generated"
         self.footprints_text: list[str] = []
         self.graphics_text: list[str] = []
         self.zones_text: list[str] = []
@@ -433,6 +479,12 @@ class Board:
         sch_uuid: str | None = None,
         layer: str = "F.Cu",
         ref_at: tuple[float, float] | None = None,
+        ref_angle: float | None = None,
+        sch_path: str | None = None,
+        sheetname: str = "/",
+        sheetfile: str | None = None,
+        dnp: bool = False,
+        board_only: bool = False,
     ) -> None:
         """Place one footprint instance at (x, y), rotated `rot` degrees.
 
@@ -445,6 +497,22 @@ class Board:
         coordinates. The default (just above the placed courtyard) is right for a part with
         clear space above it; a part deliberately tucked hard under another one has no such
         space and needs to say where its label goes instead.
+
+        The remaining keywords were added for the breakout board (2026-11-20) and each
+        defaults to what the mule has always had:
+
+        ref_angle: the Reference text's absolute angle. None keeps it turning with the part
+        (constraint 6), which is what pcbnew does. 0 keeps every label horizontal, so a
+        label box computed for one orientation holds for all four.
+
+        sch_path, sheetname, sheetfile: the schematic cross-link of a part on a child sheet.
+        `sch_path` is the whole `(path ...)` string, "/<sheet uuid>/<symbol uuid>"; the
+        flat-schematic form `sch_uuid` writes "/<symbol uuid>" on sheet "/".
+
+        dnp: mark the footprint do-not-populate, as its schematic symbol is.
+
+        board_only: a footprint with no schematic symbol (a mechanical hole), so that
+        "update PCB from schematic" and the parity check leave it alone.
         """
         pad_nets = pad_nets or {}
         lib_id = f"{libname}:{modname}"
@@ -485,10 +553,26 @@ class Board:
 
         kept: list[str] = []
         seen_pads: set[str] = set()
+        saw_attr = False
         for child in children:
             tag = _child_tag(child)
             if tag in _DROP_TAGS:
                 continue
+            if tag == "fp_text" and _LEGACY_FIELD_RE.match(child):
+                # A footprint written in the older style states its Reference and Value as
+                # `(fp_text reference "REF**" ...)` and `(fp_text value ...)` instead of
+                # as properties. Left in a placed instance, pcbnew reads the first as the
+                # footprint's reference field, AFTER the property this method writes, and
+                # the part comes back named REF**: `kicad-cli pcb upgrade` rewrote all 22
+                # of the breakout's BNC and MDR68 footprints that way, and DRC reported
+                # them as "Reference field of REF**". This repository's own generated
+                # footprints (hardware/lib/wl-sync.pretty) are the ones in that style; no
+                # stock footprint the mule places is, so the mule's file is unchanged.
+                continue
+            if tag == "attr" and (dnp or board_only):
+                extra = (" board_only" if board_only else "") + (" dnp" if dnp else "")
+                child = child[:-1] + extra + ")"
+                saw_attr = True
             if tag == "pad":
                 m = _PAD_NUM_RE.match(child)
                 assert m, f"{lib_id}: malformed pad block: {child[:60]!r}"
@@ -531,6 +615,9 @@ class Board:
                 child = _rewrite_at(child, px, py, ang or None)
             kept.append(child)
 
+        assert saw_attr or not (dnp or board_only), (
+            f"{lib_id}: no (attr ...) child to carry dnp/board_only for {ref}"
+        )
         missing = set(pad_nets) - seen_pads
         assert not missing, (
             f"{ref} ({lib_id}): pad_nets references pad(s) {sorted(missing)} that don't "
@@ -545,9 +632,10 @@ class Board:
         # docstring, constraint 6): pcbnew writes the footprint's own rotation on all four,
         # which is what makes a rotated part's silkscreen reference read along the part.
         prot = _fmt(rot % 360)
+        rprot = prot if ref_angle is None else _fmt(ref_angle % 360)
         props = (
             f'\t\t(property "Reference" "{ref}"\n'
-            f'\t\t\t(at {ref_x} {ref_y} {prot})\n'
+            f'\t\t\t(at {ref_x} {ref_y} {rprot})\n'
             f'\t\t\t(layer "F.SilkS")\n'
             f'\t\t\t(uuid "{uid()}")\n'
             f'\t\t\t(effects (font (size 0.8 0.8) (thickness 0.13)))\n'
@@ -575,7 +663,13 @@ class Board:
             f'\t\t)'
         )
         link = ""
-        if sch_uuid:
+        if sch_path:
+            link = (
+                f'\n\t\t(path "{sch_path}")'
+                f'\n\t\t(sheetname "{_escape(sheetname)}")'
+                f'\n\t\t(sheetfile "{_escape(sheetfile or self.sch_filename)}")'
+            )
+        elif sch_uuid:
             # Best-effort cross-link back to the schematic symbol instance, for pcbnew's
             # "Update PCB from Schematic" / cross-probing -- not required for DRC, the
             # ratsnest, or routing (net assignment on the pads above is what those actually
@@ -681,6 +775,93 @@ class Board:
             f'\t)'
         )
 
+    def edge_poly(self, pts: list[tuple[float, float]]) -> None:
+        """A closed polygon on Edge.Cuts, for a cutout that is not a rectangle (a slot that
+        steps to a narrower width under one part). Same containment rule as edge_rect():
+        enclosed by the outline, it is a milled cutout."""
+        body = " ".join(f"(xy {_fmt(x)} {_fmt(y)})" for x, y in pts)
+        self.graphics_text.append(
+            f'\t(gr_poly\n'
+            f'\t\t(pts {body})\n'
+            f'\t\t(stroke (width 0.15) (type default))\n'
+            f'\t\t(fill none)\n'
+            f'\t\t(layer "Edge.Cuts")\n'
+            f'\t\t(uuid "{uid()}")\n'
+            f'\t)'
+        )
+
+    def keepout_poly(
+        self, pts: list[tuple[float, float]], name: str,
+        layers: tuple[str, ...] = ("F.Cu", "B.Cu"),
+        tracks: bool = False, vias: bool = False, pour: bool = False,
+    ) -> None:
+        """A rule area of any outline. `tracks`, `vias` and `pour` say what is ALLOWED
+        inside it; the default allows none of the three, which is keepout_rect()'s
+        behaviour. Pads and footprints are always allowed: a part that straddles a barrier
+        has its pads inside the barrier's keep-out by design."""
+        def word(ok: bool) -> str:
+            return "allowed" if ok else "not_allowed"
+        layers_txt = " ".join(f'"{l}"' for l in layers)
+        body = " ".join(f"(xy {_fmt(x)} {_fmt(y)})" for x, y in pts)
+        self.zones_text.append(
+            f'\t(zone\n'
+            f'\t\t(net 0)\n'
+            f'\t\t(net_name "")\n'
+            f'\t\t(layers {layers_txt})\n'
+            f'\t\t(uuid "{uid()}")\n'
+            f'\t\t(name "{_escape(name)}")\n'
+            f'\t\t(hatch edge 0.5)\n'
+            f'\t\t(connect_pads (clearance 0))\n'
+            f'\t\t(min_thickness 0.254)\n'
+            f'\t\t(filled_areas_thickness no)\n'
+            f'\t\t(keepout\n'
+            f'\t\t\t(tracks {word(tracks)})\n'
+            f'\t\t\t(vias {word(vias)})\n'
+            f'\t\t\t(pads allowed)\n'
+            f'\t\t\t(copperpour {word(pour)})\n'
+            f'\t\t\t(footprints allowed)\n'
+            f'\t\t)\n'
+            f'\t\t(fill (thermal_gap 0.5) (thermal_bridge_width 0.5))\n'
+            f'\t\t(polygon\n'
+            f'\t\t\t(pts\n'
+            f'\t\t\t\t{body}\n'
+            f'\t\t\t)\n'
+            f'\t\t)\n'
+            f'\t)'
+        )
+
+    def drawing_rect(
+        self, x1: float, y1: float, x2: float, y2: float, layer: str, width: float = 0.15
+    ) -> None:
+        """An unfilled rectangle on a documentation layer (never copper, never Edge.Cuts):
+        the outline of something that is over the board but not on it."""
+        assert layer not in ("Edge.Cuts",) and not layer.endswith(".Cu"), layer
+        self.graphics_text.append(
+            f'\t(gr_rect\n'
+            f'\t\t(start {_fmt(x1)} {_fmt(y1)})\n'
+            f'\t\t(end {_fmt(x2)} {_fmt(y2)})\n'
+            f'\t\t(stroke (width {_fmt(width)}) (type default))\n'
+            f'\t\t(fill none)\n'
+            f'\t\t(layer "{layer}")\n'
+            f'\t\t(uuid "{uid()}")\n'
+            f'\t)'
+        )
+
+    def drawing_line(
+        self, x1: float, y1: float, x2: float, y2: float, layer: str, width: float = 0.15
+    ) -> None:
+        """A line on a documentation layer; see drawing_rect()."""
+        assert layer not in ("Edge.Cuts",) and not layer.endswith(".Cu"), layer
+        self.graphics_text.append(
+            f'\t(gr_line\n'
+            f'\t\t(start {_fmt(x1)} {_fmt(y1)})\n'
+            f'\t\t(end {_fmt(x2)} {_fmt(y2)})\n'
+            f'\t\t(stroke (width {_fmt(width)}) (type default))\n'
+            f'\t\t(layer "{layer}")\n'
+            f'\t\t(uuid "{uid()}")\n'
+            f'\t)'
+        )
+
     def silk_text(self, contents: str, x: float, y: float, size: float = 1.5, layer: str = "F.SilkS") -> None:
         """An on-board documentation note (e.g. the isolation-barrier warning silkscreened
         right next to the slot it describes)."""
@@ -700,6 +881,8 @@ class Board:
             f'\t(net {code} "{_escape(name)}")'
             for name, code in sorted(self.net_codes.items(), key=lambda kv: kv[1])
         )
+        if self.copper_layers == 4:
+            return self._render_four_layer(net_lines)
         return f"""(kicad_pcb
 \t(version 20241229)
 \t(generator "wl-sync-gen")
@@ -745,6 +928,64 @@ class Board:
 \t\t\t(copper_finish "None")
 \t\t\t(dielectric_constraints no)
 \t\t)
+\t\t(pad_to_mask_clearance 0)
+\t\t(allow_soldermask_bridges_in_footprints no)
+\t\t(tenting front back)
+\t)
+{net_lines}
+{chr(10).join(self.footprints_text)}
+{chr(10).join(self.graphics_text)}
+{chr(10).join(self.zones_text)}
+\t(embedded_fonts no)
+)
+"""
+
+    def _render_four_layer(self, net_lines: str) -> str:
+        """The same file as render()'s, with In1.Cu and In2.Cu declared as plane layers.
+
+        No `(stackup ...)` block is written, deliberately. The two-layer block above states
+        one dielectric, and its thickness follows from the board's: 1.6 less the copper and
+        the mask. A four-layer board has three dielectrics, and how 1.6 mm is divided among
+        them is the fabricator's build, which the breakout's sources do not give
+        (hardware/breakout/constraints.md, S-3 and Open question 8). pcbnew derives a
+        default stack-up from the layer count and `(general (thickness ...))` when a board
+        has none, and that default is not design data. Layer numbers are KiCad's own for
+        this file format: F.Cu 0, B.Cu 2, In1.Cu 4, In2.Cu 6.
+        """
+        return f"""(kicad_pcb
+\t(version 20241229)
+\t(generator "wl-sync-gen")
+\t(generator_version "10.0")
+\t(general
+\t\t(thickness 1.6)
+\t\t(legacy_teardrops no)
+\t)
+\t(paper "A2")
+\t(layers
+\t\t(0 "F.Cu" signal)
+\t\t(4 "In1.Cu" power)
+\t\t(6 "In2.Cu" power)
+\t\t(2 "B.Cu" signal)
+\t\t(9 "F.Adhes" user "F.Adhesive")
+\t\t(11 "B.Adhes" user "B.Adhesive")
+\t\t(13 "F.Paste" user)
+\t\t(15 "B.Paste" user)
+\t\t(5 "F.SilkS" user "F.Silkscreen")
+\t\t(7 "B.SilkS" user "B.Silkscreen")
+\t\t(1 "F.Mask" user)
+\t\t(3 "B.Mask" user)
+\t\t(17 "Dwgs.User" user "User.Drawings")
+\t\t(19 "Cmts.User" user "User.Comments")
+\t\t(21 "Eco1.User" user "User.Eco1")
+\t\t(23 "Eco2.User" user "User.Eco2")
+\t\t(25 "Edge.Cuts" user)
+\t\t(27 "Margin" user)
+\t\t(31 "F.CrtYd" user "F.Courtyard")
+\t\t(29 "B.CrtYd" user "B.Courtyard")
+\t\t(35 "F.Fab" user)
+\t\t(33 "B.Fab" user)
+\t)
+\t(setup
 \t\t(pad_to_mask_clearance 0)
 \t\t(allow_soldermask_bridges_in_footprints no)
 \t\t(tenting front back)

@@ -453,6 +453,27 @@ distributor evidence.
   Later schematic-capture and layout tasks can import either module directly rather than
   re-deriving the technique.
 
+  **The breakout's placement is generated the same way (layout task L4, 2026-11-20).**
+  `gen_breakout_pcb.py` writes `hardware/breakout/breakout.kicad_pcb`: the 430 × 240 mm
+  outline, four copper layers, the two isolation slots (the Intan one narrowing to 1.5 mm
+  under `C162`), all 567 netlist footprints placed with their nets, the barrier keep-outs
+  as rule areas, and the CM5 IO Board's outline and two standoff holes. It also writes the
+  net classes of `constraints.md` §4 into `breakout.kicad_pro` and three clearance rules
+  into `breakout.kicad_dru`. **It writes no track: routing is a person's**, for the reason
+  above. Panel connectors go at their panel positions, the parts that straddle a barrier
+  and every IC at stated coordinates, and the remaining 413 parts beside the part each
+  serves, searched for only inside its own ground domain's region.
+  `check_breakout_placement.py` is the check: every netlist reference placed once and on
+  its contract net, each panel connector at its position, no part in the wrong domain's
+  region, no copper in a slot. The generator runs it on its own output and writes nothing
+  if it fails; `tests/hardware/test_breakout_placement.py` runs it on the committed file,
+  with no KiCad needed. `hardware/breakout/placement.md` records where things are and
+  which positions are judgment. `kicad_pcb.py` gained, for this board: four-layer output,
+  polygon cutouts and rule areas, `footprint_courtyard_bbox()`, and `Board.place()`
+  keywords for a child sheet's path, DNP, board-only parts and horizontal reference text.
+  It also now drops a legacy `fp_text reference` from a placed footprint — see the
+  gotchas below.
+
 ## Custom connector footprints: TA/TB naming, sourcing, and confidence
 
 Four `wl-sync` footprints have no KiCad stock equivalent and were built from scratch:
@@ -1727,6 +1748,18 @@ generated — don't rediscover them.
   isolated-domain and `AGND`/`DGND`/`RWD_CMD`-vs-`RWD_DLVR` checks, use exactly that
   stronger form and need no per-part-class filtering at all.
 
+- **A footprint that states its reference as `(fp_text reference "REF**" ...)` loses its
+  reference when placed.** Found on the breakout board (2026-11-20). The four footprints in
+  `hardware/lib/wl-sync.pretty` are generated in the older style, with `fp_text reference`
+  and `fp_text value` children instead of properties. `Board.place()` copied them into the
+  placed instance after the `(property "Reference" "J20")` it writes, and pcbnew took the
+  later one: `kicad-cli pcb upgrade` re-saved all 22 BNC and MDR68 footprints as `REF**`.
+  DRC showed it only as "Reference field of REF**" in silkscreen warnings, and the
+  generator's own check passed, because it read the text before the upgrade. The placement
+  check run on the upgraded file caught it at once. `Board.place()` now drops both
+  children. The lesson is the recipe's order: check the file KiCad saved, not the one the
+  generator wrote.
+
 ## Byte-reproducibility
 
 Regenerating `mule.kicad_sch` or `mule.kicad_pcb` from the same generator and inputs
@@ -1812,6 +1845,24 @@ python3 hardware/gen/check_breakout_opto_intan_netlist.py hardware/breakout/brea
 python3 hardware/gen/check_breakout_control_usb_i2c_netlist.py hardware/breakout/breakout.net
 python3 hardware/gen/gen_breakout_netlist_contract.py                # hardware/breakout/netlist-contract.json -- run LAST, once every checker above has passed; commit this file alongside any sheet change (see "Whole-board netlist contract" above)
 ```
+
+For the breakout's board, once the netlist above is exported. **Do this only while the
+board is unrouted**: the generator writes the file whole, and refuses to overwrite a board
+with routed items unless given `--force`.
+
+```bash
+python3 hardware/gen/gen_breakout_pcb.py                             # breakout.kicad_pcb, and the net classes and rules in breakout.kicad_pro / breakout.kicad_dru; reads breakout.net and netlist-contract.json, and refuses if they disagree
+kicad-cli pcb upgrade hardware/breakout/breakout.kicad_pcb            # see "Format upgrade" below
+python3 hardware/gen/check_breakout_placement.py                     # on the UPGRADED file: the generator checks its own text, and only this checks what pcbnew made of it
+kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
+```
+
+Expected from DRC on the unrouted board: `unconnected_items`, 128 `copper_edge_clearance`
+(the SOIC-16 optocouplers' pads 0.25 mm from their slot, constraints B-11) and 28
+`silk_edge_clearance` (B-21, and the MDR68 outlines on the board edge); every other class
+0. `hardware/breakout/placement.md` §9 explains each. `gen_breakout.py` and the sheet
+generators rewrite `breakout.kicad_pro` as a stub, which drops the net classes: run
+`gen_breakout_pcb.py` after them, or the placement check fails on its item 7.
 
 Regenerating `breakout.kicad_sch` and any of its ten child sheets mints fresh UUIDs on
 every one of their own components too (same byte-reproducibility caveat below), which is
