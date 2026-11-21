@@ -86,10 +86,10 @@ Bring these:
   the monitor. Before the day, have their images built and the host tool installed, and
   rehearse with the fakes (`phase-1.md:38-63`). Have its seven scripts saved
   (`phase-1.md:64-344`), and the composed `mk_burst30.py` of step 15.
-  - **Its limit is gone, at wl-phantom `sub-us-tick` `c4a1252`** (or its merge into main,
+  - **Its limit is gone, at wl-phantom `sub-us-tick` `684d895`** (or its merge into main,
     once pushed). Before it the generator timed in whole µs: `StrobeTiming` held integers
     (wl-phantom `wl_phantom/render.py:86-88` at main `e142b14`), and `run` never passed a tick
-    but 1000 ns. From `c4a1252`, `run` takes `--tick-ns` and decimal `--width-us` and
+    but 1000 ns. From `684d895`, `run` takes `--tick-ns` and decimal `--width-us` and
     `--hold-us` (`phase-1.md` §3.2), which plays P0 item 5's 2.5 µs pass point and item 6's
     5.5 µs case (step 15). An older host tool refuses `--tick-ns`; install this one.
 - **Jumper wires,** female to female:
@@ -651,7 +651,7 @@ The sources:
 **How the generator holds a word.** It holds the data `width + hold` µs after the strobe
 rises (wl-phantom `wl_phantom/render.py`, `end = rise + width + hold`). The timings are whole
 numbers of the generator's tick, which is 1000 ns unless `--tick-ns` says otherwise; at
-`--tick-ns 500` they can be halves (wl-phantom `c4a1252`; the firmware takes any multiple of
+`--tick-ns 500` they can be halves (wl-phantom `684d895`; the firmware takes any multiple of
 125 ns, `firmware/generator/CMakeLists.txt:26-31`). A timing that is not a whole number of
 ticks is refused before anything plays, so a 1000 ns run still refuses 1.5. So:
 - 3.0 µs is `--width-us 1 --hold-us 2`, 2.5 µs is `--tick-ns 500 --width-us 1 --hold-us 1.5`,
@@ -721,28 +721,63 @@ Stop the recorder and copy its log to `runs/p0-log`, as in step 12. Then compare
 
 **The 6 µs line has no margin.** In wl-sync's simulator (`tests/piosim.py`, running
 `STROBE_CAPTURE`, with the rise stepped across the box's 1 µs test period in 40 phases), 30
-strobes 6.000 µs apart are captured whole at every phase, and 5.999 µs merges at one phase, 5.99
-µs at eleven, 5.5 µs at all forty (15 or 16 of 30 captured). Reproduced on 2026-11-21 with a short
-script over `tests.piosim.run` and `high_during`; the simulator's own merge tests are
-`tests/test_rp1_program.py:136` and `:142`. The generator's edges are exact on its own
-crystal, so on the box's clock its spacing is 6 µs × (1 + the generator's rate excess over
-RP1's crystal), and a generator that runs fast puts every pair a little under 6 µs.
-**[derived]** `p0-burst6` plays 50 bursts of 29 pairs, so it expects about 1450 × 6 µs × the
-excess merges: 0.09 at 10 ppm fast and 0.26 at 30 ppm, and none if the generator runs slow. So
-one rare merge at exactly 6 µs may be the model's prediction and not a box fault. Merges
-in many bursts are far more than the model predicts for any plausible crystal difference. Do not judge it against the run's `rate_ppm`: on a one-clock box
-that reads about 0 by construction (`phase-1.md:1007-1009`), whatever the crystals do. The
-generator's own rate against the box's clock is in the run's `truth.json`:
+strobes 6.000 µs apart are captured whole at every phase, 5.999 µs merges at one phase, 5.99 µs
+at eleven, and 5.5 µs at all forty (15 or 16 of 30 captured). Reproduced on 2026-11-21 with a
+short script over `tests.piosim.run` and `high_during`; the simulator's own merge tests are
+`tests/test_rp1_program.py:136` and `:142`.
 
-    .venv/bin/python -c "import json,sys; t=json.load(open(sys.argv[1])); print([round((t['tick_ns']*1e-9/p[2][1]-1)*1e6,2) for p in t['fit'][0]])" runs/p0-burst6/truth.json
+What a merge depends on **[derived]**:
+- The capture program tests the strobe on RP1's clock (`pio/strobe_capture.pio:63-64`), and the
+  generator's edges are exact on its own crystal. So the spacing the box sees is 6 µs / (1 + e)
+  ≈ 6 µs × (1 − e), where e is the generator's rate against RP1's crystal (positive: generator
+  fast). A fast generator puts every pair a little under 6 µs.
+- The simulator's phase result is linear: a burst's strobes drift across the 1 µs test period
+  by d, the shortfall from 6 µs, per pair, so a burst of 30 (29 pairs) merges at a fraction of
+  phases of about 29 × d / 1 µs. Check: d = 0.01 µs gives 0.29, the simulator 11/40 = 0.275;
+  d = 0.001 µs gives 0.029, the simulator 1/40 = 0.025.
+- `p0-burst6` plays 50 bursts, so 50 × 29 = 1450 pairs. With d = 6 µs × e × 10⁻⁶ (e in ppm):
+  expected merges = 1450 × 6 × 10⁻⁶ × e = **0.0087 × e**. At e = +10 ppm that is 0.09, and at
+  +30 ppm it is 0.26.
 
-That prints, for each 10-minute piece of the truth's clock fit, the generator's ppm fast
-against the box's barcode clock, as the box's log scales its ticks **[derived]**. The two crystals' tolerances were not read from a
-datasheet **[unverified]**. This does not weaken item 6's pass line. It means the contract's
-"at least 6 µs" (`wl_sync/rp1/backend.py:1017-1024`) has no headroom, which matters to
-wl-xcon and MonkeyLogic.
+**Reading rule.** Compute e after `p0-burst6`. If e ≤ 0, any merge at 6 µs is a box fault.
+Otherwise about 0.0087 × e merges are expected in the run, so one rare merge is consistent with
+e of about 10 ppm or more, and merges in many bursts are not consistent with any plausible e.
+Do not use `rate_ppm`: on a one-clock box it reads about 0 by construction
+(`phase-1.md:1007-1009`), whatever the crystals do. And the generator's rate against barcode
+seconds, *g*, is not e on its own. Barcode seconds are the box's NTP-disciplined
+CLOCK_MONOTONIC seconds, not RP1's crystal's (`wl_sync/cli.py:422-426`;
+`wl_sync/rp1/backend.py:1607-1622`) and not scaled by the PIO rate, which scales only the
+box's tick numbers (`wl_sync/log.py:288-294`). e = g − p, where p is RP1's rate against the
+same barcode seconds, taken from the box's own `B` records. Both are against the same frames,
+so NTP's frequency cancels.
 
-**Open.** Items 5 and 6 need wl-phantom at the `sub-us-tick` commit `c4a1252`, or its merge
+To compute it, take `RATE_PPB` from the recorder's start line in its journal,
+`applying the PIO rate calibration … %+d ppb` (`wl_sync/cli.py:531-540`; use 0 if the start
+warned `no usable PIO rate calibration`, `:525-529`):
+
+    grep -E "PIO rate calibration" /tmp/wl-phantom/rig0-p0.err
+
+Then, with the run's `truth.json` and the copied log (one command, per 10-minute piece of the
+truth's fit; it drops the first `B`, which is emitted at start, off the grid):
+
+    .venv/bin/python -c "$(cat <<'EOF'
+    import json,sys; from pathlib import Path; from statistics import linear_regression as lr; from wl_sync.log import iter_records, BarcodeEmitted; t=json.load(open(sys.argv[1])); r=int(sys.argv[2]); b=[(x.value,x.tick_us) for s in sys.argv[3:] for x in iter_records(Path(s)) if isinstance(x,BarcodeEmitted)][1:]; out=[]
+    for lo,hi,f in t['fit'][0]: g=(t['tick_ns']*1e-9/f[1]-1)*1e6; w=[(v,k) for v,k in b if lo<=v<=hi]; p=(lr([v for v,_ in w],[k for _,k in w]).slope*(1+r*1e-9)/1e6-1)*1e6; out.append((round(g,2),round(p,2),round(g-p,2)))
+    print("(generator ppm, RP1 ppm, generator fast over RP1 ppm) per piece:", out)
+    EOF
+    )" runs/p0-burst6/truth.json RATE_PPB $(find runs/p0-log -name 'seg-*.log' | sort)
+
+It prints g, p and e for each piece. Tested on the fakes on 2026-11-21, with `RATE_PPB` 0: a
+generator and an RP1 both at +20 ppm print e = 0.0, a generator alone at +20 prints e = +20.0,
+and +30 against +10 prints +20.0. A nonzero `RATE_PPB` is not tested. Its limits: it assumes
+one recorder process, as step 15 runs it; it is meaningless on a `split` domain, which
+`--expect-timebase one-count` already warns of; and if an NTP step of the wall clock is logged
+during the run, use only the frames after it (`wl_sync/cli.py:816-826`). The two crystals'
+tolerances were not read from a datasheet **[unverified]**. None of this weakens item 6's pass
+line. It means the contract's "at least 6 µs" (`wl_sync/rp1/backend.py:1017-1024`) has no
+headroom, which matters to wl-xcon and MonkeyLogic.
+
+**Open.** Items 5 and 6 need wl-phantom at the `sub-us-tick` commit `684d895`, or its merge
 once it is pushed (Bring these). "Confirm that the task PC holds its code ≥ 2.5 µs
 **[unverified]**" (plan `:1890`; README `:519-522`). The 2.5 µs pass shows that the box reads
 right when the code is held that long. Whether the task PC holds it that long is for the task
@@ -960,7 +995,7 @@ notes. That means all of these:
 - **The ±100 µs gate:** steps 12 and 13 passed.
 - **P0's own pass,** since "A failure stops Task 5b and this design" (plan `:1894`): "items
   3, 5, 6 and 7". Items 5 and 6 are open until step 15's 2.5 µs and 5.5 µs runs have been played, which
-  needs wl-phantom at `sub-us-tick` `c4a1252` or its merge (Bring these). What happens then
+  needs wl-phantom at `sub-us-tick` `684d895` or its merge (Bring these). What happens then
   is your call.
 
 **Also confirm with wl-preproc first** that its small follow-up, which it asked for "after its
