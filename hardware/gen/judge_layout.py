@@ -100,8 +100,29 @@ BAND_W = cbp.BAND_MM                                 # 2.5, B-7
 READINGS = {
     "G-10": "\"one corridor ... as close to NT1 as the floorplan allows\": every crossing "
             "lies on x = 170 between y = 50 and 165, the stretch floorplan.md §3.3 and "
-            "routing-brief.md §4.3 expect; a filled pour island that spans the line counts "
-            "as one crossing of its net",
+            "routing-brief.md §4.3 expect; \"one corridor\": sorted by y, no two successive "
+            "crossings more than 5 mm apart (about ten tracks at the 0.2 mm width and gap); a "
+            "filled pour island that spans the line counts as one crossing of its net",
+    "K-4": "\"the shortest path inside their own islands\": BARCODE_NI's copper inside the "
+           "NI region and BARCODE_INTAN/_BNC's inside the Intan region, each at most 1.5 x "
+           "its MST (SHORT); \"clear of INTAN_AO* and the INA105s\": no Intan barcode track "
+           "within 2.5 mm (the B-7 band) of INTAN_AO* copper or an INA105 pad",
+    "G-20": "\"R224 is placed at J19\": an R224 pad within 10 mm of a J19 shell pad",
+    "S-7": "S-6 puts the four grounds on L2 and S-7 the rails on L3: a plane net's pour on "
+           "In1.Cu/In2.Cu must be on that layer (outer-layer areas such as P-6's and P-12's "
+           "are allowed); every plane-net fill lies inside its domain's REGIONS rectangles",
+    "P-5": "\"at the pins\": the nearest same-net pads of each of C11/C14 (U3), C17/C20 (U4) "
+           "and of the FB and NR/SS parts within 6 mm of the LDO's pin (the placement has "
+           "5.25 mm at most)",
+    "K-35": "\"a 100 nF bypass sits at each optocoupler supply pin pair\": for each "
+            "ACSL-6400's pairs 10/9 and 15/16, its own capacitor on that rail and ground with "
+            "each pad within 5 mm of its pin and joined to it (KiCad's own connectivity, by "
+            "track or plane)",
+    "B-13-ALL": "routing-brief.md §4.1: \"every straddler pad is left from its outer end\": "
+                "no track end inside a straddler's pad nearer its barrier line than the "
+                "pad's centre",
+    "FIXED": "the reference is --reference, else --baseline, else the board as committed "
+             "on main; never the working-tree file, which is the routed board itself",
     "K-2": "\"barcode-family net\": every net named BARCODE_* or CAM_SYNC_* (constraints "
            "§5.1 cites NET:1883-1931 and 1996-2028, which hold all 21), not only the 13 "
            "routing-brief §4.4 lists; \"enters, over or under\": any of its copper "
@@ -119,15 +140,19 @@ READINGS = {
             "unconnected-*, since the netlist does not mark which are NI ground pins",
     "SHORT": "\"short\" / \"as short as placement allows\": routed track length of the net "
              "at most 1.5 x the octilinear minimum spanning tree of its pads",
-    "N-4": "\"symmetric copper\": pins 8 and 14 each reach the NI_5V pour by track paths "
-           "whose lengths differ by at most 1.0 mm, through the same number of vias and "
-           "the same narrowest width",
-    "N-1": "\"+5V from D3 to its plane\": every track reachable from D3 pad 1 through "
-           "tracks and vias before the first contact with a pour",
+    "N-4": "\"symmetric copper\": pins 8 and 14 joined by NI_5V pours on the same layers, "
+           "and the tracks hanging off each (through tracks and vias, up to a pour contact) "
+           "within 1.0 mm in total length, with the same narrowest width and via count",
+    "N-1": "\"+5V from D3 to its plane\": its plane is its pour on In2.Cu (S-7, L3); every "
+           "track reachable from D3 pad 1 through tracks, vias and outer-layer pours of the "
+           "net before that plane; an outer-layer pour on the way is NOT CHECKED (its "
+           "width is not measured)",
     "N-10": "squares along the least-squares copper path from D3 pad 1 to each 249 ohm "
-            "LED resistor on +5V: track length/width, plus ln(d/0.3 mm)/pi for each "
-            "stretch through a pour (two 0.3 mm contacts in an unbroken sheet); vias add "
-            "nothing",
+            "LED resistor on +5V: track length/width (vias add nothing), plus, for each "
+            "crossing of a pour, a LOWER bound: the larger of ln(d/0.3 mm)/pi (an unbounded "
+            "sheet) and the integral of dt/L(t) over the pour's cross-sections. A path over "
+            "83 on that bound FAILs; a track-only path at most 83 PASSes (a single path is an "
+            "upper bound); a path through a pour at most 83 is NOT CHECKED",
     "B-13": "\"shortest trace\": a track-only path no longer than the pads' straight "
             "distance plus 2.0 mm; \"from the outer end\": every track end inside "
             "C162 pads 1 and 2 and U63 pads 2 and 4 no nearer y = 165 than the pad centre",
@@ -499,12 +524,18 @@ class NetGraph:
         vias = model.vias_of(net)
         pads = [p for p in model.pads if p.net == net]
 
-        def node(k, x, y):
+        self.rad = []          # a node's contact radius: half a track's width, a via's or
+                               # a pad's half-extent, for the pour bounds of N-10
+
+        def node(k, x, y, r=0.0):
             if k not in self.key:
                 self.key[k] = len(self.xy)
                 self.xy.append((x, y))
                 self.adj.append([])
-            return self.key[k]
+                self.rad.append(r)
+            i = self.key[k]
+            self.rad[i] = max(self.rad[i], r)
+            return i
 
         def edge(a, b, length, w, kind):
             self.adj[a].append((b, length, w, kind))
@@ -512,8 +543,8 @@ class NetGraph:
 
         ends = []  # (node, layer, x, y, w)
         for s in segs:
-            a = node(("e", s.layer, round(s.x1, 4), round(s.y1, 4)), s.x1, s.y1)
-            b = node(("e", s.layer, round(s.x2, 4), round(s.y2, 4)), s.x2, s.y2)
+            a = node(("e", s.layer, round(s.x1, 4), round(s.y1, 4)), s.x1, s.y1, s.w / 2)
+            b = node(("e", s.layer, round(s.x2, 4), round(s.y2, 4)), s.x2, s.y2, s.w / 2)
             edge(a, b, s.length, s.w, "track")
             ends.append((a, s.layer, s.x1, s.y1, s.w))
             ends.append((b, s.layer, s.x2, s.y2, s.w))
@@ -531,7 +562,7 @@ class NetGraph:
                         edge(n, b, (1 - t) * s.length, s.w, "track")
         self.via_nodes = []
         for i, v in enumerate(vias):
-            vn = node(("v", i), v.x, v.y)
+            vn = node(("v", i), v.x, v.y, v.r)
             self.via_nodes.append(vn)
             for n, ln, x, y, w in ends:
                 if ln in v.layers and math.hypot(x - v.x, y - v.y) <= v.r + 1e-3:
@@ -539,7 +570,7 @@ class NetGraph:
         self.pad_node = {}
         pad_nodes = []
         for p in pads:
-            pn = node(("p", p.ref, p.num, round(p.x, 4), round(p.y, 4)), p.x, p.y)
+            pn = node(("p", p.ref, p.num, round(p.x, 4), round(p.y, 4)), p.x, p.y, p.reach)
             self.pad_node.setdefault((p.ref, p.num), pn)
             pad_nodes.append((p, pn))
             reach = p.reach
@@ -578,8 +609,9 @@ class NetGraph:
     def pad(self, ref, num):
         return self.pad_node.get((ref, num))
 
-    def shortest(self, sources, targets=None, use_zones=True, weight="length"):
-        """Dijkstra. Returns (dist, parent) where parent[n] = (prev, kind, width)."""
+    def shortest(self, sources, targets=None, use_zones=True, weight="length", hop=None):
+        """Dijkstra. Returns (dist, parent) where parent[n] = (prev, kind, width).
+        `hop(island, u, v, d)` replaces the cost of crossing a pour (squares only)."""
         dist = {}
         parent = {}
         heap = [(0.0, s) for s in sources]
@@ -610,7 +642,7 @@ class NetGraph:
             ux, uy = self.xy[u]
             for zi in self.zone_of.get(u, []):
                 e = zone_entry.get(zi)
-                if e is not None:
+                if e is not None and hop is None:
                     ex, ey = self.xy[e[0]]
                     if d >= e[1] + self._zcost(math.hypot(ux - ex, uy - ey), weight) - 1e-9:
                         continue  # reached through the pour already; nothing to improve
@@ -620,7 +652,9 @@ class NetGraph:
                     if v == u:
                         continue
                     vx, vy = self.xy[v]
-                    nd = d + self._zcost(math.hypot(ux - vx, uy - vy), weight)
+                    dd = math.hypot(ux - vx, uy - vy)
+                    nd = d + (hop(zi, u, v, dd) if hop is not None and weight != "length"
+                              else self._zcost(dd, weight))
                     if nd < dist.get(v, float("inf")):
                         dist[v] = nd
                         parent[v] = (u, "pour", zi)
@@ -646,7 +680,10 @@ class NetGraph:
 
 
 # ---------------------------------------------------------------------------------------
-# Results
+# Results. A layer-2 check is a list of CLAUSES, one per thing its rule asks; each clause
+# is PASS, FAIL, N/A or NOT CHECKED with its own evidence. The check is FAIL if any clause
+# fails, else NOT CHECKED if any clause could not be checked, else PASS if any passed,
+# else N/A. A check whose nets are absent or unrouted is N/A as a whole.
 # ---------------------------------------------------------------------------------------
 class Result:
     def __init__(self, rid, title, layer):
@@ -654,29 +691,68 @@ class Result:
         self.status = NA
         self.evidence: list[str] = []
         self.reading = None
-        self.note = None
+        self.clauses: list[dict] = []
+        self.whole = None   # a status for the whole check (N/A, or a crash)
 
     def set(self, status, *evidence):
+        """A gate's status, or a whole-check status (N/A: nets absent or unrouted)."""
         self.status = status
+        self.whole = status
         self.evidence.extend(evidence)
+        return self
+
+    def clause(self, name, status, *evidence):
+        self.clauses.append({"clause": name, "status": status, "evidence": list(evidence)})
+        return status
+
+    def finish(self):
+        if self.whole is not None or not self.clauses:
+            return self
+        st = [c["status"] for c in self.clauses]
+        self.status = (FAIL if FAIL in st else NOT_CHECKED if NOT_CHECKED in st
+                       else PASS if PASS in st else NA)
         return self
 
     def as_dict(self):
         d = {"id": self.id, "title": self.title, "status": self.status,
              "evidence": self.evidence}
+        if self.clauses:
+            d["clauses"] = self.clauses
         if self.reading:
             d["judges_reading"] = self.reading
-        if self.note:
-            d["note"] = self.note
         return d
 
 
+GAP_MM = 5.0        # G-10 [judge's reading]: no gap wider than this inside the corridor
+AT_PINS_MM = 6.0    # P-5 [judge's reading]: "at the pins"
+AT_J19_MM = 10.0    # G-20 [judge's reading]: "R224 is placed at J19"
+K35_MM = 5.0        # K-35 [judge's reading]: "sits at each supply pin pair"
+CLEAR_MM = BAND_W   # K-4 [judge's reading]: "clear of INTAN_AO* and the INA105s"
+NEAR_TIE_MM = 10.0  # G-4, G-5, G-6 [judge's reading]
+
+# Rules that bear on routing and that layer 2 does not judge, printed with every run so
+# that "every check PASS or N/A" is not read as "every rule met".
+NOT_JUDGED = [
+    ("DRC", "B-5 to B-9, B-14, B-23 (slots, keep-outs, bands), N-1 to N-8 class widths, "
+            "N-11 to N-14, S-5, X-7: by DRC with the rules loaded (layer 1)"),
+    ("PLACEMENT", "K-5 to K-8, K-14, K-17, K-25 to K-28, K-30, K-31, K-34, K-36, K-37, "
+                  "P-1, P-7, P-9, P-13, P-14, G-2, G-12 to G-15, G-21 to G-23, B-10 to "
+                  "B-12, B-19, M-*: placement, held by the PLACEMENT gate only as far as "
+                  "check_breakout_placement.py checks it"),
+    ("a person", "K-1/K-3 (undecided, Open question 2), K-4's DGND-side clause, K-9, "
+                 "K-12, K-15, K-18 to K-22, K-24, K-29, K-32, P-4, P-6, P-10, P-12, G-8, "
+                 "G-24, X-9, X-10, V-4: not implemented"),
+]
+
+
 class Judge:
-    def __init__(self, model: Model, contract: dict, nets_filter=None, region=None):
+    def __init__(self, model: Model, contract: dict, nets_filter=None, region=None,
+                 reference=None):
         self.m = model
         self.contract = contract
         self.nets_filter = nets_filter
         self.region = region
+        self.reference = reference      # (label, text) for FIXED
         self.dom = cbp.derive_domains(contract)
         self.net_dom = self.dom["net_dom"]
         present = set(model.pad_nets)
@@ -684,6 +760,7 @@ class Judge:
             present &= nets_filter
         self.present = present
         self.results: list[Result] = []
+        self._edges = {}
 
     # nets' state for the N/A rule
     def state(self, nets):
@@ -710,71 +787,88 @@ class Judge:
         try:
             fn(r)
         except Exception as e:  # a check that crashes is not a pass
-            r.status = NOT_CHECKED
-            r.evidence.append(f"the check raised {type(e).__name__}: {e}")
-        self.results.append(r)
+            r.whole = None
+            r.clause("the check ran", NOT_CHECKED, f"it raised {type(e).__name__}: {e}")
+        self.results.append(r.finish())
         return r
 
     def fp_xy(self, ref):
         f = self.m.fps.get(ref)
         return None if f is None else (mm(f.GetPosition().x), mm(f.GetPosition().y))
 
+    def in_region(self, p):
+        if self.region is None:
+            return True
+        x0, y0, x1, y1 = self.region
+        return x0 <= p.x <= x1 and y0 <= p.y <= y1
+
+    @staticmethod
+    def verdict(bad):
+        return FAIL if bad else PASS
+
     # ===================================================================================
     # Layer 2
     # ===================================================================================
     def run_rules(self):
-        self.add("G-10", "Only G-11's nets cross the AGND/DGND split, once each, in the "
-                 "corridor near NT1", self.g10, "G-10")
-        self.add("K-2", "No barcode-family net enters, overlies or underlies the AGND "
-                 "region", self.k2, "K-2")
-        self.add("G-1", "AGND and DGND join at NT1 only", self.g1, "G-1")
-        self.add("G-3", "FAN_RTN, CHASSIS_GND, ISO_5V_RTN: one tie each, never flooded "
-                 "into their plane", self.g3, "G-3")
-        self.add("G-4", "NT2 at the inlet beside NT1", self.g4, "G-4")
-        self.add("G-5", "NT3 at the star; J56 reaches it by a dedicated trace", self.g5, "G-5")
-        self.add("G-6", "NT4 at U63's secondary pins; ISO_5V_RTN has its five pins",
-                 self.g6, "G-6")
-        self.add("G-7", "The four net ties are NetTie-2_SMD_Pad2.0mm as drawn", self.g7)
-        self.add("G-16", "J2/J36: no copper on any unused (ground) pin; pin 62 on AGND",
-                 self.g16, "G-16")
-        self.add("G-17", "AO_GND_TPC is a trace only: no pour carries or touches it",
-                 lambda r: self.no_pour(r, ["AO_GND_TPC"]))
-        self.add("G-18", "The ten *_SHLD nets: no pour on or touching them",
-                 lambda r: self.no_pour(r, SHIELD_NETS))
-        self.add("G-19", "ACCESIO_AGND kept out of every pour",
-                 lambda r: self.no_pour(r, ["ACCESIO_AGND"]))
-        self.add("G-20", "ACCESIO_SHELL: no pour on or touching J19's shell pads",
-                 lambda r: self.no_pour(r, ["ACCESIO_SHELL"]))
-        self.add("X-6", "BNC post-mount pads: every net and pour clear by 0.2 mm", self.x6)
-        self.add("P-5", "U3/U4 pin 7 gets no copper; FB and NR/SS traces short", self.p5,
-                 "SHORT")
-        self.add("P-8", "U63_VIN: one short F.Cu trace, no via, no pour", self.p8, "SHORT")
-        self.add("K-11", "A_PD1_CLAMP, A_PD2_CLAMP: F.Cu only, no via, short", self.k11,
-                 "SHORT")
-        self.add("N-4", "J45: both NI_5V pins with symmetric copper, all twelve NI_GND "
-                 "pins used", self.n4, "N-4")
-        self.add("N-1", "+5V from D3 to its plane at least 1.0 mm",
-                 lambda r: self.partial_width(r, "D3", "1", "+5V", 1.0), "N-1")
-        self.add("N-2", "-12V from D2 to its plane at least 0.8 mm",
-                 lambda r: self.partial_width(r, "D2", "2", "-12V", 0.8), "N-1")
-        self.add("N-10", "+5V: at most 83 squares from D3 to the farthest LED resistor",
-                 self.n10, "N-10")
-        self.add("B-13", "C162 and U63: shortest traces, left from the pads' outer ends",
-                 self.b13, "B-13")
-        self.add("B-16", "No Intan copper at U2/U63's primary pins, no DGND copper under "
-                 "their secondary pins", self.b16, "B-16")
-        self.add("B-17", "Only the sixteen MUX_OUTn/AGND traces cross the AGND/Intan line",
-                 self.b17)
-        self.add("B-18", "Each MUX_OUTn beside its own AGND sense trace, equal lengths",
-                 self.b18, "B-18")
-        self.add("N-9", "USB pair coupled, matched, over unbroken DGND; J18 pin 1 bare",
-                 self.n9, "N-9")
-        self.add("K-33", "Paralleled LED-driver outputs join by short, equal traces",
-                 self.k33, "K-33")
-        self.add("K-23", "The three /1-/2 dividers' legs laid out symmetrically", self.k23,
-                 "K-23")
-        self.add("FIXED", "Panel connectors, straddlers, NT1, J1, slots and rule areas "
-                 "unmoved (routing-brief §1, §5)", self.fixed)
+        A = self.add
+        A("G-10", "Only G-11's nets cross the AGND/DGND split, once each, in one corridor "
+          "near NT1", self.g10, "G-10")
+        A("K-2", "No barcode-family net enters, overlies or underlies the AGND region",
+          self.k2, "K-2")
+        A("K-4", "The isolated barcode nets: inside their islands, short, clear of the "
+          "Intan outputs", self.k4, "K-4")
+        A("G-1", "AGND and DGND join at NT1 only", self.g1, "G-1")
+        A("G-3", "FAN_RTN, CHASSIS_GND, ISO_5V_RTN: one tie each, never flooded into "
+          "their plane", self.g3, "G-3")
+        A("G-4", "NT2 at the inlet beside NT1", self.g4, "G-4")
+        A("G-5", "NT3 at the star; J56 reaches it by a dedicated trace", self.g5, "G-5")
+        A("G-6", "NT4 at U63's secondary pins; ISO_5V_RTN has its five pins", self.g6, "G-6")
+        A("G-7", "The four net ties are NetTie-2_SMD_Pad2.0mm as drawn", self.g7)
+        A("G-16", "J2/J36: no copper on any unused (ground) pin; pin 62 on AGND",
+          self.g16, "G-16")
+        A("G-17", "AO_GND_TPC is a trace only: no pour carries or touches it",
+          lambda r: self.no_pour(r, ["AO_GND_TPC"]))
+        A("G-18", "The ten *_SHLD nets: no pour on or touching them",
+          lambda r: self.no_pour(r, SHIELD_NETS))
+        A("G-19", "ACCESIO_AGND kept out of every pour",
+          lambda r: self.no_pour(r, ["ACCESIO_AGND"]))
+        A("G-20", "ACCESIO_SHELL: no pour on or touching J19's shell pads; R224 at J19",
+          self.g20, "G-20")
+        A("S-7", "Plane nets poured on their own layer (S-6, S-7) and inside their own "
+          "domain's region", self.s7, "S-7")
+        A("X-6", "BNC post-mount pads: every net and pour clear by 0.2 mm", self.x6)
+        A("P-5", "U3/U4: pin 7 bare; FB and NR/SS short; capacitors and FB/NR parts at "
+          "the pins", self.p5, "P-5")
+        A("P-8", "U63_VIN: one short F.Cu trace, no via, no pour, no +5V contact",
+          self.p8, "SHORT")
+        A("K-11", "A_PD1_CLAMP, A_PD2_CLAMP: F.Cu only, no via, short", self.k11, "SHORT")
+        A("K-35", "A bypass capacitor at each optocoupler's isolated supply pin pair",
+          self.k35, "K-35")
+        A("N-4", "J45: both NI_5V pins with symmetric copper, all twelve NI_GND pins used",
+          self.n4, "N-4")
+        A("N-1", "+5V from D3 to its L3 plane at least 1.0 mm",
+          lambda r: self.partial_width(r, "D3", "1", "+5V", 1.0), "N-1")
+        A("N-2", "-12V from D2 to its L3 plane at least 0.8 mm",
+          lambda r: self.partial_width(r, "D2", "2", "-12V", 0.8), "N-1")
+        A("N-10", "+5V: at most 83 squares from D3 to the farthest LED resistor",
+          self.n10, "N-10")
+        A("B-13", "C162 and U63: shortest traces, left from the pads' outer ends",
+          self.b13, "B-13")
+        A("B-13-ALL", "Every straddler pad left from its outer end (routing-brief §4.1)",
+          self.b13_all, "B-13-ALL")
+        A("B-16", "No Intan copper at U2/U63's primary pins, no DGND copper under their "
+          "secondary pins", self.b16, "B-16")
+        A("B-17", "Only the sixteen MUX_OUTn/AGND traces cross the AGND/Intan line",
+          self.b17)
+        A("B-18", "Each MUX_OUTn beside its own AGND sense trace, equal lengths",
+          self.b18, "B-18")
+        A("N-9", "USB pair coupled, matched, over unbroken DGND; J18 pin 1 bare",
+          self.n9, "N-9")
+        A("K-33", "Paralleled LED-driver outputs join by short, equal traces", self.k33,
+          "K-33")
+        A("K-23", "The three /1-/2 dividers' legs laid out symmetrically", self.k23, "K-23")
+        A("FIXED", "Panel connectors, straddlers, NT1, J1, slots and rule areas as in the "
+          "reference (routing-brief §1, §5)", self.fixed, "FIXED")
 
     # -- G-10 ----------------------------------------------------------------------------
     def split_crossings(self):
@@ -794,8 +888,23 @@ class Judge:
                 c.BooleanIntersection(strip)
                 if c.Area() > 0:
                     b = poly_bbox(c)
-                    out.append((i.net, i.layer, (b[1] + b[3]) / 2, f"pour y {b[1]:.1f}-{b[3]:.1f}"))
+                    out.append((i.net, i.layer, (b[1] + b[3]) / 2,
+                                f"pour y {b[1]:.1f}-{b[3]:.1f}"))
         return out
+
+    def corridor(self):
+        """The split crossings as a corridor: its span and distances from NT1 (layer 3)."""
+        xs = self.split_crossings()
+        nt1 = self.fp_xy("NT1") or (170.0, 94.5)
+        if not xs:
+            return {"crossings": 0}
+        ys = sorted(y for _, _, y, _ in xs)
+        gaps = [b - a for a, b in zip(ys, ys[1:])]
+        return {"crossings": len(xs), "span_y": [round(ys[0], 2), round(ys[-1], 2)],
+                "span_mm": round(ys[-1] - ys[0], 2),
+                "widest_gap_mm": round(max(gaps), 2) if gaps else 0.0,
+                "nearest_to_NT1_mm": round(min(abs(y - nt1[1]) for y in ys), 2),
+                "farthest_from_NT1_mm": round(max(abs(y - nt1[1]) for y in ys), 2)}
 
     def g10(self, r):
         xs = self.split_crossings()
@@ -805,24 +914,39 @@ class Judge:
         per = {}
         for net, ln, y, kind in xs:
             per.setdefault(net, []).append((ln, y, kind))
-        bad = []
-        for net, lst in sorted(per.items()):
-            for ln, y, kind in lst:
-                where = f"{net} on {ln} at (170, {y:.2f}) [{kind}], {abs(y - nt1[1]):.1f} mm from NT1"
-                if net not in G11_NETS:
-                    bad.append(f"not a G-11 net: {where}")
-                elif not (CORRIDOR_Y[0] <= y <= CORRIDOR_Y[1]):
-                    bad.append(f"outside the corridor y {CORRIDOR_Y[0]:.0f}-{CORRIDOR_Y[1]:.0f}: {where}")
-            if net in G11_NETS and len(lst) > 1:
-                bad.append(f"{net} crosses {len(lst)} times: "
-                           + ", ".join(f"{ln} y={y:.2f}" for ln, y, _ in lst))
-        if xs:
-            ys = [y for _, _, y, _ in xs]
-            r.evidence.append(f"{len(xs)} crossings by {len(per)} nets, y {min(ys):.1f} to "
-                              f"{max(ys):.1f}; farthest from NT1 {max(abs(y - nt1[1]) for y in ys):.1f} mm")
-        r.set(FAIL if bad else PASS, *bad)
 
-    # -- K-2 -----------------------------------------------------------------------------
+        def where(net, ln, y, kind):
+            return f"{net} on {ln} at (170, {y:.2f}) [{kind}], {abs(y - nt1[1]):.1f} mm from NT1"
+        foreign = [where(n, *c) for n, lst in sorted(per.items()) for c in lst if n not in G11_NETS]
+        r.clause("only G-11 nets cross", self.verdict(foreign), *(foreign or [
+            f"{len(xs)} crossings by {len(per)} nets, all in G-11"]))
+        twice = [f"{n} crosses {len(lst)} times: " + ", ".join(f"{ln} y={y:.2f}" for ln, y, _ in lst)
+                 for n, lst in sorted(per.items()) if n in G11_NETS and len(lst) > 1]
+        r.clause("each G-11 net crosses once", self.verdict(twice), *twice)
+        out = [where(n, *c) for n, lst in sorted(per.items()) for c in lst
+               if not CORRIDOR_Y[0] <= c[1] <= CORRIDOR_Y[1]]
+        r.clause(f"every crossing at y {CORRIDOR_Y[0]:.0f} to {CORRIDOR_Y[1]:.0f}",
+                 self.verdict(out), *out)
+        cor = self.corridor()
+        ys = sorted(y for _, _, y, _ in xs)
+        gaps = [(b - a, a, b) for a, b in zip(ys, ys[1:]) if b - a > GAP_MM]
+        r.clause(f"one corridor: no gap over {GAP_MM} mm between crossings",
+                 self.verdict(gaps),
+                 *([f"gap of {g:.2f} mm between y = {a:.2f} and {b:.2f}" for g, a, b in gaps]
+                   + ([f"span y {cor['span_y'][0]} to {cor['span_y'][1]} "
+                       f"({cor['span_mm']} mm), {cor['nearest_to_NT1_mm']} to "
+                       f"{cor['farthest_from_NT1_mm']} mm from NT1"] if xs else
+                      ["nothing crosses x = 170"])))
+
+    # -- K-2, K-4 ------------------------------------------------------------------------
+    def outside(self, item_poly, bb, domain):
+        """Area of a copper item outside a domain's region rectangles, in mm2."""
+        p = item_poly()
+        total = p.Area() / 1e12
+        inside = sum(overlap_mm2(p, rect_poly(*rc)) for rc in cbp.REGIONS[domain]
+                     if bbox_hit(bb, rc))
+        return total - inside
+
     def k2(self, r):
         fam = sorted(n for n in self.contract["nets"]
                      if n.startswith("BARCODE_") or n.startswith("CAM_SYNC_"))
@@ -837,112 +961,147 @@ class Judge:
                     if a > 1e-4:
                         bad.append(f"{item!r} on {ln}: {a:.3f} mm2 inside AGND {rc}")
                         break
-        r.set(FAIL if bad else PASS, *(bad or [f"{len(fam)} nets checked, no copper in AGND"]))
+        r.clause("no barcode copper in AGND", self.verdict(bad),
+                 *(bad or [f"{len(fam)} nets checked, no copper in AGND"]))
+
+    def k4(self, r):
+        home = {"BARCODE_NI": "NI", "BARCODE_INTAN": "INTAN", "BARCODE_INTAN_BNC": "INTAN"}
+        if self.na_if(r, list(home), "BARCODE_NI, BARCODE_INTAN, BARCODE_INTAN_BNC"):
+            return
+        routed = [n for n in home if n in self.m.copper_nets and n in self.present]
+        bad = []
+        for n in routed:
+            for item, ln, thunk, bb in self.m.copper_items({n}):
+                a = self.outside(thunk, bb, home[n])
+                if a > 1e-3:
+                    bad.append(f"{item!r} on {ln}: {a:.3f} mm2 outside the {home[n]} island")
+        r.clause("inside its own island", self.verdict(bad), *bad)
+        short = []
+        for n in routed:
+            L, lb = self.short_net(n)
+            line = f"{n}: {L:.2f} mm routed against {lb:.2f} mm MST"
+            (short.append(line + f" (over {SHORT_RATIO}x)") if lb > 0 and L > SHORT_RATIO * lb + 1e-6
+             else r.evidence.append(line))
+        r.clause("the shortest path (SHORT)", self.verdict(short), *short)
+        intan = [n for n in ("BARCODE_INTAN", "BARCODE_INTAN_BNC") if n in routed]
+        if intan:
+            ao = {n for n in self.contract["nets"] if n.startswith("INTAN_AO")}
+            inas = {f"U{k}" for k in range(39, 54, 2)}
+            near = []
+            for s in [s for s in self.m.segs if s.net in intan]:
+                grown = pcbnew.SHAPE_POLY_SET()
+                t = s.obj
+                t.TransformShapeToPolygon(grown, s.lid, nm(CLEAR_MM), MAXERR, pcbnew.ERROR_INSIDE)
+                gb = poly_bbox(grown)
+                for item, ln, thunk, bb in self.m.copper_items(ao):
+                    if bbox_hit(gb, bb) and overlap_mm2(grown, thunk()) > 1e-4:
+                        near.append(f"{s!r} within {CLEAR_MM} mm of {item!r}")
+                for p in self.m.pads:
+                    if p.ref in inas and bbox_hit(gb, (p.x, p.y, p.x, p.y), p.reach):
+                        if overlap_mm2(grown, p.poly(p.layers[0], self.m.lid[p.layers[0]])) > 1e-4:
+                            near.append(f"{s!r} within {CLEAR_MM} mm of {p!r}")
+            r.clause(f"Intan barcode clear of INTAN_AO* and the INA105s by {CLEAR_MM} mm",
+                     self.verdict(near), *near)
 
     # -- G-1 -----------------------------------------------------------------------------
     def g1(self, r):
         if self.state(["AGND", "DGND"]) == "absent":
             return r.set(NA, "AGND and DGND are not on this board")
-        bad = []
         both = sorted({p.ref for p in self.m.pads if p.net == "AGND"}
                       & {p.ref for p in self.m.pads if p.net == "DGND"})
-        if both != ["NT1"]:
-            bad.append(f"parts with pads on both AGND and DGND: {both} (only NT1 may)")
+        r.clause("only NT1 has pads on both", self.verdict(both != ["NT1"]),
+                 f"parts with pads on both AGND and DGND: {both}")
         a = [i for i in self.m.islands if i.net == "AGND"]
         d = [i for i in self.m.islands if i.net == "DGND"]
+        ov = []
         for ia in a:
             for idd in d:
                 if bbox_hit(ia.bbox, idd.bbox):
-                    ov = overlap_mm2(ia.poly, idd.poly)
-                    if ov > 0.01:
+                    area = overlap_mm2(ia.poly, idd.poly)
+                    if area > 0.01:
                         c = pcbnew.SHAPE_POLY_SET(ia.poly)
                         c.BooleanIntersection(idd.poly)
-                        bad.append(f"pour overlap {ov:.2f} mm2 in plan: {ia!r} over {idd!r}, "
-                                   f"at {tuple(round(v, 1) for v in poly_bbox(c))}")
+                        ov.append(f"pour overlap {area:.2f} mm2 in plan: {ia!r} over {idd!r}, "
+                                  f"at {tuple(round(v, 1) for v in poly_bbox(c))}")
+        r.clause("no AGND/DGND pour overlap in plan", self.verdict(ov),
+                 *(ov or [f"{len(a)} AGND and {len(d)} DGND pour islands"]))
+        hw = []
         for ref in sorted(cbp.MECHANICAL):
             for p in [p for p in self.m.pads if p.ref == ref]:
                 if p.net:
-                    bad.append(f"{p!r} carries net {p.net}")
-                hits = self.m.touching(p)
-                bad.extend(f"copper touches {p!r}: {h}" for h in hits)
-        r.set(FAIL if bad else PASS, *(bad or [
-            f"only NT1 has pads on both; {len(a)} AGND and {len(d)} DGND pour islands, "
-            "no overlap; H1, H2 bare"]))
-        r.note = "the mounting hardware itself (a screw or standoff joining two pours) " \
-                 "is not on the board and is not checked"
+                    hw.append(f"{p!r} carries net {p.net}")
+                hw.extend(f"copper touches {p!r}: {h}" for h in self.m.touching(p))
+        r.clause("H1 and H2 carry no net and no copper", self.verdict(hw), *hw)
+        r.clause("no mounting-hardware path", NOT_CHECKED,
+                 "the screws and standoffs are not on the board; whether one joins two "
+                 "pours through hardware cannot be read from it")
 
-    # -- G-3 -----------------------------------------------------------------------------
+    # -- G-3 to G-7 ----------------------------------------------------------------------
     def g3(self, r):
         ties = [("FAN_RTN", "NT2", "DGND"), ("CHASSIS_GND", "NT3", "DGND"),
                 ("ISO_5V_RTN", "NT4", "INTAN_GND")]
         if self.state([t[0] for t in ties]) == "absent":
             return r.set(NA, "none of FAN_RTN, CHASSIS_GND, ISO_5V_RTN is on this board")
-        bad, ok = [], []
+        join, flood = [], []
         for net, tie, plane in ties:
             if net not in self.present:
                 continue
             both = sorted({p.ref for p in self.m.pads if p.net == net}
                           & {p.ref for p in self.m.pads if p.net == plane})
             if both != [tie]:
-                bad.append(f"{net}: parts joining it to {plane}: {both} (only {tie} may)")
+                join.append(f"{net}: parts joining it to {plane}: {both} (only {tie} may)")
             for zm in self.m.zones_meta:
                 if zm["net"] == net and set(zm["layers"]) & {"In1.Cu", "In2.Cu"}:
-                    bad.append(f"{net} poured on a plane layer: '{zm['name']}' {zm['layers']}")
-            ok.append(f"{net} joins {plane} only at {tie}")
-        r.set(FAIL if bad else PASS, *(bad or ok))
+                    flood.append(f"{net} poured on a plane layer: '{zm['name']}' {zm['layers']}")
+        r.clause("only its tie joins it to its plane", self.verdict(join), *join)
+        r.clause("not poured on a plane layer", self.verdict(flood), *flood)
 
-    # -- G-4 to G-7 ----------------------------------------------------------------------
-    def _near(self, r, a, b, limit, what):
+    def _near(self, r, a, b, limit, name):
         pa, pb = self.fp_xy(a), self.fp_xy(b)
         if pa is None or pb is None:
-            return r.set(NA, f"{a} or {b} is not on this board")
+            return r.clause(name, NA, f"{a} or {b} is not on this board")
         d = math.hypot(pa[0] - pb[0], pa[1] - pb[1])
-        r.set(PASS if d <= limit else FAIL,
-              f"{a} at ({pa[0]:.2f},{pa[1]:.2f}), {b} at ({pb[0]:.2f},{pb[1]:.2f}): "
-              f"{d:.2f} mm {what} (limit {limit} mm)")
+        r.clause(name, PASS if d <= limit else FAIL,
+                 f"{a} at ({pa[0]:.2f},{pa[1]:.2f}), {b} at ({pb[0]:.2f},{pb[1]:.2f}): "
+                 f"{d:.2f} mm apart (limit {limit} mm)")
 
     def g4(self, r):
         if self.state(["FAN_RTN"]) == "absent":
             return r.set(NA, "FAN_RTN is not on this board")
-        self._near(r, "NT2", "NT1", 10.0, "apart")
+        self._near(r, "NT2", "NT1", NEAR_TIE_MM, f"NT2 within {NEAR_TIE_MM} mm of NT1")
 
     def g5(self, r):
         if self.state(["CHASSIS_GND"]) == "absent":
             return r.set(NA, "CHASSIS_GND is not on this board")
-        self._near(r, "NT3", "NT1", 10.0, "apart")
-        bad = [f"CHASSIS_GND poured: '{zm['name']}' {zm['layers']}"
-               for zm in self.m.zones_meta if zm["net"] == "CHASSIS_GND"]
-        if "CHASSIS_GND" in self.m.copper_nets:
-            g = self.m.graph("CHASSIS_GND")
-            a, b = g.pad("J56", "1"), g.pad("NT3", "1")
-            if a is not None and b is not None:
-                dist, _ = g.shortest([a], [b], use_zones=False)
-                if b in dist:
-                    r.evidence.append(f"J56 to NT3 by tracks: {dist[b]:.1f} mm")
-                else:
-                    bad.append("J56 pad 1 does not reach NT3 pad 1 by tracks")
-        else:
-            r.evidence.append("CHASSIS_GND not routed yet; the trace is not judged")
-        if bad:
-            r.status = FAIL
-            r.evidence.extend(bad)
+        self._near(r, "NT3", "NT1", NEAR_TIE_MM, f"NT3 within {NEAR_TIE_MM} mm of NT1")
+        pours = [f"CHASSIS_GND poured: '{zm['name']}' {zm['layers']}"
+                 for zm in self.m.zones_meta if zm["net"] == "CHASSIS_GND"]
+        r.clause("no CHASSIS_GND pour", self.verdict(pours), *pours)
+        if not self.m.segs_of("CHASSIS_GND"):
+            r.clause("J56 reaches NT3 by tracks", NA, "CHASSIS_GND has no track yet")
+            return
+        g = self.m.graph("CHASSIS_GND")
+        a, b = g.pad("J56", "1"), g.pad("NT3", "1")
+        dist, _ = g.shortest([a], [b], use_zones=False) if a is not None else ({}, None)
+        r.clause("J56 reaches NT3 by tracks", PASS if b in dist else FAIL,
+                 f"J56 to NT3 by tracks: {dist[b]:.1f} mm" if b in dist else
+                 "J56 pad 1 does not reach NT3 pad 1 by tracks")
 
     def g6(self, r):
         if self.state(["ISO_5V_RTN"]) == "absent":
             return r.set(NA, "ISO_5V_RTN is not on this board")
         p, q = self.m.pad_by.get(("NT4", "1")), self.m.pad_by.get(("U63", "6"))
         if p is None or q is None:
-            return r.set(FAIL, "NT4 pad 1 or U63 pad 6 is missing")
-        d = math.hypot(p.x - q.x, p.y - q.y)
+            r.clause(f"NT4 within {NEAR_TIE_MM} mm of U63 pad 6", FAIL, "NT4.1 or U63.6 missing")
+        else:
+            d = math.hypot(p.x - q.x, p.y - q.y)
+            r.clause(f"NT4 within {NEAR_TIE_MM} mm of U63 pad 6",
+                     PASS if d <= NEAR_TIE_MM else FAIL,
+                     f"NT4 pad 1 {p!r} is {d:.2f} mm from U63 pad 6 {q!r}")
         want = {("U63", "6"), ("C137", "2"), ("C138", "2"), ("C162", "2"), ("NT4", "1")}
         got = {(x.ref, x.num) for x in self.m.pads if x.net == "ISO_5V_RTN"}
-        bad = []
-        if d > 10.0:
-            bad.append(f"NT4 pad 1 {p!r} is {d:.2f} mm from U63 pad 6 {q!r} (limit 10 mm)")
-        if got != want:
-            bad.append(f"ISO_5V_RTN pads are {sorted(got)}, G-6 names {sorted(want)}")
-        r.set(FAIL if bad else PASS, *(bad or [f"NT4 pad 1 is {d:.2f} mm from U63 pad 6; "
-                                                "the net has its five pins"]))
+        r.clause("ISO_5V_RTN has exactly its five pins", self.verdict(got != want),
+                 f"pads {sorted(got)}" + ("" if got == want else f"; G-6 names {sorted(want)}"))
 
     def g7(self, r):
         if self.state(["AGND", "DGND", "FAN_RTN", "CHASSIS_GND", "ISO_5V_RTN",
@@ -956,165 +1115,265 @@ class Judge:
                 continue
             name = str(f.GetFPID().GetLibItemName())
             nums = sorted(p.GetNumber() for p in f.Pads())
-            if name != "NetTie-2_SMD_Pad2.0mm" or nums != ["1", "2"]:
-                bad.append(f"{ref} is {name} with pads {nums}")
-            else:
-                ok.append(f"{ref} {name}")
-        r.set(FAIL if bad else PASS, *(bad or ok))
+            (bad if name != "NetTie-2_SMD_Pad2.0mm" or nums != ["1", "2"] else ok).append(
+                f"{ref} is {name} with pads {nums}")
+        r.clause("the four ties as drawn", self.verdict(bad), *(bad or ok))
 
     # -- pads that must get no copper ----------------------------------------------------
-    def in_region(self, p):
-        if self.region is None:
-            return True
-        x0, y0, x1, y1 = self.region
-        return x0 <= p.x <= x1 and y0 <= p.y <= y1
-
-    def bare_pads(self, r, pads, clearance, label):
+    def bare_clause(self, r, name, pads, clearance, label):
         if self.region is not None:
             pads = [p for p in pads if self.in_region(p)]
             if not pads:
-                return r.set(NA, f"no {label} inside the region")
-        bad = []
-        for p in pads:
-            for h in self.m.touching(p, clearance):
-                bad.append(f"{p!r} ({p.net or 'no net'}) touched by {h}")
+                return r.clause(name, NA, f"no {label} inside the region")
+        bad = [f"{p!r} ({p.net or 'no net'}) touched by {h}"
+               for p in pads for h in self.m.touching(p, clearance)]
         if bad:
-            return r.set(FAIL, *bad)
+            return r.clause(name, FAIL, *bad)
         if not self.m.copper_nets:
-            return r.set(NA, f"no copper on the board yet; {len(pads)} {label} bare")
-        r.set(PASS, f"{len(pads)} {label}: no copper within {clearance} mm")
+            return r.clause(name, NA, f"no copper on the board yet; {len(pads)} {label} bare")
+        r.clause(name, PASS, f"{len(pads)} {label}: no copper within {clearance} mm")
 
     def g16(self, r):
-        nets = self.contract["nets"]
-        unused = set()
-        for net, nodes in nets.items():
-            if net.startswith("unconnected-"):
-                for ref, pin, *_ in nodes:
-                    if ref in ("J2", "J36"):
-                        unused.add((ref, pin))
+        unused = {(ref, pin) for net, nodes in self.contract["nets"].items()
+                  if net.startswith("unconnected-") for ref, pin, *_ in nodes
+                  if ref in ("J2", "J36")}
         pads = [p for p in self.m.pads if (p.ref, p.num) in unused]
         if not pads:
             return r.set(NA, "J2 and J36 are not on this board")
-        bad = []
-        for ref in ("J2", "J36"):
-            p62 = self.m.pad_by.get((ref, "62"))
-            if p62 is not None and p62.net != "AGND" and "AGND" in self.present:
-                bad.append(f"{ref} pad 62 is on {p62.net}, not AGND")
-        if bad:
-            return r.set(FAIL, *bad)
-        self.bare_pads(r, pads, 0.0, "unused J2/J36 pins")
+        bad = [f"{ref} pad 62 is on {self.m.pad_by[(ref, '62')].net}, not AGND"
+               for ref in ("J2", "J36") if (ref, "62") in self.m.pad_by
+               and self.m.pad_by[(ref, "62")].net != "AGND" and "AGND" in self.present]
+        if "AGND" in self.present:
+            r.clause("pin 62 on AGND", self.verdict(bad), *bad)
+        self.bare_clause(r, "unused pins bare", pads, 0.0, "unused J2/J36 pins")
 
     def x6(self, r):
         pads = [p for p in self.m.pads if p.lib == "BNC_Dual_RA_Isolated" and not p.num]
         if not pads:
             return r.set(NA, "no BNC body on this board")
-        self.bare_pads(r, pads, 0.2, "BNC post-mount pads")
+        self.bare_clause(r, "post-mount pads clear by 0.2 mm", pads, 0.2, "BNC post-mount pads")
 
     def no_pour(self, r, nets):
+        ns = set(nets)
         present = [n for n in nets if n in self.present]
-        bad = []
-        for zm in self.m.zones_meta:   # a pour drawn on the net, filled or not
-            if zm["net"] in set(nets):
-                bad.append(f"pour '{zm['name']}' on {zm['net']}, {zm['layers']}, "
-                           f"{len([i for i in self.m.islands if i.zone == (zm['name'] or '') and i.net == zm['net']])} "
-                           "filled island(s)")
-        own = [p for p in self.m.pads if p.net in set(nets)]
-        others = [i for i in self.m.islands if i.net not in set(nets)]
-        for p in own:
+        own_pour = [f"pour '{zm['name']}' on {zm['net']}, {zm['layers']}"
+                    for zm in self.m.zones_meta if zm["net"] in ns]
+        touch = []
+        others = [i for i in self.m.islands if i.net not in ns]
+        for p in [p for p in self.m.pads if p.net in ns]:
             for ln in p.layers:
                 pp = p.poly(ln, self.m.lid[ln])
                 for i in others:
                     if i.layer == ln and bbox_hit(poly_bbox(pp), i.bbox) \
                             and overlap_mm2(pp, i.poly) > 1e-4:
-                        bad.append(f"{i!r} touches {p!r} ({p.net})")
-        for s in self.m.segs:
-            if s.net in set(nets):
-                for i in others:
-                    if i.layer == s.layer and bbox_hit(s.bbox, i.bbox) \
-                            and overlap_mm2(s.poly(), i.poly) > 1e-4:
-                        bad.append(f"{i!r} touches {s!r}")
-        if bad:
-            return r.set(FAIL, *bad)
-        if not present:
-            return r.set(NA, f"none of {', '.join(nets[:3])}{'...' if len(nets) > 3 else ''} "
-                         "is on this board")
-        if not self.m.islands and not any(n in self.m.copper_nets for n in present):
-            return r.set(NA, "no pour on the board and the nets are not routed yet")
-        r.set(PASS, f"{len(present)} nets: no pour of their own, none touching their "
-                    f"{len(own)} pads or their tracks")
+                        touch.append(f"{i!r} touches {p!r} ({p.net})")
+        for s in [s for s in self.m.segs if s.net in ns]:
+            for i in others:
+                if i.layer == s.layer and bbox_hit(s.bbox, i.bbox) \
+                        and overlap_mm2(s.poly(), i.poly) > 1e-4:
+                    touch.append(f"{i!r} touches {s!r}")
+        if not own_pour and not touch:
+            if not present:
+                return r.set(NA, f"none of {', '.join(nets[:3])}"
+                             f"{'...' if len(nets) > 3 else ''} is on this board")
+            if not any(n in self.m.copper_nets for n in present):
+                return r.set(NA, "the nets have no copper yet and no pour touches them")
+        r.clause("no pour on the net", self.verdict(own_pour), *own_pour)
+        r.clause("no other pour touches its copper", self.verdict(touch), *touch)
+
+    def g20(self, r):
+        self.no_pour(r, ["ACCESIO_SHELL"])
+        if r.whole is not None and r.whole == NA and "ACCESIO_SHELL" not in self.present:
+            return
+        r.whole = None
+        a = [p for p in self.m.pads if p.ref == "R224" and p.net == "ACCESIO_SHELL"]
+        b = [p for p in self.m.pads if p.ref == "J19" and p.net == "ACCESIO_SHELL"]
+        if not a or not b:
+            return r.clause(f"R224 within {AT_J19_MM} mm of J19", NA, "R224 or J19 absent")
+        d, pa, pb = min(((math.hypot(p.x - q.x, p.y - q.y), p, q) for p in a for q in b),
+                        key=lambda t: t[0])
+        r.clause(f"R224 within {AT_J19_MM} mm of J19", PASS if d <= AT_J19_MM else FAIL,
+                 f"{pa!r} to {pb!r}: {d:.2f} mm")
+
+    # -- S-7 -----------------------------------------------------------------------------
+    def s7(self, r):
+        grounds = {"AGND", "DGND", "NI_GND", "INTAN_GND"}
+        planes = [n for n in PLANE_NETS if n in self.present]
+        if not planes:
+            return r.set(NA, "no plane net is on this board")
+        isl = [i for i in self.m.islands if i.net in PLANE_NETS]
+        if not isl:
+            return r.set(NA, "no plane net is poured yet")
+        wrong = []
+        for zm in self.m.zones_meta:
+            n = zm["net"]
+            if n not in PLANE_NETS:
+                continue
+            want = "In1.Cu" if n in grounds else "In2.Cu"
+            for ln in zm["layers"]:
+                if ln in ("In1.Cu", "In2.Cu") and ln != want:
+                    wrong.append(f"'{zm['name']}' {n} on {ln}; S-6/S-7 put {n} on {want}")
+        r.clause("each plane net on its plane layer (grounds L2, rails L3)",
+                 self.verdict(wrong), *(wrong or [f"{len(isl)} plane-net pour islands"]))
+        out = []
+        for i in isl:
+            dom = cbp.SEED_DOMAIN[i.net]
+            a = self.outside(lambda i=i: i.poly, i.bbox, dom)
+            if a > 0.01:
+                out.append(f"{i!r}: {a:.2f} mm2 outside the {dom} region")
+        r.clause("each plane-net pour inside its domain's region", self.verdict(out), *out)
 
     # -- P-5, P-8, K-11 ------------------------------------------------------------------
     def short_net(self, net):
         pads = [(p.x, p.y) for p in self.m.pads if p.net == net]
-        L = self.m.track_length(net)
-        lb = mst_length(pads)
-        return L, lb
+        return self.m.track_length(net), mst_length(pads)
 
-    def p5(self, r):
-        pin7 = [self.m.pad_by.get((u, "7")) for u in ("U3", "U4")]
-        pin7 = [p for p in pin7 if p is not None and self.in_region(p)]
-        nets = ["U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"]
-        bad = []
-        for p in pin7:
-            for h in self.m.touching(p):
-                bad.append(f"{p!r} (DNC) touched by {h}")
-        routed = [n for n in nets if n in self.m.copper_nets]
-        for n in routed:
-            L, lb = self.short_net(n)
-            line = f"{n}: {L:.2f} mm routed against {lb:.2f} mm MST"
-            if lb > 0 and L > SHORT_RATIO * lb + 1e-6:
-                bad.append(line + f" (over {SHORT_RATIO}x)")
-            else:
-                r.evidence.append(line)
-            if self.m.vias_of(n):
-                r.evidence.append(f"{n} has {len(self.m.vias_of(n))} via(s)")
-        if bad:
-            return r.set(FAIL, *bad)
-        if not pin7 and self.state(nets) == "absent":
-            return r.set(NA, "U3, U4 and their FB/NR nets are not on this board")
-        if not routed:
-            return r.set(NA, "pin 7 bare; FB and NR/SS nets not routed yet")
-        r.set(PASS, "pin 7 of U3 and U4 bare")
-
-    def no_via_f_only(self, r, nets, two_pins=None):
-        if self.na_if(r, nets):
-            return
-        bad = []
+    def short_clause(self, r, nets, name="short (SHORT)"):
+        bad, ok = [], []
         for n in nets:
             if n not in self.m.copper_nets:
                 continue
-            for v in self.m.vias_of(n):
-                bad.append(f"via on {n}: {v!r}")
-            for s in self.m.segs_of(n):
-                if s.layer != "F.Cu":
-                    bad.append(f"{n} off F.Cu: {s!r}")
-            for zm in self.m.zones_meta:
-                if zm["net"] == n:
-                    bad.append(f"pour '{zm['name']}' on {n}")
             L, lb = self.short_net(n)
             line = f"{n}: {L:.2f} mm routed against {lb:.2f} mm MST"
-            if lb > 0 and L > SHORT_RATIO * lb + 1e-6:
-                bad.append(line + f" (over {SHORT_RATIO}x)")
-            else:
-                r.evidence.append(line)
-        if two_pins:
-            for n, want in two_pins.items():
-                got = sorted((p.ref, p.num) for p in self.m.pads if p.net == n)
-                if got and got != sorted(want):
-                    bad.append(f"{n} has pads {got}, P-8 names {sorted(want)}")
-        r.set(FAIL if bad else PASS, *bad)
+            (bad.append(line + f" (over {SHORT_RATIO}x)") if lb > 0 and L > SHORT_RATIO * lb + 1e-6
+             else ok.append(line))
+        if bad or ok:
+            r.clause(name, self.verdict(bad), *(bad or ok))
+
+    def at_pins(self, r, name, parts, ic):
+        far, ok = [], []
+        for c in parts:
+            cps = [p for p in self.m.pads if p.ref == c and p.net]
+            ips = [p for p in self.m.pads if p.ref == ic and p.net]
+            pairs = [(math.hypot(p.x - q.x, p.y - q.y), p, q) for p in cps for q in ips
+                     if p.net == q.net and not p.net.startswith("unconnected")]
+            if not pairs:
+                continue
+            d, p, q = min(pairs, key=lambda t: t[0])
+            (far if d > AT_PINS_MM else ok).append(f"{p!r} to {q!r}: {d:.2f} mm")
+        if far or ok:
+            r.clause(name, self.verdict(far), *(far or ok))
+
+    def p5(self, r):
+        if not any(u in self.m.fps for u in ("U3", "U4")) or \
+                self.state(["U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"]) == "absent":
+            return r.set(NA, "U3, U4 and their FB/NR nets are not on this board")
+        pin7 = [p for p in (self.m.pad_by.get((u, "7")) for u in ("U3", "U4"))
+                if p is not None and self.in_region(p)]
+        bad = [f"{p!r} (DNC) touched by {h}" for p in pin7 for h in self.m.touching(p)]
+        r.clause("pin 7 gets no copper", self.verdict(bad), *bad)
+        self.short_clause(r, ["U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"],
+                          "FB and NR/SS on short traces (SHORT)")
+        self.at_pins(r, f"input and output capacitors within {AT_PINS_MM} mm of the pins",
+                     ["C11", "C14"], "U3")
+        self.at_pins(r, f"input and output capacitors within {AT_PINS_MM} mm of the pins",
+                     ["C17", "C20"], "U4")
+        self.at_pins(r, f"FB and NR/SS parts within {AT_PINS_MM} mm of the pins",
+                     ["R1", "R2", "C13", "C12"], "U3")
+        self.at_pins(r, f"FB and NR/SS parts within {AT_PINS_MM} mm of the pins",
+                     ["R3", "R4", "C19", "C18"], "U4")
+
+    def via_layer_pour(self, r, nets):
+        vias = [f"via on {n}: {v!r}" for n in nets for v in self.m.vias_of(n)]
+        r.clause("no via", self.verdict(vias), *vias)
+        off = [f"{n} off F.Cu: {s!r}" for n in nets for s in self.m.segs_of(n) if s.layer != "F.Cu"]
+        r.clause("F.Cu only", self.verdict(off), *off)
+        pours = [f"pour '{zm['name']}' on {zm['net']}" for zm in self.m.zones_meta
+                 if zm["net"] in set(nets)]
+        r.clause("no pour", self.verdict(pours), *pours)
+        self.short_clause(r, nets)
 
     def p8(self, r):
-        self.no_via_f_only(r, ["U63_VIN"], {"U63_VIN": [("L1", "2"), ("U63", "2")]})
-        if r.status != NA and "+5V" in self.m.copper_nets:
-            for s in self.m.segs_of("U63_VIN"):
-                for i in self.m.islands_of("+5V"):
-                    if i.layer == s.layer and overlap_mm2(s.poly(), i.poly) > 1e-4:
-                        r.status = FAIL
-                        r.evidence.append(f"U63_VIN touches {i!r}")
+        if self.na_if(r, ["U63_VIN"]):
+            return
+        self.via_layer_pour(r, ["U63_VIN"])
+        got = sorted((p.ref, p.num) for p in self.m.pads if p.net == "U63_VIN")
+        r.clause("two pins only, L1.2 and U63.2", self.verdict(got != [("L1", "2"), ("U63", "2")]),
+                 f"pads {got}")
+        touch = []
+        for s in self.m.segs_of("U63_VIN"):
+            for item, ln, thunk, bb in self.m.copper_items({"+5V"}, [s.layer]):
+                if bbox_hit(s.bbox, bb) and overlap_mm2(s.poly(), thunk()) > 1e-4:
+                    touch.append(f"{s!r} touches {item!r}")
+        r.clause("no contact with +5V", self.verdict(touch), *touch)
 
     def k11(self, r):
-        self.no_via_f_only(r, ["A_PD1_CLAMP", "A_PD2_CLAMP"])
+        nets = ["A_PD1_CLAMP", "A_PD2_CLAMP"]
+        if self.na_if(r, nets):
+            return
+        self.via_layer_pour(r, nets)
+
+    # -- K-35 ----------------------------------------------------------------------------
+    def k35(self, r):
+        pins = self.dom["pins"]
+        optos = [f"U{n}" for n in range(56, 62)] + ["U64", "U65"]
+        pairs = []
+        for u in optos:
+            if u not in pins:
+                continue
+            if self.contract["component_values"][u].startswith("ACSL-6400"):
+                pairs += [(u, "10", "9"), (u, "15", "16")]       # K-35's own pin list
+            elif {pins[u].get("9"), pins[u].get("12")} <= self.m.copper_nets & self.present:
+                r.clause(f"{u} ({self.contract['component_values'][u]}) supply pair", NOT_CHECKED,
+                         "K-35 names the ACSL-6400's pins 10/15 against 9/16; this part's "
+                         "isolated supply pins differ and no source pairs them")
+        pairs = [(u, v, g) for u, v, g in pairs
+                 if pins[u].get(v) in self.present and pins[u].get(g) in self.present]
+        if not pairs:
+            r.clauses = []
+            return r.set(NA, "the optocouplers' isolated supplies are not on this board")
+        pairs = [(u, v, g) for u, v, g in pairs
+                 if pins[u][v] in self.m.copper_nets and pins[u][g] in self.m.copper_nets]
+        if not pairs:
+            r.clauses = []
+            return r.set(NA, "the isolated supplies are not routed yet")
+        caps = {}
+        for ref, val in self.contract["component_values"].items():
+            if ref.startswith("C") and ref in pins and len(pins[ref]) == 2:
+                caps[ref] = pins[ref]
+        bad, ok = [], []
+        used = set()
+        for u, v, gp in pairs:
+            rail, gnd = pins[u][v], pins[u][gp]
+            pv, pg = self.m.pad_by.get((u, v)), self.m.pad_by.get((u, gp))
+            cand = []
+            for c, cp in caps.items():
+                if c in used or set(cp.values()) != {rail, gnd}:
+                    continue
+                cr = self.m.pad_by.get((c, next(k for k, n in cp.items() if n == rail)))
+                cg = self.m.pad_by.get((c, next(k for k, n in cp.items() if n == gnd)))
+                if cr is None or cg is None:
+                    continue
+                dr, dg = math.hypot(cr.x - pv.x, cr.y - pv.y), math.hypot(cg.x - pg.x, cg.y - pg.y)
+                cand.append((max(dr, dg), c, cr, cg, dr, dg))
+            cand.sort(key=lambda t: t[0])
+            if not cand or cand[0][0] > K35_MM:
+                bad.append(f"{u} pins {v}/{gp} ({rail}/{gnd}): no capacitor with both pads "
+                           f"within {K35_MM} mm of the pins"
+                           + (f" (nearest {cand[0][1]}: {cand[0][4]:.2f} / {cand[0][5]:.2f} mm)"
+                              if cand else ""))
+                continue
+            _, c, cr, cg, dr, dg = cand[0]
+            used.add(c)
+            joined = []
+            for cpad, ipad in ((cr, pv), (cg, pg)):
+                cl = self.kicad_cluster(cpad)
+                joined.append(cl is not None and ipad.obj.m_Uuid.AsString() in cl)
+            line = (f"{u} pins {v}/{gp}: {c} at {dr:.2f} / {dg:.2f} mm, "
+                    f"{'joined' if all(joined) else 'NOT joined'} to both pins")
+            (ok if all(joined) else bad).append(line)
+        r.clause(f"a capacitor at each pin pair (both pads within {K35_MM} mm, joined)",
+                 self.verdict(bad), *(bad or ok))
+
+    def track_path(self, net, a, b):
+        if net not in self.m.copper_nets:
+            return None
+        g = self.m.graph(net)
+        na, nb = g.pad(*a), g.pad(*b)
+        if na is None or nb is None:
+            return None
+        dist, _ = g.shortest([na], [nb], use_zones=False)
+        return dist.get(nb)
 
     # -- N-4 -----------------------------------------------------------------------------
     def to_plane(self, g: NetGraph, node):
@@ -1133,63 +1392,86 @@ class Judge:
         path = g.path(parent, t)
         widths = [w for _, _, kind, w in path if kind == "track" and w]
         vn = set(g.via_nodes)
-        vias = sum(1 for _, v, _, _ in path if v in vn)
-        return dist[t], (min(widths) if widths else None), vias
+        return dist[t], (min(widths) if widths else None), sum(1 for _, v, _, _ in path if v in vn)
 
     def used(self, g: NetGraph, ref, num):
         n = g.pad(ref, num)
         return n is not None and (bool(g.adj[n]) or g.is_contact(n))
 
+    def pin_copper(self, g: NetGraph, ref, num):
+        """A pin's own copper: the layers on which a pour of its net joins it, and the
+        tracks hanging off it (through tracks and vias, stopping at pour contacts)."""
+        start = g.pad(ref, num)
+        layers = sorted({g.islands[z].layer for z in g.zone_of.get(start, [])})
+        seen, stack, counted = {start}, [start], {}
+        vn = set(g.via_nodes)
+        vias = 0
+        while stack:
+            u = stack.pop()
+            if u != start and g.is_contact(u):
+                continue
+            for v, L, w, kind in g.adj[u]:
+                if kind == "track":
+                    counted[(min(u, v), max(u, v), round(L, 4))] = w
+                if v not in seen:
+                    seen.add(v)
+                    vias += v in vn
+                    stack.append(v)
+        widths = [w for w in counted.values() if w]
+        total = sum(k[2] for k in counted)
+        return layers, round(total, 3), (min(widths) if widths else None), vias
+
     def n4(self, r):
         if self.na_if(r, ["NI_5V", "NI_GND"]):
             return
-        bad = []
         g5, gg = self.m.graph("NI_5V"), self.m.graph("NI_GND")
         gnd = [num for ref, num, *_ in self.contract["nets"]["NI_GND"] if ref == "J45"]
         unused = [n for n in gnd if not self.used(gg, "J45", n)]
-        if unused:
-            bad.append(f"J45 NI_GND pins with no copper: {sorted(unused, key=int)} "
-                       f"(of {len(gnd)})")
-        legs = {}
-        for num in ("8", "14"):
-            if not self.used(g5, "J45", num):
-                bad.append(f"J45 pin {num} (NI_5V) has no copper")
-                continue
-            legs[num] = self.to_plane(g5, g5.pad("J45", num))
-        if len(legs) == 2:
-            (l8, w8, v8), (l14, w14, v14) = legs["8"], legs["14"]
-            r.evidence.append(f"pin 8 to the NI_5V pour: {l8} mm, narrowest {w8}, vias {v8}; "
-                              f"pin 14: {l14} mm, narrowest {w14}, vias {v14}")
-            if l8 is None or l14 is None:
-                bad.append("a NI_5V pin of J45 reaches no NI_5V pour")
-            elif abs(l8 - l14) > 1.0 or v8 != v14 or (w8 or 0) != (w14 or 0):
-                bad.append(f"asymmetric: |{l8:.2f} - {l14:.2f}| mm, vias {v8}/{v14}, "
-                           f"narrowest {w8}/{w14}")
-        r.set(FAIL if bad else PASS, *bad)
+        r.clause("all twelve NI_GND pins used", self.verdict(unused),
+                 f"J45 NI_GND pins with no copper: {sorted(unused, key=int)} (of {len(gnd)})"
+                 if unused else f"{len(gnd)} NI_GND pins have copper")
+        bare = [n for n in ("8", "14") if not self.used(g5, "J45", n)]
+        r.clause("both NI_5V pins (8, 14) used", self.verdict(bare),
+                 *[f"J45 pin {n} (NI_5V) has no copper" for n in bare])
+        if bare:
+            return r.clause("symmetric copper", NA, "a pin is bare")
+        c8, c14 = self.pin_copper(g5, "J45", "8"), self.pin_copper(g5, "J45", "14")
+        line = (f"pin 8: pour on {c8[0]}, {c8[1]} mm of track off it, narrowest {c8[2]}, "
+                f"vias {c8[3]}; pin 14: pour on {c14[0]}, {c14[1]} mm, narrowest {c14[2]}, "
+                f"vias {c14[3]}")
+        asym = (c8[0] != c14[0] or abs(c8[1] - c14[1]) > 1.0 or c8[2] != c14[2]
+                or c8[3] != c14[3])
+        r.clause("symmetric copper", self.verdict(asym), line)
 
     # -- N-1, N-2 ------------------------------------------------------------------------
-    def partial_width(self, r, ref, num, net, wmin):
+    def partial_width(self, r, ref, num, net, wmin, plane_layer="In2.Cu"):
+        """From the pad, walk tracks, vias and any pour of the net that is NOT on its plane
+        layer (S-7: L3), and stop at the first contact with its L3 pour."""
         if self.na_if(r, [net]):
             return
         g = self.m.graph(net)
         start = g.pad(ref, num)
         if start is None:
             return r.set(NA, f"{ref} pad {num} is not on {net} here")
-        seen, stack, narrow, plane, n_seg = {start}, [start], [], g.is_contact(start), 0
-        counted = set()
+        seen, stack, narrow, counted = {start}, [start], [], set()
+        reached, crossed = False, set()
         while stack:
             u = stack.pop()
-            if g.is_contact(u) and u != start:
-                plane = True
-                continue
-            if g.is_contact(u):
-                continue
+            zs = g.zone_of.get(u, [])
+            if any(g.islands[z].layer == plane_layer for z in zs):
+                reached = True
+                continue      # on the plane: the rule's copper ends here
+            for z in zs:      # an outer-layer pour of the net: walk across it
+                crossed.add(z)
+                for v in g.contacts[z]:
+                    if v not in seen:
+                        seen.add(v)
+                        stack.append(v)
             for v, L, w, kind in g.adj[u]:
                 if kind == "track":
                     key = (min(u, v), max(u, v), round(L, 4))
                     if key not in counted:
                         counted.add(key)
-                        n_seg += 1
                         if w + 1e-6 < wmin:
                             ux, uy = g.xy[u]
                             vx, vy = g.xy[v]
@@ -1197,13 +1479,75 @@ class Judge:
                 if v not in seen:
                     seen.add(v)
                     stack.append(v)
-        if not n_seg and not plane:
+        if not counted and not crossed and not reached:
             return r.set(NA, f"{ref} pad {num} has no copper yet")
-        r.set(FAIL if narrow else PASS,
-              f"{n_seg} track pieces from {ref} pad {num} before the pour; "
-              f"{'reaches' if plane else 'reaches no'} {net} pour", *narrow)
+        r.clause(f"every track before the {plane_layer} plane at least {wmin} mm",
+                 self.verdict(narrow), *(narrow or [f"{len(counted)} track pieces from {ref} "
+                                                    f"pad {num} before the plane"]))
+        if crossed:
+            r.clause(f"pours of {net} on the way are at least {wmin} mm wide", NOT_CHECKED,
+                     *[f"the path crosses {g.islands[z]!r}; the width of pour copper on the "
+                       "current's path is not measured" for z in sorted(crossed)])
+        r.clause(f"reaches its {plane_layer} plane", PASS if reached else NOT_CHECKED,
+                 f"{ref} pad {num} reaches a {net} pour on {plane_layer}" if reached else
+                 f"no {net} pour on {plane_layer} is reached from {ref} pad {num}; the rule "
+                 "is a width to the plane")
 
     # -- N-10 ----------------------------------------------------------------------------
+    def island_edges(self, isl):
+        k = id(isl)
+        if k not in self._edges:
+            e = []
+            p = isl.poly
+            chains = [p.COutline(0)] + [p.CHole(0, h) for h in range(p.HoleCount(0))]
+            for ch in chains:
+                n = ch.PointCount()
+                pts = [(mm(ch.CPoint(i).x), mm(ch.CPoint(i).y)) for i in range(n)]
+                e += [(pts[i], pts[(i + 1) % n]) for i in range(n)]
+            self._edges[k] = e
+        return self._edges[k]
+
+    def slab_bound(self, isl, p, q, rp, rq):
+        """A lower bound, in squares, on the resistance of a pour island between two
+        contacts: R >= integral of dt / L(t), where L(t) is the length of the island's
+        cross-section on the line perpendicular to p-q at distance t from p (cutting the
+        sheet with perfect conductors along those lines can only lower R). Integrated
+        with 0.25 mm (at most 400) midpoint steps from the edge of one contact to the
+        other's."""
+        d = math.hypot(q[0] - p[0], q[1] - p[1])
+        a, b = rp, d - rq
+        if b <= a:
+            return 0.0
+        ux, uy = (q[0] - p[0]) / d, (q[1] - p[1]) / d
+        nx, ny = -uy, ux
+        edges = self.island_edges(isl)
+        n = max(4, min(400, int((b - a) / 0.25)))
+        dt = (b - a) / n
+        total = 0.0
+        for k in range(n):
+            t = a + (k + 0.5) * dt
+            cx, cy = p[0] + t * ux, p[1] + t * uy
+            ss = []
+            for (x1, y1), (x2, y2) in edges:
+                d1 = (x1 - cx) * ux + (y1 - cy) * uy
+                d2 = (x2 - cx) * ux + (y2 - cy) * uy
+                if (d1 > 0) != (d2 > 0):
+                    f = d1 / (d1 - d2)
+                    ix, iy = x1 + f * (x2 - x1), y1 + f * (y2 - y1)
+                    ss.append((ix - cx) * nx + (iy - cy) * ny)
+            ss.sort()
+            L = sum(ss[i + 1] - ss[i] for i in range(0, len(ss) - 1, 2))
+            if L > 0:
+                total += dt / L
+        return total
+
+    def kicad_cluster(self, pad):
+        try:
+            items = self.m.board.GetConnectivity().GetConnectedItems(pad.obj)
+            return {i.m_Uuid.AsString() for i in items}
+        except Exception:
+            return None
+
     def n10(self, r):
         if self.na_if(r, ["+5V"]):
             return
@@ -1215,65 +1559,150 @@ class Judge:
         tnodes = {g.pad(ref, pin): (ref, pin) for ref, pin in res if g.pad(ref, pin) is not None}
         if start is None or not tnodes:
             return r.set(NA, "D3 or the LED resistors are not on this board")
-        dist, parent = g.shortest([start], list(tnodes), weight="squares")
-        reached = [(dist[n], tnodes[n], n) for n in tnodes if n in dist]
-        missing = sorted(f"{a}.{b}" for n, (a, b) in tnodes.items() if n not in dist)
-        if not reached:
-            return r.set(NA, f"no LED resistor is reached from D3 yet ({len(missing)} not)")
-        sq, (ref, pin), n = max(reached)
-        path = g.path(parent, n)
-        track_sq = sum((math.hypot(g.xy[u][0] - g.xy[v][0], g.xy[u][1] - g.xy[v][1]) / w)
-                       for u, v, kind, w in path if kind == "track" and w)
-        r.set(FAIL if sq > 83.0 else PASS,
-              f"farthest LED resistor {ref} pad {pin}: {sq:.1f} squares "
-              f"({track_sq:.1f} in tracks, {sq - track_sq:.1f} through pours); limit 83",
-              f"{len(reached)} of {len(tnodes)} LED resistors reached"
-              + (f"; not reached: {missing[:6]}" if missing else ""))
+        cache = {}
+
+        def hop(zi, u, v, dd):
+            key = (zi, min(u, v), max(u, v))
+            if key in cache:
+                return cache[key]
+            return NetGraph._zcost(dd, "squares")   # the cheaper bound until refined
+        # Refine: replace each pour crossing on the current best paths by its slab bound,
+        # and search again, until no path uses an unrefined crossing. The result is then
+        # the least lower bound over all single paths.
+        for _ in range(8):
+            dist, parent = g.shortest([start], list(tnodes), weight="squares", hop=hop)
+            fresh = False
+            for n in tnodes:
+                if n not in dist:
+                    continue
+                for u, v, kind, zi in g.path(parent, n):
+                    if kind == "pour":
+                        key = (zi, min(u, v), max(u, v))
+                        if key not in cache:
+                            cache[key] = max(NetGraph._zcost(math.hypot(
+                                g.xy[u][0] - g.xy[v][0], g.xy[u][1] - g.xy[v][1]), "squares"),
+                                self.slab_bound(g.islands[zi], g.xy[u], g.xy[v],
+                                                g.rad[u], g.rad[v]))
+                            fresh = True
+            if not fresh:
+                break
+        reached = sorted(((dist[n], tnodes[n], n) for n in tnodes if n in dist),
+                         key=lambda t: -t[0])
+        unreached = sorted(f"{a}.{b}" for n, (a, b) in tnodes.items() if n not in dist)
+        lines, over, via_pour = [], [], []
+        for sq, (ref, pin), n in reached:
+            path = g.path(parent, n)
+            pours = [g.islands[zi] for _, _, kind, zi in path if kind == "pour"]
+            track = sum(math.hypot(g.xy[u][0] - g.xy[v][0], g.xy[u][1] - g.xy[v][1]) / w
+                        for u, v, kind, w in path if kind == "track" and w)
+            line = (f"{ref} pad {pin}: {sq:.1f} squares ({track:.1f} in tracks"
+                    + (f", at least {sq - track:.1f} through {len(pours)} pour crossing(s)"
+                       if pours else "") + ")")
+            if sq > 83.0:
+                over.append(line)
+            elif pours:
+                via_pour.append(line)
+            lines.append(line)
+        if over:
+            r.clause("at most 83 squares to each reached LED resistor", FAIL, *over[:6],
+                     "a pour crossing is counted at its lower bound, so these are proved over")
+        elif via_pour:
+            r.clause("at most 83 squares to each reached LED resistor", NOT_CHECKED,
+                     *via_pour[:4], "these paths cross a pour, whose resistance the judge "
+                     "bounds only from below; under 83 on a lower bound is not a pass")
+        elif reached:
+            r.clause("at most 83 squares to each reached LED resistor", PASS,
+                     f"farthest: {lines[0]}", "track-only paths, an upper bound on resistance")
+        if unreached:
+            d3 = self.m.pad_by.get(("D3", "1"))
+            cl = self.kicad_cluster(d3) if d3 is not None else None
+            conn = [x for x in unreached if cl is not None and
+                    self.m.pad_by[tuple(x.split("."))].obj.m_Uuid.AsString() in cl]
+            r.clause("every LED resistor reached", NOT_CHECKED,
+                     f"{len(reached)} of {len(tnodes)} reached from D3 by the judge's copper "
+                     f"graph; not reached: {unreached[:8]}{'...' if len(unreached) > 8 else ''}",
+                     (f"KiCad connects {len(conn)} of them to D3 ({conn[:4]}): the judge's graph "
+                      "misses that copper" if conn else
+                      "KiCad does not connect them to D3 either: not routed yet"))
+        else:
+            r.clause("every LED resistor reached", PASS, f"all {len(tnodes)} reached")
 
     # -- B-13 ----------------------------------------------------------------------------
+    def inner_ends(self, p, axis, line):
+        """Track ends inside pad p nearer the barrier line than the pad's centre."""
+        out = []
+        for s in self.m.segs_of(p.net):
+            if s.layer not in p.layers:
+                continue
+            pp = p.poly(s.layer, s.lid)
+            for x, y in ((s.x1, s.y1), (s.x2, s.y2)):
+                if pp.SquaredDistance(V(x, y)) == 0:
+                    c_end, c_pad = (x, p.x) if axis == "x" else (y, p.y)
+                    if abs(c_end - line) < abs(c_pad - line) - 1e-3:
+                        out.append(f"{s!r} leaves {p!r} from its inner end, ({x:.2f},{y:.2f})")
+        return out
+
     def b13(self, r):
-        pads = {k: self.m.pad_by.get(k) for k in
-                [("C162", "1"), ("C162", "2"), ("U63", "1"), ("U63", "2"), ("U63", "4"), ("U63", "6")]}
+        keys = [("C162", "1"), ("C162", "2"), ("U63", "1"), ("U63", "2"), ("U63", "4"), ("U63", "6")]
+        pads = {k: self.m.pad_by.get(k) for k in keys}
         if any(p is None for p in pads.values()):
             return r.set(NA, "C162 or U63 is not on this board")
-        nets = ["DGND", "ISO_5V_RTN", "U63_VIN", "ISO_5V"]
-        if self.state(nets) == "absent":
+        if self.state(["DGND", "ISO_5V_RTN", "U63_VIN", "ISO_5V"]) == "absent":
             return r.set(NA, "none of C162's and U63's nets is on this board")
-        has = [k for k in (("C162", "1"), ("C162", "2"), ("U63", "2"), ("U63", "4"))
-               if self.m.graph(pads[k].net).adj[self.m.graph(pads[k].net).pad(*k)]
-               or self.m.graph(pads[k].net).is_contact(self.m.graph(pads[k].net).pad(*k))]
-        if not has:
+
+        def has(k):
+            g = self.m.graph(pads[k].net)
+            n = g.pad(*k)
+            return n is not None and (bool(g.adj[n]) or g.is_contact(n))
+        if not any(has(k) for k in (("C162", "1"), ("C162", "2"), ("U63", "2"), ("U63", "4"))):
             return r.set(NA, "no copper on C162 or U63 pins 2 and 4 yet")
-        bad = []
         for a, b in ((("C162", "1"), ("U63", "1")), (("C162", "2"), ("U63", "6"))):
             pa, pb = pads[a], pads[b]
-            g = self.m.graph(pa.net)
-            if not g.adj[g.pad(*a)] and not g.is_contact(g.pad(*a)):
+            name = f"{a[0]}.{a[1]} to {b[0]}.{b[1]} by the shortest trace"
+            if not has(a):
+                r.clause(name, NA, f"{pa!r} has no copper yet")
                 continue
+            g = self.m.graph(pa.net)
             dist, _ = g.shortest([g.pad(*a)], [g.pad(*b)], use_zones=False)
             straight = math.hypot(pa.x - pb.x, pa.y - pb.y)
             nb = g.pad(*b)
             if nb not in dist:
-                bad.append(f"{pa!r} does not reach {pb!r} by tracks ({pa.net})")
-            elif dist[nb] > straight + 2.0:
-                bad.append(f"{pa!r} to {pb!r}: {dist[nb]:.2f} mm of track against "
-                           f"{straight:.2f} mm straight")
+                r.clause(name, FAIL, f"{pa!r} does not reach {pb!r} by tracks ({pa.net})")
             else:
-                r.evidence.append(f"{pa!r} to {pb!r}: {dist[nb]:.2f} mm ({straight:.2f} straight)")
-        for k in (("C162", "1"), ("C162", "2"), ("U63", "2"), ("U63", "4")):
-            p = pads[k]
-            pp = p.poly("F.Cu", self.m.lid["F.Cu"])
-            for s in self.m.segs_of(p.net):
-                for x, y in ((s.x1, s.y1), (s.x2, s.y2)):
-                    if s.layer in p.layers and pp.SquaredDistance(V(x, y)) == 0:
-                        if abs(y - INTAN_LINE_Y) < abs(p.y - INTAN_LINE_Y) - 1e-3:
-                            bad.append(f"{s!r} leaves {p!r} from its inner end, "
-                                       f"({x:.2f},{y:.2f})")
+                r.clause(name, PASS if dist[nb] <= straight + 2.0 else FAIL,
+                         f"{pa!r} to {pb!r}: {dist[nb]:.2f} mm of track against "
+                         f"{straight:.2f} mm straight (allowance 2.0 mm)")
+        inner = [e for k in (("C162", "1"), ("C162", "2"), ("U63", "2"), ("U63", "4"))
+                 for e in self.inner_ends(pads[k], "y", INTAN_LINE_Y)]
+        r.clause("each trace leaves its pad from the outer end", self.verdict(inner), *inner)
         c2 = pads[("C162", "2")]
-        for i in self.m.islands_of("INTAN_GND"):
-            if i.layer == "F.Cu" and overlap_mm2(c2.poly("F.Cu", self.m.lid["F.Cu"], 0.01), i.poly) > 1e-5:
-                bad.append(f"C162 pad 2 touches {i!r}")
-        r.set(FAIL if bad else PASS, *bad)
+        touch = [f"C162 pad 2 touches {i!r}" for i in self.m.islands_of("INTAN_GND")
+                 if i.layer == "F.Cu" and
+                 overlap_mm2(c2.poly("F.Cu", self.m.lid["F.Cu"], 0.01), i.poly) > 1e-5]
+        r.clause("C162 pad 2 never on the INTAN_GND plane", self.verdict(touch), *touch)
+
+    def b13_all(self, r):
+        pads = [p for p in self.m.pads if p.ref in cbp.STRADDLERS and p.num
+                and p.net in self.present and p.net in self.m.copper_nets]
+        if not any(p.ref in cbp.STRADDLERS and p.net in self.present for p in self.m.pads):
+            return r.set(NA, "no straddler's nets are on this board")
+        def ended_in(p):
+            for s in self.m.segs_of(p.net):
+                if s.layer in p.layers and abs(s.x1 - p.x) + abs(s.y1 - p.y) + abs(s.x2 - p.x) \
+                        + abs(s.y2 - p.y) < 1e9:
+                    pp = p.poly(s.layer, s.lid)
+                    if any(pp.SquaredDistance(V(x, y)) == 0 for x, y in ((s.x1, s.y1), (s.x2, s.y2))):
+                        return True
+            return False
+        withcu = [p for p in pads if ended_in(p)]
+        if not withcu:
+            return r.set(NA, "no track ends in a straddler pad yet")
+        inner = []
+        for p in withcu:
+            axis, line = cbp.STRADDLER_LINE[p.ref]
+            inner += self.inner_ends(p, axis, line)
+        r.clause("every straddler pad left from its outer end", self.verdict(inner),
+                 *(inner or [f"{len(withcu)} straddler pads with tracks"]))
 
     # -- B-16 ----------------------------------------------------------------------------
     def b16(self, r):
@@ -1283,26 +1712,19 @@ class Judge:
         dgnd = {n for n, d in self.net_dom.items() if d == {"DGND"}}
         if not any(k in self.m.pad_by for k in primary + secondary):
             return r.set(NA, "U2 and U63 are not on this board")
-        if self.state(intan | dgnd) != "routed":
-            return r.set(NA, "no Intan- or DGND-domain copper routed yet")
-        bad = []
-        for k in primary:
-            p = self.m.pad_by.get(k)
-            if p is None:
-                continue
-            bad += [f"Intan copper within {BAND_W} mm of primary {p!r}: {h}"
-                    for h in self._near_pad(p, BAND_W, intan)]
-        for k in secondary:
-            p = self.m.pad_by.get(k)
-            if p is None:
-                continue
-            bad += [f"DGND copper under secondary {p!r}: {h}"
-                    for h in self._near_pad(p, 0.0, dgnd)]
-        r.set(FAIL if bad else PASS, *(bad or ["no Intan copper at the primary pins, no "
-                                                "DGND copper under the secondary ones"]))
+        own = {self.m.pad_by[k].net for k in primary + secondary if k in self.m.pad_by}
+        if self.state(own) != "routed":
+            return r.set(NA, "U2's and U63's own nets have no copper yet")
+        a = [f"Intan copper within {BAND_W} mm of primary {self.m.pad_by[k]!r}: {h}"
+             for k in primary if k in self.m.pad_by
+             for h in self._near_pad(self.m.pad_by[k], BAND_W, intan)]
+        r.clause(f"no Intan copper within {BAND_W} mm of a primary pin", self.verdict(a), *a)
+        b = [f"DGND copper under secondary {self.m.pad_by[k]!r}: {h}"
+             for k in secondary if k in self.m.pad_by
+             for h in self._near_pad(self.m.pad_by[k], 0.0, dgnd)]
+        r.clause("no DGND copper under a secondary pin", self.verdict(b), *b)
 
     def _near_pad(self, p, grow, nets):
-        """Copper of `nets` within `grow` of the pad's outline, in plan, on any layer."""
         hits = []
         pp = p.poly(p.layers[0], self.m.lid[p.layers[0]], grow)
         pb = poly_bbox(pp)
@@ -1328,85 +1750,84 @@ class Judge:
         if not xs and self.state(MUX_OUT) != "routed":
             return r.set(NA, "nothing crosses y = 165 between x = 170 and 238, and no "
                          "MUX_OUTn is routed")
-        bad = []
         cnt = {}
         for x, net, ln, s in xs:
             cnt[net] = cnt.get(net, 0) + 1
-            if net not in MUX_OUT and net != "AGND":
-                bad.append(f"{net} crosses at ({x:.2f}, 165) on {ln}")
-        for n in MUX_OUT:
-            if cnt.get(n, 0) > 1:
-                bad.append(f"{n} crosses {cnt[n]} times")
-        if cnt.get("AGND", 0) > 8:
-            bad.append(f"AGND crosses {cnt['AGND']} times (eight sense traces)")
-        r.set(FAIL if bad else PASS, f"{len(xs)} crossings: "
-              + ", ".join(f"{k} x{v}" for k, v in sorted(cnt.items())), *bad)
+        foreign = [f"{net} crosses at ({x:.2f}, 165) on {ln}" for x, net, ln, s in xs
+                   if net not in MUX_OUT and net != "AGND"]
+        r.clause("only MUX_OUTn and AGND cross", self.verdict(foreign),
+                 *(foreign or [f"{len(xs)} crossings: "
+                               + ", ".join(f"{k} x{v}" for k, v in sorted(cnt.items()))]))
+        r.clause("AGND crosses at most eight times (the sense traces)",
+                 self.verdict(cnt.get("AGND", 0) > 8), f"AGND crosses {cnt.get('AGND', 0)} times")
 
     def b18(self, r):
         if self.na_if(r, MUX_OUT, "MUX_OUT1 to 8"):
             return
         xs = self.intan_crossings()
-        bad = []
         g = self.m.graph("AGND") if "AGND" in self.m.copper_nets else None
-        for net in MUX_OUT:
-            if net not in self.m.copper_nets:
-                continue
+        cl = {k: [] for k in ("once", "beside", "sense", "length", "at mux")}
+        bad = {k: [] for k in cl}
+        for net in [n for n in MUX_OUT if n in self.m.copper_nets]:
             ina = next((ref for ref, pin, *_ in self.contract["nets"][net] if pin == "3"), None)
             mux = next((ref for ref, pin, *_ in self.contract["nets"][net] if pin == "28"), None)
             mine = [c for c in xs if c[1] == net]
-            if len(mine) != 1:
-                bad.append(f"{net} crosses y = 165 {len(mine)} times")
+            (bad if len(mine) != 1 else cl)["once"].append(f"{net} crosses y = 165 {len(mine)} times")
+            if len(mine) == 1:
+                i = xs.index(mine[0])
+                nbrs = [xs[j] for j in (i - 1, i + 1) if 0 <= j < len(xs)]
+                pair = [c for c in nbrs if c[1] == "AGND" and abs(c[0] - mine[0][0]) <= 1.5]
+                (cl if pair else bad)["beside"].append(
+                    f"{net} at x = {mine[0][0]:.2f}; neighbours "
+                    f"{[(round(c[0], 2), c[1]) for c in nbrs]}")
+            start = g.pad(ina, "2") if g is not None and ina else None
+            ls = self.to_plane(g, start)[0] if start is not None else None
+            if not ls:
+                bad["sense"].append(f"{net}: {ina} pin 2 has no AGND sense trace to the pour")
                 continue
-            i = xs.index(mine[0])
-            nbrs = [xs[j] for j in (i - 1, i + 1) if 0 <= j < len(xs)]
-            pair = [c for c in nbrs if c[1] == "AGND" and abs(c[0] - mine[0][0]) <= 1.5]
-            if not pair:
-                bad.append(f"{net} at x = {mine[0][0]:.2f}: no AGND crossing beside it "
-                           f"within 1.5 mm (neighbours {[(round(c[0], 2), c[1]) for c in nbrs]})")
+            cl["sense"].append(f"{net}: {ina}.2 to the AGND pour by {ls:.2f} mm of track")
             L = self.m.track_length(net)
-            if g is None or ina is None:
-                bad.append(f"{net}: no AGND sense trace routed to {ina} pin 2")
-                continue
-            start = g.pad(ina, "2")
-            ls, _, _ = self.to_plane(g, start) if start is not None else (None, None, 0)
-            if ls is None or ls == 0.0:
-                bad.append(f"{net}: {ina} pin 2 has no AGND sense trace to the pour")
-                continue
-            # where the sense trace meets the pour
+            (bad if abs(L - ls) > 1.0 else cl)["length"].append(
+                f"{net} {L:.2f} mm, its sense trace {ls:.2f} mm")
             targets = [n for n in range(len(g.xy)) if g.is_contact(n)]
             dist, _ = g.shortest([start], targets, use_zones=False)
             t = min((n for n in targets if n in dist), key=lambda n: dist[n])
             mx = self.fp_xy(mux)
             dm = math.hypot(g.xy[t][0] - mx[0], g.xy[t][1] - mx[1]) if mx else float("inf")
-            line = (f"{net} {L:.2f} mm, sense {ls:.2f} mm from {ina}.2 to the pour at "
-                    f"({g.xy[t][0]:.2f},{g.xy[t][1]:.2f}), {dm:.1f} mm from {mux}")
-            if abs(L - ls) > 1.0 or dm > 10.0:
-                bad.append(line)
-            else:
-                r.evidence.append(line)
-        r.set(FAIL if bad else PASS, *bad)
+            (bad if dm > 10.0 else cl)["at mux"].append(
+                f"{net}: sense meets the pour at ({g.xy[t][0]:.2f},{g.xy[t][1]:.2f}), "
+                f"{dm:.1f} mm from {mux}")
+        names = {"once": "each MUX_OUTn crosses once",
+                 "beside": "an AGND crossing beside it, within 1.5 mm",
+                 "sense": "an AGND sense trace from the INA105's pin 2 to the pour",
+                 "length": "MUX_OUTn and its sense trace within 1.0 mm in length",
+                 "at mux": "the sense trace taken from the pour within 10 mm of the mux"}
+        for k, name in names.items():
+            if bad[k] or cl[k]:
+                r.clause(name, self.verdict(bad[k]), *(bad[k] or cl[k]))
 
     # -- N-9 -----------------------------------------------------------------------------
     def n9(self, r):
         nets = ["USB_DP_PI", "USB_DM_PI"]
-        bad = []
         vb = self.m.pad_by.get(("J18", "1"))
-        if vb is not None:
-            bad += [f"J18 pin 1 touched by {h}" for h in self.m.touching(vb)]
-        if self.state(nets) != "routed":
-            if bad:
-                return r.set(FAIL, *bad)
+        vbus = [f"J18 pin 1 touched by {h}" for h in self.m.touching(vb)] if vb else []
+        if self.state(nets) != "routed" and not vbus:
             return self.na_if(r, nets)
+        if vb is not None:
+            r.clause("J18 pin 1 (USB_VBUS_PI) gets no copper", self.verdict(vbus), *vbus)
+        if self.state(nets) != "routed":
+            return
         L = {n: self.m.track_length(n) for n in nets}
-        r.evidence.append(f"lengths D+ {L['USB_DP_PI']:.2f} mm, D- {L['USB_DM_PI']:.2f} mm")
-        if abs(L["USB_DP_PI"] - L["USB_DM_PI"]) > 1.0:
-            bad.append(f"mismatch {abs(L['USB_DP_PI'] - L['USB_DM_PI']):.2f} mm")
+        r.clause("lengths within 1.0 mm", self.verdict(abs(L[nets[0]] - L[nets[1]]) > 1.0),
+                 f"D+ {L[nets[0]]:.2f} mm, D- {L[nets[1]]:.2f} mm")
         own = [p for p in self.m.pads if p.net in nets]
         dgnd = {ln: [i for i in self.m.islands_of("DGND") if i.layer == ln] for ln in self.m.cu}
+        loose, gaps = [], []
         for a, b in ((nets[0], nets[1]), (nets[1], nets[0])):
             sa, sb = self.m.segs_of(a), self.m.segs_of(b)
             tot = close = 0.0
-            gaps = 0
+            miss = 0
+            first = None
             for s in sa:
                 n = max(1, int(s.length / 0.25))
                 for k in range(n):
@@ -1416,17 +1837,19 @@ class Judge:
                     if any(seg_point_dist(x, y, o.x1, o.y1, o.x2, o.y2)[0] - (s.w + o.w) / 2 <= 0.4
                            for o in sb if o.layer == s.layer):
                         close += s.length / n
-                    if any(math.hypot(x - p.x, y - p.y) <= 1.0 + p.reach
-                           for p in own):
+                    if any(math.hypot(x - p.x, y - p.y) <= 1.0 + p.reach for p in own):
                         continue
                     ln = ADJACENT_PLANE[s.layer] if s.layer in ("F.Cu", "B.Cu") else None
                     if not any(i.poly.Contains(V(x, y)) for i in dgnd.get(ln, [])):
-                        gaps += 1
+                        miss += 1
+                        first = first or (round(x, 2), round(y, 2), s.layer)
             if tot and close / tot < 0.8:
-                bad.append(f"{a}: {100 * close / tot:.0f}% of its length coupled to {b}")
-            if gaps:
-                bad.append(f"{a}: {gaps} samples not over a DGND fill on the adjacent layer")
-        r.set(FAIL if bad else PASS, *bad)
+                loose.append(f"{a}: {100 * close / tot:.0f}% of its length within 0.4 mm of {b}")
+            if miss:
+                gaps.append(f"{a}: {miss} samples not over a DGND fill on the adjacent layer, "
+                            f"first at {first}")
+        r.clause("coupled: 80% within a 0.4 mm gap", self.verdict(loose), *loose)
+        r.clause("over unbroken DGND", self.verdict(gaps), *gaps)
 
     # -- K-33 ----------------------------------------------------------------------------
     def k33(self, r):
@@ -1435,13 +1858,13 @@ class Judge:
         legs = []
         for a, b in pairs:
             for net, nodes in nets.items():
-                fa = [(ref, pin, fn) for ref, pin, fn, _ in nodes if ref == a and fn.startswith("Y")]
-                fb = [(ref, pin, fn) for ref, pin, fn, _ in nodes if ref == b and fn.startswith("Y")]
+                fa = [pin for ref, pin, fn, _ in nodes if ref == a and fn.startswith("Y")]
+                fb = [pin for ref, pin, fn, _ in nodes if ref == b and fn.startswith("Y")]
                 if fa and fb:
-                    legs.append((net, (a, fa[0][1]), (b, fb[0][1])))
+                    legs.append((net, (a, fa[0]), (b, fb[0])))
         if self.na_if(r, [n for n, *_ in legs], "the LED-driver output nets"):
             return
-        bad = []
+        apart, ok, bad = [], [], []
         for net, pa, pb in legs:
             if net not in self.m.copper_nets:
                 continue
@@ -1449,22 +1872,23 @@ class Judge:
             na, nb = g.pad(*pa), g.pad(*pb)
             others = [g.pad(ref, pin) for ref, pin, *_ in nets[net]
                       if (ref, pin) not in (pa, pb) and g.pad(ref, pin) is not None]
+            if na is None or nb is None or not others:
+                continue
             da, _ = g.shortest([na])
             db, _ = g.shortest([nb])
             dl, _ = g.shortest(others)
             common = [n for n in range(len(g.xy)) if n in da and n in db and n in dl]
             if not common:
-                bad.append(f"{net}: {pa[0]}.{pa[1]} and {pb[0]}.{pb[1]} not joined to the LED yet")
+                apart.append(f"{net}: {pa[0]}.{pa[1]} and {pb[0]}.{pb[1]} not joined to the LED")
                 continue
             j = min(common, key=lambda n: da[n] + db[n] + dl[n])
-            la, lb = da[j], db[j]
-            line = (f"{net}: legs {la:.2f} mm ({pa[0]}.{pa[1]}) and {lb:.2f} mm "
+            line = (f"{net}: legs {da[j]:.2f} mm ({pa[0]}.{pa[1]}) and {db[j]:.2f} mm "
                     f"({pb[0]}.{pb[1]}), junction ({g.xy[j][0]:.2f},{g.xy[j][1]:.2f})")
-            if abs(la - lb) > 1.0 or max(la, lb) > 10.0:
-                bad.append(line)
-            else:
-                r.evidence.append(line)
-        r.set(FAIL if bad else PASS, *bad)
+            (bad if abs(da[j] - db[j]) > 1.0 or max(da[j], db[j]) > 10.0 else ok).append(line)
+        if apart:
+            r.clause("both outputs joined to the LED", FAIL, *apart)
+        if bad or ok:
+            r.clause("legs at most 10 mm and within 1.0 mm", self.verdict(bad), *(bad or ok))
 
     # -- K-23 ----------------------------------------------------------------------------
     def k23(self, r):
@@ -1473,51 +1897,55 @@ class Judge:
             pairs += [(f"{m}_MID", f"{m}_SHLD_MID"), (f"{m}_DIV", f"{m}_SHLD_DIV")]
         if self.na_if(r, [n for p in pairs for n in p], "the divider nets"):
             return
-        bad = []
+        lb, lo, vb, vo = [], [], [], []
         for a, b in pairs:
             if a not in self.m.copper_nets and b not in self.m.copper_nets:
                 continue
-            la, lb = self.m.track_length(a), self.m.track_length(b)
-            va, vb = len(self.m.vias_of(a)), len(self.m.vias_of(b))
-            line = f"{a} {la:.2f} mm/{va} vias, {b} {lb:.2f} mm/{vb} vias"
-            if abs(la - lb) > 1.0 or va != vb:
-                bad.append(line)
-            else:
-                r.evidence.append(line)
-        r.set(FAIL if bad else PASS, *bad)
-        r.note = "K-23's other half (a 2-gang block fitted and moved by hand, clear of the " \
-                 "BNC bodies) is placement and not judged here"
+            la, lb_ = self.m.track_length(a), self.m.track_length(b)
+            va, vb_ = len(self.m.vias_of(a)), len(self.m.vias_of(b))
+            (lb if abs(la - lb_) > 1.0 else lo).append(f"{a} {la:.2f} mm, {b} {lb_:.2f} mm")
+            (vb if va != vb_ else vo).append(f"{a} {va} vias, {b} {vb_} vias")
+        r.clause("each leg's twin within 1.0 mm in length", self.verdict(lb), *(lb or lo))
+        r.clause("each leg's twin with as many vias", self.verdict(vb), *(vb or vo))
+        r.clause("a 2-gang block fitted and moved by hand, clear of the BNC bodies",
+                 NOT_CHECKED, "access by hand is not a property the board file holds")
 
     # -- FIXED ---------------------------------------------------------------------------
     def fixed(self, r):
-        ref = cbp.read_board(COMMITTED_PCB.read_text())
-        got = cbp.read_board(self.m.path.read_text())
+        if self.reference is None:
+            return r.clause("against a reference", NOT_CHECKED, "no reference board")
+        label, ref_text = self.reference
+        text = self.m.path.read_text()
+        if text == ref_text:
+            return r.clause("against a reference", NOT_CHECKED,
+                            f"the reference ({label}) is this board itself; give --reference")
+        ref = cbp.read_board(ref_text)
+        got = cbp.read_board(text)
         refs = sorted(set(cbp.PANEL) | set(cbp.STRADDLERS) | {"NT1", "J1"})
         a = {f.ref: f for f in ref["footprints"]}
         b = {f.ref: f for f in got["footprints"]}
-        bad = []
+        moved = []
         for k in refs:
-            if k not in b:
-                bad.append(f"{k} is missing")
+            if k not in b or k not in a:
+                moved.append(f"{k} is missing")
                 continue
             fa, fb = a[k], b[k]
             if abs(fa.x - fb.x) > 1e-3 or abs(fa.y - fb.y) > 1e-3 or abs((fa.rot - fb.rot) % 360) > 1e-3:
-                bad.append(f"{k} moved: ({fa.x:.3f},{fa.y:.3f},{fa.rot:g}) -> "
-                           f"({fb.x:.3f},{fb.y:.3f},{fb.rot:g})")
+                moved.append(f"{k} moved: ({fa.x:.3f},{fa.y:.3f},{fa.rot:g}) -> "
+                             f"({fb.x:.3f},{fb.y:.3f},{fb.rot:g})")
+        r.clause(f"{len(refs)} fixed parts where the reference has them", self.verdict(moved),
+                 *(moved or [f"reference: {label}"]))
 
         def norm_edges(e):
             return sorted(tuple(sorted((round(x, 3), round(y, 3)) for x, y in s)) for s in e)
-        if norm_edges(ref["edges"]) != norm_edges(got["edges"]):
-            bad.append("Edge.Cuts (outline or slots) differs from the committed board")
+        r.clause("Edge.Cuts (outline and slots) as the reference",
+                 self.verdict(norm_edges(ref["edges"]) != norm_edges(got["edges"])))
         za = {z["name"]: (sorted((round(x, 3), round(y, 3)) for x, y in z["pts"]), z["keepout"])
               for z in ref["zones"] if z["keepout"]}
         zb = {z["name"]: (sorted((round(x, 3), round(y, 3)) for x, y in z["pts"]), z["keepout"])
               for z in got["zones"] if z["keepout"]}
-        for name in sorted(set(za) | set(zb)):
-            if za.get(name) != zb.get(name):
-                bad.append(f"rule area {name} differs from the committed board")
-        r.set(FAIL if bad else PASS, *(bad or [
-            f"{len(refs)} parts, Edge.Cuts and {len(za)} rule areas as committed"]))
+        diff = [f"rule area {n} differs" for n in sorted(set(za) | set(zb)) if za.get(n) != zb.get(n)]
+        r.clause(f"the {len(za)} rule areas as the reference", self.verdict(diff), *diff)
 
     # ===================================================================================
     # Layer 3
@@ -1534,7 +1962,8 @@ class Judge:
             conns += len(ps) - 1   # KiCad's count: pads less one, per net
         routed = conns - m.unconnected
         vias = [v for v in m.vias if v.net in scope]
-        out = {"vias": len(vias), "connections": conns, "routed_connections": routed,
+        out = {"corridor": self.corridor(),
+               "vias": len(vias), "connections": conns, "routed_connections": routed,
                "vias_per_routed_connection": round(len(vias) / routed, 3) if routed > 0 else None}
         inner = {}
         for ln in ("In1.Cu", "In2.Cu"):
@@ -2001,6 +2430,25 @@ def fmt_metrics(mt: dict) -> list[str]:
     return L
 
 
+def reference_of(a):
+    """FIXED's reference: --reference, else --baseline, else the committed board on main.
+    The working-tree breakout.kicad_pcb is never the reference: it is where the routed
+    board lives, so it would be compared with itself."""
+    if a.reference:
+        return (f"--reference {a.reference}", a.reference.read_text())
+    if a.baseline:
+        return (f"--baseline {a.baseline}", a.baseline.read_text())
+    rel = "hardware/breakout/breakout.kicad_pcb"
+    try:
+        sha = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "main"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        text = subprocess.run(["git", "-C", str(REPO), "show", f"main:{rel}"],
+                              capture_output=True, text=True, check=True).stdout
+        return (f"main ({sha}):{rel}", text)
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("board", type=Path)
@@ -2011,6 +2459,11 @@ def main(argv=None) -> int:
     ap.add_argument("--kicad-happy", action="store_true")
     ap.add_argument("--skip-drc", action="store_true",
                     help="skip layer 1's DRC (reported NOT CHECKED; for quick runs)")
+    ap.add_argument("--reference", type=Path,
+                    help="the board FIXED compares with (default: --baseline if given, else "
+                         "hardware/breakout/breakout.kicad_pcb as committed on main)")
+    ap.add_argument("--allow-not-checked", action="store_true",
+                    help="exit 0 even when a check is NOT CHECKED (the summary says so)")
     a = ap.parse_args(argv)
     if pcbnew is None:
         print("judge_layout.py needs KiCad's Python (import pcbnew failed):\n  " + KICAD_PY)
@@ -2041,7 +2494,7 @@ def main(argv=None) -> int:
         gates.append(placement_gate(board, contract, nets_filter))
         gates.append(region_gate(m, nets_filter, region))
 
-        j = Judge(m, contract, nets_filter, region)
+        j = Judge(m, contract, nets_filter, region, reference_of(a))
         j.run_rules()
         metrics = j.metrics()
         base_metrics = base_m = None
@@ -2054,8 +2507,10 @@ def main(argv=None) -> int:
         if a.kicad_happy:
             kh = kicad_happy(staged, base_staged, m, work)
 
-        failing = [g.id for g in gates if g.status not in (PASS, NA)] + \
-                  [r.id for r in j.results if r.status not in (PASS, NA)]
+        allowed = NOT_CHECKED if a.allow_not_checked else None
+        everything = gates + j.results
+        failing = [x.id for x in everything if x.status not in (PASS, NA, allowed)]
+        waived = [x.id for x in everything if allowed and x.status == NOT_CHECKED]
         code = 0 if not failing else 1
         out = {
             "board": str(board), "baseline": str(a.baseline) if a.baseline else None,
@@ -2065,7 +2520,8 @@ def main(argv=None) -> int:
             "metrics": metrics, "baseline_metrics": base_metrics,
             "metrics_delta": delta(metrics, base_metrics) if base_metrics else None,
             "kicad_happy": kh, "judges_readings": READINGS,
-            "not_passing": failing, "exit_code": code,
+            "not_passing": failing, "not_checked_allowed": waived, "exit_code": code,
+            "not_judged": NOT_JUDGED,
         }
         jp = a.json or (Path(tempfile.gettempdir()) / f"judge-{board.stem}.json")
         jp.write_text(json.dumps(out, indent=1, default=str))
@@ -2082,10 +2538,21 @@ def main(argv=None) -> int:
         P("LAYER 2  RULES NO TOOL CHECKS ([judge's reading] where the rule leaves a number open)")
         for r in j.results:
             P(f"  [{r.status:^11}] {r.id}: {r.title}" + ("  [judge's reading]" if r.reading else ""))
-            for e in r.evidence[:8]:
-                P(f"      {e}")
-            if len(r.evidence) > 8:
-                P(f"      ... {len(r.evidence) - 8} more in the JSON")
+            if not r.clauses:
+                for e in r.evidence[:4]:
+                    P(f"      {e}")
+            for c in r.clauses:
+                if c["status"] == NA and r.status != NA:
+                    continue
+                P(f"      - [{c['status']}] {c['clause']}")
+                lim = 6 if c["status"] in (FAIL, NOT_CHECKED) else 2
+                for e in c["evidence"][:lim]:
+                    P(f"          {e}")
+                if len(c["evidence"]) > lim:
+                    P(f"          ... {len(c['evidence']) - lim} more in the JSON")
+        P("NOT JUDGED HERE (rules that bear on routing and that no layer-2 check holds):")
+        for who, what in NOT_JUDGED:
+            P(f"  {who}: {what}")
         P("LAYER 3  METRICS")
         P(" board:")
         for line in fmt_metrics(metrics):
@@ -2123,8 +2590,16 @@ def main(argv=None) -> int:
                 if "CP-002" in kh["new_by_rule"]:
                     P("  note: CP-002 (\"no opposite-layer copper under\" a part) reads the same "
                       "no-stack-up fallback layer, B.Cu; the judge does not re-measure it")
+        nc = [x.id for x in everything if x.status == NOT_CHECKED]
         P(f"RESULT: exit {code}" + (f"; not passing: {', '.join(failing)}" if failing else
-                                    "; every gate and rule check PASS or N/A"))
+                                    "; every gate and rule check PASS or N/A"
+                                    if not waived else "; every gate and rule check PASS or N/A"
+                                    " except those NOT CHECKED below"))
+        if nc:
+            P(f"  NOT CHECKED: {', '.join(nc)}"
+              + ("  (allowed by --allow-not-checked: they do not count against the exit code)"
+                 if waived else "  (each counts against the exit code; --allow-not-checked "
+                                "waives them)"))
         P(f"JSON: {jp}")
         return code
     finally:

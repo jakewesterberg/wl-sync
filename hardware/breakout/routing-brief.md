@@ -444,8 +444,9 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
 ```bash
 /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \
     hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
-    [--baseline UNROUTED.kicad_pcb] [--nets NETS.txt --region x0,y0,x1,y1] \
-    [--json OUT.json] [--kicad-happy]
+    [--baseline UNROUTED.kicad_pcb] [--reference REF.kicad_pcb] \
+    [--nets NETS.txt --region x0,y0,x1,y1] [--json OUT.json] [--kicad-happy] \
+    [--allow-not-checked]
 ```
 
 - **Layer 1, gates:** DRC with `--severity-all`, on a copy staged as `breakout.kicad_pcb`
@@ -456,9 +457,15 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
   placement check; and, with `--nets`/`--region`, every track, via and pour inside the
   region and on a listed net.
 - **Layer 2:** item 5's checks and the prohibitions of §5 that DRC cannot see, each by rule
-  ID with coordinates. Where a rule's words leave a number open the judge states one and
-  marks it `[judge's reading]`; the readings are printed in the JSON. `N/A` means the
-  rule's nets are absent or not yet routed, never a pass.
+  ID, split into the clauses its rule asks for, with coordinates. Where a rule's words leave
+  a number open the judge states one and marks it `[judge's reading]`; the readings are in
+  the JSON. `N/A` means the rule's nets are absent or not yet routed, never a pass.
+  `NOT CHECKED` means a clause the board cannot settle (G-1's mounting hardware, K-23's hand
+  access), or a figure the judge has only as a bound that does not decide it (N-10 through a
+  pour); it is printed with its reason. A list of the rules no check holds is printed too.
+- **FIXED** compares the panel connectors, straddlers, `NT1`, `J1`, Edge.Cuts and rule
+  areas with `--reference`, else `--baseline`, else this board as committed on `main`; when
+  the reference is the board itself it says so and reports `NOT CHECKED`.
 - **Layer 3:** comparison numbers (vias, signal copper on L2 and L3, pour islands and
   necks, bypass path lengths, routed length against a minimum spanning tree, layer changes),
   against `--baseline` if given.
@@ -466,7 +473,9 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
   Its return-path figures are re-measured on the adjacent plane: with no stack-up in the
   board file it samples the opposite outer layer instead.
 
-Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`. On the
-committed, unrouted board it exits 1 on DRC (`unconnected_items`) and connectivity (1791)
-alone. Its tests are `tests/hardware/test_judge_layout.py`, one negative control per
-layer-2 check, skipped where KiCad is not installed.
+Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`; a `NOT CHECKED`
+counts against it unless `--allow-not-checked` is given, and the summary then says which
+were waived. On the committed, unrouted board it exits 1 on DRC (`unconnected_items`),
+connectivity (1791), and G-1 and FIXED `NOT CHECKED`. Its tests are
+`tests/hardware/test_judge_layout.py`: for each clause under test a base board on which it
+passes and a control that breaks it alone; skipped where KiCad is not installed.
