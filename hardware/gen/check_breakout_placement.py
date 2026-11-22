@@ -8,7 +8,9 @@ every pad out of the text, so it holds for a file pcbnew has since saved, and fo
 one):
 
 1. Every reference in hardware/breakout/netlist-contract.json is placed exactly once, and
-   nothing else is placed except the two mechanical holes named in MECHANICAL.
+   nothing else is placed except the mechanical holes named in MECHANICAL: the IO Board's
+   two standoffs and the board's eight mounting holes, each of those at its MOUNTING_HOLES
+   position, one unplated 3.2 mm hole with no net (M-16).
 2. Every pad carries the net the contract gives its pin, and no other.
 3. Each panel connector sits at its panel position (PANEL below) within PANEL_TOL_MM, faces
    outward, and the connectors of each face are in the floorplan's order.
@@ -16,7 +18,9 @@ one):
    the wrong side of a barrier defeats the barrier with a clean netlist and a clean DRC.
 5. No copper is in any slot or in any barrier's copper-free band, and the slots themselves
    are where the constraints put them, at the widths they rule.
-6. The keep-outs that guard the barriers exist as rule areas on all four copper layers.
+6. The keep-outs that guard the barriers exist as rule areas on all four copper layers, and
+   so does each mounting hole's, `mh_<ref>`, a circle of MOUNTING_KEEPOUT_R_MM that no
+   courtyard enters, outside the NI and Intan islands and the IO Board's outline.
 7. The project file carries the net classes, so that DRC is run against them.
 
 HOW A PART'S DOMAIN IS DERIVED (check 4). The netlist contract has no "domain" field. It has
@@ -287,7 +291,24 @@ DSUB_SHELL_TO_EDGE_MM = 11.32
 BNC_BODY_FACE_BEYOND_EDGE_MM = 0.0
 PANEL_THICKNESS_MM = 3.0   # d3-panel-thickness.md
 
-MECHANICAL = {"H1", "H2"}  # the CM5 IO Board's two inboard standoff holes (floorplan §6.6)
+# The board's own mounting holes (M-16), task R0. The user's decision, 2026-11-22: "Use these
+# 8"; then (5, 20), which lies under the CM5 IO Board, moved to (165.5, 12) ("Move to (165.5,
+# 12)"). The positions are proposals measured on the placed board: at each, the keep-out's
+# radius clears every courtyard, and none is in the NI or Intan island. Board frame, mm.
+MOUNTING_HOLES: dict[str, tuple[float, float]] = {
+    "H3": (165.5, 12.0), "H4": (212.5, 16.5), "H5": (425.0, 41.5), "H6": (83.0, 125.5),
+    "H7": (287.0, 120.0), "H8": (100.0, 220.5), "H9": (300.0, 223.5), "H10": (425.0, 225.0),
+}
+MOUNTING_HOLE_DRILL_MM = 3.2   # M3 clearance, unplated and with no net (M-16)
+# [engineering judgment]: an M3 washer is 7 mm across; 3.6 mm is its radius plus margin. The
+# keep-out (no track, via or pour on any copper layer) is a polygon whose every edge is at
+# least this far from the hole's centre.
+MOUNTING_KEEPOUT_R_MM = 3.6
+IO_BOARD_OUTLINE = (0.0, 0.0, 160.0, 90.0)   # the CM5 IO Board, User.Comments (floorplan §6.3)
+POS_TOL_MM = 0.01
+
+# the CM5 IO Board's two inboard standoff holes (floorplan §6.6), and the eight above
+MECHANICAL = {"H1", "H2"} | set(MOUNTING_HOLES)
 
 # ---------------------------------------------------------------------------
 # Reading the board file.
@@ -295,6 +316,9 @@ MECHANICAL = {"H1", "H2"}  # the CM5 IO Board's two inboard standoff holes (floo
 _REF_RE = re.compile(r'^\(property\s+"Reference"\s+"([^"]*)"')
 _PADHEAD_RE = re.compile(r'^\(pad\s+"([^"]*)"\s+(\S+)\s+(\S+)')
 _SIZE_RE = re.compile(r'\(size\s+(-?[\d.]+)\s+(-?[\d.]+)\)')
+_DRILL_RE = re.compile(r'\(drill\s+(?:oval\s+)?(-?[\d.]+)')
+_CRTYD_LAYER_RE = re.compile(r'\(layer\s+"[FB]\.CrtYd"\)')
+_LOCAL_PT_RE = re.compile(r'\((?:start|end|mid|center|xy)\s+(-?[\d.]+)\s+(-?[\d.]+)\)')
 _NET_RE = re.compile(r'\(net\s+(?:\d+\s+)?"((?:[^"\\]|\\.)*)"\)')
 _FP_RE = re.compile(r'\(footprint\s+"([^"]*)"')
 _XY_RE = re.compile(r'\(xy\s+(-?[\d.]+)\s+(-?[\d.]+)\)')
@@ -304,11 +328,12 @@ _START_END_RE = re.compile(
 
 
 class Pad:
-    __slots__ = ("ref", "num", "kind", "x", "y", "hx", "hy", "net")
+    __slots__ = ("ref", "num", "kind", "x", "y", "hx", "hy", "net", "drill")
 
-    def __init__(self, ref, num, kind, x, y, hx, hy, net):
+    def __init__(self, ref, num, kind, x, y, hx, hy, net, drill=None):
         self.ref, self.num, self.kind = ref, num, kind
         self.x, self.y, self.hx, self.hy, self.net = x, y, hx, hy, net
+        self.drill = drill
 
     @property
     def box(self) -> tuple[float, float, float, float]:
@@ -319,11 +344,14 @@ class Pad:
 
 
 class Footprint:
-    __slots__ = ("ref", "lib_id", "x", "y", "rot", "pads", "attr")
+    __slots__ = ("ref", "lib_id", "x", "y", "rot", "pads", "attr", "crtyd")
 
-    def __init__(self, ref, lib_id, x, y, rot, pads, attr):
+    def __init__(self, ref, lib_id, x, y, rot, pads, attr, crtyd=None):
         self.ref, self.lib_id, self.x, self.y, self.rot = ref, lib_id, x, y, rot
         self.pads, self.attr = pads, attr
+        # the courtyard's bounding box in board coordinates (F.CrtYd and B.CrtYd), or None:
+        # a superset of the courtyard, so a distance to it is never more than the true one
+        self.crtyd = crtyd
 
 
 def read_board(text: str) -> dict:
@@ -367,10 +395,33 @@ def read_board(text: str) -> dict:
                 hx, hy = (h / 2, w / 2) if turned else (w / 2, h / 2)
                 px, py = place_point(fx, fy_, rot, lx, ly)
                 nm = _NET_RE.search(k)
+                dm = _DRILL_RE.search(k)
                 pads.append(Pad(ref, m.group(1), m.group(2), px, py, hx, hy,
-                                nm.group(1) if nm else None))
+                                nm.group(1) if nm else None,
+                                float(dm.group(1)) if dm else None))
+            cpts = []
+            for k in kids:
+                if not _child_tag(k).startswith("fp_") or not _CRTYD_LAYER_RE.search(k):
+                    continue
+                local = [(float(a), float(b)) for a, b in _LOCAL_PT_RE.findall(k)]
+                if _child_tag(k) == "fp_circle":
+                    (cx, cy), (ex, ey) = local[:2]
+                    r = math.hypot(ex - cx, ey - cy)
+                    local = [(cx + sx * r, cy + sy * r) for sx in (-1, 1) for sy in (-1, 1)]
+                elif _child_tag(k) == "fp_arc":
+                    # an arc's bounding box is within that of its whole circle
+                    (sx_, sy_), (mx, my), (ex, ey) = local[:3]
+                    ax, ay = mx - sx_, my - sy_
+                    bx, by = ex - sx_, ey - sy_
+                    d = 2 * (ax * by - ay * bx)
+                    ux = (by * (ax * ax + ay * ay) - ay * (bx * bx + by * by)) / d + sx_
+                    uy = (ax * (bx * bx + by * by) - bx * (ax * ax + ay * ay)) / d + sy_
+                    r = math.hypot(sx_ - ux, sy_ - uy)
+                    local = [(ux + qx * r, uy + qy * r) for qx in (-1, 1) for qy in (-1, 1)]
+                cpts += [place_point(fx, fy_, rot, x, y) for x, y in local]
+            crtyd = bbox(cpts) if cpts else None
             footprints.append(Footprint(ref, _FP_RE.match(child).group(1),
-                                        fx, fy_, rot % 360, pads, attr or []))
+                                        fx, fy_, rot % 360, pads, attr or [], crtyd))
         elif tag in ("gr_rect", "gr_poly", "gr_line") and '(layer "Edge.Cuts")' in child:
             if tag == "gr_rect":
                 m = _START_END_RE.search(child)
@@ -411,6 +462,19 @@ def bbox(pts):
 def boxes_overlap(a, b, gap: float = 0.0) -> bool:
     return (a[0] < b[2] + gap - EPS and b[0] < a[2] + gap - EPS
             and a[1] < b[3] + gap - EPS and b[1] < a[3] + gap - EPS)
+
+
+def dist_to_box(x: float, y: float, b) -> float:
+    """From a point to the nearest point of a rectangle (0 inside it)."""
+    return math.hypot(max(b[0] - x, 0.0, x - b[2]), max(b[1] - y, 0.0, y - b[3]))
+
+
+def seg_dist(x: float, y: float, a, b) -> float:
+    """From a point to the segment a-b."""
+    ex, ey = b[0] - a[0], b[1] - a[1]
+    L2 = ex * ex + ey * ey
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((x - a[0]) * ex + (y - a[1]) * ey) / L2))
+    return math.hypot(a[0] + t * ex - x, a[1] + t * ey - y)
 
 
 def box_in_box(inner, outer) -> bool:
@@ -582,6 +646,17 @@ def run_checks(pcb_text: str, contract: dict,
             fails.append(f"1: mechanical hole {ref} is missing")
         elif "board_only" not in f.attr:
             fails.append(f"1: {ref} is not marked board_only")
+    for ref, (hx, hy) in MOUNTING_HOLES.items():
+        f = by_ref.get(ref)
+        if f is None:
+            continue
+        if abs(f.x - hx) > POS_TOL_MM or abs(f.y - hy) > POS_TOL_MM:
+            fails.append(f"1: mounting hole {ref} is at ({f.x:.3f}, {f.y:.3f}), M-16's "
+                         f"position is ({hx}, {hy})")
+        holes = [(p.kind, p.net, p.drill) for p in f.pads]
+        if holes != [("np_thru_hole", None, MOUNTING_HOLE_DRILL_MM)]:
+            fails.append(f"1: mounting hole {ref} is not one unplated "
+                         f"{MOUNTING_HOLE_DRILL_MM} mm hole with no net (M-16): {holes}")
     report["placed"] = len(fps)
     report["netlist_refs"] = len(wanted)
 
@@ -842,6 +917,37 @@ def run_checks(pcb_text: str, contract: dict,
     if z is None or not {"In1.Cu", "In2.Cu"} <= z["layers"] \
             or not box_in_box(SPLIT_STRIP, bbox(z["pts"])):
         fails.append("6: no rule area agnd_dgnd_gap on L2 and L3 covering the split (G-9)")
+    R = MOUNTING_KEEPOUT_R_MM
+    for ref, (hx, hy) in MOUNTING_HOLES.items():
+        name = f"mh_{ref}"
+        disc = (hx - R, hy - R, hx + R, hy + R)
+        z = zones.get(name)
+        if z is None:
+            fails.append(f"6: no rule area {name} for mounting hole {ref} (M-16)")
+        else:
+            if not set(COPPER_LAYERS) <= z["layers"]:
+                fails.append(f"6: rule area {name} is not on all four copper layers")
+            k = z["keepout"] or {}
+            if any(k.get(w) != "not_allowed" for w in ("tracks", "vias", "copperpour")):
+                fails.append(f"6: rule area {name} lets a track, a via or a pour in")
+            pts = z["pts"]
+            near = min((seg_dist(hx, hy, a, b) for a, b in zip(pts, pts[1:] + pts[:1])),
+                       default=0.0)
+            if not point_in_poly(hx, hy, pts) or near < R - 1e-3:
+                fails.append(f"6: rule area {name} does not cover the {R} mm disc about "
+                             f"{ref} (its outline comes to {near:.3f} mm)")
+        for f in fps:
+            if f.ref == ref or f.crtyd is None:
+                continue
+            d = dist_to_box(hx, hy, f.crtyd)
+            if d < R:
+                fails.append(f"6: {f.ref}'s courtyard is {d:.3f} mm from mounting hole "
+                             f"{ref}'s centre, inside its {R} mm keep-out")
+        for dom in ("NI", "INTAN"):
+            if any(boxes_overlap(disc, r) for r in REGIONS[dom]):
+                fails.append(f"6: mounting hole {ref}'s keep-out is in the {dom} region")
+        if boxes_overlap(disc, IO_BOARD_OUTLINE):
+            fails.append(f"6: mounting hole {ref}'s keep-out is under the CM5 IO Board")
 
     # -- 7. the project's rules -----------------------------------------------------------
     if pro_text is not None:

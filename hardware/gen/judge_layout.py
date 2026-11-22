@@ -122,14 +122,18 @@ READINGS = {
                 "no track end inside a straddler's pad nearer its barrier line than the "
                 "pad's centre",
     "FIXED": "the reference is --reference, else --baseline, else the board as committed "
-             "on main; never the working-tree file, which is the routed board itself",
+             "on main; never the working-tree file, which is the routed board itself. "
+             "\"Rule areas as in the reference\": each of the reference's is on the board, "
+             "unchanged, and the board has no other, except a mounting hole's keep-out "
+             "mh_<ref> for a hole of MOUNTING_HOLES (task R0), whose shape PLACEMENT checks",
     "K-2": "\"barcode-family net\": every net named BARCODE_* or CAM_SYNC_* (constraints "
            "§5.1 cites NET:1883-1931 and 1996-2028, which hold all 21), not only the 13 "
            "routing-brief §4.4 lists; \"enters, over or under\": any of its copper "
            "(track, via or pour) with area inside an AGND rectangle of REGIONS",
     "G-1": "\"no pour overlap\": the AGND and DGND fills, projected onto one plane from "
-           "all four layers, share no area; \"no mounting-hardware path\": H1 and H2 "
-           "carry no net and no copper touches them",
+           "all four layers, share no area; \"no mounting-hardware path\": every hole of "
+           "MECHANICAL (H1 and H2, the IO Board's standoffs; H3 to H10, the board's own, "
+           "task R0) carries no net and no copper touches it",
     "G-3": "\"never flood it into the plane it ties to\": no pour of FAN_RTN, "
            "CHASSIS_GND or ISO_5V_RTN on In1.Cu or In2.Cu, the plane layers",
     "G-4": "\"beside NT1\": NT2's centre within 10 mm of NT1's",
@@ -1036,7 +1040,8 @@ class Judge:
                 if p.net:
                     hw.append(f"{p!r} carries net {p.net}")
                 hw.extend(f"copper touches {p!r}: {h}" for h in self.m.touching(p))
-        r.clause("H1 and H2 carry no net and no copper", self.verdict(hw), *hw)
+        r.clause(f"the {len(cbp.MECHANICAL)} mounting holes carry no net and no copper",
+                 self.verdict(hw), *hw)
         r.clause("no mounting-hardware path", NOT_CHECKED,
                  "the screws and standoffs are not on the board; whether one joins two "
                  "pours through hardware cannot be read from it")
@@ -1983,8 +1988,18 @@ class Judge:
               for z in ref["zones"] if z["keepout"]}
         zb = {z["name"]: (sorted((round(x, 3), round(y, 3)) for x, y in z["pts"]), z["keepout"])
               for z in got["zones"] if z["keepout"]}
-        diff = [f"rule area {n} differs" for n in sorted(set(za) | set(zb)) if za.get(n) != zb.get(n)]
-        r.clause(f"the {len(za)} rule areas as the reference", self.verdict(diff), *diff)
+        diff = [f"rule area {n} differs" for n in sorted(za) if za[n] != zb.get(n)]
+        # an added rule area FAILs, unless it is a mounting hole's keep-out (task R0), whose
+        # shape and position the PLACEMENT gate checks: a board from before the holes, as
+        # reference, still grades a board that has them
+        hole_areas = {f"mh_{h}" for h in cbp.MOUNTING_HOLES}
+        added = sorted(set(zb) - set(za))
+        diff += [f"rule area {n} is not in the reference" for n in added if n not in hole_areas]
+        holes = [n for n in added if n in hole_areas]
+        note = [f"added, mounting-hole keep-outs (M-16, PLACEMENT checks them): "
+                f"{', '.join(holes)}"] if holes else []
+        r.clause(f"the {len(za)} rule areas as the reference", self.verdict(diff),
+                 *(diff or note))
 
     # ===================================================================================
     # Layer 3

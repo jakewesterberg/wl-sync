@@ -85,7 +85,7 @@ behind, is mirrored.
 | Chassis interior height | **not in the sources**. SPEC uses 82 mm once as a height: 20 mm × 82 mm is its "1,640 mm² per side". | SPEC:861 |
 | Standoff under the board | **not in the sources**. "Any standoff from about 5 mm up" keeps both BNC ports on the panel. | PE:116–120; M-7 |
 | Board thickness | 1.6 mm | S-3, itself engineering judgment |
-| Corner radius, mounting holes | **not in the sources** | M-16; constraints Open question 8 |
+| Corner radius, mounting holes | Corner radius **not in the sources**. Mounting holes: eight unplated M3 (3.2 mm), `H3` to `H10`, placed by the user's decision of 2026-11-22 (task R0), each with a 3.6 mm copper keep-out, the radius **[engineering judgment]**. Positions in M-16 and `placement.md` §7. | M-16; constraints Open question 8 |
 
 **Do not freeze the depth.** 240 mm is the spec's "approximately". Both the front and the
 back edge carry BNC bodies, so the depth and the chassis are tied by twice the set-back

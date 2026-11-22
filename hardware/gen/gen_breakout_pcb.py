@@ -4,7 +4,8 @@
 What it writes: the board outline; four copper layers; the two isolation slots as Edge.Cuts
 cutouts (2.0 mm under the SOIC-16 optocouplers, 1.5 mm under C162, 2.5 mm elsewhere);
 every footprint in the netlist, placed; each pad's net; the barrier keep-outs as rule
-areas; the CM5 IO Board's outline and its two inboard standoff holes. Beside the board it
+areas; the CM5 IO Board's outline and its two inboard standoff holes; the board's eight
+mounting holes, each in its own keep-out rule area (task R0). Beside the board it
 writes the net classes into breakout.kicad_pro, and their minimum track widths and the
 clearance rules into breakout.kicad_dru.
 
@@ -373,6 +374,28 @@ CM5_SHADOW = (0.0, fy(240), 160.0, fy(150))           # X 0-160, floorplan Y 150
 CM5_HOLES = {"H1": (27.5, fy(163)), "H2": (149.0, fy(163))}
 CM5_HOLE_FOOTPRINT = "MountingHole:MountingHole_2.7mm_M2.5"
 
+# The board's eight mounting holes (task R0, 2026-11-22; M-16): unplated M3, no net, at the
+# positions the user chose, which check_breakout_placement.MOUNTING_HOLES holds (one source
+# for both). They are placed with H1 and H2, before pass 3, so that no part is put on one.
+# Each has a keep-out rule area `mh_<ref>`, no track, via or pour on all four copper layers,
+# a 32-gon drawn round the MOUNTING_KEEPOUT_R_MM circle so that the whole disc is inside it.
+BOARD_HOLE_FOOTPRINT = "MountingHole:MountingHole_3.2mm_M3"
+HOLE_KEEPOUT_SIDES = 32
+# Where each hole's reference text goes: the nearest place outside its disc where the placed
+# board had no courtyard or text, so that adding the holes moves no part (task R0). ref -> (x, y).
+HOLE_LABEL: dict[str, tuple[float, float]] = {
+    "H3": (165.5, 7.5), "H4": (210.75, 20.75), "H5": (425.0, 46.0), "H6": (83.0, 121.0),
+    "H7": (287.0, 115.5), "H8": (100.0, 216.0), "H9": (300.0, 219.0), "H10": (425.0, 220.5),
+}
+
+
+def hole_keepout(x: float, y: float) -> list[tuple[float, float]]:
+    """The keep-out round a mounting hole: every edge MOUNTING_KEEPOUT_R_MM from the centre."""
+    r = chk.MOUNTING_KEEPOUT_R_MM / math.cos(math.pi / HOLE_KEEPOUT_SIDES)
+    return [(round(x + r * math.cos(2 * math.pi * k / HOLE_KEEPOUT_SIDES), 6),
+             round(y + r * math.sin(2 * math.pi * k / HOLE_KEEPOUT_SIDES), 6))
+            for k in range(HOLE_KEEPOUT_SIDES)]
+
 # ===========================================================================
 # 3. Satellites. Which part each one serves, where the netlist's own rule is not the one
 #    a constraint asks for. ref -> list of owner refs.
@@ -606,6 +629,8 @@ class Placer:
         self.pads: dict[str, dict[str, list]] = {}
         self.boxes: dict[str, tuple[float, float, float, float]] = {}
         self._cells: dict[tuple[int, int], list[tuple[tuple, str]]] = {}
+        # circles no courtyard may come within: the mounting holes (task R0)
+        self.discs: list[tuple[float, float, float, str]] = []
         self.no_label: list[tuple[float, float, float, float]] = []
         self.owner_log: dict[str, list[str]] = {}
         self.target_use: dict[tuple[str, str], int] = {}
@@ -626,11 +651,18 @@ class Placer:
         for c in self._cells_of(box):
             self._cells.setdefault(c, []).append((box, tag))
 
-    def _hit(self, box, gap: float) -> str | None:
+    def _hit(self, box, gap: float, courtyard: bool = True) -> str | None:
+        """What a box would land on: a reserved courtyard or text within `gap` of it, or,
+        for a courtyard, a mounting hole's disc. Text is not kept out of a disc: it is not
+        copper, and the reference text pass 3 had already put there stays (task R0)."""
         g = (box[0] - gap, box[1] - gap, box[2] + gap, box[3] + gap)
         for c in self._cells_of(g):
             for other, tag in self._cells.get(c, ()):
                 if chk.boxes_overlap(g, other):
+                    return tag
+        if courtyard:
+            for cx, cy, r, tag in self.discs:
+                if chk.dist_to_box(cx, cy, box) < r - 1e-9:
                     return tag
         return None
 
@@ -651,7 +683,7 @@ class Placer:
             return False
         if any(chk.boxes_overlap(lb, nb) for nb in self.no_label):
             return False
-        return self._hit(lb, 0.0) is None
+        return self._hit(lb, 0.0, courtyard=False) is None
 
     def _commit(self, ref, x, y, rot, box, label_pos) -> None:
         lib_id = self.comps[ref]["lib_id"] if ref in self.comps else CM5_HOLE_FOOTPRINT
@@ -677,6 +709,22 @@ class Placer:
         self._pending_labels.append((ref, label))
 
     _pending_labels: list = []
+
+    def hole(self, ref, x, y, lib_id, label) -> None:
+        """A mounting hole (task R0): a disc that no courtyard may enter, of the larger of
+        the keep-out's radius and the hole's own round courtyard plus the usual gap. It is
+        a disc and not the courtyard's box, so that the parts round it, which the positions
+        were chosen to clear, stay where they are."""
+        box = placed_box(lib_id, x, y, 0)
+        r = max(chk.MOUNTING_KEEPOUT_R_MM, (box[2] - box[0]) / 2 + COURTYARD_GAP_MM)
+        for c in self._cells_of((x - r, y - r, x + r, y + r)):
+            for other, tag in self._cells.get(c, ()):
+                assert chk.dist_to_box(x, y, other) >= r, f"{ref} at ({x}, {y}) lands on {tag}"
+        self.at[ref] = (x, y, 0)
+        self.boxes[ref] = box
+        self.pads[ref] = placed_pads(lib_id, x, y, 0)
+        self.discs.append((x, y, r, ref))
+        self._pending_labels.append((ref, label))
 
     def label_anchors(self) -> None:
         """Anchors get their labels once ALL of them are down, so that no label is put
@@ -1135,6 +1183,8 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
         pl.fixed(ref, x, y, rot, label=ANCHOR_LABEL.get(ref))
     for ref, (x, y) in CM5_HOLES.items():
         pl.fixed(ref, x, y, 0, lib_id=CM5_HOLE_FOOTPRINT)
+    for ref, (x, y) in chk.MOUNTING_HOLES.items():
+        pl.hole(ref, x, y, BOARD_HOLE_FOOTPRINT, HOLE_LABEL.get(ref))
     # every anchor that is not a straddler, a tie or a panel connector is in its region
     for ref in ANCHORS:
         if ref in chk.STRADDLERS or ref == chk.TIE_ON_SPLIT:
@@ -1148,7 +1198,7 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
     for _text, (tx, ty), size in BARRIER_TEXT:
         w = len(_text) * size + 1.0
         box = (tx - w / 2, ty - size, tx + w / 2, ty + size)
-        hit = pl._hit(box, 0.0)
+        hit = pl._hit(box, 0.0, courtyard=False)
         assert hit is None, f"silk text {_text!r} lands on {hit}"
         pl._reserve(box, "silk text")
 
@@ -1180,6 +1230,8 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
     s = chk.SPLIT_STRIP
     b.keepout_poly([(s[0], s[1]), (s[2], s[1]), (s[2], s[3]), (s[0], s[3])],
                    "agnd_dgnd_gap", layers=("In1.Cu", "In2.Cu"))
+    for ref, (x, y) in chk.MOUNTING_HOLES.items():
+        b.keepout_poly(hole_keepout(x, y), f"mh_{ref}", layers=COPPER_LAYERS)
 
     # The IO Board is over the board, not on it: its outline is a drawing (floorplan §6.3).
     b.drawing_rect(*CM5_SHADOW, layer="Cmts.User")
@@ -1192,6 +1244,10 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
         x, y, rot = pl.at[ref]
         if ref in CM5_HOLES:
             b.place(*CM5_HOLE_FOOTPRINT.split(":", 1), ref, "M2.5 standoff, CM5 IO Board",
+                    x, y, rot=rot, ref_at=pl.label_at[ref], ref_angle=0, board_only=True)
+            continue
+        if ref in chk.MOUNTING_HOLES:
+            b.place(*BOARD_HOLE_FOOTPRINT.split(":", 1), ref, "M3 mounting hole, unplated (M-16)",
                     x, y, rot=rot, ref_at=pl.label_at[ref], ref_angle=0, board_only=True)
             continue
         c = comps[ref]
@@ -1237,7 +1293,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(b.net_codes) - 1} nets, {len(b.footprints_text)} footprints placed "
           f"({len(FRONT_CENTRES) + len(BACK_CENTRES)} panel connectors, "
           f"{len(ANCHORS)} anchors, {len(pl.owner_log)} beside the part they serve, "
-          f"{len(CM5_HOLES)} mechanical holes)")
+          f"{len(CM5_HOLES)} IO Board standoff holes, {len(chk.MOUNTING_HOLES)} mounting holes)")
     print(f"parts per region: {report['parts_per_region']}; "
           f"straddlers: {report['straddlers']}; pads on the wrong side: "
           f"{report['pads_on_wrong_side']}")

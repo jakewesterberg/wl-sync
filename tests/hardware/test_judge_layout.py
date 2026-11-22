@@ -86,6 +86,19 @@ def nudge_area(name, dx):
     for z in b.Zones():
         if z.GetIsRuleArea() and z.GetZoneName() == name:
             z.Outline().Move(V(dx, 0))
+def rule_area(zname, x0, y0, x1, y1):   # a keep-out on the four copper layers
+    z = pcbnew.ZONE(b)
+    z.SetIsRuleArea(True)
+    z.SetDoNotAllowTracks(True); z.SetDoNotAllowVias(True); z.SetDoNotAllowZoneFills(True)
+    z.SetDoNotAllowPads(False); z.SetDoNotAllowFootprints(False)
+    ls = pcbnew.LSET()
+    for l in LAYER.values():
+        ls.AddLayer(l)
+    z.SetLayerSet(ls)
+    o = z.Outline(); o.NewOutline()
+    for x, y in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]:
+        o.Append(F(x), F(y))
+    z.SetZoneName(zname); b.Add(z)
 def strip_all():   # every pad netless: a region copy with nothing listed, clean on every gate
     for f in b.GetFootprints():
         for p in f.Pads():
@@ -317,7 +330,7 @@ CASES = {
     "G-1/overlap": ("G-1", "no AGND/DGND pour overlap", G1,
                     "zone('AGND', 'In1.Cu', 300, 100, 310, 110);"
                     "zone('DGND', 'In2.Cu', 305, 105, 315, 115)", "pour overlap"),
-    "G-1/H1": ("G-1", "H1 and H2 carry no net", H1, "track('DGND', 'F.Cu', [(28, 77), (33, 77)])",
+    "G-1/H1": ("G-1", "the 10 mounting holes carry no net", H1, "track('DGND', 'F.Cu', [(28, 77), (33, 77)])",
                "copper touches H1"),
     "G-3/tie": ("G-3", "only its tie joins", FANF, FANF + ";set_pad_net('C161', '1', 'FAN_RTN')",
                 "FAN_RTN: parts joining it to DGND"),
@@ -439,8 +452,12 @@ CASES = {
     "FIXED/J1": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('J1', 174.5, 80.0)", "J1 moved"),
     "FIXED/straddler": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('U60', 70.0, 169.5)",
                         "U60 moved"),
-    "FIXED/rule-area": ("FIXED", "the 9 rule areas", TRIVIAL,
+    "FIXED/rule-area": ("FIXED", "the 17 rule areas", TRIVIAL,
                         TRIVIAL + ";nudge_area('agnd_dgnd_gap', 0.3)", "rule area agnd_dgnd_gap differs"),
+    # task R0: an added rule area FAILs; only a mounting hole's own keep-out may be added
+    "FIXED/added-area": ("FIXED", "the 17 rule areas", TRIVIAL,
+                         TRIVIAL + ";rule_area('extra_keepout', 350, 100, 352, 102)",
+                         "rule area extra_keepout is not in the reference"),
 }
 
 

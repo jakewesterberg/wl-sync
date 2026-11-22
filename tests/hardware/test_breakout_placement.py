@@ -85,6 +85,110 @@ def test_a_missing_reference_fails(board_text, contract):
     assert any("R9999 is on the board and not in the netlist" in f for f in fails)
 
 
+# Task R0 (2026-11-22): the board's eight mounting holes, at the positions the user chose
+# ("Use these 8", then (5, 20) "Move to (165.5, 12)"), each with a 3.6 mm keep-out.
+MOUNTING_HOLES = {
+    "H3": (165.5, 12.0), "H4": (212.5, 16.5), "H5": (425.0, 41.5), "H6": (83.0, 125.5),
+    "H7": (287.0, 120.0), "H8": (100.0, 220.5), "H9": (300.0, 223.5), "H10": (425.0, 225.0),
+}
+HOLE_KEEPOUT_R = 3.6
+IO_BOARD = (0.0, 0.0, 160.0, 90.0)   # the CM5 IO Board's outline on User.Comments
+_CRTYD_PT = re.compile(r'\((?:start|end|mid|center|xy)\s+(-?[\d.]+)\s+(-?[\d.]+)\)')
+
+
+def _footprint_block(text: str, ref: str) -> str:
+    prop = text.index(f'(property "Reference" "{ref}"')
+    start = text.rindex("(footprint ", 0, prop)
+    return chk._find_balanced(text, start)
+
+
+def _courtyard_boxes(text: str) -> dict[str, tuple[float, float, float, float]]:
+    """Each footprint's courtyard (F.CrtYd and B.CrtYd), as a board-frame bounding box:
+    a superset of the courtyard, so a distance to it is never larger than the true one."""
+    out = {}
+    for child in chk._split_children(text.strip()):
+        if chk._child_tag(child) != "footprint":
+            continue
+        kids = chk._split_children(child)
+        ref = next(re.match(r'\(property\s+"Reference"\s+"([^"]*)"', k).group(1)
+                   for k in kids if re.match(r'\(property\s+"Reference"', k))
+        fx, fy, rot = chk._child_at(next(k for k in kids if chk._child_tag(k) == "at"))
+        pts = []
+        for k in kids:
+            if not chk._child_tag(k).startswith("fp_") \
+                    or not re.search(r'\(layer "[FB]\.CrtYd"\)', k):
+                continue
+            local = [(float(a), float(b)) for a, b in _CRTYD_PT.findall(k)]
+            if chk._child_tag(k) == "fp_circle":
+                (cx, cy), (ex, ey) = local[:2]
+                r = ((ex - cx) ** 2 + (ey - cy) ** 2) ** 0.5
+                local = [(cx - r, cy - r), (cx + r, cy - r), (cx - r, cy + r), (cx + r, cy + r)]
+            pts += [chk.place_point(fx, fy, rot, x, y) for x, y in local]
+        if pts:
+            out[ref] = (min(p[0] for p in pts), min(p[1] for p in pts),
+                        max(p[0] for p in pts), max(p[1] for p in pts))
+    return out
+
+
+def _dist_to_box(x, y, b) -> float:
+    dx = max(b[0] - x, 0.0, x - b[2])
+    dy = max(b[1] - y, 0.0, y - b[3])
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def test_mounting_holes(board_text):
+    fps = {f.ref: f for f in chk.read_board(board_text)["footprints"]}
+    zones = {z["name"]: z for z in chk.read_board(board_text)["zones"]}
+    crtyd = _courtyard_boxes(board_text)
+    disc = {ref: (x - HOLE_KEEPOUT_R, y - HOLE_KEEPOUT_R, x + HOLE_KEEPOUT_R, y + HOLE_KEEPOUT_R)
+            for ref, (x, y) in MOUNTING_HOLES.items()}
+    for ref, (x, y) in MOUNTING_HOLES.items():
+        assert ref in fps, f"{ref} is not on the board"
+        f = fps[ref]
+        assert abs(f.x - x) <= 0.01 and abs(f.y - y) <= 0.01, (ref, f.x, f.y)
+        # one unplated 3.2 mm hole, no net
+        assert [(p.kind, p.net) for p in f.pads] == [("np_thru_hole", None)], (ref, f.pads)
+        block = _footprint_block(board_text, ref)
+        assert re.findall(r"\(drill\s+([\d.]+)\)", block) == ["3.2"], ref
+        assert "board_only" in f.attr, ref
+        # its keep-out: no tracks, vias or pours on all four copper layers, covering the
+        # 3.6 mm disc
+        z = zones.get(f"mh_{ref}")
+        assert z is not None, f"no rule area mh_{ref}"
+        assert set(chk.COPPER_LAYERS) <= z["layers"], (ref, z["layers"])
+        k = z["keepout"] or {}
+        assert all(k.get(w) == "not_allowed" for w in ("tracks", "vias", "copperpour")), (ref, k)
+        pts = z["pts"]
+        assert len(pts) >= 16, (ref, len(pts))
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
+            # every edge of the outline is at least the radius from the centre
+            ex, ey = x2 - x1, y2 - y1
+            t = max(0.0, min(1.0, ((x - x1) * ex + (y - y1) * ey) / (ex * ex + ey * ey)))
+            d = ((x1 + t * ex - x) ** 2 + (y1 + t * ey - y) ** 2) ** 0.5
+            assert HOLE_KEEPOUT_R - 1e-3 <= d <= HOLE_KEEPOUT_R + 0.05, (ref, d)
+        assert chk.point_in_poly(x, y, pts), ref
+        # no courtyard within the radius of the centre (other holes' own included)
+        near = {r: round(_dist_to_box(x, y, b), 3) for r, b in crtyd.items()
+                if r != ref and _dist_to_box(x, y, b) < HOLE_KEEPOUT_R}
+        assert not near, (ref, near)
+        # not in the NI or Intan island, and not under the IO Board
+        for dom in ("NI", "INTAN"):
+            assert not any(chk.boxes_overlap(disc[ref], r) for r in chk.REGIONS[dom]), (ref, dom)
+        assert not chk.boxes_overlap(disc[ref], IO_BOARD), ref
+
+
+def test_a_hole_without_its_keepout_fails(board_text, contract):
+    start = board_text.index('(name "mh_H5")')
+    renamed = board_text[:start] + '(name "not_a_hole")' + board_text[start + len('(name "mh_H5")'):]
+    fails, _ = chk.run_checks(renamed, contract)
+    assert any(f.startswith("6:") and "mh_H5" in f for f in fails), fails[:5]
+
+
+def test_a_hole_moved_fails(board_text, contract):
+    fails, _ = chk.run_checks(_move(board_text, "H7", 287.5, 120.0), contract)
+    assert any(f.startswith("1:") and "H7" in f for f in fails), fails[:5]
+
+
 def test_every_declared_exception_cites_a_constraint():
     for ref, (region, why) in chk.DECLARED_HOME.items():
         assert region in chk.REGIONS and re.search(r"[A-Z]-\d+", why), ref

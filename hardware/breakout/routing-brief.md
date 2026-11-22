@@ -400,6 +400,15 @@ J2's escapes (`placement.md` §7, "Pin-13 pull-ups moved by task J3"). In the sa
 `U64`'s pin-15/16 bypass `C139`, which pass 3 had put 25 mm away, is at the pair, and
 `R176` moved to make room (`placement.md` §7, "`U64`'s second bypass").
 
+**Closed on 2026-11-22, by adding parts:** *the board's mounting holes* (task R0, the user's
+decision; M-16). Eight unplated 3.2 mm holes with no net, `H3` to `H10`, at (165.5, 12),
+(212.5, 16.5), (425, 41.5), (83, 125.5), (287, 120), (100, 220.5), (300, 223.5) and
+(425, 225). Each sits in a 3.6 mm circular rule area, `mh_H3` to `mh_H10`, on all four
+copper layers, that no track, via or pour may enter: route round it, and leave the planes
+cut back from it. DRC enforces the rule areas, and the placement check fails if a hole or
+its keep-out moves. No part moved to make room (`placement.md` §7, "The board's mounting
+holes").
+
 **Still open, and bearing on routing:**
 
 | | Where | What it means for you |
@@ -409,7 +418,7 @@ J2's escapes (`placement.md` §7, "Pin-13 pull-ups moved by task J3"). In the sa
 | A local bypass for `U1` | Open question 20, P-13 | no part exists; `U1` is at the entry capacitors |
 | Fan headers `J54`, `J55` and the pair to them | `floorplan.md` Open question 6 | a 160 mm `FAN` pair across the barcode strip, or move the headers before routing |
 | `J4`, the reward button | Open question 14 | board-mounted or wired; its pads are placed either way |
-| Board mounting holes, corner radius, stack-up, fab house | Open question 8 | none is on the board; mounting holes will take routing room when they come |
+| Corner radius, stack-up, fab house | Open question 8 | none is on the board. The mounting holes are (above) |
 | The 386 parts placed by rule | `placement.md` §7 and §10 | proposals; read the board before routing it |
 | The regions are deeper than the connectors now need | `placement.md` §10 item 8 | there is spare depth behind each connector row |
 | DRC's exit code | Task 14 Step 4 | "exit code 0" cannot be met while the 24 accepted warnings stand; say how you settle it |

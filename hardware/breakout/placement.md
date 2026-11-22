@@ -467,6 +467,48 @@ courtyard or its reference text. So:
   otherwise turn it (the `ISO_5V` pin dealing, as in J2).
 - The board differs from task J3's first commit in `C139` and `R176` only.
 
+### The board's mounting holes (task R0, 2026-11-22)
+
+The user's decision: "Use these 8"; then (5, 20), which lies under the CM5 IO Board (x 0 to
+160, y 0 to 90), moved to (165.5, 12) ("Move to (165.5, 12)"). The positions are proposals
+measured on the placed board. Each is an unplated 3.2 mm hole with no net (M-16), the stock
+`MountingHole:MountingHole_3.2mm_M3`, marked board-only as `H1` and `H2` are. Each has a rule
+area `mh_<ref>` on all four copper layers that allows no track, via or pour: a 32-sided
+polygon drawn round a circle of 3.6 mm, so the whole circle is inside it. The radius is
+**[engineering judgment]**, an M3 washer of 7 mm plus margin.
+
+| Ref | Position (mm) | Region | Nearest courtyard (to its bounding box) | Reference text at |
+|---|---|---|---|---|
+| `H3` | (165.5, 12) | `DGND` | `J57`, 8.80 | (165.5, 7.5) |
+| `H4` | (212.5, 16.5) | `AGND` | `J2`, 4.00; `R101`, 4.10 | (210.75, 20.75) |
+| `H5` | (425, 41.5) | `AGND` | `R197`, 4.27; `R40`, 4.45 | (425, 46) |
+| `H6` | (83, 125.5) | `DGND` | `C25`, 3.98; `R136`, 4.17 | (83, 121) |
+| `H7` | (287, 120) | `AGND` | `C115`, 58.8 | (287, 115.5) |
+| `H8` | (100, 220.5) | `DGND` | `J4`, 4.00 | (100, 216) |
+| `H9` | (300, 223.5) | `AGND` | `J36`, 4.00 | (300, 219) |
+| `H10` | (425, 225) | `AGND` | `J36`, 117.6 | (425, 220.5) |
+
+- **No part moved.** The generator places the holes with `H1` and `H2`, before pass 3, and
+  reserves each as a disc of 3.7 mm (the hole's round 3.45 mm courtyard plus the 0.25 mm
+  courtyard gap, which is more than the 3.6 mm keep-out) that no courtyard may enter. A
+  first try reserved the courtyard's square box instead, as every other part is reserved,
+  and seven parts near `H4`, `H5` and `H6` moved, and the texts of two more (`C25`, `J4`):
+  the square's corners reach courtyards the circle clears, and the holes' own texts landed
+  where others had been. Each hole's text is put by hand (`HOLE_LABEL`) at the nearest place,
+  outside its disc, where the placed board had no courtyard or text. No anchor was added,
+  so the count of parts placed by rule is still 386.
+- **Checks.** `check_breakout_placement.py` asserts each hole's position (to 0.01 mm), its one
+  unplated 3.2 mm hole with no net, its keep-out (layers, what it forbids, and that no edge of
+  it comes inside 3.6 mm), that no courtyard comes within 3.6 mm of its centre, and that the
+  circle is in neither island nor under the IO Board.
+- **Reference text left inside the circles.** The generator's text boxes of four parts that
+  pass 3 had placed come within 3.6 mm of a hole's centre: `R101`'s 2.4 mm from `H4`'s, `C25`'s
+  2.4 and `R142`'s 2.8 from `H6`'s, and `J4`'s 2.6 from `H8`'s. Silk is not copper and the rule
+  areas do not forbid it, so they were left where they are rather than move four texts; a
+  washer will cover them. Move them when the silkscreen is finished.
+- The board differs from main d10df6c in the eight holes and their eight rule areas, every
+  other line and uuid unchanged.
+
 ## 8. Rules entered for DRC (V-2)
 
 `breakout.kicad_pro` carries the net classes of `constraints.md` §4, one class per net:
