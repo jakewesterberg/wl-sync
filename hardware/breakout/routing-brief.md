@@ -446,7 +446,7 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
     hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
     [--baseline UNROUTED.kicad_pcb] [--reference REF.kicad_pcb] \
     [--nets NETS.txt --region x0,y0,x1,y1] [--json OUT.json] [--kicad-happy] \
-    [--allow-not-checked]
+    [--allow-not-checked ID,ID,...]
 ```
 
 - **Layer 1, gates:** DRC with `--severity-all`, on a copy staged as `breakout.kicad_pcb`
@@ -473,9 +473,34 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
   Its return-path figures are re-measured on the adjacent plane: with no stack-up in the
   board file it samples the opposite outer layer instead.
 
-Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`; a `NOT CHECKED`
-counts against it unless `--allow-not-checked` is given, and the summary then says which
-were waived. On the committed, unrouted board it exits 1 on DRC (`unconnected_items`),
-connectivity (1791), and G-1 and FIXED `NOT CHECKED`. Its tests are
+Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`. A rule check's
+`NOT CHECKED` counts against it unless that check's ID is named in `--allow-not-checked`; a
+`FAIL` is never waived, and no gate (DRC, connectivity, placement, region) can be named.
+`--skip-drc` is for development only: a run that uses it never exits 0. The summary lists
+every waived ID with its reason. On the committed, unrouted board it exits 1 on DRC
+(`unconnected_items`), connectivity (1791), and G-1 and FIXED `NOT CHECKED`.
+
+**On a fully routed board**, run it against the unrouted placement it was routed from, and
+waive the four checks that the board can never settle:
+
+```bash
+git show 96a7d50:hardware/breakout/breakout.kicad_pcb > /tmp/breakout-placement.kicad_pcb
+/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \
+    hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
+    --reference /tmp/breakout-placement.kicad_pcb \
+    --allow-not-checked G-1,K-23,K-35,N-10 --json /tmp/judge.json
+```
+
+- `G-1`: whether a screw or standoff joins two pours is a property of hardware that is not
+  on the board.
+- `K-23`: a 2-gang block fitted and moved by hand is a matter of access, not of copper.
+- `K-35`: `U65` is an ACSL-6420, whose supply pins K-35 does not name.
+- `N-10`: with `+5V` an L3 plane, every path from `D3` crosses a pour, whose resistance the
+  judge bounds only from below, so it can fail the 83 squares but never pass them.
+
+`--reference` matters once the routed board is on `main`: without it FIXED compares the
+board with itself and reports `NOT CHECKED`. Waive nothing else without reading why it is
+`NOT CHECKED`. Its tests are
 `tests/hardware/test_judge_layout.py`: for each clause under test a base board on which it
-passes and a control that breaks it alone; skipped where KiCad is not installed.
+passes and a control that makes one change and fails it; skipped where KiCad is not
+installed.

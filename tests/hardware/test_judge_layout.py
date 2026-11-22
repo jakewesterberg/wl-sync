@@ -85,6 +85,10 @@ def nudge_area(name, dx):
     for z in b.Zones():
         if z.GetIsRuleArea() and z.GetZoneName() == name:
             z.Outline().Move(V(dx, 0))
+def strip_all():   # every pad netless: a region copy with nothing listed, clean on every gate
+    for f in b.GetFootprints():
+        for p in f.Pads():
+            p.SetNetCode(0)
 def via_in_pads(refs_pins):
     for ref, num in refs_pins:
         x, y = pad_xy(ref, num)
@@ -460,7 +464,7 @@ def test_unrouted_committed_board(tmp_path):
     assert out["not_passing"] == ["DRC", "CONNECTIVITY", "G-1", "FIXED"]
     assert "[NOT CHECKED] no mounting-hardware path" in stdout
     assert "is this board itself; give --reference" in stdout
-    assert "NOT CHECKED: G-1, FIXED" in stdout
+    assert "NOT CHECKED, counted: G-1, FIXED" in stdout
     for rid in ("G-3", "G-4", "G-5", "G-6", "G-7", "G-20", "P-5"):
         assert st[rid] == "PASS", rid
     for rid in ("G-10", "K-2", "N-4", "N-10", "B-18", "N-9", "K-33", "K-35"):
@@ -468,13 +472,86 @@ def test_unrouted_committed_board(tmp_path):
     assert out["metrics"]["connections"] == 1791
 
 
+@pytest.fixture(scope="module")
+def stripped(tmp_path_factory):
+    """Fix round 2. A copy of the board with every pad's net removed, judged as a region
+    copy listing no net: every gate passes (DRC is run) and every rule check is N/A, so the
+    exit code turns on the waiver alone. Plus the same copy with J1 moved (FIXED FAILs)."""
+    d = tmp_path_factory.mktemp("stripped")
+    clean, moved = "strip_all()", "strip_all(); move('J1', 174.5, 80.0)"
+    boards = make_boards(d, [clean, moved])
+    nets = d / "none.txt"
+    nets.write_text("NO_SUCH_NET\n")
+
+    def run(which, *extra):
+        board = boards[clean if which == "clean" else moved]
+        out = d / f"{which}-{key(' '.join(extra))}.json"
+        return run_judge(board, "--nets", str(nets), *extra, json_out=out)
+    return run, boards[clean]
+
+
+def test_waiver_base_is_clean(stripped):
+    run, _ = stripped
+    code, out, _ = run("clean", "--reference", str(BOARD))
+    assert out["not_passing"] == [] and code == 0
+    assert {g["id"]: g["status"] for g in out["gates"]}["DRC"] == "PASS"
+
+
+def test_unnamed_not_checked_counts(stripped):
+    run, board = stripped
+    # FIXED against the board itself: NOT CHECKED. Naming another rule does not waive it.
+    code, out, stdout = run("clean", "--reference", str(board), "--allow-not-checked", "G-1")
+    assert out["not_passing"] == ["FIXED"] and code == 1
+    assert "NOT CHECKED, counted: FIXED" in stdout
+    assert "named in --allow-not-checked but N/A, so not waived: G-1" in stdout
+
+
+def test_named_not_checked_is_waived(stripped):
+    run, board = stripped
+    code, out, stdout = run("clean", "--reference", str(board), "--allow-not-checked", "FIXED")
+    assert out["not_passing"] == [] and out["not_checked_allowed"] == ["FIXED"] and code == 0
+    assert "WAIVED by --allow-not-checked: FIXED" in stdout
+    assert "against a reference: the reference (--reference" in stdout   # its reason, printed
+
+
+def test_waiver_never_covers_a_fail(stripped):
+    run, _ = stripped
+    code, out, stdout = run("moved", "--reference", str(BOARD), "--allow-not-checked", "FIXED")
+    assert out["not_passing"] == ["FIXED"] and code == 1
+    assert {c["id"]: c["status"] for c in out["checks"]}["FIXED"] == "FAIL"
+    assert "named in --allow-not-checked but FAIL, so not waived: FIXED" in stdout
+
+
+def test_skip_drc_never_exits_0(stripped):
+    run, board = stripped
+    code, out, stdout = run("clean", "--skip-drc", "--reference", str(board),
+                            "--allow-not-checked", "FIXED")
+    assert out["not_passing"] == ["DRC"] and code == 1
+    assert out["not_checked_allowed"] == ["FIXED"]
+    assert "DRC was skipped (--skip-drc): this run cannot exit 0" in stdout
+
+
+def test_gates_cannot_be_named(stripped):
+    run, _ = stripped
+    for gate in ("DRC", "CONNECTIVITY", "REGION"):
+        p = subprocess.run([str(KICAD_PY), str(JUDGE), str(BOARD), "--skip-drc",
+                            "--allow-not-checked", f"G-1,{gate}"],
+                           capture_output=True, text=True, timeout=300)
+        assert p.returncode == 2 and "can never be waived" in p.stdout, (gate, p.stdout[-500:])
+    p = subprocess.run([str(KICAD_PY), str(JUDGE), str(BOARD), "--allow-not-checked"],
+                       capture_output=True, text=True, timeout=300)
+    assert p.returncode == 2   # a blanket waiver is not accepted: it needs a list of IDs
+
+
 def test_allow_not_checked(tmp_path):
-    code, out, stdout = run_judge(BOARD, "--skip-drc", "--allow-not-checked",
+    code, out, stdout = run_judge(BOARD, "--skip-drc", "--allow-not-checked", "G-1,FIXED",
                                   json_out=tmp_path / "a.json")
-    assert out["not_passing"] == ["CONNECTIVITY"]
-    assert set(out["not_checked_allowed"]) == {"DRC", "G-1", "FIXED"}
-    assert "allowed by --allow-not-checked" in stdout
-    assert code == 1   # connectivity still fails
+    # the gates are never waived: the skipped DRC and the failing connectivity both stand
+    assert out["not_passing"] == ["DRC", "CONNECTIVITY"]
+    assert out["not_checked_allowed"] == ["G-1", "FIXED"]
+    assert "WAIVED by --allow-not-checked: G-1" in stdout
+    assert "no mounting-hardware path: the screws and standoffs" in stdout
+    assert code == 1
 
 
 def test_reviewer_n10_reach_is_not_a_pass(judged):

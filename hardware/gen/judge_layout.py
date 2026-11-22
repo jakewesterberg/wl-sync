@@ -723,6 +723,7 @@ class Result:
         return d
 
 
+GATE_IDS = frozenset(["DRC-RULES", "DRC", "CONNECTIVITY", "PLACEMENT", "REGION"])
 GAP_MM = 5.0        # G-10 [judge's reading]: no gap wider than this inside the corridor
 AT_PINS_MM = 6.0    # P-5 [judge's reading]: "at the pins"
 AT_J19_MM = 10.0    # G-20 [judge's reading]: "R224 is placed at J19"
@@ -2458,13 +2459,20 @@ def main(argv=None) -> int:
     ap.add_argument("--json", type=Path)
     ap.add_argument("--kicad-happy", action="store_true")
     ap.add_argument("--skip-drc", action="store_true",
-                    help="skip layer 1's DRC (reported NOT CHECKED; for quick runs)")
+                    help="skip layer 1's DRC, for development only: the DRC gate is then "
+                         "NOT CHECKED and the run can never exit 0")
     ap.add_argument("--reference", type=Path,
                     help="the board FIXED compares with (default: --baseline if given, else "
                          "hardware/breakout/breakout.kicad_pcb as committed on main)")
-    ap.add_argument("--allow-not-checked", action="store_true",
-                    help="exit 0 even when a check is NOT CHECKED (the summary says so)")
+    ap.add_argument("--allow-not-checked", metavar="IDS", default="",
+                    help="comma-separated layer-2 rule IDs (e.g. G-1,K-23) whose NOT CHECKED "
+                         "does not count against the exit code; never a gate, never FAIL")
     a = ap.parse_args(argv)
+    waive = [w.strip() for w in a.allow_not_checked.split(",") if w.strip()]
+    if any(w in GATE_IDS for w in waive):
+        print(f"--allow-not-checked: {sorted(set(waive) & GATE_IDS)} are layer-1 gates, "
+              "which can never be waived")
+        return 2
     if pcbnew is None:
         print("judge_layout.py needs KiCad's Python (import pcbnew failed):\n  " + KICAD_PY)
         return 2
@@ -2507,10 +2515,20 @@ def main(argv=None) -> int:
         if a.kicad_happy:
             kh = kicad_happy(staged, base_staged, m, work)
 
-        allowed = NOT_CHECKED if a.allow_not_checked else None
+        unknown = sorted(set(waive) - {r.id for r in j.results})
+        if unknown:
+            print(f"--allow-not-checked: no layer-2 check is named {unknown}")
+            return 2
         everything = gates + j.results
-        failing = [x.id for x in everything if x.status not in (PASS, NA, allowed)]
-        waived = [x.id for x in everything if allowed and x.status == NOT_CHECKED]
+        # A gate that did not PASS (or is not N/A) always fails the run, NOT CHECKED
+        # included: a skipped DRC can never be waived. A rule check's NOT CHECKED is waived
+        # only when its ID is named; a FAIL is never waived.
+        failing = [g.id for g in gates if g.status not in (PASS, NA)] + \
+                  [r.id for r in j.results if r.status not in (PASS, NA)
+                   and not (r.status == NOT_CHECKED and r.id in waive)]
+        waived = [r for r in j.results if r.status == NOT_CHECKED and r.id in waive]
+        named_not_nc = [(r.id, r.status) for r in j.results
+                        if r.id in waive and r.status != NOT_CHECKED]
         code = 0 if not failing else 1
         out = {
             "board": str(board), "baseline": str(a.baseline) if a.baseline else None,
@@ -2520,7 +2538,9 @@ def main(argv=None) -> int:
             "metrics": metrics, "baseline_metrics": base_metrics,
             "metrics_delta": delta(metrics, base_metrics) if base_metrics else None,
             "kicad_happy": kh, "judges_readings": READINGS,
-            "not_passing": failing, "not_checked_allowed": waived, "exit_code": code,
+            "not_passing": failing, "not_checked_allowed": [r.id for r in waived],
+            "waiver_named_but_not_not_checked": named_not_nc, "drc_skipped": a.skip_drc,
+            "exit_code": code,
             "not_judged": NOT_JUDGED,
         }
         jp = a.json or (Path(tempfile.gettempdir()) / f"judge-{board.stem}.json")
@@ -2590,16 +2610,23 @@ def main(argv=None) -> int:
                 if "CP-002" in kh["new_by_rule"]:
                     P("  note: CP-002 (\"no opposite-layer copper under\" a part) reads the same "
                       "no-stack-up fallback layer, B.Cu; the judge does not re-measure it")
-        nc = [x.id for x in everything if x.status == NOT_CHECKED]
+        nc = [x for x in everything if x.status == NOT_CHECKED and x not in waived]
         P(f"RESULT: exit {code}" + (f"; not passing: {', '.join(failing)}" if failing else
                                     "; every gate and rule check PASS or N/A"
-                                    if not waived else "; every gate and rule check PASS or N/A"
-                                    " except those NOT CHECKED below"))
+                                    + (" except the waived NOT CHECKED below" if waived else "")))
+        if a.skip_drc:
+            P("  DRC was skipped (--skip-drc): this run cannot exit 0, whatever is waived")
         if nc:
-            P(f"  NOT CHECKED: {', '.join(nc)}"
-              + ("  (allowed by --allow-not-checked: they do not count against the exit code)"
-                 if waived else "  (each counts against the exit code; --allow-not-checked "
-                                "waives them)"))
+            P(f"  NOT CHECKED, counted: {', '.join(x.id for x in nc)}"
+              "  (a rule check's may be waived by naming it in --allow-not-checked; a gate's "
+              "never)")
+        for r in waived:
+            P(f"  WAIVED by --allow-not-checked: {r.id}")
+            for c in r.clauses:
+                if c["status"] == NOT_CHECKED:
+                    P(f"      {c['clause']}: {c['evidence'][0] if c['evidence'] else ''}")
+        for rid, st in named_not_nc:
+            P(f"  named in --allow-not-checked but {st}, so not waived: {rid}")
         P(f"JSON: {jp}")
         return code
     finally:
