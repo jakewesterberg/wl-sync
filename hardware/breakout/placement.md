@@ -297,7 +297,7 @@ Distances that constraints ask about, as placed:
 
 ## 7. Everything else
 
-The other 389 parts are placed by rule, not by hand (413 until 2026-11-21, when the 24 NI pull-ups became anchors; see "Pull-ups anchored by task J2" below). For each the generator finds the part
+The other 386 parts are placed by rule, not by hand (413 until 2026-11-21, when the 24 NI pull-ups became anchors, and 389 until 2026-11-22, when `C139`, `R176` and `R178` did; see "Pull-ups anchored by task J2" and "`U64`'s second bypass" below). For each the generator finds the part
 it serves, then takes the nearest free position to the pads it connects to, inside its own
 domain's region. The rules, in order:
 
@@ -403,8 +403,8 @@ capacitor, leaving 0.80 mm between the two `NI_5V` pads where a 0.6 mm track nee
 2.25 mm below its capacitor. At 0.2 mm every loop is free; N-4 is what closes them, and DRC
 enforces it on every `NI_5V` and `NI_GND` track. `U64` and `U65` do not follow the pattern:
 `U64`'s pins 9 and 10 reach `C140`, and `U65`'s supply pins 9 and 12 reach `C142`, by short
-loops at their classes' widths. `U64` has no capacitor of its own at pins 15 and 16 (the
-netlist gives it only `C140`), so that pair has no loop to unblock.
+loops at their classes' widths. `U64`'s pins 15 and 16 have their own capacitor, `C139`, but
+pass 3 had put it 25 mm away; it is placed at the pair below ("`U64`'s second bypass").
 
 **The five pin-13 pull-ups go 0.5 mm south**, to `U61`'s spacing. Nothing else moves:
 
@@ -431,6 +431,41 @@ netlist gives it only `C140`), so that pair has no loop to unblock.
   keep-outs: the generator's and the placement check's. Each part's reference text moves with
   it.
 - The board file differs from main 2fae9d2 in the five footprints' positions, nothing else.
+
+### `U64`'s second bypass (task J3 fix round 1, 2026-11-22)
+
+The schematic gives each ACSL-6400 on the Intan line two isolated-side 100 nF capacitors,
+one at `INTAN_GND` pin 9 and one at pin 16 (`gen_breakout_opto_intan.py`,
+`place_package_a`): `C139` and `C140` for `U64`. Rule 5 above deals the 100 nF
+`ISO_5V`/`INTAN_GND` capacitors of the sheet out one per IC in reference order, and `U63`
+comes first, so `C139` went to `U63` at (148.0, 174.0), **25.4 and 25.7 mm** from `U64`'s
+pins 15 and 16. K-35 asks for a bypass at each pair.
+
+No free place for it exists at the pair: every spot under pins 15 and 16 is a pull-up's
+courtyard or its reference text. So:
+
+| Ref | Was | Now | |
+|---|---|---|---|
+| `C139` | (148.0, 174.0, 0) | (125.0, 170.5, 90) | in the place pass 3 had given `R176`, turned so that its `INTAN_GND` pad faces pin 16 |
+| `R176` | (125.0, 170.5, 270) | (123.0, 175.25, 90) | `U64`'s pin-12 pull-up, to the nearest free place with room for its text |
+
+- **K-35:** `C139`'s pads are now **2.49 mm from pin 16 and 4.45 mm from pin 15**, centre to
+  centre. `C140` at pins 9 and 10 is 3.98 and 2.25 mm. Measured on the board, every other
+  optocoupler bypass K-35 names is within 5.3 mm of its pins: `C121` to `C132` are 2.25 and
+  3.98 mm, `C142` (`U65`, pins 12 and 9) 2.25 and 5.30, and `C141` (`U65`'s `DGND` side) 2.92
+  and 4.27. None is far off as `C139` was.
+- **Shown with DRC and the rules loaded** on an Intan-island-only copy. On F.Cu, together:
+  - `U64`'s four supply loops: `ISO_5V` at N-5's 0.5 mm, `INTAN_GND` at 0.2 mm, with pin 15
+    to `C139` 3.15 mm and pin 16 1.07 mm;
+  - pins 11 to 14 to their pull-ups, with pin 12 to `R176` now 8.19 mm, against 10.93 before.
+
+  DRC gives nothing beyond the accepted 24 `silk_edge_clearance`. The same copper on main
+  2fae9d2's placement gives 2 `shorting_items` and 2 `solder_mask_bridge` at `R176`.
+- **K-34:** `R176` stays on the isolated side. **No reshuffle:** taking `C139` out of rule 5
+  would deal `C140`, `C142` and `C158` to other ICs, so those three keep their owners by
+  `OWNER_OVERRIDE`. `R178` is held where pass 3 put it, because anchoring `R176` would
+  otherwise turn it (the `ISO_5V` pin dealing, as in J2).
+- The board differs from task J3's first commit in `C139` and `R176` only.
 
 ## 8. Rules entered for DRC (V-2)
 

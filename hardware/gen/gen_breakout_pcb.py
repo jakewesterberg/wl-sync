@@ -294,9 +294,10 @@ for _i in range(8):
 #    west and R163's text has an explicit place, (61.62, 156.25). Change the move and both
 #    must be re-checked.
 #    The other seventeen pull-ups are held where pass 3 put them (to the 0.25 mm grid it
-#    used). They have to be anchored too: pass 3 shares an IC's two NI_5V pins out among
-#    its satellites in turn, so anchoring one pull-up would deal its siblings different pins
-#    and reshuffle them (tried: 18 parts moved). Each label is where pass 3 put it, the
+#    used); task J3, below, moved five of them, so twelve are still pass 3's. They have to
+#    be anchored too: pass 3 shares an IC's two NI_5V pins out among its satellites in
+#    turn, so anchoring one pull-up would deal its siblings different pins and reshuffle
+#    them (tried: 18 parts moved). Each label is where pass 3 put it, the
 #    moved ones with their part, except R163's.
 #    ref -> (x, y, rot, label x, label y)
 #
@@ -343,6 +344,24 @@ for _ref, (_x, _y, _rot, _lx, _ly) in NI_PULLUPS.items():
     ANCHORS[_ref] = (round(_x, 3), round(_y, 3), _rot)
     ANCHOR_LABEL[_ref] = (round(_lx, 3), round(_ly, 3))
 
+# -- U64's pin-15/16 bypass (placement.md §7, "U64's second bypass, task J3 fix round 1";
+#    2026-11-22). The schematic gives the ACSL-6400 two isolated-side capacitors, one at
+#    GND pin 9 and one at GND pin 16 (gen_breakout_opto_intan.py, place_package_a). Rule 5
+#    deals 100 nF ISO_5V/INTAN_GND capacitors out one per IC on the sheet in reference order,
+#    and U63 comes first, so C139 went to U63, 25 mm from U64's pins 15/16. K-35: a bypass at
+#    each supply pin pair. No free place for it exists at the pair, so it takes the place
+#    pass 3 gave R176 (U64's pin-12 pull-up, 7.2 mm from pin 12 there), turned so that its
+#    INTAN_GND pad faces pin 16, and R176 goes to the nearest free place, below. R178 is
+#    held where pass 3 put it: with R176 anchored it would be turned (the ISO_5V pin dealing,
+#    as in J2). K-34: both resistors stay on the isolated side. ref -> (x, y, rot, label).
+for _ref, (_x, _y, _rot, _lx, _ly) in {
+    "C139": (125.0, 170.5, 90, 125.0, 172.78),   # pin 16 to INTAN_GND pad 2.49 mm, pin 15 to ISO_5V 4.46
+    "R176": (123.0, 175.25, 90, 123.0, 177.53),  # was (125.0, 170.5, 270)
+    "R178": (116.25, 174.5, 0, 116.25, 176.03),  # held
+}.items():
+    ANCHORS[_ref] = (_x, _y, _rot)
+    ANCHOR_LABEL[_ref] = (_lx, _ly)
+
 # Silkscreen notes beside each slot, as the mule has: (text, centre, height).
 BARRIER_TEXT = [
     ("NI ISOLATION BARRIER", (40.0, 104.0), 1.0),
@@ -376,6 +395,10 @@ OWNER_OVERRIDE: dict[str, list[str]] = {
     # P-7, P-9: C161 on the source side of L1; C155, C156 beside C161, not beside pin 2.
     "L1": ["U63"], "C161": ["L1"], "C155": ["C161"], "C156": ["C161"],
     "C137": ["U63"], "C138": ["U63"],               # G-6: the loop closes at the part
+    # K-35 (task J3 fix round 1): C139 is U64's pin-15/16 bypass and is an anchor (below), so
+    # it no longer takes a turn in rule 5's dealing; these three keep the owners that dealing
+    # gave them, so nothing else is dealt anew.
+    "C140": ["U64"], "C142": ["U65"], "C158": ["U75"],
     # P-5: output capacitors and the FB / NR parts at the LDO pins.
     "C14": ["U3"], "C15": ["U3"], "C20": ["U4"], "C21": ["U4"],
     # opto-ni: the bulk pair at the connector's NI_5V pins; B-22: U62's companions at U62.
