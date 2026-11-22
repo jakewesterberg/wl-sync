@@ -381,10 +381,56 @@ west to make room for `R163`'s reference text. Nothing else moves:
   deals an IC's two `NI_5V` pins out among its satellites in turn, so anchoring the six
   alone dealt their siblings different pins and moved 18 more parts. Anchoring all 24 is
   how only the intended parts move. All 24 are in `NI_PULLUPS` in the generator; the
-  seventeen are still the by-rule proposals of this section, now written down.
+  seventeen are still the by-rule proposals of this section, now written down. (Five of
+  them moved again on 2026-11-22, below; twelve are still where pass 3 put them.)
 - The board file differs from the one before J2 (feb45b7) in the seven footprints'
   positions and `R163`'s reference text, nothing else (compared footprint by footprint,
   uuids aside).
+
+### Pin-13 pull-ups moved by task J3 (2026-11-22)
+
+Both NI routing trials, and the trial router re-run on J2's placement, closed pin 16's
+bypass loop on F.Cu on only one optocoupler of six. Read from the geometry (a track from the
+pin's outer end to its capacitor's pad of the same net, inside the box the two pads span
+grown by 1.0 mm, every outer-layer clearance kept: N-13's 0.6 mm to a panel-side net, 0.2 mm
+otherwise, the rule areas; pins 10 and 15 drawn straight to their pads and J2's pin-11 to -14
+stubs, vias and pin-14 link in place): **at N-4's 0.6 mm width, pin 16 of `U56` to `U59` and
+`U60` was blocked, five loops, each by the capacitor's own `NI_5V` pad, the `NI_5V` pad of
+the pin-13 pull-up below it and pin 15's track.** The pull-up sat 1.75 mm below the
+capacitor, leaving 0.80 mm between the two `NI_5V` pads where a 0.6 mm track needs 1.00 mm
+(N-11's 0.2 mm each side). The only way left was an 8.2 mm detour round the pull-up. Pins
+9, 10 and 15 were free on all six, and so was pin 16 of `U61`, whose pull-up `R159` is
+2.25 mm below its capacitor. At 0.2 mm every loop is free; N-4 is what closes them, and DRC
+enforces it on every `NI_5V` and `NI_GND` track. `U64` and `U65` do not follow the pattern:
+`U64`'s pins 9 and 10 reach `C140`, and `U65`'s supply pins 9 and 12 reach `C142`, by short
+loops at their classes' widths. `U64` has no capacitor of its own at pins 15 and 16 (the
+netlist gives it only `C140`), so that pair has no loop to unblock.
+
+**The five pin-13 pull-ups go 0.5 mm south**, to `U61`'s spacing. Nothing else moves:
+
+| Ref | Optocoupler | Was | Now |
+|---|---|---|---|
+| `R125` | `U56` | (64.5, 114.0) | (64.5, 114.5) |
+| `R133` | `U57` | (64.5, 126.0) | (64.5, 126.5) |
+| `R141` | `U58` | (64.5, 138.0) | (64.5, 138.5) |
+| `R149` | `U59` | (64.5, 150.0) | (64.5, 150.5) |
+| `R157` | `U60` | (64.5, 174.0) | (64.5, 174.5) |
+
+- **Why 0.5 mm.** The loop opens at about 0.20 mm, when the gap between the two `NI_5V`
+  pads reaches 1.00 mm. At 0.25, the next grid step, the track's centre would have a
+  0.05 mm band; at 0.5 it has 0.30 mm, and the cell is the one `U61` already has.
+  **[engineering judgment]**, like J2's 1.0 mm.
+- **Shown with DRC and the rules loaded** on an NI island-only copy: all 24 supply loops of
+  `U56` to `U61` as 0.6 mm F.Cu tracks, with J2's 24 stubs and vias (at x = 65.80, 65.925
+  and 66.05) and pin-14 links, give nothing beyond one `via_dangling` per unfinished via.
+  The same copper on the board before this move gives 15 `clearance`, 5 `shorting_items`
+  and 5 `solder_mask_bridge`, all at the five pull-ups.
+- **J2's via window is unchanged**, x = 65.80 to 66.05 on each pin's line, re-measured: the
+  moved parts are more than 3 mm from it.
+- **K-34:** still on the isolated side. **K-35:** no capacitor moves. Courtyards, region and
+  keep-outs: the generator's and the placement check's. Each part's reference text moves with
+  it.
+- The board file differs from main 2fae9d2 in the five footprints' positions, nothing else.
 
 ## 8. Rules entered for DRC (V-2)
 

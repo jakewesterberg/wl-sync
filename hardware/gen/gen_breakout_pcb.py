@@ -299,6 +299,20 @@ for _i in range(8):
 #    and reshuffle them (tried: 18 parts moved). Each label is where pass 3 put it, the
 #    moved ones with their part, except R163's.
 #    ref -> (x, y, rot, label x, label y)
+#
+#    Task J3 (2026-11-22; placement.md §7, "Pin-13 pull-ups moved by task J3"). Each
+#    optocoupler's pin 16 (NI_GND) has to reach its pin-15/16 bypass capacitor's NI_GND pad
+#    on F.Cu, and N-4 makes that track 0.6 mm wide (NI_PWR). Its only short way is west
+#    between the capacitor's NI_5V pad and the NI_5V pad of the pin-13 pull-up below it,
+#    south of pin 15's own track. Pass 3 put that pull-up 1.75 mm below the capacitor, which
+#    leaves 0.80 mm of laminate between the two NI_5V pads where a 0.6 mm track and two
+#    0.2 mm gaps (N-11) need 1.00: closed on five optocouplers, so pin 16 had an 8 mm detour
+#    around the pull-up. On U61 R159 is 2.25 mm below its capacitor and the loop closes.
+#    So the other five pin-13 pull-ups go 0.5 mm south (_J3_SOUTH), to U61's spacing: the
+#    loop opens at about 0.20 mm, and 0.5 leaves the track's centre a 0.30 mm band, not a
+#    0.05 mm one. K-34: still on the isolated side; K-35: no capacitor moves; J2's via
+#    window for pins 11 to 14 is unchanged (these parts are over 3 mm from it).
+_J3_SOUTH = 0.5
 _J2_WEST = 1.0
 NI_PULLUPS: dict[str, tuple[float, float, int, float, float]] = {
     # moved by task J2: the pin-14 pull-up of each optocoupler, in front of pins 11-13
@@ -308,20 +322,26 @@ NI_PULLUPS: dict[str, tuple[float, float, int, float, float]] = {
     "R147": (65.25 - _J2_WEST, 144.25, 270, 62.42 - _J2_WEST, 144.25),   # U59
     "R163": (65.25 - _J2_WEST, 156.25, 270, 61.62, 156.25),              # U61, text: see above
     "R155": (65.25 - _J2_WEST, 168.25, 270, 62.42 - _J2_WEST, 168.25),   # U60
+    # moved by task J3: the pin-13 pull-up below each pin-15/16 capacitor, except U61's R159
+    "R125": (64.5, 114.0 + _J3_SOUTH, 180, 60.92, 114.0 + _J3_SOUTH),     # U56
+    "R133": (64.5, 126.0 + _J3_SOUTH, 180, 60.92, 126.0 + _J3_SOUTH),     # U57
+    "R141": (64.5, 138.0 + _J3_SOUTH, 180, 60.92, 138.0 + _J3_SOUTH),     # U58
+    "R149": (64.5, 150.0 + _J3_SOUTH, 180, 60.92, 150.0 + _J3_SOUTH),     # U59
+    "R157": (64.5, 174.0 + _J3_SOUTH, 180, 64.5, 175.53 + _J3_SOUTH),     # U60
     # held where pass 3 put them, except R169: 0.5 mm west, to make room for R163's text
-    "R125": (64.5, 114.0, 180, 60.92, 114.0), "R127": (61.5, 105.75, 270, 58.67, 105.75),
-    "R129": (61.5, 110.75, 90, 58.67, 110.75), "R133": (64.5, 126.0, 180, 60.92, 126.0),
+    "R127": (61.5, 105.75, 270, 58.67, 105.75),
+    "R129": (61.5, 110.75, 90, 58.67, 110.75),
     "R135": (61.5, 117.75, 270, 58.67, 117.75), "R137": (61.5, 122.75, 90, 58.67, 122.75),
-    "R141": (64.5, 138.0, 180, 60.92, 138.0), "R143": (61.5, 129.75, 270, 58.67, 129.75),
-    "R145": (61.5, 134.75, 90, 58.67, 134.75), "R149": (64.5, 150.0, 180, 60.92, 150.0),
+    "R143": (61.5, 129.75, 270, 58.67, 129.75),
+    "R145": (61.5, 134.75, 90, 58.67, 134.75),
     "R151": (61.5, 141.75, 270, 58.67, 141.75), "R153": (61.5, 146.75, 90, 58.67, 146.75),
-    "R157": (64.5, 174.0, 180, 64.5, 175.53), "R159": (64.5, 162.5, 180, 60.92, 162.5),
+    "R159": (64.5, 162.5, 180, 60.92, 162.5),
     "R161": (61.5, 170.75, 90, 58.67, 170.75), "R165": (61.5, 159.0, 90, 58.67, 159.0),
     "R167": (61.5, 153.75, 270, 58.67, 153.75), "R169": (59.0, 156.5, 90, 56.17, 156.5),
 }
 for _ref, (_x, _y, _rot, _lx, _ly) in NI_PULLUPS.items():
-    ANCHORS[_ref] = (round(_x, 3), _y, _rot)
-    ANCHOR_LABEL[_ref] = (round(_lx, 3), _ly)
+    ANCHORS[_ref] = (round(_x, 3), round(_y, 3), _rot)
+    ANCHOR_LABEL[_ref] = (round(_lx, 3), round(_ly, 3))
 
 # Silkscreen notes beside each slot, as the mule has: (text, centre, height).
 BARRIER_TEXT = [

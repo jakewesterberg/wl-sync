@@ -392,6 +392,12 @@ anywhere from x = 65.80 to 66.05**, with no via in a pad. The window is sized fo
 0.2 mm via-to-pad web, which DRC now enforces: a via at 66.10 fails N-16, and one at 65.70
 fails N-13 (`placement.md` §7, "Pull-ups anchored by task J2").
 
+**Closed on 2026-11-22, by moving five parts:** *the pin-16 bypass loops* (task J3). The
+pin-13 pull-ups `R125`, `R133`, `R141`, `R149`, `R157` are 0.5 mm south, so pin 16 of every
+NI optocoupler reaches its capacitor's `NI_GND` pad by a 0.6 mm (N-4) F.Cu track west
+between the capacitor's `NI_5V` pad and the pull-up's, alongside pin 15's own track and
+J2's escapes (`placement.md` §7, "Pin-13 pull-ups moved by task J3").
+
 **Still open, and bearing on routing:**
 
 | | Where | What it means for you |
