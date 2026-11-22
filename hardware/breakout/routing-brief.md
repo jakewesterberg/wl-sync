@@ -60,7 +60,7 @@ move it in pcbnew and say so in `placement.md`.
 - **The slots, the rule areas and the outline.**
 - No part may cross into another domain's region; the check fails on it.
 
-Everything else may be nudged to make a route work. `placement.md` §7 says which 389
+Everything else may be nudged to make a route work. `placement.md` §7 says which 386
 parts were placed by rule and are proposals.
 
 **The checks, before and after any session:**
@@ -392,6 +392,14 @@ anywhere from x = 65.80 to 66.05**, with no via in a pad. The window is sized fo
 0.2 mm via-to-pad web, which DRC now enforces: a via at 66.10 fails N-16, and one at 65.70
 fails N-13 (`placement.md` §7, "Pull-ups anchored by task J2").
 
+**Closed on 2026-11-22, by moving five parts:** *the pin-16 bypass loops* (task J3). The
+pin-13 pull-ups `R125`, `R133`, `R141`, `R149`, `R157` are 0.5 mm south, so pin 16 of every
+NI optocoupler reaches its capacitor's `NI_GND` pad by a 0.6 mm (N-4) F.Cu track west
+between the capacitor's `NI_5V` pad and the pull-up's, alongside pin 15's own track and
+J2's escapes (`placement.md` §7, "Pin-13 pull-ups moved by task J3"). In the same task,
+`U64`'s pin-15/16 bypass `C139`, which pass 3 had put 25 mm away, is at the pair, and
+`R176` moved to make room (`placement.md` §7, "`U64`'s second bypass").
+
 **Still open, and bearing on routing:**
 
 | | Where | What it means for you |
@@ -402,7 +410,7 @@ fails N-13 (`placement.md` §7, "Pull-ups anchored by task J2").
 | Fan headers `J54`, `J55` and the pair to them | `floorplan.md` Open question 6 | a 160 mm `FAN` pair across the barcode strip, or move the headers before routing |
 | `J4`, the reward button | Open question 14 | board-mounted or wired; its pads are placed either way |
 | Board mounting holes, corner radius, stack-up, fab house | Open question 8 | none is on the board; mounting holes will take routing room when they come |
-| The 389 parts placed by rule | `placement.md` §7 and §10 | proposals; read the board before routing it |
+| The 386 parts placed by rule | `placement.md` §7 and §10 | proposals; read the board before routing it |
 | The regions are deeper than the connectors now need | `placement.md` §10 item 8 | there is spare depth behind each connector row |
 | DRC's exit code | Task 14 Step 4 | "exit code 0" cannot be met while the 24 accepted warnings stand; say how you settle it |
 
