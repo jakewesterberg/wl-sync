@@ -60,7 +60,7 @@ move it in pcbnew and say so in `placement.md`.
 - **The slots, the rule areas and the outline.**
 - No part may cross into another domain's region; the check fails on it.
 
-Everything else may be nudged to make a route work. `placement.md` §7 says which 413
+Everything else may be nudged to make a route work. `placement.md` §7 says which 389
 parts were placed by rule and are proposals.
 
 **The checks, before and after any session:**
@@ -381,6 +381,11 @@ for it (Open question 9).
   the cable's own mating shell. A panel matter. What is left open is the jacksocket
   part and a coupon test-fit that gates the panel.
 
+**Closed on 2026-11-21, by moving six parts:** *the optocoupler escapes* (task J2). The
+pin-14 pull-ups `R123`, `R131`, `R139`, `R147`, `R163`, `R155` moved 0.6 mm west, so each of
+pins 11 to 14 of `U56` to `U61` can leave its outer end by an F.Cu stub to a via at x = 66.05
+on its own line, with no via in a pad (`placement.md` §7, "Pull-ups anchored by task J2").
+
 **Still open, and bearing on routing:**
 
 | | Where | What it means for you |
@@ -391,7 +396,7 @@ for it (Open question 9).
 | Fan headers `J54`, `J55` and the pair to them | `floorplan.md` Open question 6 | a 160 mm `FAN` pair across the barcode strip, or move the headers before routing |
 | `J4`, the reward button | Open question 14 | board-mounted or wired; its pads are placed either way |
 | Board mounting holes, corner radius, stack-up, fab house | Open question 8 | none is on the board; mounting holes will take routing room when they come |
-| The 413 parts placed by rule | `placement.md` §7 and §10 | proposals; read the board before routing it |
+| The 389 parts placed by rule | `placement.md` §7 and §10 | proposals; read the board before routing it |
 | The regions are deeper than the connectors now need | `placement.md` §10 item 8 | there is spare depth behind each connector row |
 | DRC's exit code | Task 14 Step 4 | "exit code 0" cannot be met while the 24 accepted warnings stand; say how you settle it |
 

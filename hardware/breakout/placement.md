@@ -297,7 +297,7 @@ Distances that constraints ask about, as placed:
 
 ## 7. Everything else
 
-The other 413 parts are placed by rule, not by hand. For each the generator finds the part
+The other 389 parts are placed by rule, not by hand (413 until 2026-11-21, when the 24 NI pull-ups became anchors; see "Pull-ups anchored by task J2" below). For each the generator finds the part
 it serves, then takes the nearest free position to the pads it connects to, inside its own
 domain's region. The rules, in order:
 
@@ -317,6 +317,52 @@ proposals. A person who wants a part elsewhere moves it in the generator, by add
 Search parameters, none of which is a dimension of the design: 0.25 mm between courtyards,
 1.0 mm from a courtyard to a board edge, a 0.25 mm grid. Reference text is 0.8 mm high and
 horizontal, and each has its own free box.
+
+### Pull-ups anchored by task J2 (2026-11-21)
+
+Both NI routing trials (`trial-ni-opus`, `trial-ni-fable`) put an open via inside some
+optocoupler output pads, because N-13's 0.6 mm left no outer-layer path out of them. Read
+from the board's geometry (a 0.2 mm F.Cu track leaving the pad's outer end, reaching a
+point where a 0.6 mm via fits outside every pad, N-13 and the rule areas kept): **pins 11
+and 12 of `U56` to `U61` were trapped, twelve pads, all by one part each, the pin-14
+pull-up standing 0.825 mm in front of pins 11 to 13.** Pin 13 could get out alone, through
+the gap below that pull-up's pin-14 pad, but not once pin 14 is joined to that pad, which
+is pin 14's own pull-up, so in practice pins 11 to 13 were trapped: the 18 pads the
+`trial-ni-opus` report names. Pin 14 was free. `U64` and `U65` do not follow the pattern:
+their outputs are not N-13 nets (they reach the panel through series resistors), and every
+output pad of both escapes at 0.2 mm.
+
+The user's decision, 2026-11-21: move the parts, not put vias in pads. **The six pin-14
+pull-ups go 0.6 mm west**, nothing else moves:
+
+| Ref | Optocoupler | Was | Now |
+|---|---|---|---|
+| `R123` | `U56` | (65.25, 108.25) | (64.65, 108.25) |
+| `R131` | `U57` | (65.25, 120.25) | (64.65, 120.25) |
+| `R139` | `U58` | (65.25, 132.25) | (64.65, 132.25) |
+| `R147` | `U59` | (65.25, 144.25) | (64.65, 144.25) |
+| `R163` | `U61` | (65.25, 156.25) | (64.65, 156.25); its reference text 0.255 mm east of where it would follow the part, to clear `R169` |
+| `R155` | `U60` | (65.25, 168.25) | (64.65, 168.25) |
+
+- **What the move buys:** a 0.6 mm via on each of pins 11 to 14, on the pin's own line,
+  0.2 mm off the pad's outer end, all 24 at once. The least gap from those vias to another
+  net's copper is 0.634 mm (N-13: 0.6). Shown on an island-only copy with the stubs and
+  vias drawn and DRC run with the rules loaded: nothing but the 24 `via_dangling` a stub
+  ending in an unrouted via must give; the same stubs on the old placement give 36
+  N-13 `clearance` and 6 `hole_clearance` violations.
+- **Why 0.6 mm.** The 0.2 mm between each via and its own pad is N-11's figure, taken here
+  as a solder-mask web between pad and tented via: **[engineering judgment]**. With that
+  web the least move is 0.566 mm; with no web it would be 0.366 mm. 0.6 mm is the round
+  figure above the first, and the one the trials' blind scorer estimated.
+- **K-34:** the pull-ups stay on the isolated side, in the NI region, clear of the slot's
+  keep-out (the placement check). **K-35:** no capacitor moves.
+- **The other eighteen NI pull-ups are anchors too, where pass 3 had put them.** Pass 3
+  deals an IC's two `NI_5V` pins out among its satellites in turn, so anchoring the six
+  alone dealt their siblings different pins and moved 18 more parts. Anchoring all 24 is
+  how the six move and nothing else does. All 24 are in `NI_PULLUPS` in the generator;
+  the eighteen are still the by-rule proposals of this section, now written down.
+- The board file differs from the one before in the six footprints' positions and
+  `R163`'s reference text, nothing else (compared footprint by footprint, uuids aside).
 
 ## 8. Rules entered for DRC (V-2)
 

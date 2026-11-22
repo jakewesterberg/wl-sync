@@ -275,6 +275,47 @@ for _i in range(8):
     ANCHOR_LABEL[f"C{86 + 4 * _i}"] = (round(_x - 2.6, 3), 147.9)
     ANCHOR_LABEL[f"C{87 + 4 * _i}"] = (round(_x + 2.6, 3), 146.6)
 
+# -- the NI optocouplers' 3.9 kOhm pull-ups (placement.md §7, "Overrides"; task J2,
+#    2026-11-21). N-13 keeps 0.6 mm on the outer layers between each optocoupler output and
+#    every other net, and pass 3 put one pull-up of each optocoupler (the pin-14 one) 0.825 mm
+#    in front of pins 11 to 13, so no F.Cu track could leave pins 11 and 12, nor pin 13 once
+#    pin 14 is joined to its own pull-up, and both routing trials put a via in those pads.
+#    Each of those six goes 0.6 mm west, which leaves room for a 0.6 mm via 0.2 mm off the
+#    end of each of pins 11 to 14, on the pin's own line, all four at once: the least copper
+#    gap from those vias to another net is then 0.634 mm (N-13: 0.6). The 0.2 mm via-to-pad
+#    gap is N-11's figure, taken as a solder-mask web: [engineering judgment]. With that web
+#    the least move is 0.566 mm; with none, 0.366 mm. K-34: still on the isolated side; the
+#    region, keep-out and courtyard gaps are the check's. No capacitor moves (K-35).
+#    The other eighteen pull-ups are held where pass 3 put them (to the 0.25 mm grid it
+#    used). They have to be anchored too: pass 3 shares an IC's two NI_5V pins out among
+#    its satellites in turn, so anchoring one pull-up would deal its siblings different pins
+#    and reshuffle them (tried: 18 parts moved). Each label is where pass 3 put it, the
+#    moved six with their part, except R163's, 0.255 mm east of that so as to clear R169.
+#    ref -> (x, y, rot, label x, label y)
+_J2_WEST = 0.6
+NI_PULLUPS: dict[str, tuple[float, float, int, float, float]] = {
+    # moved by task J2: the pin-14 pull-up of each optocoupler, in front of pins 11-13
+    "R123": (65.25 - _J2_WEST, 108.25, 270, 62.42 - _J2_WEST, 108.25),   # U56
+    "R131": (65.25 - _J2_WEST, 120.25, 270, 62.42 - _J2_WEST, 120.25),   # U57
+    "R139": (65.25 - _J2_WEST, 132.25, 270, 62.42 - _J2_WEST, 132.25),   # U58
+    "R147": (65.25 - _J2_WEST, 144.25, 270, 62.42 - _J2_WEST, 144.25),   # U59
+    "R163": (65.25 - _J2_WEST, 156.25, 270, 62.075, 156.25),             # U61
+    "R155": (65.25 - _J2_WEST, 168.25, 270, 62.42 - _J2_WEST, 168.25),   # U60
+    # held where pass 3 put them
+    "R125": (64.5, 114.0, 180, 60.92, 114.0), "R127": (61.5, 105.75, 270, 58.67, 105.75),
+    "R129": (61.5, 110.75, 90, 58.67, 110.75), "R133": (64.5, 126.0, 180, 60.92, 126.0),
+    "R135": (61.5, 117.75, 270, 58.67, 117.75), "R137": (61.5, 122.75, 90, 58.67, 122.75),
+    "R141": (64.5, 138.0, 180, 60.92, 138.0), "R143": (61.5, 129.75, 270, 58.67, 129.75),
+    "R145": (61.5, 134.75, 90, 58.67, 134.75), "R149": (64.5, 150.0, 180, 60.92, 150.0),
+    "R151": (61.5, 141.75, 270, 58.67, 141.75), "R153": (61.5, 146.75, 90, 58.67, 146.75),
+    "R157": (64.5, 174.0, 180, 64.5, 175.53), "R159": (64.5, 162.5, 180, 60.92, 162.5),
+    "R161": (61.5, 170.75, 90, 58.67, 170.75), "R165": (61.5, 159.0, 90, 58.67, 159.0),
+    "R167": (61.5, 153.75, 270, 58.67, 153.75), "R169": (59.5, 156.5, 90, 56.67, 156.5),
+}
+for _ref, (_x, _y, _rot, _lx, _ly) in NI_PULLUPS.items():
+    ANCHORS[_ref] = (round(_x, 3), _y, _rot)
+    ANCHOR_LABEL[_ref] = (round(_lx, 3), _ly)
+
 # Silkscreen notes beside each slot, as the mule has: (text, centre, height).
 BARRIER_TEXT = [
     ("NI ISOLATION BARRIER", (40.0, 104.0), 1.0),

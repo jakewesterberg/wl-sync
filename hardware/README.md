@@ -468,7 +468,7 @@ distributor evidence.
   widths and the clearance rules (N-12, N-13, S-5) into `breakout.kicad_dru`: KiCad does
   not enforce a net class's width as a minimum, so each is a `track_width` rule. **It writes no track: routing is a person's**, for the reason
   above. Panel connectors go at their panel positions, the parts that straddle a barrier
-  and every IC at stated coordinates, and the remaining 413 parts beside the part each
+  and every IC at stated coordinates (and the 24 NI pull-ups, `placement.md` §7), and the remaining 389 parts beside the part each
   serves, searched for only inside its own ground domain's region.
   `check_breakout_placement.py` is the check: every netlist reference placed once and on
   its contract net, each panel connector at its position, no part in the wrong domain's
