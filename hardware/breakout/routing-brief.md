@@ -131,6 +131,7 @@ Every class has 0.2 mm clearance and a 0.6 mm via on a 0.3 mm drill (N-11, N-14)
 | N-12 | 0.6 mm on outer layers between the raw or filtered +15 V nets and the −15 V ones |
 | N-13 | 0.6 mm on outer layers from each of the 129 nets that reach a panel connector to any other net. One exemption: between `U11`'s own pads. |
 | S-5 | 0.15 mm track and gap allowed only inside the courtyards, and between the own pads, of `U55`, `U3` and `U4` |
+| N-16 | no via in an SMD pad, and 0.2 mm from a via's copper to every SMD pad, its own net's included (a `physical_clearance`, so it holds within a net) |
 
 **Two widths DRC does not enforce, and one pin rule.** The class system holds one class
 per net, and the first two rules are about part of a net:
@@ -361,6 +362,8 @@ for it (Open question 9).
 - Let any pour touch `AO_GND_TPC`, `ACCESIO_AGND`, `ACCESIO_SHELL`, a `*_SHLD` net, an
   unused ground pin of `J2` or `J36`, a BNC post-mount pad, or pin 7 of `U3` or `U4`.
 - Put a via on `A_PD1_CLAMP`, `A_PD2_CLAMP` or `U63_VIN` (K-11, P-8).
+- Put a via in an SMD pad, or within 0.2 mm of one, on any net including the pad's own
+  (N-16). DRC and the judge both flag it.
 - Go under 0.2 mm track or gap except at `U55`, `U3` and `U4` (S-5).
 - Move a panel connector, a straddler, a slot or `NT1`.
 - Change a net, a footprint's pads or the schematic. If a route cannot be made, stop and
@@ -381,10 +384,12 @@ for it (Open question 9).
   the cable's own mating shell. A panel matter. What is left open is the jacksocket
   part and a coupon test-fit that gates the panel.
 
-**Closed on 2026-11-21, by moving six parts:** *the optocoupler escapes* (task J2). The
-pin-14 pull-ups `R123`, `R131`, `R139`, `R147`, `R163`, `R155` moved 0.6 mm west, so each of
-pins 11 to 14 of `U56` to `U61` can leave its outer end by an F.Cu stub to a via at x = 66.05
-on its own line, with no via in a pad (`placement.md` §7, "Pull-ups anchored by task J2").
+**Closed on 2026-11-21, by moving parts:** *the optocoupler escapes* (task J2). The pin-14
+pull-ups `R123`, `R131`, `R139`, `R147`, `R163`, `R155` are 1.0 mm west. Each of pins 11 to
+14 of `U56` to `U61` can leave its outer end by an F.Cu stub to a via **on the pin's own line
+anywhere from x = 65.80 to 66.05**, with no via in a pad. The window is sized for N-16's
+0.2 mm via-to-pad web, which DRC now enforces: a via at 66.10 fails N-16, and one at 65.70
+fails N-13 (`placement.md` §7, "Pull-ups anchored by task J2").
 
 **Still open, and bearing on routing:**
 

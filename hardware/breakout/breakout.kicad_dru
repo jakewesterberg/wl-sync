@@ -61,6 +61,13 @@
   (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('U11') && B.memberOfFootprint('U11')")
   (constraint clearance (min 0.2mm)))
 
+# N-16 (task J2, 2026-11-21): no via in an SMD pad, and 0.2 mm of laminate for a
+# solder-mask web between a via's copper and any SMD pad, the pad's own net included.
+# physical_clearance is measured whatever the two items' nets are.
+(rule "N-16 via clear of SMD pads"
+  (condition "A.Type == 'Via' && B.Type == 'Pad' && B.Pad_Type == 'SMD'")
+  (constraint physical_clearance (min 0.2mm)))
+
 # S-5: 0.15 mm, used only where a package forces it. Three packages do: U55's
 # MSOP-10 (0.35 mm pads at 0.5 mm pitch) and the HVSSOP-8 of U3 and U4 (0.5 mm
 # pads at 0.65 mm pitch). Each rule covers that part's own pads and nothing else.

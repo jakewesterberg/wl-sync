@@ -465,7 +465,7 @@ distributor evidence.
   optocouplers, 1.5 mm under `C162`, 2.5 mm elsewhere), all 567 netlist footprints placed with their nets, the barrier keep-outs
   as rule areas, and the CM5 IO Board's outline and two standoff holes. It also writes the
   net classes of `constraints.md` §4 into `breakout.kicad_pro`, and their minimum track
-  widths and the clearance rules (N-12, N-13, S-5) into `breakout.kicad_dru`: KiCad does
+  widths and the clearance rules (N-12, N-13, N-16, S-5) into `breakout.kicad_dru`: KiCad does
   not enforce a net class's width as a minimum, so each is a `track_width` rule. **It writes no track: routing is a person's**, for the reason
   above. Panel connectors go at their panel positions, the parts that straddle a barrier
   and every IC at stated coordinates (and the 24 NI pull-ups, `placement.md` §7), and the remaining 389 parts beside the part each

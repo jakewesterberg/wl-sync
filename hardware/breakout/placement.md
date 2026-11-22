@@ -333,36 +333,57 @@ their outputs are not N-13 nets (they reach the panel through series resistors),
 output pad of both escapes at 0.2 mm.
 
 The user's decision, 2026-11-21: move the parts, not put vias in pads. **The six pin-14
-pull-ups go 0.6 mm west**, nothing else moves:
+pull-ups go 1.0 mm west** (fix round 1; the first cut was 0.6 mm), and `R169` goes 0.5 mm
+west to make room for `R163`'s reference text. Nothing else moves:
 
 | Ref | Optocoupler | Was | Now |
 |---|---|---|---|
-| `R123` | `U56` | (65.25, 108.25) | (64.65, 108.25) |
-| `R131` | `U57` | (65.25, 120.25) | (64.65, 120.25) |
-| `R139` | `U58` | (65.25, 132.25) | (64.65, 132.25) |
-| `R147` | `U59` | (65.25, 144.25) | (64.65, 144.25) |
-| `R163` | `U61` | (65.25, 156.25) | (64.65, 156.25); its reference text 0.255 mm east of where it would follow the part, to clear `R169` |
-| `R155` | `U60` | (65.25, 168.25) | (64.65, 168.25) |
+| `R123` | `U56` | (65.25, 108.25) | (64.25, 108.25) |
+| `R131` | `U57` | (65.25, 120.25) | (64.25, 120.25) |
+| `R139` | `U58` | (65.25, 132.25) | (64.25, 132.25) |
+| `R147` | `U59` | (65.25, 144.25) | (64.25, 144.25) |
+| `R163` | `U61` | (65.25, 156.25) | (64.25, 156.25); its reference text at (61.62, 156.25), set in the generator |
+| `R155` | `U60` | (65.25, 168.25) | (64.25, 168.25) |
+| `R169` | `U61` | (59.5, 156.5) | (59.0, 156.5), its text with it |
 
-- **What the move buys:** a 0.6 mm via on each of pins 11 to 14, on the pin's own line,
-  0.2 mm off the pad's outer end, all 24 at once. The least gap from those vias to another
-  net's copper is 0.634 mm (N-13: 0.6). Shown on an island-only copy with the stubs and
-  vias drawn and DRC run with the rules loaded: nothing but the 24 `via_dangling` a stub
-  ending in an unrouted via must give; the same stubs on the old placement give 36
-  N-13 `clearance` and 6 `hole_clearance` violations.
-- **Why 0.6 mm.** The 0.2 mm between each via and its own pad is N-11's figure, taken here
-  as a solder-mask web between pad and tented via: **[engineering judgment]**. With that
-  web the least move is 0.566 mm; with no web it would be 0.366 mm. 0.6 mm is the round
-  figure above the first, and the one the trials' blind scorer estimated.
+- **The via window.** Each of pins 11 to 14 of `U56` to `U61` can take a 0.6/0.3 mm via
+  **on the pin's own line, anywhere from x = 65.80 to x = 66.05**, all 24 at once (the
+  vias are 1.27 mm apart, 0.67 mm of copper between them). Measured on exact pad shapes:
+  - At x = 66.05 the via is 0.2 mm from its own pad's outer end. **The window is sized for
+    that 0.2 mm web, and N-16 now enforces it**: DRC flags a via at 66.10 (0.15 mm) as
+    "N-16 via clear of SMD pads".
+  - Below x = 65.74 the via comes within N-13's 0.6 mm of a bypass capacitor's pad: the
+    pin-10 capacitor for pin 11, the pin-15 one for pin 14. DRC flags a via at 65.70. Pins
+    12 and 13 have more room (from 65.50 and 65.56).
+  - Off the pin's line the window narrows. At x = 65.80, pins 11 and 14 allow only
+    ±0.012 mm; at 66.05, ±0.115 mm. Put each via on its pin's y (107.095 for `U56.11`, and
+    so on at 1.27 mm).
+  - Shown on the full board with DRC and the rules loaded. All 24 vias, each with an F.Cu
+    stub from its pad and a 3 mm B.Cu tail west, plus pin 14's F.Cu link to its own
+    pull-up, give nothing beyond the 24 `track_dangling` of the unfinished tails. That holds
+    at x = 65.80, 65.85, 65.90, 65.95, 66.00 and 66.05, and at ±0.01 mm off the line at
+    both ends.
+- **Why 1.0 mm.** At 0.6 mm (the least move for a 0.2 mm web, 0.566 mm) pin 11's window
+  was 25 µm wide, a single 0.05 mm grid point (J2 review, I-1). The pull-up stops being
+  what limits the window at a move of about 0.88 mm, where the bypass capacitor takes over.
+  1.0 mm is the round figure 0.12 mm past that, so a later nudge of a pull-up does not
+  narrow the window again. The courtyards allowed 1.35 mm more than the first cut.
+  **[engineering judgment]**; the user asked for about 1.0 mm.
+- **`R163`'s text and `R169`.** At 1.0 mm, `R163`'s text (3.6 mm wide) no longer fits
+  between it and `R169`: the gap is 3.29 mm. The space below `R163` is `C132`'s text, and
+  taking it moves `C132` 5 mm. The nearest other free place is 5.7 mm away. So `R169`, a
+  pull-up of `U61` and in front of nothing, goes 0.5 mm west, and `R163`'s text sits in the
+  gap at an explicit place. `C126` and `C132` do not move.
 - **K-34:** the pull-ups stay on the isolated side, in the NI region, clear of the slot's
   keep-out (the placement check). **K-35:** no capacitor moves.
-- **The other eighteen NI pull-ups are anchors too, where pass 3 had put them.** Pass 3
+- **The other seventeen NI pull-ups are anchors too, where pass 3 had put them.** Pass 3
   deals an IC's two `NI_5V` pins out among its satellites in turn, so anchoring the six
   alone dealt their siblings different pins and moved 18 more parts. Anchoring all 24 is
-  how the six move and nothing else does. All 24 are in `NI_PULLUPS` in the generator;
-  the eighteen are still the by-rule proposals of this section, now written down.
-- The board file differs from the one before in the six footprints' positions and
-  `R163`'s reference text, nothing else (compared footprint by footprint, uuids aside).
+  how only the intended parts move. All 24 are in `NI_PULLUPS` in the generator; the
+  seventeen are still the by-rule proposals of this section, now written down.
+- The board file differs from the one before J2 (feb45b7) in the seven footprints'
+  positions and `R163`'s reference text, nothing else (compared footprint by footprint,
+  uuids aside).
 
 ## 8. Rules entered for DRC (V-2)
 
@@ -379,7 +400,7 @@ pull-ups go 0.6 mm west**, nothing else moves:
 | `Default` | 0.2, clearance 0.2, via 0.6/0.3 | N-8, N-11, N-14 |
 | `USB` | 0.2 | N-9 gives no width; the class only names the pair |
 
-`breakout.kicad_dru` carries the minimum widths, N-12, N-13 and S-5.
+`breakout.kicad_dru` carries the minimum widths, N-12, N-13, N-16 and S-5.
 
 - **Minimum track widths are rules, not only class defaults.** KiCad draws a net class's
   width and does not enforce it. `breakout.kicad_dru` has one `track_width` minimum per

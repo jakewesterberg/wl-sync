@@ -730,6 +730,7 @@ AT_J19_MM = 10.0    # G-20 [judge's reading]: "R224 is placed at J19"
 K35_MM = 5.0        # K-35 [judge's reading]: "sits at each supply pin pair"
 CLEAR_MM = BAND_W   # K-4 [judge's reading]: "clear of INTAN_AO* and the INA105s"
 NEAR_TIE_MM = 10.0  # G-4, G-5, G-6 [judge's reading]
+N16_WEB_MM = 0.2    # N-16: via copper to any SMD pad (constraints.md; not a reading)
 
 # Rules that bear on routing and that layer 2 does not judge, printed with every run so
 # that "every check PASS or N/A" is not read as "every rule met".
@@ -843,6 +844,8 @@ class Judge:
         A("P-8", "U63_VIN: one short F.Cu trace, no via, no pour, no +5V contact",
           self.p8, "SHORT")
         A("K-11", "A_PD1_CLAMP, A_PD2_CLAMP: F.Cu only, no via, short", self.k11, "SHORT")
+        A("N-16", "No via in an SMD pad, and every via 0.2 mm from every SMD pad, its own "
+          "net's included", self.n16)
         A("K-35", "A bypass capacitor at each optocoupler's isolated supply pin pair",
           self.k35, "K-35")
         A("N-4", "J45: both NI_5V pins with symmetric copper, all twelve NI_GND pins used",
@@ -1303,6 +1306,34 @@ class Judge:
         if self.na_if(r, nets):
             return
         self.via_layer_pour(r, nets)
+
+    # -- N-16 ----------------------------------------------------------------------------
+    def n16(self, r):
+        """constraints.md N-16 (task J2, fix round 1). DRC holds it too, by a
+        physical_clearance rule in breakout.kicad_dru; this check holds it without DRC
+        (--skip-drc, region copies) and names each via and pad."""
+        vias = [v for v in self.m.vias if self.in_region(v)]
+        if not vias:
+            return r.set(NA, "no via on this board" if self.region is None
+                         else "no via inside the region")
+        smd = [p for p in self.m.pads if p.attr == pcbnew.PAD_ATTRIB_SMD]
+        inside, near = [], []
+        for v in vias:
+            for p in smd:
+                if math.hypot(p.x - v.x, p.y - v.y) > p.reach + v.r + N16_WEB_MM + 0.05:
+                    continue
+                for ln in set(p.layers) & set(v.layers):
+                    vp = v.poly(self.m.lid[ln])
+                    what = f"{v!r} and {p!r} ({p.net or 'no net'}) on {ln}"
+                    if overlap_mm2(p.poly(ln, self.m.lid[ln]), vp) > 1e-4:
+                        inside.append(what + ": the via overlaps the pad")
+                    elif overlap_mm2(p.poly(ln, self.m.lid[ln], N16_WEB_MM), vp) > 1e-4:
+                        near.append(what + f": under {N16_WEB_MM} mm apart")
+        r.clause("no via's hole or annulus overlaps an SMD pad", self.verdict(inside),
+                 *(inside or [f"{len(vias)} vias, {len(smd)} SMD pads: none overlaps"]))
+        r.clause(f"every via {N16_WEB_MM} mm from every SMD pad, its own net's included",
+                 self.verdict(near),
+                 *(near or [f"{len(vias)} vias: none within {N16_WEB_MM} mm of an SMD pad"]))
 
     # -- K-35 ----------------------------------------------------------------------------
     def k35(self, r):

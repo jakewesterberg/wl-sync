@@ -7,7 +7,8 @@ Each runs the judge in a subprocess, as a person would.
 1. The committed, unrouted board gives the unrouted result: the gates fail on DRC's
    unconnected items and connectivity (and the rules are proved loaded); every layer-2 check
    is PASS or N/A except the two that cannot be checked on it (G-1's mounting hardware, and
-   FIXED, whose reference on main is this very board), which are NOT CHECKED and say why.
+   FIXED, given the board itself as its reference), which are NOT CHECKED and say why.
+   FIXED's default reference, the board on the local main, has a test of its own.
 2. NEGATIVE CONTROLS, in pairs (fix round 1): a BASE scratch board on which the clause under
    test passes, and a CONTROL that changes one thing in it. The control must FAIL that clause
    with the planted violation named in its evidence, and every other check must report the
@@ -227,6 +228,11 @@ def k23(shld_end=204, shld_via=False):
             + (";via('A_MISC1_SHLD_MID', 199, 101)" if shld_via else ""))
 
 
+# N-16: a via on R24 pad 2's own net (RWD_BTN), 0.25 mm above the pad. The controls put one
+# in the pad, and one 0.10 mm above it.
+N16_BASE = "via('RWD_BTN', 83.0, 182.725)"
+
+
 # Each case: (check, clause prefix, base, control, evidence the control must print,
 #             clause status on the base [PASS unless stated]).
 CASES = {
@@ -303,13 +309,17 @@ CASES = {
     "P-5/short": ("P-5", "FB and NR/SS on short traces", P5,
                   P5 + ";track('U3_FB', 'F.Cu', [(150, 205), (165, 205), (165, 210)])", "over 1.5x"),
     "P-5/caps": ("P-5", "input and output capacitors", P5, P5 + ";move('C14', 139.5, 196.0)", "C14."),
-    "P-8/via": ("P-8", "no via", P8, P8 + ";via('U63_VIN', 145.875, 160.78)", "via on U63_VIN"),
+    # the four cases whose control adds or drops the only via carry N16_BASE's via on both
+    # boards, so that N-16 is PASS on both and not N/A on one
+    "P-8/via": ("P-8", "no via", P8 + ";" + N16_BASE,
+                P8 + ";via('U63_VIN', 145.875, 160.78);" + N16_BASE, "via on U63_VIN"),
     "P-8/layer": ("P-8", "F.Cu only", P8, P8 + ";track('U63_VIN', 'B.Cu', [(146, 158), (146.3, 158)])",
                   "U63_VIN off F.Cu"),
     "P-8/pins": ("P-8", "two pins only", P8, P8 + ";set_pad_net('TP1', '1', 'U63_VIN')", "('TP1', '1')"),
     "P-8/short": ("P-8", "short (SHORT)", P8,
                   P8 + ";track('U63_VIN', 'F.Cu', [(118, 150), (132, 150)])", "over 1.5x"),
-    "K-11/via": ("K-11", "no via", K11, K11 + ";via('A_PD1_CLAMP', 187, 211)", "via on A_PD1_CLAMP"),
+    "K-11/via": ("K-11", "no via", K11 + ";" + N16_BASE,
+                 K11 + ";via('A_PD1_CLAMP', 187, 211);" + N16_BASE, "via on A_PD1_CLAMP"),
     "K-11/layer": ("K-11", "F.Cu only", K11,
                    K11 + ";track('A_PD1_CLAMP', 'B.Cu', [(190, 213), (190.3, 213)])", "A_PD1_CLAMP off F.Cu"),
     "K-11/short": ("K-11", "short (SHORT)", K11,
@@ -346,7 +356,8 @@ CASES = {
                      AGND8 + ";track('RWD_BTN', 'F.Cu', [(209, 160), (209, 163)])",
                      AGND8 + ";track('RWD_BTN', 'F.Cu', [(209, 163), (209, 167)])", "RWD_BTN crosses at (209.00, 165)"),
     "B-17/agnd": ("B-17", "AGND crosses at most eight", AGND8, AGND9, "AGND crosses 9 times"),
-    "B-18/beside": ("B-18", "an AGND crossing beside it", b18_sense(0.0), B18_NOSENSE,
+    "B-18/beside": ("B-18", "an AGND crossing beside it", b18_sense(0.0) + ";" + N16_BASE,
+                    B18_NOSENSE + ";" + N16_BASE,
                     "MUX_OUT1 at x = 174.3"),
     "B-18/length": ("B-18", "MUX_OUTn and its sense trace within", b18_sense(0.0), b18_sense(3.0),
                     "its sense trace 6.0"),
@@ -359,8 +370,13 @@ CASES = {
     "K-33": ("K-33", "legs at most 10 mm", k33(4.5), k33(1.5), "legs 1.50 mm (U8.18)"),
     "K-23/length": ("K-23", "each leg's twin within 1.0 mm", k23(), k23(shld_end=206),
                     "A_MISC1_SHLD_MID 7.00 mm"),
-    "K-23/vias": ("K-23", "each leg's twin with as many vias", k23(), k23(shld_via=True),
+    "K-23/vias": ("K-23", "each leg's twin with as many vias", k23() + ";" + N16_BASE,
+                  k23(shld_via=True) + ";" + N16_BASE,
                   "A_MISC1_SHLD_MID 1 vias"),
+    "N-16/in-pad": ("N-16", "no via's hole or annulus overlaps", N16_BASE,
+                    "via('RWD_BTN', *pad_xy('R24', '2'))", "(RWD_BTN) on F.Cu: the via overlaps the pad"),
+    "N-16/web": ("N-16", "every via 0.2 mm from every SMD pad", N16_BASE,
+                 "via('RWD_BTN', 83.0, 182.875)", "(RWD_BTN) on F.Cu: under 0.2 mm apart"),
     "FIXED/J1": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('J1', 174.5, 80.0)", "J1 moved"),
     "FIXED/straddler": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('U60', 70.0, 169.5)",
                         "U60 moved"),
@@ -443,7 +459,8 @@ def test_every_layer2_check_has_a_control():
 
 
 def test_unrouted_committed_board(tmp_path):
-    code, out, stdout = run_judge(BOARD, json_out=tmp_path / "u.json")
+    # the board as its own reference: FIXED's NOT CHECKED path, on any branch or clone
+    code, out, stdout = run_judge(BOARD, "--reference", str(BOARD), json_out=tmp_path / "u.json")
     gates = {g["id"]: g for g in out["gates"]}
     assert code == 1
     # the rules are proved loaded by the control track, not assumed
@@ -457,8 +474,8 @@ def test_unrouted_committed_board(tmp_path):
     assert gates["PLACEMENT"]["status"] == "PASS"
     assert gates["REGION"]["status"] == "N/A"
     st = {c["id"]: c["status"] for c in out["checks"]}
-    # G-1's mounting hardware is not on the board, and FIXED's default reference (main) is
-    # this very file: both NOT CHECKED, printed with their reasons
+    # G-1's mounting hardware is not on the board, and FIXED's reference is this very
+    # file: both NOT CHECKED, printed with their reasons
     assert {k for k, v in st.items() if v not in OK} == {"G-1", "FIXED"}, st
     assert st["G-1"] == st["FIXED"] == "NOT CHECKED"
     assert out["not_passing"] == ["DRC", "CONNECTIVITY", "G-1", "FIXED"]
@@ -467,7 +484,7 @@ def test_unrouted_committed_board(tmp_path):
     assert "NOT CHECKED, counted: G-1, FIXED" in stdout
     for rid in ("G-3", "G-4", "G-5", "G-6", "G-7", "G-20", "P-5"):
         assert st[rid] == "PASS", rid
-    for rid in ("G-10", "K-2", "N-4", "N-10", "B-18", "N-9", "K-33", "K-35"):
+    for rid in ("G-10", "K-2", "N-4", "N-10", "B-18", "N-9", "K-33", "K-35", "N-16"):
         assert st[rid] == "N/A", rid
     assert out["metrics"]["connections"] == 1791
 
@@ -544,13 +561,43 @@ def test_gates_cannot_be_named(stripped):
 
 
 def test_allow_not_checked(tmp_path):
-    code, out, stdout = run_judge(BOARD, "--skip-drc", "--allow-not-checked", "G-1,FIXED",
-                                  json_out=tmp_path / "a.json")
+    code, out, stdout = run_judge(BOARD, "--skip-drc", "--reference", str(BOARD),
+                                  "--allow-not-checked", "G-1,FIXED", json_out=tmp_path / "a.json")
     # the gates are never waived: the skipped DRC and the failing connectivity both stand
     assert out["not_passing"] == ["DRC", "CONNECTIVITY"]
     assert out["not_checked_allowed"] == ["G-1", "FIXED"]
     assert "WAIVED by --allow-not-checked: G-1" in stdout
     assert "no mounting-hardware path: the screws and standoffs" in stdout
+    assert code == 1
+
+
+def _local_main() -> str | None:
+    p = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--verify", "--quiet", "--short",
+                        "refs/heads/main"], capture_output=True, text=True)
+    return p.stdout.strip() or None
+
+
+def test_fixed_defaults_to_main(tmp_path):
+    """With no --reference or --baseline, FIXED's reference is the board as committed on the
+    local `main` (J2 review, I-2): named in the evidence, whether or not this branch's board
+    differs from it."""
+    sha = _local_main()
+    if sha is None:
+        pytest.skip("no local main branch (a clone with only origin/main)")
+    code, out, stdout = run_judge(BOARD, "--skip-drc", json_out=tmp_path / "m.json")
+    fixed = checks(out)["FIXED"]
+    evidence = " | ".join(e for c in fixed["clauses"] for e in c["evidence"])
+    main_text = subprocess.run(["git", "-C", str(REPO), "show",
+                                "main:hardware/breakout/breakout.kicad_pcb"],
+                               capture_output=True, text=True, check=True).stdout
+    if main_text == BOARD.read_text():
+        assert fixed["status"] == "NOT CHECKED" and "is this board itself" in evidence, fixed
+    else:
+        # a branch whose board differs from main's: FIXED really compares; where nothing
+        # fixed has moved it names its reference
+        assert fixed["status"] in ("PASS", "FAIL"), fixed
+    if fixed["status"] != "FAIL":
+        assert f"main ({sha}):hardware/breakout/breakout.kicad_pcb" in evidence, fixed
     assert code == 1
 
 
