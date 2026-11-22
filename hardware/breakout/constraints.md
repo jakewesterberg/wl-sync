@@ -482,7 +482,12 @@ was meant.
    and copper-to-routed-edge figures (S-3, S-5, B-11). The board is 430 × 240 mm and takes
    insertion force from 18 BNC bodies and four MDR68s on two opposite edges. How many mounting
    points, where, of what material, and is 1.6 mm stiff enough? Is any impedance control
-   wanted (N-9)?
+   wanted (N-9)? **Decided 2026-11-22 (task R0), the user's decision:** eight mounting points,
+   `H3` to `H10`, at the positions M-16 lists, each an unplated 3.2 mm (M3) hole with no net in
+   a 3.6 mm copper keep-out, the radius **[engineering judgment]**. **Still open:** the corner
+   radius, the stack-up (thickness, copper weight, dielectric, finish), the fab house and its
+   minimum figures, the standoffs' material, whether 1.6 mm is stiff enough, and impedance
+   control.
 
 9. **Series-termination footprints on the MDR68-bound buffer outputs.** The design review
    answers when to decide: during layout, from trace length and observed ringing (K-32). What

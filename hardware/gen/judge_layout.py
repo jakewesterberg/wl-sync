@@ -1040,7 +1040,8 @@ class Judge:
                 if p.net:
                     hw.append(f"{p!r} carries net {p.net}")
                 hw.extend(f"copper touches {p!r}: {h}" for h in self.m.touching(p))
-        r.clause(f"the {len(cbp.MECHANICAL)} mounting holes carry no net and no copper",
+        r.clause(f"the {len(cbp.MECHANICAL)} holes of MECHANICAL (H1, H2 the IO Board's "
+                 f"standoffs; H3-H10 the board's mounting holes) carry no net and no copper",
                  self.verdict(hw), *hw)
         r.clause("no mounting-hardware path", NOT_CHECKED,
                  "the screws and standoffs are not on the board; whether one joins two "

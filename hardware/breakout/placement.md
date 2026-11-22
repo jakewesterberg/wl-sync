@@ -32,7 +32,7 @@ nothing mirrored. Every coordinate below is given as (x, y) in the board file's 
 | Thickness | 1.6 mm | S-3 |
 | Stack-up block | **not written** | The three dielectric thicknesses are not in the sources (S-3; constraints Open question 8). pcbnew derives a default from the layer count and the thickness, and that default is not design data. |
 | Components | all on F.Cu | S-4 |
-| Board mounting holes | **none placed** | Not in the sources (M-16; floorplan §1; constraints Open question 8). |
+| Board mounting holes | **eight placed**, `H3` to `H10` | Not in the sources; placed by task R0 on the user's decision of 2026-11-22: unplated 3.2 mm, no net, each in a 3.6 mm keep-out (M-16; §7, "The board's mounting holes"; constraints Open question 8). |
 
 ## 2. Panel connectors
 

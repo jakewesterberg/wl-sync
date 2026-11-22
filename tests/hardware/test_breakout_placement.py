@@ -137,8 +137,9 @@ def _dist_to_box(x, y, b) -> float:
 
 
 def test_mounting_holes(board_text):
-    fps = {f.ref: f for f in chk.read_board(board_text)["footprints"]}
-    zones = {z["name"]: z for z in chk.read_board(board_text)["zones"]}
+    board = chk.read_board(board_text)
+    fps = {f.ref: f for f in board["footprints"]}
+    zones = {z["name"]: z for z in board["zones"]}
     crtyd = _courtyard_boxes(board_text)
     disc = {ref: (x - HOLE_KEEPOUT_R, y - HOLE_KEEPOUT_R, x + HOLE_KEEPOUT_R, y + HOLE_KEEPOUT_R)
             for ref, (x, y) in MOUNTING_HOLES.items()}
@@ -182,6 +183,29 @@ def test_a_hole_without_its_keepout_fails(board_text, contract):
     renamed = board_text[:start] + '(name "not_a_hole")' + board_text[start + len('(name "mh_H5")'):]
     fails, _ = chk.run_checks(renamed, contract)
     assert any(f.startswith("6:") and "mh_H5" in f for f in fails), fails[:5]
+
+
+def test_a_courtyard_inside_a_hole_keepout_fails(board_text, contract):
+    # R101 beside H4 (212.5, 16.5): its courtyard box brought to 2 mm of the centre
+    f = next(fp for fp in chk.read_board(board_text)["footprints"] if fp.ref == "R101")
+    fails, _ = chk.run_checks(_move(board_text, "R101", f.x - 2.0, f.y), contract)
+    assert any(x.startswith("6: R101's courtyard is ") and "from mounting hole H4's centre, "
+               "inside its 3.6 mm keep-out" in x for x in fails), fails[:5]
+
+
+def test_an_enlarged_hole_keepout_fails(board_text, contract):
+    # mh_H7's outline scaled 6 % about H7 (287, 120): its edges reach past 3.6 + 0.05 mm
+    name = board_text.index('(name "mh_H7")')
+    start = board_text.rindex("(zone", 0, name)
+    block = chk._find_balanced(board_text, start)
+
+    def grow(m):
+        x, y = float(m.group(1)), float(m.group(2))
+        return f"(xy {287.0 + (x - 287.0) * 1.06:.6f} {120.0 + (y - 120.0) * 1.06:.6f})"
+    grown = re.sub(r"\(xy (-?[\d.]+) (-?[\d.]+)\)", grow, block)
+    fails, _ = chk.run_checks(board_text.replace(block, grown), contract)
+    assert any(x.startswith("6: rule area mh_H7 reaches ") and "beyond its 3.6 mm radius" in x
+               for x in fails), fails[:5]
 
 
 def test_a_hole_moved_fails(board_text, contract):

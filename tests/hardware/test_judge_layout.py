@@ -330,7 +330,7 @@ CASES = {
     "G-1/overlap": ("G-1", "no AGND/DGND pour overlap", G1,
                     "zone('AGND', 'In1.Cu', 300, 100, 310, 110);"
                     "zone('DGND', 'In2.Cu', 305, 105, 315, 115)", "pour overlap"),
-    "G-1/H1": ("G-1", "the 10 mounting holes carry no net", H1, "track('DGND', 'F.Cu', [(28, 77), (33, 77)])",
+    "G-1/H1": ("G-1", "the 10 holes of MECHANICAL", H1, "track('DGND', 'F.Cu', [(28, 77), (33, 77)])",
                "copper touches H1"),
     "G-3/tie": ("G-3", "only its tie joins", FANF, FANF + ";set_pad_net('C161', '1', 'FAN_RTN')",
                 "FAN_RTN: parts joining it to DGND"),

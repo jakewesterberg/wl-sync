@@ -25,9 +25,11 @@ loads both with the board.
 `constraints.md` §2 to §6. `floorplan.md` §7 is a plan view of the regions.
 
 **What the board file already has:** the 430 × 240 mm outline, four copper layers, the two
-isolation slots on Edge.Cuts, 569 footprints (567 from the netlist, and the IO Board's
-two standoff holes `H1` and `H2`), every pad on its net, nine named keep-out rule areas,
-and the IO Board's outline on User.Comments. **It has no track, no via and no pour.**
+isolation slots on Edge.Cuts, 577 footprints (567 from the netlist, the IO Board's
+two standoff holes `H1` and `H2`, and the board's eight mounting holes `H3` to `H10`, added
+by task R0 on the user's decision of 2026-11-22), every pad on its net, 17 named keep-out
+rule areas (the nine barrier and split areas, and `mh_H3` to `mh_H10` round the mounting
+holes, task R0), and the IO Board's outline on User.Comments. **It has no track, no via and no pour.**
 
 **How it was made**, in case it must be remade before routing starts:
 
@@ -155,7 +157,8 @@ Derived from `constraints.md` and the plan's Task 14. The reasoning is that a po
 keep-out drawn late moves tracks, and that the nets with the least freedom should choose
 their paths first. **[engineering judgment]** for the order itself; no source gives one.
 
-1. **Confirm the fences.** Run both checks. Look at the nine rule areas and the two
+1. **Confirm the fences.** Run both checks. Look at the 17 rule areas (the nine of
+   `placement.md` §3.4, and the eight mounting-hole keep-outs of task R0) and the two
    slots in pcbnew so that you know where copper cannot go (`placement.md` §3.4).
 2. **Draw the planes: L2, then L3** (§5 below; S-6, S-7, G-9). Everything else is routed
    against them, and K-2, K-3, K-18 and N-9 are all statements about which plane lies
@@ -310,10 +313,11 @@ relying on the line.
 - **K-3, if taken:** over the barcode strip L3 must be `+5V` or `+3V3`.
 - No outer-layer ground flood is asked for anywhere. If you add one, G-1, G-3, G-16 to
   G-20, X-6 and B-16 all bear on it.
-- The only holes for hardware on the board are `J56`, the earth stud, and `H1` and `H2`,
-  the IO Board's two standoff holes, which are non-plated and carry no net (M-16). No
-  board mounting hole is placed and none is in the sources (Open question 8). If holes
-  are added they are isolated from every plane.
+- The only holes for hardware on the board are `J56`, the earth stud; `H1` and `H2`,
+  the IO Board's two standoff holes; and `H3` to `H10`, the board's eight mounting holes,
+  placed by task R0 on the user's decision of 2026-11-22. All ten are non-plated and carry
+  no net (M-16), and each of `H3` to `H10` is isolated from every plane by its 3.6 mm
+  keep-out `mh_<ref>` (§6).
 
 ### 4.7 Supplies, thermal and the PowerPAD
 

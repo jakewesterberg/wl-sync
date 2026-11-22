@@ -304,6 +304,7 @@ MOUNTING_HOLE_DRILL_MM = 3.2   # M3 clearance, unplated and with no net (M-16)
 # keep-out (no track, via or pour on any copper layer) is a polygon whose every edge is at
 # least this far from the hole's centre.
 MOUNTING_KEEPOUT_R_MM = 3.6
+KEEPOUT_R_TOL_MM = 0.05   # how far beyond the radius an edge of the polygon may lie
 IO_BOARD_OUTLINE = (0.0, 0.0, 160.0, 90.0)   # the CM5 IO Board, User.Comments (floorplan §6.3)
 POS_TOL_MM = 0.01
 
@@ -931,11 +932,14 @@ def run_checks(pcb_text: str, contract: dict,
             if any(k.get(w) != "not_allowed" for w in ("tracks", "vias", "copperpour")):
                 fails.append(f"6: rule area {name} lets a track, a via or a pour in")
             pts = z["pts"]
-            near = min((seg_dist(hx, hy, a, b) for a, b in zip(pts, pts[1:] + pts[:1])),
-                       default=0.0)
+            dists = [seg_dist(hx, hy, a, b) for a, b in zip(pts, pts[1:] + pts[:1])]
+            near, far = min(dists, default=0.0), max(dists, default=0.0)
             if not point_in_poly(hx, hy, pts) or near < R - 1e-3:
                 fails.append(f"6: rule area {name} does not cover the {R} mm disc about "
                              f"{ref} (its outline comes to {near:.3f} mm)")
+            if far > R + KEEPOUT_R_TOL_MM:
+                fails.append(f"6: rule area {name} reaches {far:.3f} mm from {ref}'s centre, "
+                             f"beyond its {R} mm radius (+{KEEPOUT_R_TOL_MM})")
         for f in fps:
             if f.ref == ref or f.crtyd is None:
                 continue
