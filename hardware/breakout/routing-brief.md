@@ -433,3 +433,40 @@ run over `AGND` to `J1` (§7 there; M-13); the MDR68 openings and jacksockets (�
   stack-up and a fab house first (Open question 8);
 - the renders of Step 4;
 - the BNC holes at 5.56 mm (R10) and the labels by hole (R11, `panel-elevations.md` §4).
+
+### The automatic judge
+
+`hardware/gen/judge_layout.py` (task J1, 2026-11-21) grades a routed board, or a region-only
+copy of it, against this board's rules, so that two candidate layouts can be ranked without
+a person. **It does not sign a board off**: the checks of this section still end with a
+person, once, before fab. Run it with KiCad's own Python, from the repository root:
+
+```bash
+/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \
+    hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
+    [--baseline UNROUTED.kicad_pcb] [--nets NETS.txt --region x0,y0,x1,y1] \
+    [--json OUT.json] [--kicad-happy]
+```
+
+- **Layer 1, gates:** DRC with `--severity-all`, on a copy staged as `breakout.kicad_pcb`
+  beside this directory's project, rules and library tables (a board under any other name
+  is checked without them), with a control track that only `N-1 INLET track width` can
+  flag, to prove the rules loaded; the classes against the accepted 24
+  `silk_edge_clearance`; the connectivity count of §1 after filling every zone; the
+  placement check; and, with `--nets`/`--region`, every track, via and pour inside the
+  region and on a listed net.
+- **Layer 2:** item 5's checks and the prohibitions of §5 that DRC cannot see, each by rule
+  ID with coordinates. Where a rule's words leave a number open the judge states one and
+  marks it `[judge's reading]`; the readings are printed in the JSON. `N/A` means the
+  rule's nets are absent or not yet routed, never a pass.
+- **Layer 3:** comparison numbers (vias, signal copper on L2 and L3, pour islands and
+  necks, bypass path lengths, routed length against a minimum spanning tree, layer changes),
+  against `--baseline` if given.
+- **Layer 4, `--kicad-happy`:** kicad-happy's findings new in the board, advisory only.
+  Its return-path figures are re-measured on the adjacent plane: with no stack-up in the
+  board file it samples the opposite outer layer instead.
+
+Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`. On the
+committed, unrouted board it exits 1 on DRC (`unconnected_items`) and connectivity (1791)
+alone. Its tests are `tests/hardware/test_judge_layout.py`, one negative control per
+layer-2 check, skipped where KiCad is not installed.
