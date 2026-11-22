@@ -283,11 +283,11 @@ for _i in range(8):
 #    put a via in those pads.
 #    Each of those six goes 1.0 mm west (_J2_WEST). Then each of pins 11 to 14 can take a
 #    0.6 mm via on its own line anywhere from x = 65.80 to 66.05, all 24 at once: at 66.05
-#    the via is 0.2 mm from its pad (N-16's web), and below 65.74 the pin-10 or pin-15 bypass
-#    capacitor's pad, not the pull-up, sets the limit. The window is sized for N-16's 0.2 mm;
-#    the pull-up stops being the limit at a move of about 0.88 mm, and 1.0 leaves it 0.12 mm
-#    clear of that. K-34: still on the isolated side; the region, keep-out and courtyard
-#    gaps are the check's. No capacitor moves (K-35).
+#    the via is 0.2 mm from its pad (N-16's web), and below about 65.76 the pin-10 or
+#    pin-15 bypass capacitor's pad, not the pull-up, sets the limit. The window is sized
+#    for N-16's 0.2 mm; the pull-up stops being the limit at a move of about 0.86 mm, and
+#    1.0 leaves it 0.14 mm clear of that. K-34: still on the isolated side; the region,
+#    keep-out and courtyard gaps are the check's. No capacitor moves (K-35).
 #    _J2_WEST IS NOT A FREE PARAMETER. At 1.0, R163's reference text no longer fits to the
 #    left of its part between it and R169, and every other free spot is a pass-3 part's
 #    (C132's text is directly below R163); so R169, the one part in the way, goes 0.5 mm
@@ -885,6 +885,7 @@ DEFAULT_CLEARANCE_MM = 0.2    # N-11
 MIN_TRACK_GAP_MM = 0.15       # S-5
 VIA_DRILL_MM, VIA_PAD_MM = 0.3, 0.6   # N-14
 VIA_SMD_WEB_MM = 0.2          # N-16: via copper to any SMD pad
+N16_EXEMPT_PARTS, N16_EXEMPT_PAD = ("U3", "U4"), "9"   # N-16's exemption: P-6's PowerPADs
 
 
 # S-5's "where a package forces it": the parts whose stock footprints have pads 0.15 mm
@@ -1041,9 +1042,14 @@ def rules_text(panel_nets: list[str]) -> str:
         "",
         "# N-16 (task J2, 2026-11-21): no via in an SMD pad, and 0.2 mm of laminate for a",
         "# solder-mask web between a via's copper and any SMD pad, the pad's own net included.",
-        "# physical_clearance is measured whatever the two items' nets are.",
+        "# physical_clearance is measured whatever the two items' nets are. Exempt: the",
+        "# PowerPADs that P-6 asks vias under (pad 9 of U3 and U4), and paste-only aperture",
+        "# pads, which have no copper.",
         '(rule "N-16 via clear of SMD pads"',
-        "  (condition \"A.Type == 'Via' && B.Type == 'Pad' && B.Pad_Type == 'SMD'\")",
+        "  (condition \"A.Type == 'Via' && B.Type == 'Pad' && B.Pad_Type == 'SMD' "
+        "&& (B.existsOnLayer('F.Cu') || B.existsOnLayer('B.Cu')) "
+        "&& !(B.Pad_Number == '" + N16_EXEMPT_PAD + "' && ("
+        + " || ".join(f"B.memberOfFootprint('{u}')" for u in N16_EXEMPT_PARTS) + "))\")",
         f"  (constraint physical_clearance (min {VIA_SMD_WEB_MM}mm)))",
         "",
         "# S-5: 0.15 mm, used only where a package forces it. Three packages do: U55's",

@@ -131,7 +131,7 @@ Every class has 0.2 mm clearance and a 0.6 mm via on a 0.3 mm drill (N-11, N-14)
 | N-12 | 0.6 mm on outer layers between the raw or filtered +15 V nets and the −15 V ones |
 | N-13 | 0.6 mm on outer layers from each of the 129 nets that reach a panel connector to any other net. One exemption: between `U11`'s own pads. |
 | S-5 | 0.15 mm track and gap allowed only inside the courtyards, and between the own pads, of `U55`, `U3` and `U4` |
-| N-16 | no via in an SMD pad, and 0.2 mm from a via's copper to every SMD pad, its own net's included (a `physical_clearance`, so it holds within a net) |
+| N-16 | no via in an SMD pad, and 0.2 mm from a via's copper to every SMD pad, its own net's included (a `physical_clearance`, so it holds within a net). Exempt: pad 9 of `U3` and `U4`, where P-6 asks for vias |
 
 **Two widths DRC does not enforce, and one pin rule.** The class system holds one class
 per net, and the first two rules are about part of a net:
@@ -363,7 +363,8 @@ for it (Open question 9).
   unused ground pin of `J2` or `J36`, a BNC post-mount pad, or pin 7 of `U3` or `U4`.
 - Put a via on `A_PD1_CLAMP`, `A_PD2_CLAMP` or `U63_VIN` (K-11, P-8).
 - Put a via in an SMD pad, or within 0.2 mm of one, on any net including the pad's own
-  (N-16). DRC and the judge both flag it.
+  (N-16). DRC and the judge both flag it. The one exception is P-6's: the vias under pad 9
+  of `U3` and `U4`.
 - Go under 0.2 mm track or gap except at `U55`, `U3` and `U4` (S-5).
 - Move a panel connector, a straddler, a slot or `NT1`.
 - Change a net, a footprint's pads or the schematic. If a route cannot be made, stop and

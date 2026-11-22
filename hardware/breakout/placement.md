@@ -352,12 +352,13 @@ west to make room for `R163`'s reference text. Nothing else moves:
   - At x = 66.05 the via is 0.2 mm from its own pad's outer end. **The window is sized for
     that 0.2 mm web, and N-16 now enforces it**: DRC flags a via at 66.10 (0.15 mm) as
     "N-16 via clear of SMD pads".
-  - Below x = 65.74 the via comes within N-13's 0.6 mm of a bypass capacitor's pad: the
-    pin-10 capacitor for pin 11, the pin-15 one for pin 14. DRC flags a via at 65.70. Pins
-    12 and 13 have more room (from 65.50 and 65.56).
-  - Off the pin's line the window narrows. At x = 65.80, pins 11 and 14 allow only
-    ±0.012 mm; at 66.05, ±0.115 mm. Put each via on its pin's y (107.095 for `U56.11`, and
-    so on at 1.27 mm).
+  - Below about x = 65.76 (65.759, re-measured in fix round 2 on 1 µm pad outlines) the
+    via comes within N-13's 0.6 mm of a bypass capacitor's pad: the pin-10 capacitor for
+    pin 11, the pin-15 one for pin 14. DRC flags a via at 65.75. Pins 12 and 13 have more
+    room (from 65.50 and 65.57).
+  - Off the pin's line the window narrows for pins 11 and 14: ±0.009 mm at x = 65.80,
+    ±0.024 at 65.85, ±0.042 at 65.90, ±0.063 at 65.95, ±0.086 at 66.00, ±0.112 at 66.05.
+    Put each via on its pin's y (107.095 for `U56.11`, and so on at 1.27 mm).
   - Shown on the full board with DRC and the rules loaded. All 24 vias, each with an F.Cu
     stub from its pad and a 3 mm B.Cu tail west, plus pin 14's F.Cu link to its own
     pull-up, give nothing beyond the 24 `track_dangling` of the unfinished tails. That holds
@@ -365,8 +366,8 @@ west to make room for `R163`'s reference text. Nothing else moves:
     both ends.
 - **Why 1.0 mm.** At 0.6 mm (the least move for a 0.2 mm web, 0.566 mm) pin 11's window
   was 25 µm wide, a single 0.05 mm grid point (J2 review, I-1). The pull-up stops being
-  what limits the window at a move of about 0.88 mm, where the bypass capacitor takes over.
-  1.0 mm is the round figure 0.12 mm past that, so a later nudge of a pull-up does not
+  what limits the window at a move of about 0.86 mm, where the bypass capacitor takes over.
+  1.0 mm is the round figure 0.14 mm past that, so a later nudge of a pull-up does not
   narrow the window again. The courtyards allowed 1.35 mm more than the first cut.
   **[engineering judgment]**; the user asked for about 1.0 mm.
 - **`R163`'s text and `R169`.** At 1.0 mm, `R163`'s text (3.6 mm wide) no longer fits

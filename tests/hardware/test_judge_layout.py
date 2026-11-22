@@ -94,6 +94,57 @@ def via_in_pads(refs_pins):
     for ref, num in refs_pins:
         x, y = pad_xy(ref, num)
         via(pad(ref, num).GetNetname(), x, y)
+SMD_CU = None
+def _smd_cu():
+    global SMD_CU
+    if SMD_CU is None:
+        SMD_CU = []
+        for f in b.GetFootprints():
+            for p in f.Pads():
+                if p.GetAttribute() == pcbnew.PAD_ATTRIB_SMD and p.IsOnLayer(pcbnew.F_Cu):
+                    SMD_CU.append((p, p.GetEffectivePolygon(pcbnew.F_Cu, pcbnew.ERROR_OUTSIDE),
+                                   pcbnew.ToMM(p.GetPosition().x), pcbnew.ToMM(p.GetPosition().y)))
+    return SMD_CU
+def _gap(poly, x, y):
+    return pcbnew.ToMM(int(poly.SquaredDistance(V(x, y)) ** 0.5))
+def via_beside_pads(refs_pins, web=0.25):
+    """Join each pad to a via of its own net beside it, by an L-shaped 0.2 mm F.Cu stub
+    (along x, then along y). The via is `web` mm clear of every SMD pad (N-16 asks 0.2),
+    0.75 mm from the vias already added, and the stub touches no other net's pad. A
+    straddler's pad (U56 to U62) is left westward from its outer end, as B-13 asks."""
+    global SMD_CU
+    SMD_CU = None
+    placed = []
+    for ref, num in refs_pins:
+        pd_ = pad(ref, num); name = pd_.GetNetname()
+        px, py = pad_xy(ref, num)
+        bb = pd_.GetBoundingBox()
+        straddler = ref in ("U56", "U57", "U58", "U59", "U60", "U61", "U62")
+        sx = pcbnew.ToMM(bb.GetLeft()) + 0.1 if straddler else px
+        near = [(q, poly) for q, poly, qx, qy in _smd_cu() if abs(qx - px) < 4 and abs(qy - py) < 4]
+        cands = sorted(((abs(i * 0.05) + abs(j * 0.05), i, j) for i in range(-40, 41)
+                        for j in range(-40, 41)), key=lambda t: (t[0], t[1], t[2]))
+        for _d, i, j in cands:
+            vx, vy = round(sx + i * 0.05, 3), round(py + j * 0.05, 3)
+            if straddler and vx > sx - 0.25:
+                continue
+            if any(abs(vx - ax) < 0.75 and abs(vy - ay) < 0.75 and
+                   (vx - ax) ** 2 + (vy - ay) ** 2 < 0.75 ** 2 for ax, ay in placed):
+                continue
+            if any(_gap(poly, vx, vy) < 0.3 + web for q, poly in near):
+                continue
+            pts = [(sx, py), (vx, py), (vx, vy)]
+            samples = [(a[0] + (c[0] - a[0]) * t / 20, a[1] + (c[1] - a[1]) * t / 20)
+                       for a, c in zip(pts, pts[1:]) for t in range(21)]
+            if any(q.GetNetname() != name and _gap(poly, x, y) < 0.15
+                   for q, poly in near for x, y in samples):
+                continue
+            break
+        else:
+            raise AssertionError(f"no via site beside {ref}.{num}")
+        track(name, 'F.Cu', [p for k, p in enumerate(pts) if k == 0 or p != pts[k - 1]], 0.2)
+        via(name, vx, vy)
+        placed.append((vx, vy))
 '''
 
 DRIVER = PRELUDE + r'''
@@ -135,12 +186,12 @@ P5 = "track('U3_FB', 'F.Cu', [pad_xy('C13', '1'), pad_xy('U3', '2')], 0.2)"
 P8 = "track('U63_VIN', 'F.Cu', [pad_xy('L1', '2'), pad_xy('U63', '2')], 0.5)"
 K11 = "track('A_PD1_CLAMP', 'F.Cu', [(186, 211), (188, 211)])"
 NI_PLANES = ("zone('NI_GND', 'In1.Cu', 1, 101, 68, 239); zone('NI_5V', 'In2.Cu', 1, 101, 68, 239);"
-             "via_in_pads([(f'C{n}', p) for n in range(121, 135) for p in ('1', '2')]"
+             "via_beside_pads([(f'C{n}', p) for n in range(121, 135) for p in ('1', '2')]"
              " + [(f'U{u}', p) for u in range(56, 62) for p in ('9', '10', '15', '16')])")
 NI_GND_NOTCH = ("zonepoly('NI_GND', 'In1.Cu', [(1, 101), (68, 101), (68, 239), (38.6, 239),"
                 " (38.6, 231.3), (34.4, 231.3), (34.4, 239), (1, 239)]);"
                 "zone('NI_5V', 'In2.Cu', 1, 101, 68, 239);"
-                "via_in_pads([(f'C{n}', p) for n in range(121, 135) for p in ('1', '2')]"
+                "via_beside_pads([(f'C{n}', p) for n in range(121, 135) for p in ('1', '2')]"
                 " + [(f'U{u}', p) for u in range(56, 62) for p in ('9', '10', '15', '16')])")
 N4_STUBS = ("zone('NI_GND', 'In1.Cu', 1, 101, 68, 239);"
             "x, y = pad_xy('J45', '8'); track('NI_5V', 'F.Cu', [(x, y), (x, y - 2.0)], 0.6);"
@@ -231,6 +282,9 @@ def k23(shld_end=204, shld_via=False):
 # N-16: a via on R24 pad 2's own net (RWD_BTN), 0.25 mm above the pad. The controls put one
 # in the pad, and one 0.10 mm above it.
 N16_BASE = "via('RWD_BTN', 83.0, 182.725)"
+# For the U3/U4 cases: an INTAN_GND via in open island too, so that B-16 (which looks at
+# INTAN_GND copper) is not N/A on the base and PASS on the board with the U3 via.
+N16_INTAN = N16_BASE + ";via('INTAN_GND', 130.0, 205.0)"
 
 
 # Each case: (check, clause prefix, base, control, evidence the control must print,
@@ -377,12 +431,22 @@ CASES = {
                     "via('RWD_BTN', *pad_xy('R24', '2'))", "(RWD_BTN) on F.Cu: the via overlaps the pad"),
     "N-16/web": ("N-16", "every via 0.2 mm from every SMD pad", N16_BASE,
                  "via('RWD_BTN', 83.0, 182.875)", "(RWD_BTN) on F.Cu: under 0.2 mm apart"),
+    # N-16's exemption is pad 9 of U3/U4 only: a via in U3's pad 4, on the same net as
+    # pad 9 and beside it, still fails
+    "N-16/near-U3": ("N-16", "no via's hole or annulus overlaps", N16_INTAN,
+                     N16_INTAN + ";via('INTAN_GND', *pad_xy('U3', '4'))",
+                     "and U3.4 (141.85,"),
     "FIXED/J1": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('J1', 174.5, 80.0)", "J1 moved"),
     "FIXED/straddler": ("FIXED", "37 fixed parts", TRIVIAL, TRIVIAL + ";move('U60', 70.0, 169.5)",
                         "U60 moved"),
     "FIXED/rule-area": ("FIXED", "the 9 rule areas", TRIVIAL,
                         TRIVIAL + ";nudge_area('agnd_dgnd_gap', 0.3)", "rule area agnd_dgnd_gap differs"),
 }
+
+
+# N-16's exemption (fix round 2): vias under pad 9 of U3 and U4, as P-6 asks. A pair that
+# must AGREE, not a negative control: the via board is judged like the base.
+N16_POWERPAD = N16_INTAN + ";via('INTAN_GND', *pad_xy('U3', '9')); via('INTAN_GND', *pad_xy('U4', '9'))"
 
 
 def key(code: str) -> str:
@@ -410,7 +474,7 @@ def make_boards(d: Path, codes) -> dict[str, Path]:
 def judged(tmp_path_factory):
     """Every base and control board, made once and judged once (keyed by its code)."""
     d = tmp_path_factory.mktemp("controls")
-    codes = [c for case in CASES.values() for c in (case[2], case[3])]
+    codes = [c for case in CASES.values() for c in (case[2], case[3])] + [N16_POWERPAD]
     boards = make_boards(d, codes)
     out = {}
     for code, path in boards.items():
@@ -450,6 +514,27 @@ def test_negative_control(name, judged):
              if k != rid and bc[k]["status"] != cc[k]["status"]}
     assert not moved, (name, moved)
     assert rc == 1
+
+
+def test_n16_exempts_the_powerpads(judged):
+    """P-6 asks for vias under pad 9 of U3 and U4; N-16 exempts exactly those pads. With
+    a via in each, N-16 still passes, and no check differs from the base."""
+    _, bj, _ = judged[N16_INTAN]
+    _, pj, pout = judged[N16_POWERPAD]
+    bc, pc = checks(bj), checks(pj)
+    assert bc["N-16"]["status"] == pc["N-16"]["status"] == "PASS", (pc["N-16"], pout[-2000:])
+    assert "4 vias" in " | ".join(pc["N-16"]["clauses"][0]["evidence"])
+    moved = {k: (bc[k]["status"], pc[k]["status"]) for k in bc if bc[k]["status"] != pc[k]["status"]}
+    assert not moved, moved
+
+
+def test_ni_planes_bases_pass_n16(judged):
+    """J2 fix round 2 (m-3): the NI_PLANES boards join each pad to its plane by a via beside
+    it, not in it, so N-16 passes there and the "no other check moves" guard covers N-16 on
+    every K-35 and N-4 control too."""
+    for code in (NI_PLANES, NI_GND_NOTCH):
+        n16 = checks(judged[code][1])["N-16"]
+        assert n16["status"] == "PASS", n16
 
 
 def test_every_layer2_check_has_a_control():

@@ -63,9 +63,11 @@
 
 # N-16 (task J2, 2026-11-21): no via in an SMD pad, and 0.2 mm of laminate for a
 # solder-mask web between a via's copper and any SMD pad, the pad's own net included.
-# physical_clearance is measured whatever the two items' nets are.
+# physical_clearance is measured whatever the two items' nets are. Exempt: the
+# PowerPADs that P-6 asks vias under (pad 9 of U3 and U4), and paste-only aperture
+# pads, which have no copper.
 (rule "N-16 via clear of SMD pads"
-  (condition "A.Type == 'Via' && B.Type == 'Pad' && B.Pad_Type == 'SMD'")
+  (condition "A.Type == 'Via' && B.Type == 'Pad' && B.Pad_Type == 'SMD' && (B.existsOnLayer('F.Cu') || B.existsOnLayer('B.Cu')) && !(B.Pad_Number == '9' && (B.memberOfFootprint('U3') || B.memberOfFootprint('U4')))")
   (constraint physical_clearance (min 0.2mm)))
 
 # S-5: 0.15 mm, used only where a package forces it. Three packages do: U55's
