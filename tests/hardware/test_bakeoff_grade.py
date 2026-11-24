@@ -1,0 +1,87 @@
+"""hardware/breakout/bakeoff/grade_all.py, the bake-off's blind grading (task R1c).
+
+The judge itself needs KiCad and is replaced here by a stub that writes a judge-shaped JSON;
+what is tested is the blinding, the refusals and the tables."""
+from __future__ import annotations
+
+import json
+import random
+
+import pytest
+
+from hardware.breakout.bakeoff import grade_all as ga
+
+TOOLS = ["deeppcb", "engine", "quilter"]
+
+
+def judge_json(vias):
+    return {
+        "gates": [{"id": "DRC", "status": "PASS", "evidence": ["every class: silk_edge_clearance 24"]},
+                  {"id": "CONNECTIVITY", "status": "PASS", "evidence": ["GetUnconnectedCount(False) = 0"]}],
+        "checks": [{"id": "N-16", "status": "PASS", "evidence": [], "clauses": [
+            {"clause": "no via's hole or annulus overlaps an SMD pad", "status": "PASS", "evidence": ["x"]},
+            {"clause": "every via 0.2 mm from every SMD pad, its own net's included",
+             "status": "FAIL", "evidence": ["v1", "v2"]}]}],
+        "metrics": {"vias": vias, "connections": 144, "routed_connections": 144,
+                    "inner_layer_signal": {"In1.Cu": {"signal_length_mm": 0.0},
+                                           "In2.Cu": {"signal_length_mm": 60.5}},
+                    "pours": [{"net": "NI_GND", "layer": "In1.Cu", "islands": 1, "neck_mm": 3}],
+                    "length": {"ratio": 1.2, "signal_track_mm": 10, "mst_lower_bound_mm": 8},
+                    "layer_changes": {"mean_vias_per_routed_net": 2, "max": 5}},
+        "not_passing": []}
+
+
+@pytest.fixture
+def results(tmp_path):
+    r = tmp_path / "results"
+    for i, t in enumerate(TOOLS):
+        (r / t).mkdir(parents=True)
+        (r / t / "board.kicad_pcb").write_text(f"(kicad_pcb {t})")
+        (r / t / "meta.json").write_text(json.dumps({"wall_clock_s": 100 + i, "cost": i,
+                                                    "cost_unit": "credits", "notes": t}))
+    return r
+
+
+def test_deal_labels_every_tool_once_in_a_random_order():
+    seen = set()
+    for seed in range(40):
+        key = ga.deal(TOOLS, random.Random(seed))
+        assert sorted(key) == ["A", "B", "C"] and sorted(key.values()) == TOOLS
+        seen.add(tuple(key.values()))
+    assert len(seen) > 1
+
+
+def test_candidates_wants_exactly_one_board_per_tool(results):
+    assert sorted(ga.candidates(results)) == TOOLS
+    (results / "engine" / "second.kicad_pcb").write_text("")
+    with pytest.raises(SystemExit, match="expected one .kicad_pcb, found 2"):
+        ga.candidates(results)
+
+
+def test_main_blinds_the_summary_and_keeps_the_key_apart(results, tmp_path, monkeypatch):
+    calls = []
+
+    def fake_judge(board, outdir, kicad_py):
+        calls.append(board)
+        assert board.name == "breakout.kicad_pcb" and board.parent == outdir
+        j = judge_json(vias=len(calls))
+        j["_exit"] = 0
+        return j
+
+    monkeypatch.setattr(ga, "judge", fake_judge)
+    out = tmp_path / "grading"
+    assert ga.main(["--results", str(results), "--out", str(out)]) == 0
+    key = json.loads((out / "blind-key.json").read_text())
+    assert sorted(key.values()) == TOOLS and len(calls) == 3
+    for label, tool in key.items():
+        assert (out / label / "breakout.kicad_pcb").read_text() == f"(kicad_pcb {tool})"
+    s = (out / "summary.md").read_text()
+    assert not any(t in s for t in TOOLS)
+    assert "| vias within 0.2 mm of an SMD pad (N-16) | 2 | 2 | 2 |" in s
+    assert "| vias in SMD pads (N-16 clause 1) | 0 | 0 | 0 |" in s
+    assert "| NI_GND on In1.Cu: islands / neck mm | 1 / 3 |" in s
+    c = (out / "costs.md").read_text()
+    for label, tool in key.items():
+        assert f"| {label} | {100 + TOOLS.index(tool)} | {TOOLS.index(tool)} credits |" in c
+    with pytest.raises(SystemExit, match="already holds a grading"):
+        ga.main(["--results", str(results), "--out", str(out)])
