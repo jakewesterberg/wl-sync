@@ -1,0 +1,13 @@
+{
+  "wall_clock_s": 2272,
+  "wall_clock_scope": "Quilter's own: launched 2026-11-24 18:36 CET, first (only) result in 0h 37m 52s, finished 19:15 CET; cloud compute; excludes the controller's setup in the web UI",
+  "cost": 0,
+  "cost_unit": "USD",
+  "cost_note": "Quilter free plan (noncommercial); free-tier inputs may be used for training",
+  "attempts": "2nd job (the one retry the user allowed); 1 candidate returned",
+  "setup": "package ni-island-region/ (ni-island/ + placement rule area ni_island_placement); same UI settings as run 1 plus: all 50 island parts assigned to the region; NI_5V computed widths edited to 0.6 mm on Top/Power/Bottom. NI_GND region pour BLOCKED by Quilter ('One ground net is the primary: make another one primary to replace it'), left primary. Log: .superpowers/sdd/2026-11-22-breakout-routing/bakeoff-log/quilter-run2.md (main checkout)",
+  "hand_plan": "none (Quilter's own placement-preserving layout)",
+  "quilter_reported": "100% Routed; Design Rule Checks: All checks pass; Bypass Capacitors 5 / 12; Placement Regions 1; candidate summary 6 \u00b7 13 \u00b7 0",
+  "judge_reference": "ni-island-region/breakout.kicad_pcb",
+  "source_file": "Quilter_ni-island-bakeoff_run2_Candidate_1.zip"
+}

@@ -1,0 +1,12 @@
+{
+  "wall_clock_s": 2886,
+  "wall_clock_scope": "Quilter's own: launched 2026-11-24 17:21 CET, first (and only) result in 0h 48m 6s, finished 18:10 CET; cloud compute; excludes the controller's setup in the web UI",
+  "cost": 0,
+  "cost_unit": "USD",
+  "cost_note": "Quilter free plan (noncommercial); free-tier inputs may be used for training",
+  "attempts": "1 job (run 1 of the one retry the user allowed); 1 candidate returned",
+  "setup": "the package (board, project, full breakout schematic), plus settings entered in Quilter's web UI by the controller: JLCPCB 4-layer with power plane stackup; fab minimums 0.2/0.2/0.6/0.3/0.5 mm; NI_5V 500 mA power pour from J45.8; NI_GND primary ground, no region pour (no placement region in the package); NI_5V/NI_GND 0.6 mm on all layers. Quilter did not parse the .kicad_dru ('only supported in Altium and Xpedition binary'), so N-13, N-16, N-12 and the net classes were not given to it. Full log: .superpowers/sdd/2026-11-22-breakout-routing/bakeoff-log/quilter-run1.md (main checkout)",
+  "hand_plan": "none (Quilter's own placement-preserving layout)",
+  "quilter_reported": "100% Routed; Design Rule Checks: All checks pass; Bypass Capacitors review 5 warnings / 12 (U56 1+3, U57 1+1, U58 2, U59 3, U60 2, U61 1+1, FB3 1, U62 1); candidate summary 6 · 12 · 0",
+  "source_file": "Quilter_ni-island-bakeoff_run1_Candidate_1.zip (breakout.kicad_pcb 5005173 bytes, breakout.kicad_pro 3725 bytes; the .kicad_pro not used: grading stages the board with the package's own project and rules)"
+}
