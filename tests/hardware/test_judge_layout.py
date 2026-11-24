@@ -746,3 +746,198 @@ def test_region_mode(tmp_path):
     assert st["K-2"] == "PASS"          # BARCODE_NI is listed and routed, outside AGND
     assert st["K-4"] == "FAIL"          # but a piece of it lies outside the NI island
     assert code == 1
+
+
+# ---- partial mode (task R2): --routed-nets FILE, PENDING, and the accepted readings -------
+# A board routed through stage N is judged on the nets routed so far (routes/routed.nets,
+# one net per line). A PROHIBITION is judged on the copper present, listed or not; a
+# REQUIREMENT is PENDING until every net it needs is listed.
+G10_FOREIGN = CASES["G-10/foreign"][3]      # G10 plus RWD_BTN across x = 170
+
+
+def gates_of(js) -> dict:
+    return {g["id"]: g for g in js["gates"]}
+
+
+@pytest.fixture(scope="module")
+def partial(tmp_path_factory):
+    """Scratch boards for partial mode, and a runner that writes the nets file."""
+    d = tmp_path_factory.mktemp("partial")
+    boards = make_boards(d, [P8, NI_PLANES, G10, G10_FOREIGN])
+
+    def run(board: Path, *names: str, extra=()):
+        tag = key(str(board) + "|" + " ".join(names) + "|" + " ".join(extra))
+        nets = d / f"nets-{tag}.txt"
+        nets.write_text("".join(n + "\n" for n in names))
+        return run_judge(board, "--routed-nets", str(nets), *extra,
+                         json_out=d / f"out-{tag}.json")
+    return boards, run
+
+
+NO_DRC = ("--skip-drc", "--reference", str(BOARD))
+
+
+def test_partial_connectivity_counts_listed_nets(partial):
+    boards, run = partial
+    # base: U63_VIN routed (L1.2 to U63.2) and listed; the gate counts the listed nets only
+    _, out, stdout = run(boards[P8], "U63_VIN", extra=NO_DRC)
+    g = gates_of(out)["CONNECTIVITY"]
+    ev = " | ".join(g["evidence"])
+    assert g["status"] == "PASS", g
+    assert "listed nets: 0 unconnected over 1 net" in ev, ev
+    # the whole-board count is still printed
+    assert "GetUnconnectedCount(False) = 1790" in ev and "GetUnconnectedCount(False) = 1790" in stdout
+    # control: the same net listed on the unrouted board FAILs, and names the net
+    _, out, _ = run(BOARD, "U63_VIN", extra=NO_DRC)
+    g = gates_of(out)["CONNECTIVITY"]
+    ev = " | ".join(g["evidence"])
+    assert g["status"] == "FAIL", g
+    assert "listed nets: 1 unconnected over 1 net" in ev and "U63_VIN 1" in ev, ev
+    assert "GetUnconnectedCount(False) = 1791" in ev
+
+
+def test_partial_drc_accepts_only_unlisted_unconnected(partial):
+    _, run = partial
+    # base: nothing listed. Every unconnected_items entry is on an unlisted net and is set
+    # aside; the other classes keep the accepted set (24 silk_edge_clearance)
+    code, out, stdout = run(BOARD, extra=("--reference", str(BOARD),
+                                          "--allow-not-checked", "G-1,FIXED"))
+    g = gates_of(out)["DRC"]
+    assert g["status"] == "PASS", g
+    assert g["evidence"][0] == "every class: silk_edge_clearance 24", g["evidence"]
+    assert g["data"]["unconnected_set_aside"] == 499, g["data"]
+    assert g["data"]["unconnected_on_listed"] == 0
+    # a partial run passes with requirements PENDING: exit 0
+    assert out["not_passing"] == [] and code == 0, (out["not_passing"], stdout[-2000:])
+    assert checks(out)["N-4"]["status"] == "PENDING"
+    # control: list a net DRC reported unconnected; its entries now count, and are named
+    net = g["data"]["set_aside_nets"][0]
+    code, out, _ = run(BOARD, net, extra=("--reference", str(BOARD),
+                                          "--allow-not-checked", "G-1,FIXED"))
+    g = gates_of(out)["DRC"]
+    ev = " | ".join(g["evidence"])
+    assert g["status"] == "FAIL", g
+    assert f"[{net}]" in ev and "on a listed net" in ev, ev
+    assert g["data"]["unconnected_on_listed"] >= 1
+    assert g["data"]["unconnected_on_listed"] + g["data"]["unconnected_set_aside"] == 499
+    assert "DRC" in out["not_passing"] and code == 1
+
+
+def test_partial_requirement_pending(partial):
+    boards, run = partial
+    # base: the NI planes board, where N-4 PASSes; with both its nets listed it still does
+    _, out, _ = run(boards[NI_PLANES], "NI_5V", "NI_GND", extra=NO_DRC)
+    assert checks(out)["N-4"]["status"] == "PASS", checks(out)["N-4"]
+    # control: N-4's nets unlisted. N-4 is PENDING, not PASS, and says what it waits on
+    _, out, stdout = run(boards[NI_PLANES], "U63_VIN", extra=NO_DRC)
+    n4 = checks(out)["N-4"]
+    assert n4["status"] == "PENDING", n4
+    assert n4["class"] == "requirement"
+    for c in n4["clauses"]:
+        assert c["status"] == "PENDING" and c["so_far"] == "PASS", c
+        assert c["class"] == "requirement" and c["pending_on"], c
+    assert "[PENDING] all twelve NI_GND pins used" in stdout
+    assert "so far PASS" in stdout
+    # per clause: with NI_5V listed and NI_GND not, only the NI_GND clause waits
+    _, out, _ = run(boards[NI_PLANES], "NI_5V", extra=NO_DRC)
+    n4 = checks(out)["N-4"]
+    st = {c["clause"]: c["status"] for c in n4["clauses"]}
+    assert st == {"all twelve NI_GND pins used": "PENDING", "both NI_5V pins (8, 14) used": "PASS",
+                  "symmetric copper": "PASS"}, st
+    assert n4["status"] == "PENDING"
+    # and on the unrouted board, where N-4 has no copper at all: PENDING, not N/A
+    _, out, _ = run(BOARD, extra=NO_DRC)
+    assert checks(out)["N-4"]["status"] == "PENDING", checks(out)["N-4"]
+
+
+def test_partial_prohibition_still_fails(partial):
+    boards, run = partial
+    nets = ("MUX1_A0", "MUX1_A1", "RWD_BTN")
+    # base: two G-11 nets cross x = 170 and are listed: the prohibitions PASS, the corridor
+    # (a requirement on all of G-11's nets) waits
+    _, out, _ = run(boards[G10], *nets, extra=NO_DRC)
+    g10 = checks(out)["G-10"]
+    assert clause(g10, "only G-11 nets cross")["status"] == "PASS", g10
+    assert clause(g10, "only G-11 nets cross")["class"] == "prohibition"
+    assert clause(g10, "one corridor")["status"] == "PENDING", g10
+    assert g10["status"] == "PENDING" and g10["class"] == "prohibition+requirement"
+    # control: a track across x = 170 on a listed non-G-11 net FAILs G-10
+    code, out, stdout = run(boards[G10_FOREIGN], *nets, extra=NO_DRC)
+    g10 = checks(out)["G-10"]
+    c = clause(g10, "only G-11 nets cross")
+    assert c["status"] == "FAIL" and "RWD_BTN on F.Cu" in " | ".join(c["evidence"]), c
+    assert g10["status"] == "FAIL" and "G-10" in out["not_passing"] and code == 1
+    # judged on the copper present: unlisted, the same copper still FAILs
+    _, out, _ = run(boards[G10_FOREIGN], extra=NO_DRC)
+    assert clause(checks(out)["G-10"], "only G-11 nets cross")["status"] == "FAIL"
+
+
+def test_pending_not_allowed_without_routed_nets(judged):
+    """Without --routed-nets nothing is PENDING: every board of the controls, judged whole."""
+    assert judged
+    for code, (rc, js, stdout) in judged.items():
+        assert "PENDING" not in stdout, code[:80]
+        for c in js["checks"]:
+            assert c["status"] != "PENDING", (code[:80], c["id"])
+            assert all(cl["status"] != "PENDING" for cl in c.get("clauses", [])), (code[:80], c)
+        assert js["routed_nets_file"] is None
+
+
+def _judge_module():
+    import importlib.util
+    import sys
+    sys.path.insert(0, str(JUDGE.parent))
+    spec = importlib.util.spec_from_file_location("judge_layout_under_test", JUDGE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_readings_accepted(judged):
+    """The user accepted all 27 READINGS on 2026-11-22 (judge-readings-2026-11-22.md). The
+    reading stays marked [judge's reading], so a reader can still tell it from a sourced
+    value, with the acceptance beside it."""
+    j = _judge_module()
+    assert len(j.READINGS) == 27
+    assert set(j.READINGS) <= set(j.ACCEPTED_READINGS), set(j.READINGS) - set(j.ACCEPTED_READINGS)
+    assert all(j.ACCEPTED_READINGS[k] == "2026-11-22" for k in j.READINGS)
+    _, js, stdout = judged[TRIVIAL]
+    assert "[judge's reading] [reading accepted 2026-11-22]" in stdout
+    with_reading = [c for c in js["checks"] if c.get("judges_reading")]
+    assert with_reading
+    assert all(c["reading_accepted"] == "2026-11-22" for c in with_reading)
+    assert js["readings_accepted"] == {k: "2026-11-22" for k in j.READINGS}
+    # G-1's and FIXED's readings grew after the ruling (task R0, mounting holes): said so
+    assert set(j.READINGS_EXTENDED_SINCE_RULING) == {"G-1", "FIXED"}
+    fixed = checks(js)["FIXED"]
+    assert "task R0" in fixed["reading_extended_since_ruling"]
+
+
+def test_every_clause_is_classified(judged):
+    """Each check, and each of its clauses, is a prohibition or a requirement (task R2), so
+    partial mode knows which to judge on the copper present and which to hold PENDING."""
+    j = _judge_module()
+    declared = set(re.findall(r'\bA\("([^"]+)"', JUDGE.read_text()))
+    assert set(j.CLASSES) == declared, set(j.CLASSES) ^ declared
+    seen = set()
+    for code, (rc, js, stdout) in judged.items():
+        for c in js["checks"]:
+            assert c["class"] in ("prohibition", "requirement", "prohibition+requirement"), c
+            for cl in c.get("clauses", []):
+                if cl["clause"] == "the check ran":
+                    continue
+                assert cl["class"] in ("prohibition", "requirement"), (c["id"], cl)
+                seen.add((c["id"], cl["class"]))
+    assert ("N-4", "requirement") in seen and ("G-10", "prohibition") in seen
+
+
+def test_routed_nets_bad_argument(tmp_path):
+    unknown = tmp_path / "unknown.nets"
+    unknown.write_text("U63_VIN\nNO_SUCH_NET\n")
+    for extra in (["--routed-nets", str(unknown)],
+                  ["--routed-nets", str(tmp_path / "missing.nets")],
+                  ["--routed-nets", str(unknown), "--nets", str(unknown)]):
+        p = subprocess.run([str(KICAD_PY), str(JUDGE), str(BOARD), "--skip-drc", *extra],
+                           capture_output=True, text=True, timeout=300)
+        assert p.returncode == 2, (extra, p.stdout[-800:], p.stderr[-800:])
+        assert "--routed-nets" in p.stdout, p.stdout[-800:]

@@ -491,7 +491,7 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
     hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
     [--baseline UNROUTED.kicad_pcb] [--reference REF.kicad_pcb] \
     [--nets NETS.txt --region x0,y0,x1,y1] [--json OUT.json] [--kicad-happy] \
-    [--allow-not-checked ID,ID,...]
+    [--allow-not-checked ID,ID,...] [--routed-nets routes/routed.nets]
 ```
 
 - **Layer 1, gates:** DRC with `--severity-all`, on a copy staged as `breakout.kicad_pcb`
@@ -504,7 +504,12 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
 - **Layer 2:** item 5's checks and the prohibitions of §5 that DRC cannot see, each by rule
   ID, split into the clauses its rule asks for, with coordinates. Where a rule's words leave
   a number open the judge states one and marks it `[judge's reading]`; the readings are in
-  the JSON. `N/A` means the rule's nets are absent or not yet routed, never a pass.
+  the JSON. The user accepted all 27 readings as written on 2026-11-22
+  (`judge-readings-2026-11-22.md`, in the one-clock workspace); the summary prints
+  `[reading accepted 2026-11-22]` beside the mark, which stays, so a reading can still be
+  told from a sourced value. G-1's and FIXED's readings were extended after that sheet
+  (task R0, mounting holes), and say so. `N/A` means the rule's nets are absent or not yet
+  routed, never a pass.
   `NOT CHECKED` means a clause the board cannot settle (G-1's mounting hardware, K-23's hand
   access), or a figure the judge has only as a bound that does not decide it (N-10 through a
   pour); it is printed with its reason. A list of the rules no check holds is printed too.
@@ -518,8 +523,35 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
   Its return-path figures are re-measured on the adjacent plane: with no stack-up in the
   board file it samples the opposite outer layer instead.
 
-Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A`. A rule check's
-`NOT CHECKED` counts against it unless that check's ID is named in `--allow-not-checked`; a
+**Partial mode, `--routed-nets FILE`** (task R2). A board routed through stage N is judged on
+the nets routed so far: `routes/routed.nets`, one net per line, which `route_breakout.py`
+writes. A listed net is taken as routed complete. Each layer-2 check, and each of its
+clauses, is printed with its class:
+
+- a **prohibition**, which any copper present can break (G-10's foreign crossings, K-2,
+  P-8's and K-11's no-via, N-16, B-16), is judged on the copper present, listed or not;
+- a **requirement**, which needs copper to exist (N-4's pins, B-18's pairs, K-35's joined
+  bypass, N-1/N-2's widths along a path, N-10's squares, every SHORT ratio, G-10's one
+  corridor), is `PENDING` until every net it needs is listed. A `PENDING` clause prints what
+  it found so far and the nets it waits on; a `PENDING` check does not count against the
+  exit code.
+
+The judge's `CLASSES` table holds the class of every clause and why. In partial mode
+CONNECTIVITY counts the listed nets' unrouted connections (the whole board's count is
+printed beside it), and DRC sets aside an `unconnected_items` entry only when every item in
+it is on an unlisted net; every other class keeps the accepted 24 `silk_edge_clearance`.
+DRC lists at most 499 `unconnected_items`, so the CONNECTIVITY count is the complete one.
+Without the flag nothing is ever `PENDING`. G-1's mounting-hardware clause is `NOT CHECKED`
+at every stage, so a stage's run that must exit 0 names G-1 in `--allow-not-checked`, as the
+final run does. A check that holds both classes is `PENDING` while any requirement of it
+waits, so "G-10 so far" is read from its prohibition clauses. On the committed, unrouted
+board an empty `--routed-nets` file exits 1 on G-1 alone (and FIXED, when the reference is
+the board itself): DRC and connectivity pass, and every requirement is `PENDING`.
+
+Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A` (or `PENDING`, in
+partial mode); 2 on a bad argument, such as a `--routed-nets` name that is not a net of the
+board, or `--routed-nets` with `--nets`/`--region`. A rule check's `NOT CHECKED` counts
+against it unless that check's ID is named in `--allow-not-checked`; a
 `FAIL` is never waived, and no gate (DRC, connectivity, placement, region) can be named.
 `--skip-drc` is for development only: a run that uses it never exits 0. The summary lists
 every waived ID with its reason. On the committed, unrouted board it exits 1 on DRC

@@ -4,11 +4,24 @@ Run it with the Python that ships inside KiCad 10.0.5 (it needs `pcbnew`):
 
     /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \\
         hardware/gen/judge_layout.py BOARD [--baseline UNROUTED_BOARD] [--nets NETS_FILE] \\
-        [--region x0,y0,x1,y1] [--json OUT.json] [--kicad-happy] [--skip-drc]
+        [--region x0,y0,x1,y1] [--routed-nets ROUTED_NETS] [--json OUT.json] \\
+        [--kicad-happy] [--skip-drc]
 
 It grades a routed board, or a region-only copy of it, against this board's own rules and
 prints comparable numbers, so two candidate layouts can be ranked without a person. It does
 not sign a board off: a person still does that once before fab (routing-brief.md §7).
+
+PARTIAL MODE (task R2, 2026-11-24). `--routed-nets FILE` (hardware/breakout/routes/
+routed.nets, one net per line, written by route_breakout.py) judges a board routed through
+stage N on the nets routed so far. Every net stays on the board; the file says which are
+routed. Each layer-2 clause is a PROHIBITION, which any copper present can break and which
+is judged on the copper present, listed or not; or a REQUIREMENT, which needs copper to
+exist and is PENDING until every net it needs is listed (CLASSES below; the class is
+printed beside each check and clause, and a PENDING clause prints what it found so far).
+A listed net is taken as routed complete: CONNECTIVITY counts the listed nets' unrouted
+connections (the whole board's count is printed beside it), and DRC sets aside an
+`unconnected_items` entry only when every item in it lies on an unlisted net. Every other
+DRC class keeps the accepted set. Without the flag nothing is ever PENDING.
 
 FOUR LAYERS.
 
@@ -28,8 +41,11 @@ FOUR LAYERS.
 2. This board's rules that no tool checks (routing-brief.md §7 item 5 and §5), each read
    from constraints.md. Each reports PASS, FAIL, N/A or NOT CHECKED, the rule ID and
    evidence a person can find in pcbnew. Where a rule leaves a number open, the judge states
-   a numeric reading and marks it [judge's reading] (READINGS below). N/A means the rule's
-   nets are absent from the board, or carry no copper yet; it never means PASS.
+   a numeric reading and marks it [judge's reading] (READINGS below); the user accepted
+   all 27 on 2026-11-22 (ACCEPTED_READINGS), and the mark stays, so a reading can still be
+   told from a sourced value. N/A means the rule's nets are absent from the board, or carry
+   no copper yet; it never means PASS. PENDING (partial mode only) means a requirement
+   whose nets are not all routed yet.
 
 3. Metrics (numbers, not pass/fail), per board and against --baseline.
 
@@ -37,7 +53,8 @@ FOUR LAYERS.
    reporting only what is new in the board. Advisory: it never changes the exit code. Its
    return-path figures are re-measured against the adjacent plane (see kicad_happy()).
 
-Exit code 0 only when every gate and every rule check is PASS or N/A.
+Exit code 0 only when every gate and every rule check is PASS or N/A (or PENDING, in
+partial mode), or a NOT CHECKED named in --allow-not-checked; 2 on a bad argument.
 
 Coordinates are the board file's (x right, y down, back edge y = 0, front edge y = 240),
 in mm.
@@ -74,6 +91,7 @@ KICAD_HAPPY = (Path.home() / ".claude/plugins/cache/kicad-happy/kicad-happy/2.1.
                "skills/kicad/scripts/analyze_pcb.py")
 
 PASS, FAIL, NA, NOT_CHECKED = "PASS", "FAIL", "N/A", "NOT CHECKED"
+PENDING = "PENDING"   # partial mode only: a requirement whose nets are not all routed yet
 
 # ---------------------------------------------------------------------------------------
 # What the sources fix. Every number here is either quoted from a named source or is in
@@ -183,6 +201,32 @@ READINGS = {
            "(F.Cu->In1.Cu, B.Cu->In2.Cu, and for a track on a plane layer the other plane), "
            "since the board has no stack-up block to say which is nearer",
 }
+# The user's ruling on READINGS (task R2): "all 27 accepted as written", 2026-11-22, on the
+# sheet .superpowers/sdd/2026-11-07-one-clock/judge-readings-2026-11-22.md, which quotes
+# each reading. Written out key by key, so that a reading added later is not accepted by
+# default. A reading stays marked [judge's reading] beside its acceptance: it is still the
+# judge's number, not a source's.
+READINGS_RULING = ("the user, 2026-11-22: all 27 accepted as written "
+                   "(.superpowers/sdd/2026-11-07-one-clock/judge-readings-2026-11-22.md)")
+ACCEPTED_READINGS = {
+    "G-10": "2026-11-22", "K-4": "2026-11-22", "G-20": "2026-11-22", "S-7": "2026-11-22",
+    "P-5": "2026-11-22", "K-35": "2026-11-22", "B-13-ALL": "2026-11-22",
+    "FIXED": "2026-11-22", "K-2": "2026-11-22", "G-1": "2026-11-22", "G-3": "2026-11-22",
+    "G-4": "2026-11-22", "G-5": "2026-11-22", "G-6": "2026-11-22", "G-16": "2026-11-22",
+    "SHORT": "2026-11-22", "N-4": "2026-11-22", "N-1": "2026-11-22", "N-10": "2026-11-22",
+    "B-13": "2026-11-22", "B-16": "2026-11-22", "B-18": "2026-11-22", "N-9": "2026-11-22",
+    "K-33": "2026-11-22", "K-23": "2026-11-22", "NECK": "2026-11-22", "REF": "2026-11-22",
+}
+# Two readings were extended on this branch after the sheet was written (it quotes them as
+# they stood on main): what the user accepted is the sheet's text; the extension has not
+# been put to the user. Printed beside the acceptance.
+READINGS_EXTENDED_SINCE_RULING = {
+    "G-1": "extended by task R0 (a0915f8, mounting holes) after the sheet: the sheet's "
+           "reading names H1 and H2 only; H3 to H10 were added",
+    "FIXED": "extended by task R0 (a0915f8, mounting holes) after the sheet: its \"rule "
+             "areas as in the reference\" sentence, with the mh_<hole> exception, is not on "
+             "the sheet",
+}
 SHORT_RATIO = 1.5
 # The plane layer next to each copper layer in S-1's order (L1 signal, L2 ground, L3
 # power, L4 signal); for the two plane layers, the other plane.
@@ -256,6 +300,11 @@ def poly_bbox(p):
 
 def bbox_hit(a, b, gap=0.0):
     return a[0] <= b[2] + gap and b[0] <= a[2] + gap and a[1] <= b[3] + gap and b[1] <= a[3] + gap
+
+
+def short_list(names, n=6) -> str:
+    names = list(names)
+    return ", ".join(names[:n]) + (f" ... (+{len(names) - n})" if len(names) > n else "")
 
 
 MAXERR = 5000  # 5 um polygon approximation
@@ -687,7 +736,9 @@ class NetGraph:
 # Results. A layer-2 check is a list of CLAUSES, one per thing its rule asks; each clause
 # is PASS, FAIL, N/A or NOT CHECKED with its own evidence. The check is FAIL if any clause
 # fails, else NOT CHECKED if any clause could not be checked, else PASS if any passed,
-# else N/A. A check whose nets are absent or unrouted is N/A as a whole.
+# else N/A. A check whose nets are absent or unrouted is N/A as a whole. In partial mode
+# PENDING ranks below NOT CHECKED and above PASS: a check with a clause still waiting is
+# PENDING unless another clause FAILs or cannot be checked.
 # ---------------------------------------------------------------------------------------
 class Result:
     def __init__(self, rid, title, layer):
@@ -695,8 +746,13 @@ class Result:
         self.status = NA
         self.evidence: list[str] = []
         self.reading = None
+        self.reading_key = None
+        self.cls = None     # layer 2: "prohibition", "requirement" or both (CLASSES)
+        self.data = None    # a gate's structured figures, for the JSON
         self.clauses: list[dict] = []
-        self.whole = None   # a status for the whole check (N/A, or a crash)
+        self.whole = None   # a status for the whole check (N/A, PENDING, or a crash)
+        self.so_far = None  # a whole-check PENDING: the status it had before
+        self.pending_on: list[str] = []
 
     def set(self, status, *evidence):
         """A gate's status, or a whole-check status (N/A: nets absent or unrouted)."""
@@ -714,17 +770,40 @@ class Result:
             return self
         st = [c["status"] for c in self.clauses]
         self.status = (FAIL if FAIL in st else NOT_CHECKED if NOT_CHECKED in st
-                       else PASS if PASS in st else NA)
+                       else PENDING if PENDING in st else PASS if PASS in st else NA)
         return self
 
     def as_dict(self):
         d = {"id": self.id, "title": self.title, "status": self.status,
              "evidence": self.evidence}
+        if self.cls:
+            d["class"] = self.cls
+        if self.so_far is not None:
+            d["so_far"] = self.so_far
+            d["pending_on"] = self.pending_on
         if self.clauses:
             d["clauses"] = self.clauses
+        if self.data is not None:
+            d["data"] = self.data
         if self.reading:
             d["judges_reading"] = self.reading
+            d["reading_accepted"] = ACCEPTED_READINGS.get(self.reading_key)
+            if self.reading_key in READINGS_EXTENDED_SINCE_RULING:
+                d["reading_extended_since_ruling"] = \
+                    READINGS_EXTENDED_SINCE_RULING[self.reading_key]
         return d
+
+    def reading_mark(self) -> str:
+        """The summary's provenance for a check that uses a reading: still the judge's,
+        and accepted by the user on the date ACCEPTED_READINGS gives."""
+        if not self.reading:
+            return ""
+        s = "  [judge's reading]"
+        if self.reading_key in ACCEPTED_READINGS:
+            s += f" [reading accepted {ACCEPTED_READINGS[self.reading_key]}]"
+        if self.reading_key in READINGS_EXTENDED_SINCE_RULING:
+            s += " [extended since the ruling, task R0]"
+        return s
 
 
 GATE_IDS = frozenset(["DRC-RULES", "DRC", "CONNECTIVITY", "PLACEMENT", "REGION"])
@@ -751,23 +830,307 @@ NOT_JUDGED = [
                  "G-24, X-9, X-10, V-4: not implemented"),
 ]
 
+# ---------------------------------------------------------------------------------------
+# Task R2: every layer-2 clause is a PROHIBITION or a REQUIREMENT. A prohibition is broken
+# by copper that is present (or by placement or netlist facts that hold now), so partial
+# mode judges it on the board as it stands, listed nets or not. A requirement needs copper
+# to exist (a path, a length, a pair, a ratio), so it is PENDING until every net it names
+# is in --routed-nets. Per check: (clause pattern, matched from the clause name's start;
+# class; for a requirement, the nets it needs, as a function of the Judge; why).
+# ---------------------------------------------------------------------------------------
+PRO, REQ = "prohibition", "requirement"
+
+
+def _nets(*names):
+    return lambda j: frozenset(names)
+
+
+SHORT_WHY = ("SHORT: routed length against the MST of the net's pads, which needs the "
+             "whole net routed")
+NO_POUR = [
+    (r"no pour on the net", PRO, None, "any pour of the net breaks it"),
+    (r"no other pour touches its copper", PRO, None,
+     "any other net's pour touching its pads or tracks breaks it"),
+]
+CLASSES = {
+    "G-10": [
+        (r"only G-11 nets cross", PRO, None, "any other net's copper across x = 170 breaks it"),
+        (r"each G-11 net crosses once", PRO, None,
+         "a second crossing breaks it; later copper only adds crossings"),
+        (r"every crossing at y", PRO, None, "a crossing outside y 50 to 165 breaks it"),
+        (r"one corridor", REQ, lambda j: G11_NETS,
+         "a gap between crossings can close when another G-11 net crosses: judged once every "
+         "G-11 net is routed"),
+    ],
+    "K-2": [(r"no barcode copper in AGND", PRO, None,
+             "any barcode-family copper inside AGND breaks it")],
+    "K-4": [
+        (r"inside its own island", PRO, None, "any piece outside its island breaks it"),
+        (r"the shortest path \(SHORT\)", REQ,
+         _nets("BARCODE_NI", "BARCODE_INTAN", "BARCODE_INTAN_BNC"), SHORT_WHY),
+        (r"Intan barcode clear of", PRO, None,
+         "any Intan barcode track within 2.5 mm of INTAN_AO* copper or an INA105 pad breaks it"),
+    ],
+    "G-1": [
+        (r"only NT1 has pads on both", PRO, None, "a netlist fact of the placed board"),
+        (r"no AGND/DGND pour overlap", PRO, None, "any overlapping fill breaks it"),
+        (r"the \d+ holes of MECHANICAL", PRO, None,
+         "a net on a hole, or any copper touching one, breaks it"),
+        (r"no mounting-hardware path", PRO, None,
+         "a property of hardware, not copper: NOT CHECKED at every stage"),
+    ],
+    "G-3": [
+        (r"only its tie joins it to its plane", PRO, None, "a netlist fact of the placed board"),
+        (r"not poured on a plane layer", PRO, None, "any such pour breaks it"),
+    ],
+    "G-4": [(r"NT2 within", PRO, None, "placement: holds on the board as placed")],
+    "G-5": [
+        (r"NT3 within", PRO, None, "placement: holds on the board as placed"),
+        (r"no CHASSIS_GND pour", PRO, None, "any CHASSIS_GND pour breaks it"),
+        (r"J56 reaches NT3 by tracks", REQ, _nets("CHASSIS_GND"),
+         "needs the J56-to-NT3 track to exist"),
+    ],
+    "G-6": [
+        (r"NT4 within", PRO, None, "placement: holds on the board as placed"),
+        (r"ISO_5V_RTN has exactly its five pins", PRO, None, "a netlist fact of the placed board"),
+    ],
+    "G-7": [(r"the four ties as drawn", PRO, None, "footprints: hold on the board as placed")],
+    "G-16": [
+        (r"pin 62 on AGND", PRO, None, "a netlist fact of the placed board"),
+        (r"unused pins bare", PRO, None, "any copper on an unused pin breaks it"),
+    ],
+    "G-17": NO_POUR, "G-18": NO_POUR, "G-19": NO_POUR,
+    "G-20": NO_POUR + [(r"R224 within", PRO, None, "placement: holds on the board as placed")],
+    "S-7": [
+        (r"each plane net on its plane layer", PRO, None,
+         "any plane-net pour on the other plane layer breaks it"),
+        (r"each plane-net pour inside its domain's region", PRO, None,
+         "any fill outside its domain breaks it"),
+    ],
+    "X-6": [(r"post-mount pads clear by", PRO, None,
+             "any copper within 0.2 mm of a retention terminal breaks it")],
+    "P-5": [
+        (r"pin 7 gets no copper", PRO, None, "any copper on pin 7 breaks it"),
+        (r"FB and NR/SS on short traces \(SHORT\)", REQ,
+         _nets("U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"), SHORT_WHY),
+        (r"input and output capacitors within", PRO, None, "placement: pad distances"),
+        (r"FB and NR/SS parts within", PRO, None, "placement: pad distances"),
+    ],
+    "P-8": [
+        (r"no via", PRO, None, "any U63_VIN via breaks it"),
+        (r"F\.Cu only", PRO, None, "any U63_VIN track off F.Cu breaks it"),
+        (r"no pour", PRO, None, "any U63_VIN pour breaks it"),
+        (r"short \(SHORT\)", REQ, _nets("U63_VIN"), SHORT_WHY),
+        (r"two pins only", PRO, None, "a netlist fact of the placed board"),
+        (r"no contact with \+5V", PRO, None, "any U63_VIN track touching +5V copper breaks it"),
+    ],
+    "K-11": [
+        (r"no via", PRO, None, "any via on the two clamp nets breaks it"),
+        (r"F\.Cu only", PRO, None, "any clamp-net track off F.Cu breaks it"),
+        (r"no pour", PRO, None, "any clamp-net pour breaks it"),
+        (r"short \(SHORT\)", REQ, _nets("A_PD1_CLAMP", "A_PD2_CLAMP"), SHORT_WHY),
+    ],
+    "N-16": [
+        (r"no via's hole or annulus overlaps", PRO, None, "any via in an SMD pad breaks it"),
+        (r"every via 0\.2 mm from every SMD pad", PRO, None,
+         "any via within 0.2 mm of an SMD pad breaks it"),
+    ],
+    "K-35": [
+        (r"a capacitor at each pin pair", REQ, lambda j: j.k35_nets(),
+         "\"joined\": needs the bypass capacitors' supply and ground copper to exist"),
+        (r"U\d+ \(.*\) supply pair", REQ, lambda j: j.k35_nets(),
+         "the same requirement, for a part whose pins K-35 does not name"),
+    ],
+    "N-4": [
+        (r"all twelve NI_GND pins used", REQ, _nets("NI_GND"), "needs copper on every pin"),
+        (r"both NI_5V pins", REQ, _nets("NI_5V"), "needs copper on both pins"),
+        (r"symmetric copper", REQ, _nets("NI_5V"), "compares the two pins' finished copper"),
+    ],
+    "N-1": [
+        (r"every track before the", REQ, _nets("+5V"),
+         "a width along the path to the plane, which needs the path and the plane"),
+        (r"pours of \S+ on the way", REQ, _nets("+5V"), "the same path"),
+        (r"reaches its", REQ, _nets("+5V"), "needs the path to reach the plane"),
+    ],
+    "N-2": [
+        (r"every track before the", REQ, _nets("-12V"),
+         "a width along the path to the plane, which needs the path and the plane"),
+        (r"pours of \S+ on the way", REQ, _nets("-12V"), "the same path"),
+        (r"reaches its", REQ, _nets("-12V"), "needs the path to reach the plane"),
+    ],
+    "N-10": [
+        (r"at most 83 squares", REQ, _nets("+5V"), "squares along a finished path"),
+        (r"every LED resistor reached", REQ, _nets("+5V"), "needs every path to exist"),
+    ],
+    "B-13": [
+        (r"C162\.1 to U63\.1", REQ, lambda j: j.nets_of_pins(("C162", "1")),
+         "needs the C162-to-U63 trace to exist"),
+        (r"C162\.2 to U63\.6", REQ, lambda j: j.nets_of_pins(("C162", "2")),
+         "needs the C162-to-U63 trace to exist"),
+        (r"each trace leaves its pad from the outer end", PRO, None,
+         "any track end in a pad's inner half breaks it"),
+        (r"C162 pad 2 never on the INTAN_GND plane", PRO, None,
+         "any INTAN_GND fill touching the pad breaks it"),
+    ],
+    "B-13-ALL": [(r"every straddler pad left from its outer end", PRO, None,
+                  "any track end in a straddler pad's inner half breaks it")],
+    "B-16": [
+        (r"no Intan copper within", PRO, None, "any Intan copper there breaks it"),
+        (r"no DGND copper under a secondary pin", PRO, None, "any DGND copper there breaks it"),
+    ],
+    "B-17": [
+        (r"only MUX_OUTn and AGND cross", PRO, None, "any other net crossing y = 165 breaks it"),
+        (r"AGND crosses at most eight times", PRO, None,
+         "a ninth crossing breaks it; later copper only adds crossings"),
+    ],
+    "B-18": [
+        (r"each MUX_OUTn crosses once", REQ, lambda j: frozenset(MUX_OUT + ["AGND"]),
+         "\"once\" needs the crossing to exist"),
+        (r"an AGND crossing beside it", REQ, lambda j: frozenset(MUX_OUT + ["AGND"]),
+         "needs both traces of the pair"),
+        (r"an AGND sense trace", REQ, lambda j: frozenset(MUX_OUT + ["AGND"]),
+         "needs the sense trace to exist"),
+        (r"MUX_OUTn and its sense trace within", REQ, lambda j: frozenset(MUX_OUT + ["AGND"]),
+         "compares two finished lengths"),
+        (r"the sense trace taken from the pour", REQ, lambda j: frozenset(MUX_OUT + ["AGND"]),
+         "needs the sense trace and the AGND pour"),
+    ],
+    "N-9": [
+        (r"J18 pin 1", PRO, None, "any copper on J18 pin 1 breaks it"),
+        (r"lengths within", REQ, _nets("USB_DP_PI", "USB_DM_PI"), "compares finished lengths"),
+        (r"coupled", REQ, _nets("USB_DP_PI", "USB_DM_PI"), "needs both traces of the pair"),
+        (r"over unbroken DGND", REQ, _nets("USB_DP_PI", "USB_DM_PI", "DGND"),
+         "needs the pair and the DGND plane under it"),
+    ],
+    "K-33": [
+        (r"both outputs joined to the LED", REQ, lambda j: j.k33_nets(),
+         "needs the legs to exist"),
+        (r"legs at most 10 mm", REQ, lambda j: j.k33_nets(), "compares two finished legs"),
+    ],
+    "K-23": [
+        (r"each leg's twin within 1\.0 mm", REQ, lambda j: j.k23_nets(),
+         "compares finished lengths"),
+        (r"each leg's twin with as many vias", REQ, lambda j: j.k23_nets(),
+         "compares finished via counts"),
+        (r"a 2-gang block", REQ, lambda j: j.k23_nets(),
+         "a property of the finished block: NOT CHECKED once due"),
+    ],
+    "FIXED": [
+        (r"\d+ fixed parts", PRO, None, "a moved fixed part breaks it"),
+        (r"Edge\.Cuts", PRO, None, "a changed outline or slot breaks it"),
+        (r"the \d+ rule areas", PRO, None, "a changed or added rule area breaks it"),
+        (r"against a reference", PRO, None, "no reference: NOT CHECKED at every stage"),
+    ],
+}
+
+
+def check_class(rid) -> str:
+    kinds = sorted({k for _, k, _, _ in CLASSES.get(rid, [])})
+    return "+".join(kinds) if kinds else PRO
+
 
 class Judge:
     def __init__(self, model: Model, contract: dict, nets_filter=None, region=None,
-                 reference=None):
+                 reference=None, routed=None):
         self.m = model
         self.contract = contract
         self.nets_filter = nets_filter
         self.region = region
         self.reference = reference      # (label, text) for FIXED
+        self.routed = None if routed is None else frozenset(routed)   # partial mode
         self.dom = cbp.derive_domains(contract)
         self.net_dom = self.dom["net_dom"]
+        self.pin_net = {(ref, pin): net for net, nodes in contract["nets"].items()
+                        for ref, pin, *_ in nodes}
         present = set(model.pad_nets)
         if nets_filter is not None:
             present &= nets_filter
         self.present = present
         self.results: list[Result] = []
         self._edges = {}
+
+    # the nets a requirement needs (CLASSES)
+    def nets_of_pins(self, *pins):
+        return frozenset(self.pin_net[p] for p in pins if p in self.pin_net)
+
+    OPTOS = [f"U{n}" for n in range(56, 62)] + ["U64", "U65"]
+
+    def k35_nets(self):
+        pins, out = self.dom["pins"], set()
+        for u in self.OPTOS:
+            if u not in pins:
+                continue
+            nums = (("10", "9", "15", "16")
+                    if self.contract["component_values"][u].startswith("ACSL-6400") else ("9", "12"))
+            out |= {pins[u][k] for k in nums if pins[u].get(k)}
+        return frozenset(out)
+
+    def k33_legs(self):
+        """The paralleled LED-driver outputs: (net, (ref, pin), (ref, pin)) per pair."""
+        legs = []
+        for a, b in (("U8", "U70"), ("U9", "U71"), ("U11", "U73"), ("U10", "U72")):
+            for net, nodes in self.contract["nets"].items():
+                fa = [pin for ref, pin, fn, _ in nodes if ref == a and fn.startswith("Y")]
+                fb = [pin for ref, pin, fn, _ in nodes if ref == b and fn.startswith("Y")]
+                if fa and fb:
+                    legs.append((net, (a, fa[0]), (b, fb[0])))
+        return legs
+
+    def k33_nets(self):
+        return frozenset(n for n, *_ in self.k33_legs())
+
+    K23_PAIRS = [p for m_ in ("A_MISC1", "A_MISC2", "A_MISC3")
+                 for p in ((f"{m_}_MID", f"{m_}_SHLD_MID"), (f"{m_}_DIV", f"{m_}_SHLD_DIV"))]
+
+    def k23_nets(self):
+        return frozenset(n for p in self.K23_PAIRS for n in p)
+
+    # -- task R2: classes, and PENDING in partial mode ----------------------------------
+    def classify(self, r: Result):
+        specs = CLASSES.get(r.id, [])
+        r.cls = check_class(r.id)
+        need_all = set()
+        for c in r.clauses:
+            if c["clause"] == "the check ran":     # a crash: never held back as PENDING
+                c["class"] = None
+                continue
+            spec = next((s for s in specs if re.match(s[0], c["clause"])), None)
+            # a clause CLASSES does not name is judged on the copper present, the stricter
+            # treatment (test_every_clause_is_classified keeps there being none)
+            c["class"] = spec[1] if spec else "unclassified"
+            if self.routed is None or spec is None or spec[1] != REQ:
+                continue
+            need = set(spec[2](self)) & self.present
+            missing = sorted(need - self.routed)
+            if missing:
+                c["so_far"] = c["status"]
+                c["status"] = PENDING
+                c["pending_on"] = missing
+        if self.routed is not None and r.whole is None:
+            # a requirement that wrote no clause because its nets carry no copper yet (a
+            # SHORT clause, say) would otherwise leave the check PASS: it is PENDING too.
+            # Clauses that exist only in some cases (patterns with \d, \S or .*) are left.
+            for pat, kind, nets, _ in specs:
+                if kind != REQ or re.search(r"\\[dS]|\.\*", pat) or \
+                        any(re.match(pat, c["clause"]) for c in r.clauses):
+                    continue
+                missing = sorted(set(nets(self)) & self.present - self.routed)
+                if missing:
+                    r.clauses.append({"clause": re.sub(r"\\(.)", r"\1", pat), "status": PENDING,
+                                      "evidence": ["not yet evaluated: its nets carry no copper "
+                                                   "yet"], "class": REQ, "so_far": NA,
+                                      "pending_on": missing})
+        if self.routed is None or r.whole != NA:
+            return
+        # a whole-check N/A ("no copper routed yet") that a requirement still waits on
+        for _, kind, nets, _ in specs:
+            if kind == REQ:
+                need_all |= set(nets(self)) & self.present
+        missing = sorted(need_all - self.routed)
+        if missing:
+            r.so_far, r.whole, r.status, r.pending_on = NA, PENDING, PENDING, missing
+            r.evidence.append(f"PENDING: a requirement of this check waits on {len(missing)} "
+                              f"net(s) not in --routed-nets: {short_list(missing)}")
 
     # nets' state for the N/A rule
     def state(self, nets):
@@ -791,11 +1154,13 @@ class Judge:
     def add(self, rid, title, fn, reading=None):
         r = Result(rid, title, 2)
         r.reading = READINGS.get(reading) if reading else None
+        r.reading_key = reading if r.reading else None
         try:
             fn(r)
         except Exception as e:  # a check that crashes is not a pass
             r.whole = None
             r.clause("the check ran", NOT_CHECKED, f"it raised {type(e).__name__}: {e}")
+        self.classify(r)
         self.results.append(r.finish())
         return r
 
@@ -1351,7 +1716,7 @@ class Judge:
     # -- K-35 ----------------------------------------------------------------------------
     def k35(self, r):
         pins = self.dom["pins"]
-        optos = [f"U{n}" for n in range(56, 62)] + ["U64", "U65"]
+        optos = self.OPTOS
         pairs = []
         for u in optos:
             if u not in pins:
@@ -1898,15 +2263,8 @@ class Judge:
 
     # -- K-33 ----------------------------------------------------------------------------
     def k33(self, r):
-        pairs = [("U8", "U70"), ("U9", "U71"), ("U11", "U73"), ("U10", "U72")]
         nets = self.contract["nets"]
-        legs = []
-        for a, b in pairs:
-            for net, nodes in nets.items():
-                fa = [pin for ref, pin, fn, _ in nodes if ref == a and fn.startswith("Y")]
-                fb = [pin for ref, pin, fn, _ in nodes if ref == b and fn.startswith("Y")]
-                if fa and fb:
-                    legs.append((net, (a, fa[0]), (b, fb[0])))
+        legs = self.k33_legs()
         if self.na_if(r, [n for n, *_ in legs], "the LED-driver output nets"):
             return
         apart, ok, bad = [], [], []
@@ -1937,9 +2295,7 @@ class Judge:
 
     # -- K-23 ----------------------------------------------------------------------------
     def k23(self, r):
-        pairs = []
-        for m in ("A_MISC1", "A_MISC2", "A_MISC3"):
-            pairs += [(f"{m}_MID", f"{m}_SHLD_MID"), (f"{m}_DIV", f"{m}_SHLD_DIV")]
+        pairs = self.K23_PAIRS
         if self.na_if(r, [n for p in pairs for n in p], "the divider nets"):
             return
         lb, lo, vb, vo = [], [], [], []
@@ -2173,7 +2529,24 @@ def run_drc(pcb: Path, refill: bool = True) -> dict:
     return json.loads(out.read_text())
 
 
-def drc_gates(board: Path, work: Path):
+DRC_NET = re.compile(r"\[([^\]]+)\]")   # "PTH pad 1 [FAN_RTN] of J55": the item's net
+
+
+def split_unconnected(items, routed):
+    """Partial mode: DRC's unconnected_items entries, as (set aside, counted). An entry is
+    set aside only when every item in it names a net and none of those nets is listed;
+    anything else (a listed net, or an item whose net the judge cannot read) counts."""
+    aside, counted = [], []
+    for v in items:
+        nets = [DRC_NET.search(it.get("description", "")) for it in v.get("items", [])]
+        if nets and all(nets) and not any(m.group(1) in routed for m in nets):
+            aside.append(v)
+        else:
+            counted.append(v)
+    return aside, counted
+
+
+def drc_gates(board: Path, work: Path, routed=None):
     staged = stage(board, work / "main")
     drc = run_drc(staged)
     # the control: one 0.5 mm track on P5_RAW, off the board, which only the custom rule
@@ -2215,17 +2588,41 @@ def drc_gates(board: Path, work: Path):
                 m = re.search(r" of (\S+) on ", it.get("description", ""))
                 if m:
                     silk_refs[m.group(1)] = silk_refs.get(m.group(1), 0) + 1
-    unc = len(drc.get("unconnected_items", []))
+    unc_items = drc.get("unconnected_items", [])
+    partial = []
+    if routed is None:
+        unc = len(unc_items)
+    else:
+        aside, counted = split_unconnected(unc_items, routed)
+        unc = len(counted)
+        aside_nets = sorted({m.group(1) for v in aside for it in v["items"]
+                             for m in [DRC_NET.search(it["description"])]})
+        partial.append(f"partial (--routed-nets): {len(aside)} of {len(unc_items)} "
+                       f"unconnected_items set aside, every item on a net not listed "
+                       f"({len(aside_nets)} nets); {len(counted)} on a listed net (or a net "
+                       "the judge could not read), which count")
+        partial += [f"unconnected on a listed net: " + " - ".join(
+            it.get("description", "?") for it in v.get("items", [])) for v in counted[:6]]
+        if len(unc_items) >= 499:
+            partial.append("DRC lists at most 499 unconnected_items, so an entry on a listed "
+                           "net can be missing here: the CONNECTIVITY gate's count over the "
+                           "listed nets is the complete one")
     if unc:
         counts["unconnected_items"] = unc
     g = Result("DRC", "DRC classes against the accepted set (24 silk_edge_clearance, "
                "nothing else)", 1)
+    if routed is not None:
+        g.data = {"unconnected_listed_by_drc": len(unc_items),
+                  "unconnected_set_aside": len(aside), "unconnected_on_listed": len(counted),
+                  "set_aside_nets": aside_nets}
     bad = []
     for k, n in sorted(counts.items()):
         want = ACCEPTED_DRC.get(k, 0)
         if n != want:
             bad.append(f"{k}: {n}, accepted {want}"
-                       + (" (DRC lists at most 499)" if k == "unconnected_items" and n >= 499 else ""))
+                       + (" (DRC lists at most 499)" if k == "unconnected_items" and n >= 499 else "")
+                       + (" (on listed nets)" if k == "unconnected_items" and routed is not None
+                          else ""))
     for k, want in ACCEPTED_DRC.items():
         if k not in counts:
             bad.append(f"{k}: 0, accepted {want} (B-21: the straddlers' own outlines)")
@@ -2234,7 +2631,7 @@ def drc_gates(board: Path, work: Path):
         bad.append(f"silk_edge_clearance on parts that are not straddlers: {off}")
     g.set(FAIL if bad or rules.status != PASS else PASS,
           "every class: " + (", ".join(f"{k} {n}" for k, n in sorted(counts.items())) or "none"),
-          *bad)
+          *bad, *partial)
     if rules.status != PASS:
         g.evidence.append("not trusted: the rules were not shown to be loaded")
     return [rules, g], drc, counts
@@ -2265,6 +2662,58 @@ def placement_gate(board: Path, contract: dict, nets_filter) -> Result:
     r.set(FAIL if fails else PASS, *(fails[:40] or ["PASS"]), *extra,
           f"routed items: {report.get('routed_items')}")
     return r
+
+
+def listed_unconnected(m: Model, nets) -> dict:
+    """Partial mode: KiCad's unrouted-connection count per listed net, after the zone fill
+    (pad clusters through tracks, vias and filled zones, less one, per net). The same count
+    as route/board_io.py's connectivity_of, which the driver prints."""
+    conn = m.board.GetConnectivity()
+    pads = {}
+    for f in m.board.GetFootprints():
+        for p in f.Pads():
+            if p.GetNetCode() > 0 and p.GetNetname() in nets:
+                pads.setdefault(p.GetNetname(), []).append(p)
+    per = {}
+    for net, ps in pads.items():
+        seen, clusters = set(), 0
+        for p in ps:
+            k = p.m_Uuid.AsString()
+            if k in seen:
+                continue
+            clusters += 1
+            seen.add(k)
+            seen.update(q.m_Uuid.AsString() for q in conn.GetConnectedItems(p)
+                        if q.GetClass() == "PAD")
+        per[net] = clusters - 1
+    return per
+
+
+def connectivity_gate(m: Model, routed) -> Result:
+    cg = Result("CONNECTIVITY", "KiCad's unrouted-connection count after filling every "
+                "zone (routing-brief §1)", 1)
+    whole = (f"GetUnconnectedCount(False) = {m.unconnected} after filling "
+             f"{len(m.zones_meta)} pours")
+    if routed is None:
+        return cg.set(PASS if m.unconnected == 0 else FAIL, whole)
+    per = listed_unconnected(m, routed)
+    total = sum(per.values())
+    open_ = sorted((n for n, k in per.items() if k), key=lambda n: (-per[n], n))
+    cg.title = ("KiCad's unrouted-connection count over the nets in --routed-nets, after "
+                "filling every zone (routing-brief §1)")
+    cg.data = {"listed_nets": len(routed), "listed_unconnected": total,
+               "whole_board_unconnected": m.unconnected}
+    unlisted_cu = sorted(n for n in m.copper_nets - set(routed) if n)
+    cg.set(PASS if total == 0 else FAIL,
+           f"listed nets: {total} unconnected over {len(routed)} "
+           f"net{'' if len(routed) == 1 else 's'}"
+           + (f" ({', '.join(f'{n} {per[n]}' for n in open_[:12])}"
+              f"{' ...' if len(open_) > 12 else ''})" if open_ else ""),
+           f"whole board: {whole} (the nets not listed are not routed yet; not a gate in "
+           "partial mode)",
+           *([f"copper on {len(unlisted_cu)} net(s) not listed, judged by the prohibitions "
+              f"only: {short_list(unlisted_cu)}"] if unlisted_cu else []))
+    return cg
 
 
 def region_gate(m: Model, nets_filter, region) -> Result:
@@ -2521,6 +2970,12 @@ def main(argv=None) -> int:
     ap.add_argument("--allow-not-checked", metavar="IDS", default="",
                     help="comma-separated layer-2 rule IDs (e.g. G-1,K-23) whose NOT CHECKED "
                          "does not count against the exit code; never a gate, never FAIL")
+    ap.add_argument("--routed-nets", type=Path, metavar="FILE",
+                    help="partial mode (task R2): the nets routed so far, one per line "
+                         "(hardware/breakout/routes/routed.nets). Prohibitions are judged on "
+                         "the copper present; a requirement is PENDING until all its nets "
+                         "are listed; connectivity and DRC's unconnected_items count the "
+                         "listed nets only")
     a = ap.parse_args(argv)
     waive = [w.strip() for w in a.allow_not_checked.split(",") if w.strip()]
     if any(w in GATE_IDS for w in waive):
@@ -2534,6 +2989,23 @@ def main(argv=None) -> int:
     contract = json.loads(cbp.CONTRACT_PATH.read_text())
     nets_filter = set(a.nets.read_text().split()) if a.nets else None
     region = tuple(float(v) for v in a.region.split(",")) if a.region else None
+    routed = None
+    if a.routed_nets is not None:
+        if a.nets or a.region:
+            print("--routed-nets judges the whole board as routed so far; --nets/--region "
+                  "judge a region copy. Give one or the other")
+            return 2
+        try:
+            routed = [ln.strip() for ln in a.routed_nets.read_text().splitlines() if ln.strip()]
+        except OSError as e:
+            print(f"--routed-nets: cannot read {a.routed_nets}: {e}")
+            return 2
+        unknown = sorted(set(routed) - set(contract["nets"]))
+        if unknown:
+            print(f"--routed-nets: {len(unknown)} name(s) that are not nets of this board "
+                  f"(netlist-contract.json): {short_list(unknown, 12)}")
+            return 2
+        routed = sorted(set(routed))
 
     work = Path(tempfile.mkdtemp(prefix="judge-"))
     try:
@@ -2542,21 +3014,16 @@ def main(argv=None) -> int:
             gates.append(Result("DRC", "DRC classes against the accepted set", 1).set(
                 NOT_CHECKED, "--skip-drc"))
         else:
-            gl, _drc, _counts = drc_gates(board, work)
+            gl, _drc, _counts = drc_gates(board, work, routed)
             gates += gl
         staged = stage(board, work / "model")
         m = Model(staged)
         m.path = board  # FIXED reads the original file's text
-        cg = Result("CONNECTIVITY", "KiCad's unrouted-connection count after filling every "
-                    "zone (routing-brief §1)", 1)
-        cg.set(PASS if m.unconnected == 0 else FAIL,
-               f"GetUnconnectedCount(False) = {m.unconnected} after filling "
-               f"{len(m.zones_meta)} pours")
-        gates.append(cg)
+        gates.append(connectivity_gate(m, routed))
         gates.append(placement_gate(board, contract, nets_filter))
         gates.append(region_gate(m, nets_filter, region))
 
-        j = Judge(m, contract, nets_filter, region, reference_of(a))
+        j = Judge(m, contract, nets_filter, region, reference_of(a), routed)
         j.run_rules()
         metrics = j.metrics()
         base_metrics = base_m = None
@@ -2577,9 +3044,12 @@ def main(argv=None) -> int:
         # A gate that did not PASS (or is not N/A) always fails the run, NOT CHECKED
         # included: a skipped DRC can never be waived. A rule check's NOT CHECKED is waived
         # only when its ID is named; a FAIL is never waived.
+        # PENDING exists only in partial mode, and only on a requirement whose nets are
+        # not all listed: it is not yet due, so it does not count against the exit code.
         failing = [g.id for g in gates if g.status not in (PASS, NA)] + \
-                  [r.id for r in j.results if r.status not in (PASS, NA)
+                  [r.id for r in j.results if r.status not in (PASS, NA, PENDING)
                    and not (r.status == NOT_CHECKED and r.id in waive)]
+        pending = [r.id for r in j.results if r.status == PENDING]
         waived = [r for r in j.results if r.status == NOT_CHECKED and r.id in waive]
         named_not_nc = [(r.id, r.status) for r in j.results
                         if r.id in waive and r.status != NOT_CHECKED]
@@ -2592,6 +3062,13 @@ def main(argv=None) -> int:
             "metrics": metrics, "baseline_metrics": base_metrics,
             "metrics_delta": delta(metrics, base_metrics) if base_metrics else None,
             "kicad_happy": kh, "judges_readings": READINGS,
+            "readings_accepted": {k: ACCEPTED_READINGS.get(k) for k in READINGS},
+            "readings_ruling": READINGS_RULING,
+            "readings_extended_since_ruling": READINGS_EXTENDED_SINCE_RULING,
+            "routed_nets_file": str(a.routed_nets) if a.routed_nets else None,
+            "routed_nets": routed, "pending": pending,
+            "classes": {rid: [{"clause": pat, "class": k, "why": why}
+                              for pat, k, _, why in specs] for rid, specs in CLASSES.items()},
             "not_passing": failing, "not_checked_allowed": [r.id for r in waived],
             "waiver_named_but_not_not_checked": named_not_nc, "drc_skipped": a.skip_drc,
             "exit_code": code,
@@ -2604,21 +3081,30 @@ def main(argv=None) -> int:
         P(f"judge_layout: {board}")
         if nets_filter is not None or region:
             P(f"  region copy: {len(nets_filter or [])} listed nets, region {region}")
+        if routed is not None:
+            P(f"  partial: {a.routed_nets} lists {len(routed)} routed net(s). A prohibition "
+              "is judged on the copper present; a requirement is PENDING until every net it "
+              "needs is listed")
         P("LAYER 1  GATES")
         for g in gates:
             P(f"  [{g.status:^11}] {g.id}: {g.title}")
             for e in g.evidence[:12]:
                 P(f"      {e}")
-        P("LAYER 2  RULES NO TOOL CHECKS ([judge's reading] where the rule leaves a number open)")
+        P("LAYER 2  RULES NO TOOL CHECKS ([judge's reading] where the rule leaves a number "
+          f"open; {READINGS_RULING}); each check's class in parentheses")
         for r in j.results:
-            P(f"  [{r.status:^11}] {r.id}: {r.title}" + ("  [judge's reading]" if r.reading else ""))
+            P(f"  [{r.status:^11}] {r.id}: {r.title}  ({r.cls}){r.reading_mark()}")
             if not r.clauses:
                 for e in r.evidence[:4]:
                     P(f"      {e}")
             for c in r.clauses:
                 if c["status"] == NA and r.status != NA:
                     continue
-                P(f"      - [{c['status']}] {c['clause']}")
+                note = c.get("class") or "-"
+                if c["status"] == PENDING:
+                    note += (f"; so far {c['so_far']}; waits on {len(c['pending_on'])} unlisted "
+                             f"net(s): {short_list(c['pending_on'], 4)}")
+                P(f"      - [{c['status']}] {c['clause']}  ({note})")
                 lim = 6 if c["status"] in (FAIL, NOT_CHECKED) else 2
                 for e in c["evidence"][:lim]:
                     P(f"          {e}")
@@ -2667,7 +3153,11 @@ def main(argv=None) -> int:
         nc = [x for x in everything if x.status == NOT_CHECKED and x not in waived]
         P(f"RESULT: exit {code}" + (f"; not passing: {', '.join(failing)}" if failing else
                                     "; every gate and rule check PASS or N/A"
+                                    + (" or PENDING" if routed is not None else "")
                                     + (" except the waived NOT CHECKED below" if waived else "")))
+        if pending:
+            P(f"  PENDING (requirements on nets not yet in --routed-nets; not counted): "
+              f"{', '.join(pending)}")
         if a.skip_drc:
             P("  DRC was skipped (--skip-drc): this run cannot exit 0, whatever is waived")
         if nc:
