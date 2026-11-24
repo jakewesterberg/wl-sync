@@ -393,7 +393,8 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
 
     width: the net's (Rules.width) unless given. layer_cost: {layer: multiplier} on step
     length. prefer: {layer: 'h' | 'v' | 'ne' | 'nw'}: steps square to the axis cost 3x, 45
-    degrees off it 1.4x (PREFER; wl-shook lessons §5, the trial's HV_MULT). avoid: [Area]
+    degrees off it 1.4x (PREFER; wl-shook lessons §5, the trial's HV_MULT); any other axis
+    raises ValueError (before R1d it meant 'v'). avoid: [Area]
     the path may not enter (on their layers); within: [Area] the path must stay inside (any
     layer). max_cost: give up on states dearer than this (mm), e.g. to hold a plane drop
     short. via_avoid (task R1d):
@@ -409,6 +410,8 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
             mult[LI[l]] = float(m)
     pref = {}
     for l, axis in (prefer or {}).items():
+        if axis not in PREFER:
+            raise ValueError(f"prefer[{l!r}] is {axis!r}; the axes are {sorted(PREFER)}")
         if LI[l] in mult:
             pref[LI[l]] = list(PREFER[axis])
     goal_via = any(isinstance(g, ViaSite) for g in goals)

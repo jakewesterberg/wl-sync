@@ -23,7 +23,7 @@ changes tried and dropped, is in task-R1d-report.md:
 - escapes price a via at 10 mm of track, not 3 (escape_via_cost): fewer layer changes
   round J45;
 - a pull-up's NI_5V pad joins NI_5V copper within 5 mm, for up to 6 mm of track, before it
-  takes a via of its own (pullup_plane_reach, pullup_plane_via_cost);
+  takes a via of its own (pullup_plane_reach, pullup_plane_max_track);
 - joins east to west (join_order "-x"), not inner rows first.
 
 What it keeps from stage_ni.py, by hand, as R1a found it: the OPTOS table; the NI_5V stubs
@@ -64,7 +64,7 @@ OPTOS = [  # ref, (bypass for pins 10/9), (bypass for pins 15/16), {pin: pull-up
 TUNED = dict(
     gnd_via_at_pin16=True,        # R1c: False (the capacitor's own ground via)
     pullup_plane_reach=5.0,       # R1c: 3.0
-    pullup_plane_via_cost=6.0,    # R1c: None (the nearest via site or copper, whichever)
+    pullup_plane_max_track=6.0,   # R1c: None (the nearest via site or copper, whichever)
     hv_x=57.0,                    # exits end west of this x
     exit_via_cost=3.0,
     escape_ymax=224.0,            # escapes end at or north of this y
@@ -78,14 +78,15 @@ TUNED = dict(
     join_xmax=50.0,               # the L's column (join_shape "L" only)
     join_order="-x",              # R1c: "j45"
     # Rectangles (x0, y0, x1, y1) where no join may put a via. Empty here: keeping joins'
-    # vias out of the strip west of x = 11 widens both planes' neck from 9 to 11 mm, but
-    # costs 4 vias and 0.02 of length / MST (task-R1d-report.md, run r29).
+    # vias out of the strip west of x = 11 widened both necks from 9 to 11 mm on an earlier
+    # state (runs r21, r24, r26: 126 vias, length / MST 1.099), but on the final state it
+    # gave 11 / 7 mm with 123 vias and 1.096 (r29; task-R1d-report.md).
     via_free=(),
     runway_half=0.72,             # escape runways (stage_ni.py's)
     runway_len=6.0,
 )
 R1C = {**TUNED, "gnd_via_at_pin16": False, "pullup_plane_reach": 3.0,
-       "pullup_plane_via_cost": None, "escape_via_cost": 3.0, "join_shape": "L",
+       "pullup_plane_max_track": None, "escape_via_cost": 3.0, "join_shape": "L",
        "join_order": "j45"}
 
 
@@ -103,6 +104,12 @@ class NiIsland:
     def __init__(self, grid, result, rules, island_nets, log=print, **knobs):
         self.g, self.res, self.R = grid, result, rules
         self.say = log
+        if "pullup_plane_via_cost" in knobs:     # its name before R1d's fix round 1
+            knobs = dict(knobs)
+            knobs["pullup_plane_max_track"] = knobs.pop("pullup_plane_via_cost")
+        unknown = set(knobs) - set(TUNED)
+        if unknown:
+            raise TypeError(f"NiIsland: unknown knobs {sorted(unknown)}")
         self.k = {**TUNED, **knobs}
         self.P = {p.key: p for p in grid.pads if p.net in island_nets}
         self.no_in2 = rect_area(0, 100, 70, IN2_YMIN, [I2])
@@ -173,18 +180,20 @@ class NiIsland:
                 return True
         return None
 
-    def to_plane(self, key, allow_tree=False, reach=3.0, max_cost=6.0, via_cost=None):
+    def to_plane(self, key, allow_tree=False, reach=3.0, max_cost=6.0, max_track=None):
         """An SMD pad of a plane net to the nearest via site on F.Cu (or to its net's copper
-        within `reach` mm that already has one). `via_cost` (R1d), if given, is what ending
-        on a new via costs against joining that copper, in mm of track."""
+        within `reach` mm that already has one). With `max_track` (R1d) and `allow_tree`, it
+        first joins that copper if it can within `max_track` mm of track, and only then
+        takes the nearest via site or copper as without it. It is a cap on track length,
+        not a price weighed against a via."""
         net = self.P[key].net
         x0, y0, x1, y1 = self.P[key].bbox
         goals = [ViaSite()] + ([Copper(net, clip=(x0 - reach, y0 - reach, x1 + reach,
                                                    y1 + reach))] if allow_tree else [])
-        if via_cost and allow_tree:
-            # first the net's copper alone, as far as via_cost of track; then a new via
+        if max_track and allow_tree:
+            # first the net's copper alone, within max_track mm of track; then a new via
             p = self.go(f"plane-{key}", net, [self.term(key, [F])], goals[1:], (F,),
-                        allow_via=False, max_cost=via_cost, quiet=True)
+                        allow_via=False, max_cost=max_track, quiet=True)
             if p is not None:
                 return p
         return self.go(f"plane-{key}", net, [self.term(key, [F])], goals, (F,),
@@ -261,7 +270,7 @@ class NiIsland:
             for pin in (14, 13, 12, 11):
                 self.to_plane(f"{pulls[pin]}.1", allow_tree=True,
                               reach=self.k["pullup_plane_reach"],
-                              via_cost=self.k["pullup_plane_via_cost"])
+                              max_track=self.k["pullup_plane_max_track"])
             if ref == "U60":
                 # K-4: BARCODE_NI ahead of every run to J45, straight to its pin 3 (after
                 # U60's own pull-ups and their plane vias, which it would otherwise wall off).

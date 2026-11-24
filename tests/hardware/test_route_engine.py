@@ -402,3 +402,14 @@ def test_via_avoid_moves_the_via(rules):
     assert v["at"][0] < 11.0                         # still on the source's side of the wall
     # without it, R1a's via sits next to the wall (test_route_takes_via_when_blocked)
     assert route_connection(g, "SIG_A", [pa], [pb], ("F.Cu", "B.Cu")).vias()[0]["at"][0] > 11.0
+
+
+def test_prefer_unknown_axis_raises(rules):
+    """Task R1d fix round 1: an axis not in PREFER is refused by name (before R1d any value
+    but 'h' silently meant 'v')."""
+    a = pad("R1", "1", "SIG_A", 5.0, 15.0)
+    b = pad("R2", "1", "SIG_A", 15.0, 5.0)
+    g = grid_for(obstacles([a, b]), rules)
+    (pa,), (pb,) = pads_of(g, "R1"), pads_of(g, "R2")
+    with pytest.raises(ValueError, match="the axes are"):
+        route_connection(g, "SIG_A", [pa], [pb], ("F.Cu",), prefer={"F.Cu": "diag"})
