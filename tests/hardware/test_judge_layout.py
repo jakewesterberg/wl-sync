@@ -319,9 +319,11 @@ CASES = {
             "track('BARCODE_BUF', 'B.Cu', [(200, 100), (205, 100)])", "inside AGND"),
     "K-4/island": ("K-4", "inside its own island", BNI,
                    "track('BARCODE_NI', 'F.Cu', [(150, 205), (155, 205)])", "outside the NI island"),
+    # SHORT on a net not yet joined (a stub): NOT CHECKED on the base, never PASS (R2 fix
+    # round 1, M-1); the control's detour is over 1.5x already, a FAIL
     "K-4/short": ("K-4", "the shortest path", BNI,
                   BNI + ";track('BARCODE_NI', 'F.Cu', [(6, 196), (54, 196), (6, 199), (54, 199),"
-                  " (6, 202), (54, 202), (6, 205), (54, 205)])", "over 1.5x"),
+                  " (6, 202), (54, 202), (6, 205), (54, 205)])", "over 1.5x", "NOT CHECKED"),
     "K-4/clear": ("K-4", "Intan barcode clear", BINTAN,
                   BINTAN + ";track('INTAN_AO1', 'F.Cu', [(120, 206), (125, 206)])",
                   "within 2.5 mm of track INTAN_AO1"),
@@ -374,7 +376,8 @@ CASES = {
                  P5 + ";x, y = pad_xy('U3', '7'); track('unconnected-(U3-DNC-Pad7)', 'F.Cu',"
                  " [(x, y), (x + 1.5, y)])", "U3.7"),
     "P-5/short": ("P-5", "FB and NR/SS on short traces", P5,
-                  P5 + ";track('U3_FB', 'F.Cu', [(150, 205), (165, 205), (165, 210)])", "over 1.5x"),
+                  P5 + ";track('U3_FB', 'F.Cu', [(150, 205), (165, 205), (165, 210)])", "over 1.5x",
+                  "NOT CHECKED"),
     "P-5/caps": ("P-5", "input and output capacitors", P5, P5 + ";move('C14', 139.5, 196.0)", "C14."),
     # the four cases whose control adds or drops the only via carry N16_BASE's via on both
     # boards, so that N-16 is PASS on both and not N/A on one
@@ -391,7 +394,7 @@ CASES = {
                    K11 + ";track('A_PD1_CLAMP', 'B.Cu', [(190, 213), (190.3, 213)])", "A_PD1_CLAMP off F.Cu"),
     "K-11/short": ("K-11", "short (SHORT)", K11,
                    K11 + ";track('A_PD1_CLAMP', 'F.Cu', [(186, 213), (199, 213), (186, 214.5),"
-                   " (199, 214.5)])", "over 1.5x"),
+                   " (199, 214.5)])", "over 1.5x", "NOT CHECKED"),
     "K-35/joined": ("K-35", "a capacitor at each pin pair", NI_PLANES,
                     NI_PLANES.replace("for p in ('1', '2')]", "for p in ('1', '2') if (n, p) != (127, '2')]"),
                     "U56 pins 15/16: C127 at 2.25 / 3.98 mm, NOT joined"),
@@ -759,17 +762,32 @@ def gates_of(js) -> dict:
     return {g["id"]: g for g in js["gates"]}
 
 
+ALL_NETS = sorted(json.loads((REPO / "hardware/breakout/netlist-contract.json").read_text())["nets"])
+
+
+def write_contract(d: Path, complete=(), touched=None, due=()) -> Path:
+    """The stage contract the driver writes (R2 fix round 1): complete.nets, touched.nets
+    and due.txt in one directory. touched defaults to every net, so the NET-LISTS gate stays
+    out of a test that is not about it."""
+    d.mkdir(parents=True, exist_ok=True)
+    for name, xs in (("complete.nets", complete), ("touched.nets", ALL_NETS if touched is None
+                                                    else touched), ("due.txt", due)):
+        (d / name).write_text("".join(x + "\n" for x in xs))
+    return d / "complete.nets"
+
+
 @pytest.fixture(scope="module")
 def partial(tmp_path_factory):
-    """Scratch boards for partial mode, and a runner that writes the nets file."""
+    """Scratch boards for partial mode, and a runner that writes the contract files and
+    passes --complete-nets (touched.nets and due.txt are read beside it)."""
     d = tmp_path_factory.mktemp("partial")
     boards = make_boards(d, [P8, NI_PLANES, G10, G10_FOREIGN])
 
-    def run(board: Path, *names: str, extra=()):
-        tag = key(str(board) + "|" + " ".join(names) + "|" + " ".join(extra))
-        nets = d / f"nets-{tag}.txt"
-        nets.write_text("".join(n + "\n" for n in names))
-        return run_judge(board, "--routed-nets", str(nets), *extra,
+    def run(board: Path, *names: str, extra=(), touched=None, due=()):
+        tag = key("|".join([str(board), " ".join(names), " ".join(extra), str(touched),
+                            " ".join(due)]))
+        f = write_contract(d / f"c-{tag}", names, touched, due)
+        return run_judge(board, "--complete-nets", str(f), *extra,
                          json_out=d / f"out-{tag}.json")
     return boards, run
 
@@ -784,7 +802,7 @@ def test_partial_connectivity_counts_listed_nets(partial):
     g = gates_of(out)["CONNECTIVITY"]
     ev = " | ".join(g["evidence"])
     assert g["status"] == "PASS", g
-    assert "listed nets: 0 unconnected over 1 net" in ev, ev
+    assert "listed nets: 0 unconnected over 1 complete net" in ev, ev
     # the whole-board count is still printed
     assert "GetUnconnectedCount(False) = 1790" in ev and "GetUnconnectedCount(False) = 1790" in stdout
     # control: the same net listed on the unrouted board FAILs, and names the net
@@ -792,7 +810,7 @@ def test_partial_connectivity_counts_listed_nets(partial):
     g = gates_of(out)["CONNECTIVITY"]
     ev = " | ".join(g["evidence"])
     assert g["status"] == "FAIL", g
-    assert "listed nets: 1 unconnected over 1 net" in ev and "U63_VIN 1" in ev, ev
+    assert "listed nets: 1 unconnected over 1 complete net" in ev and "U63_VIN 1" in ev, ev
     assert "GetUnconnectedCount(False) = 1791" in ev
 
 
@@ -880,7 +898,7 @@ def test_pending_not_allowed_without_routed_nets(judged):
         for c in js["checks"]:
             assert c["status"] != "PENDING", (code[:80], c["id"])
             assert all(cl["status"] != "PENDING" for cl in c.get("clauses", [])), (code[:80], c)
-        assert js["routed_nets_file"] is None
+        assert js["complete_nets_file"] is None
 
 
 def _judge_module():
@@ -927,17 +945,223 @@ def test_every_clause_is_classified(judged):
                 if cl["clause"] == "the check ran":
                     continue
                 assert cl["class"] in ("prohibition", "requirement"), (c["id"], cl)
+                assert cl["key"] in j.clause_keys(c["id"]), (c["id"], cl)   # its DUE key
                 seen.add((c["id"], cl["class"]))
     assert ("N-4", "requirement") in seen and ("G-10", "prohibition") in seen
+    # each check's keys are unique to one class, and every pattern compiles
+    for rid, specs in j.CLASSES.items():
+        kinds = {}
+        for key_, pat, kind, nets, why in specs:
+            re.compile(pat)
+            assert kinds.setdefault(key_, kind) == kind, (rid, key_)
+            assert (nets is None) == (kind == "prohibition"), (rid, key_)
 
 
-def test_routed_nets_bad_argument(tmp_path):
-    unknown = tmp_path / "unknown.nets"
-    unknown.write_text("U63_VIN\nNO_SUCH_NET\n")
-    for extra in (["--routed-nets", str(unknown)],
-                  ["--routed-nets", str(tmp_path / "missing.nets")],
-                  ["--routed-nets", str(unknown), "--nets", str(unknown)]):
+def test_contract_bad_argument(tmp_path):
+    """Exit 2 on a bad contract: a name that is not a net, a missing file (the sibling
+    touched.nets included), a --due entry that is neither a check ID nor a clause key,
+    --touched-nets or --due without --complete-nets, and partial mode with --nets."""
+    good = write_contract(tmp_path / "good", ["U63_VIN"], ["U63_VIN"], ["G-1/overlap", "S-7"])
+    unknown = write_contract(tmp_path / "unknown", ["U63_VIN", "NO_SUCH_NET"])
+    baddue = write_contract(tmp_path / "baddue", due=["G-1/no-such-clause"])
+    lonely = tmp_path / "lonely"
+    lonely.mkdir()
+    (lonely / "complete.nets").write_text("U63_VIN\n")       # no touched.nets beside it
+    for extra, said in (
+            (["--complete-nets", str(unknown)], "NO_SUCH_NET"),
+            (["--routed-nets", str(unknown)], "NO_SUCH_NET"),        # the old name
+            (["--complete-nets", str(tmp_path / "missing.nets")], "cannot read"),
+            (["--complete-nets", str(lonely / "complete.nets")], "--touched-nets: cannot read"),
+            (["--complete-nets", str(baddue)], "G-1/no-such-clause"),
+            (["--due", str(good.parent / "due.txt")], "give --complete-nets too"),
+            (["--complete-nets", str(good), "--nets", str(good)], "Give one or the other")):
         p = subprocess.run([str(KICAD_PY), str(JUDGE), str(BOARD), "--skip-drc", *extra],
                            capture_output=True, text=True, timeout=300)
         assert p.returncode == 2, (extra, p.stdout[-800:], p.stderr[-800:])
-        assert "--routed-nets" in p.stdout, p.stdout[-800:]
+        assert said in p.stdout, (extra, p.stdout[-800:])
+
+
+# ---- the stage contract (R2 fix round 1): complete, touched and due ----------------------
+PLANE_NETS = ["AGND", "DGND", "NI_GND", "INTAN_GND", "+12V", "-12V", "+5V", "+3V3", "NI_5V",
+              "ISO_P12", "ISO_N12", "ISO_5V"]
+# The reviewer's scratch R3 (task-R2-review.md, C-1): 15 rectangles for the 12 plane nets,
+# grounds on In1.Cu and rails on In2.Cu, each inside its region; no track or via.
+RV_R3 = ";".join([
+    "zone('NI_GND','In1.Cu',1,101,69,239)", "zone('INTAN_GND','In1.Cu',113,166,237,239)",
+    "zone('DGND','In1.Cu',1,1,169,99)", "zone('DGND','In1.Cu',71,99,169,164)",
+    "zone('DGND','In1.Cu',71,164,111,239)", "zone('AGND','In1.Cu',171,1,429,164)",
+    "zone('AGND','In1.Cu',239,164,429,239)", "zone('NI_5V','In2.Cu',1,101,69,239)",
+    "zone('ISO_5V','In2.Cu',113,166,150,239)", "zone('ISO_P12','In2.Cu',151,166,190,239)",
+    "zone('ISO_N12','In2.Cu',191,166,237,239)", "zone('+5V','In2.Cu',1,1,169,99)",
+    "zone('+3V3','In2.Cu',71,99,169,164)", "zone('+12V','In2.Cu',171,1,429,164)",
+    "zone('-12V','In2.Cu',239,164,429,239)"])
+# The same planes as a DRC-clean R3 would draw them: one outline per domain, no two zones of
+# a net touching (the reviewer's touch, zones_intersect), islands removed, and a via beside
+# one pad of each of the three rails no through-hole pin reaches (else isolated_copper),
+# on a 0.8 mm stub, their classes' width.
+R3_OUTLINES = [
+    ("DGND", "In1.Cu", [(1, 1), (169, 1), (169, 164), (111, 164), (111, 239), (71, 239),
+                        (71, 99), (1, 99)]),
+    ("AGND", "In1.Cu", [(171, 1), (429, 1), (429, 239), (239, 239), (239, 164), (171, 164)]),
+    ("NI_GND", "In1.Cu", [(1, 101), (69, 101), (69, 239), (1, 239)]),
+    ("INTAN_GND", "In1.Cu", [(113, 166), (237, 166), (237, 239), (113, 239)]),
+    ("+5V", "In2.Cu", [(1, 1), (169, 1), (169, 98), (1, 98)]),
+    ("+3V3", "In2.Cu", [(71, 100), (169, 100), (169, 164), (111, 164), (111, 239), (71, 239)]),
+    ("+12V", "In2.Cu", [(171, 1), (429, 1), (429, 163), (171, 163)]),
+    ("-12V", "In2.Cu", [(239, 165), (429, 165), (429, 239), (239, 239)]),
+    ("NI_5V", "In2.Cu", [(1, 101), (69, 101), (69, 239), (1, 239)]),
+    ("ISO_5V", "In2.Cu", [(113, 166), (149, 166), (149, 239), (113, 239)]),
+    ("ISO_P12", "In2.Cu", [(151, 166), (189, 166), (189, 239), (151, 239)]),
+    ("ISO_N12", "In2.Cu", [(191, 166), (237, 166), (237, 239), (191, 239)]),
+]
+
+
+def r3_planes(skip=()):
+    z = [f"zonepoly('{n}', '{ln}', {pts}); [q.SetIslandRemovalMode("
+         f"pcbnew.ISLAND_REMOVAL_MODE_ALWAYS) for q in b.Zones() "
+         f"if q.GetZoneName() == 'test_{n}_{ln}']" for n, ln, pts in R3_OUTLINES if n not in skip]
+    return ";".join(z + ["via_beside_pads([('C79', '1'), ('C92', '1'), ('C113', '1')])",
+                         "[t.SetWidth(F(0.8)) for t, n in ADDED if t.GetClass() == 'PCB_TRACK']"])
+
+
+R3 = r3_planes()
+R3_NO_ISO_N12 = r3_planes(skip=("ISO_N12",))
+R3_DUE = ["S-7", "G-1/overlap", "G-3"]
+# M-1: U3_FB (4 pads) joined U3.2 to R1.2 only, as the reviewer's probe
+HALF_FB = "track('U3_FB','F.Cu',[pad_xy('U3','2'), pad_xy('R1','2')], 0.25)"
+
+
+def g11_all(drop=()):
+    """A 0.8 mm F.Cu track across x = 170 for every G-11 net, inside the split's gap, 2 mm
+    apart from y = 52, the stretch about NT1 left clear (a pad there would take the track's
+    net)."""
+    ys = [y for y in range(52, 166, 2) if not 88 <= y <= 104]
+    nets = [n for n in sorted(_judge_module().G11_NETS) if n not in drop]
+    assert len(nets) <= len(ys)
+    return ";".join(f"track('{n}', 'F.Cu', [(169.6, {y}), (170.4, {y})])"
+                    for n, y in zip(nets, ys))
+
+
+@pytest.fixture(scope="module")
+def contract(tmp_path_factory):
+    d = tmp_path_factory.mktemp("contract")
+    codes = {"rv": RV_R3, "r3": R3, "r3-no-iso-n12": R3_NO_ISO_N12, "half": HALF_FB,
+             "g11": g11_all(), "g11-less": g11_all(drop=("+3V3",))}
+    boards = make_boards(d, list(codes.values()))
+    boards = {k: boards[c] for k, c in codes.items()}
+
+    def run(which, complete=(), touched=None, due=(), extra=("--skip-drc",)):
+        tag = key("|".join([which, " ".join(complete), str(touched), " ".join(due),
+                            " ".join(extra)]))
+        f = write_contract(d / f"c-{tag}", complete, touched, due)
+        return run_judge(boards[which], "--complete-nets", str(f), "--reference", str(BOARD),
+                         *extra, json_out=d / f"out-{tag}.json")
+    return run
+
+
+def test_contract_r3_planes_pass(contract):
+    """R3's shape: the plane nets touched, none complete, DUE = S-7, the G-1 plane clause and
+    G-3. The DRC-clean planes exit 0, DRC run, G-1 waived for its hardware clause; the
+    reviewer's own board (which DRC faults for zones_intersect and isolated_copper, its own
+    drawing) fails on the skipped DRC alone."""
+    code, out, stdout = contract("r3", touched=PLANE_NETS, due=R3_DUE,
+                                 extra=("--allow-not-checked", "G-1"))
+    assert out["not_passing"] == [] and code == 0, (out["not_passing"], stdout[-3000:])
+    g = gates_of(out)
+    assert g["CONNECTIVITY"]["status"] == g["NET-LISTS"]["status"] == g["DRC"]["status"] == "PASS"
+    st = checks(out)
+    s7 = st["S-7"]
+    assert s7["status"] == "PASS" and {c["key"]: c["status"] for c in s7["clauses"]} == \
+        {"S-7/layer": "PASS", "S-7/region": "PASS", "S-7/poured": "PASS"}, s7
+    assert all(c["due"] == "S-7" for c in s7["clauses"])
+    assert clause(st["G-1"], "no AGND/DGND pour overlap")["due"] == "G-1/overlap"
+    assert st["G-3"]["status"] == "PASS"
+    for rid in ("K-35", "N-10", "N-1", "B-18"):        # the reviewer's due-too-early checks
+        assert st[rid]["status"] == "PENDING", st[rid]
+    code, out, _ = contract("rv", touched=PLANE_NETS, due=R3_DUE,
+                            extra=("--skip-drc", "--allow-not-checked", "G-1"))
+    assert out["not_passing"] == ["DRC"], out["not_passing"]
+    assert checks(out)["S-7"]["status"] == "PASS"
+
+
+def test_contract_r3_missing_plane_fails_s7(contract):
+    code, out, _ = contract("r3-no-iso-n12", touched=PLANE_NETS, due=R3_DUE)
+    s7 = checks(out)["S-7"]
+    c = clause(s7, "every plane net poured")
+    assert c["status"] == "FAIL" and c["class"] == "requirement", c
+    assert "ISO_N12: 0 mm2 of fill on In2.Cu inside the INTAN region" in c["evidence"], c
+    assert s7["status"] == "FAIL" and "S-7" in out["not_passing"] and code == 1
+    # not due, the same missing plane waits: S-7's requirement is PENDING, so far FAIL
+    _, out, _ = contract("r3-no-iso-n12", touched=PLANE_NETS)
+    c = clause(checks(out)["S-7"], "every plane net poured")
+    assert c["status"] == "PENDING" and c["so_far"] == "FAIL", c
+
+
+def test_contract_due_not_met_fails(contract):
+    """A DUE check that is not met FAILs the run, N/A included: N-1 on the R3 planes (D3
+    has no copper) and K-35 (the bypass capacitors are not joined)."""
+    code, out, stdout = contract("r3", touched=PLANE_NETS, due=R3_DUE + ["N-1", "K-35/joined"])
+    st = checks(out)
+    assert st["N-1"]["status"] == "FAIL", st["N-1"]
+    ev = " | ".join(e for c in st["N-1"]["clauses"] for e in c["evidence"])
+    assert "DUE (N-1): N/A, not PASS" in ev, ev
+    k35 = clause(st["K-35"], "a capacitor at each pin pair")
+    assert k35["status"] == "FAIL" and k35["due_was"] == "FAIL" and "NOT joined" in \
+        " | ".join(k35["evidence"]), k35
+    assert {"N-1", "K-35"} <= set(out["not_passing"]) and code == 1
+    assert "DUE (K-35/joined)" in stdout
+
+
+def test_contract_requirement_not_due_is_pending(contract):
+    """On the R3 planes K-35 is not due and its nets are touched, not complete: PENDING, with
+    what it found so far (FAIL: not joined) kept; it does not count against the exit code."""
+    _, out, stdout = contract("r3", touched=PLANE_NETS, due=R3_DUE)
+    c = clause(checks(out)["K-35"], "a capacitor at each pin pair")
+    assert c["status"] == "PENDING" and c["so_far"] == "FAIL" and c["pending_on"], c
+    assert "K-35" not in out["not_passing"]
+    assert "(K-35/joined; requirement; so far FAIL" in stdout
+
+
+def test_contract_copper_on_an_unlisted_net_fails(contract):
+    code, out, _ = contract("r3", touched=[n for n in PLANE_NETS if n != "DGND"], due=R3_DUE)
+    g = gates_of(out)["NET-LISTS"]
+    assert g["status"] == "FAIL" and g["data"]["stray"] == ["DGND"], g
+    assert "copper on 1 net(s) in neither list: DGND" in g["evidence"][0]
+    assert "NET-LISTS" in out["not_passing"] and code == 1
+    # listed complete instead, it is accounted for (and CONNECTIVITY then counts it)
+    _, out, _ = contract("r3", complete=["DGND"], touched=[n for n in PLANE_NETS if n != "DGND"],
+                         due=R3_DUE)
+    assert gates_of(out)["NET-LISTS"]["status"] == "PASS"
+    assert gates_of(out)["CONNECTIVITY"]["status"] == "FAIL"
+
+
+def test_short_on_an_unjoined_net_never_passes(contract):
+    """M-1: U3_FB joined U3.2 to R1.2 only (4.73 mm against an 8.98 mm MST) is not a SHORT
+    PASS, in partial mode with its nets complete, due, or in full mode."""
+    fb = ["U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"]
+    _, out, _ = contract("half", complete=fb)
+    c = clause(checks(out)["P-5"], "FB and NR/SS on short traces")
+    assert c["status"] == "NOT CHECKED", c
+    assert "U3_FB: 4.73 mm routed against 8.98 mm MST; the net is not fully joined" in \
+        c["evidence"][0], c
+    assert checks(out)["P-5"]["status"] != "PASS"
+    _, out, _ = contract("half", due=["P-5/short"])
+    c = clause(checks(out)["P-5"], "FB and NR/SS on short traces")
+    assert c["status"] == "FAIL" and c["due_was"] == "NOT CHECKED", c
+
+
+def test_every_g11_net_crosses(contract):
+    """M-3: G-11 lists the nets that must cross x = 170, so each crosses at least once.
+    Base: all 48 cross (2 mm apart: one corridor). Control: +3V3 left out."""
+    _, out, _ = contract("g11", due=["G-10"])
+    g10 = checks(out)["G-10"]
+    assert clause(g10, "every G-11 net crosses x = 170")["status"] == "PASS", g10
+    assert "all 48 G-11 nets on the board cross" in \
+        clause(g10, "every G-11 net crosses x = 170")["evidence"]
+    _, out, _ = contract("g11-less", due=["G-10"])
+    c = clause(checks(out)["G-10"], "every G-11 net crosses x = 170")
+    assert c["status"] == "FAIL" and "1 G-11 net(s) do not cross: +3V3" in c["evidence"][-1], c
+    # not due and +3V3 not complete: PENDING
+    _, out, _ = contract("g11-less")
+    c = clause(checks(out)["G-10"], "every G-11 net crosses x = 170")
+    assert c["status"] == "PENDING" and c["so_far"] == "FAIL", c

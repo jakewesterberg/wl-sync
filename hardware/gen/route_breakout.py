@@ -6,13 +6,27 @@
 `build` places the board (gen_breakout_pcb.py --out build/route/placed), replays every
 committed route file hardware/breakout/routes/stage-NN.json (through stage N, if given) onto
 it with no search, fills the zones, and writes hardware/breakout/breakout.kicad_pcb,
-hardware/breakout/routes/routed.nets (the nets of the stages replayed, one per line) and
-hardware/breakout/routes/built.json (the stamp, below). The generator's breakout.kicad_pro
+hardware/breakout/routes/built.json (the stamp, below) and the stage contract the judge
+reads (task R2, fix round 1), each the union over the stages replayed:
+
+- routes/complete.nets: the nets the stages complete, one per line. A stage module may
+  declare COMPLETE (a list, or a function complete(nets) given the nets the stage touched);
+  the default is the nets the stage routes with tracks or vias of its own (the default loop,
+  route(ctx) or fixed()). A zone never completes a net.
+- routes/touched.nets: every net with copper of the stages, zones included.
+- routes/due.txt: the judge's check IDs, or check/clause keys (G-1/overlap), that must PASS
+  from that stage on: each stage module's DUE.
+
+The route file records its stage's `complete` and `due`; a route file whose record is not
+its module's (when the module is there and imports) is refused, as `fixed` is. The judge
+runs `judge_layout.py BOARD --complete-nets routes/complete.nets`, and reads touched.nets
+and due.txt beside it. (routes/routed.nets, R1b's list of every touched net, is retired: a
+zone listed there made a plane net look complete.) The generator's breakout.kicad_pro
 and breakout.kicad_dru are written beside the board if they differ from the committed ones.
 `route N` searches stage N, whose plan is the module hardware/gen/route/stages/sNN_<name>.py,
 on top of the stages before N, and builds through N; its route file reaches routes/ only
-once that build has succeeded. Both print KiCad's unrouted-connection count over the routed
-nets and over the whole board.
+once that build has succeeded. Both print KiCad's unrouted-connection count over the
+complete nets and over the whole board.
 
 So a placement nudge costs a rebuild, not a hand re-route: change ANCHORS in the generator,
 then `build`. Copper comes only from the route files, and route files are generated: a
@@ -37,10 +51,10 @@ three refusals, each before anything is written:
 
 A stage module defines STAGE (int), NAME (str), nets(board_nets) -> [net], zones() ->
 [zone dict], layers(net) -> (layer, ...), order(nets) -> [net] and fixed() -> [{"track": ...}
-| {"via": ...}] (the plan's stage interface). The driver lays `fixed` first, adds the
-zones, then routes each net in `order`: pad by pad, nearest unjoined pad first, from the
-pads and copper already joined, starting from the net's fixed copper if it has some. A
-module may instead define route(ctx) to route its nets itself (ctx: grid, result, nets,
+| {"via": ...}] (the plan's stage interface), and may define COMPLETE and DUE (above). The
+driver lays `fixed` first, adds the zones, then routes each net in `order`: pad by pad,
+nearest unjoined pad first, from the pads and copper already joined, starting from the
+net's fixed copper if it has some. A module may instead define route(ctx) to route its nets itself (ctx: grid, result, nets,
 obstacles, rules, route_net, failed). The result is pruned of dangling copper, with every
 earlier stage's copper and the extracted board's as `existing`.
 
@@ -73,7 +87,10 @@ from hardware.gen.route.stage import (RouteResult, norm_track, norm_via,  # noqa
 BREAKOUT = ROOT / "hardware" / "breakout"
 BOARD = BREAKOUT / "breakout.kicad_pcb"
 ROUTES = BREAKOUT / "routes"
-ROUTED_NETS = ROUTES / "routed.nets"
+COMPLETE_NETS = ROUTES / "complete.nets"
+TOUCHED_NETS = ROUTES / "touched.nets"
+DUE = ROUTES / "due.txt"
+RETIRED = ROUTES / "routed.nets"          # R1b's list; removed by the next build
 STAMP = ROUTES / "built.json"
 GENERATOR = ROOT / "hardware" / "gen" / "gen_breakout_pcb.py"
 STAGES = ROOT / "hardware" / "gen" / "route" / "stages"
@@ -150,6 +167,27 @@ def module_fixed(n: int):
     return RouteResult(fixed=_norm_fixed(mod.fixed())).as_dict()["fixed"]
 
 
+def declared_complete(mod, touched) -> list | None:
+    """A stage module's COMPLETE, resolved: a list, or complete(nets) called with the nets
+    the stage touched; None when the module declares none (the default applies)."""
+    c = getattr(mod, "COMPLETE", None)
+    if c is None:
+        return None
+    return sorted(set(c(sorted(touched)) if callable(c) else c))
+
+
+def module_contract(n: int, r: RouteResult):
+    """(due, complete) as stage n's module gives them for its route file `r`, or None if
+    there is no module or it does not import."""
+    try:
+        mod = stage_module(n)
+    except Exception:                                        # noqa: BLE001
+        return None                       # module_fixed has already said why, if it did
+    c = declared_complete(mod, r.nets)
+    return (sorted(set(getattr(mod, "DUE", []))),
+            sorted(r.track_nets()) if c is None else c)
+
+
 def _norm_fixed(fixed) -> list:
     return [{"track": norm_track(f["track"])} if "track" in f else {"via": norm_via(f["via"])}
             for f in fixed]
@@ -180,6 +218,18 @@ def check_fresh(files: dict[int, Path], placement: str, rules: str,
                 f"{rel}'s `fixed` is not what stage {n}'s module's fixed() gives. Route "
                 f"files are generated and never edited by hand: put the fix in the "
                 f"module's fixed(), then route_breakout.py route {n}")
+        contract = module_contract(n, r) if check_fixed else None
+        if contract is not None:
+            due, complete = contract
+            got = (sorted(set(r.due)), r.complete_nets())
+            if got != (due, complete):
+                what = [k for k, a, b in (("DUE", got[0], due), ("COMPLETE", got[1], complete))
+                        if a != b]
+                raise Refused(
+                    f"{rel}'s {' and '.join(what)} is not what stage {n}'s module now "
+                    f"declares (route file: due {got[0]}, complete {got[1]}; module: due "
+                    f"{due}, complete {complete}). The route file records the stage's "
+                    f"contract; route it again: route_breakout.py route {n}")
         out.append(r)
     return out
 
@@ -344,10 +394,27 @@ def check_committed(files: dict[int, Path]) -> None:
         f"git, or rebuild from a clean board.")
 
 
-def write_outputs(built: Path, nets: list[str], files: dict[int, Path], through: int) -> None:
+def contract_of(results: list[RouteResult]) -> dict[str, list[str]]:
+    """The stage contract of the stages replayed: complete, touched and due, each the union
+    over the stages."""
+    return {"complete": sorted({n for r in results for n in r.complete_nets()}),
+            "touched": sorted({n for r in results for n in r.copper_nets()}),
+            "due": sorted({d for r in results for d in r.due})}
+
+
+def _lines(xs) -> str:
+    return "".join(x + "\n" for x in xs)
+
+
+def write_outputs(built: Path, contract: dict, files: dict[int, Path], through: int) -> None:
     ROUTES.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(built, BOARD)
-    ROUTED_NETS.write_text("".join(n + "\n" for n in nets))
+    COMPLETE_NETS.write_text(_lines(contract["complete"]))
+    TOUCHED_NETS.write_text(_lines(contract["touched"]))
+    DUE.write_text(_lines(contract["due"]))
+    if RETIRED.exists():
+        RETIRED.unlink()
+        say(f"removed {RETIRED.relative_to(ROOT)} (retired: see complete.nets)")
     write_stamp(BOARD, files, through)
     for name in ("breakout.kicad_pro", "breakout.kicad_dru"):
         src, dst = PLACED / name, BREAKOUT / name
@@ -364,9 +431,9 @@ def replay(files: dict[int, Path], placement: str, rules: str, through: int | No
     use = {n: f for n, f in files.items() if through is None or n <= through}
     results = check_fresh(use, placement, rules)
     check_committed(files)
-    nets = sorted({n for r in results for n in r.nets})
-    nets_file = BUILD / "routed.nets"
-    nets_file.write_text("".join(n + "\n" for n in nets))
+    contract = contract_of(results)
+    nets_file = BUILD / "complete.nets"
+    nets_file.write_text(_lines(contract["complete"]))
     built = BUILD / "out" / BOARD.name
     t = time.time()
     got = json.loads(kicad("apply", str(PLACED / BOARD.name), str(built), str(nets_file),
@@ -375,11 +442,13 @@ def replay(files: dict[int, Path], placement: str, rules: str, through: int | No
         os.replace(*promote)
         use = {n: (promote[1] if f == promote[0] else f) for n, f in use.items()}
         say(f"wrote {promote[1].relative_to(ROOT)}")
-    write_outputs(built, nets, use, max(use, default=0))
+    write_outputs(built, contract, use, max(use, default=0))
     stages = ", ".join(use[n].name for n in sorted(use)) or "none"
     say(f"replayed {len(use)} route file(s) ({stages}) in {time.time() - t:.0f} s; "
-        f"wrote {BOARD.relative_to(ROOT)} and {ROUTED_NETS.relative_to(ROOT)}")
-    say(f"connectivity: routed nets {got['routed']} unconnected over {got['nets']} nets; "
+        f"wrote {BOARD.relative_to(ROOT)}, {COMPLETE_NETS.name} "
+        f"({len(contract['complete'])} nets), {TOUCHED_NETS.name} "
+        f"({len(contract['touched'])} nets) and {DUE.name} ({len(contract['due'])} entries)")
+    say(f"connectivity: complete nets {got['routed']} unconnected over {got['nets']} nets; "
         f"whole board {got['board']} unconnected")
     return 0
 
@@ -498,6 +567,13 @@ def search(n: int, mod, placement: str, rules: Rules, earlier: list[RouteResult]
     say(f"stage {n} {mod.NAME}: {len(nets)} nets searched in {time.time() - t:.0f} s")
     pruned, gone = prune_dangling(res, grid.pads, existing=list(earlier) + [obs])
     say(f"pruned: {gone}")
+    # the stage contract (task R2, fix round 1), recorded in the route file
+    c = declared_complete(mod, pruned.nets)
+    unknown = sorted(set(c or []) - set(board_nets))
+    if unknown:
+        raise Refused(f"stage {n}: COMPLETE names {unknown}, which are not nets of the board")
+    pruned.complete = c
+    pruned.due = sorted(set(getattr(mod, "DUE", [])))
     return pruned, failed
 
 

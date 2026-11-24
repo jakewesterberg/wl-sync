@@ -124,7 +124,9 @@ hardware/gen/route/stage.py       Stage, RouteResult, the route-file schema
 hardware/gen/route/stages/sNN_<name>.py   one per stage of routing-brief §3
 hardware/gen/route_breakout.py    the driver (python with numpy; calls KiCad Python, kicad-cli)
 hardware/breakout/routes/stage-NN.json    committed route files
-hardware/breakout/routes/routed.nets      the nets routed through the last stage, one per line
+hardware/breakout/routes/complete.nets    the stage contract (R2 fix round 1), each the union over
+hardware/breakout/routes/touched.nets       the stages built: the nets completed, the nets with
+hardware/breakout/routes/due.txt            copper, and the judge's checks/clauses that must PASS
 tests/hardware/test_route_engine.py       numpy only; runs in CI
 tests/hardware/test_route_breakout.py     needs KiCad; skipped in CI
 ```
@@ -286,6 +288,9 @@ is in the NI or Intan island.
     writes `routes/stage-NN.json`, then builds.
   - Both commands write `hardware/breakout/breakout.kicad_pcb`, `routes/routed.nets` and
     print the connectivity count over the routed nets and over the whole board.
+    *(Amended in R2 fix round 1, 2026-11-24: `routed.nets` listed every touched net, zones
+    included, which made a plane net look complete. It is retired for `routes/complete.nets`,
+    `routes/touched.nets` and `routes/due.txt`; see the stage interface below.)*
   - Build directory: `build/route/` (git-ignored).
 
 - [ ] **Step 1: Write the failing tests** in `tests/hardware/test_route_breakout.py`
@@ -358,6 +363,9 @@ the ordinary nets of R12, with ours for the constrained stages.
   keep their meanings:
   - exit 0: gates and checks PASS, N/A or PENDING, or named waivers;
   - exit 2: a bad argument.
+- *Amended in fix round 1 (2026-11-24):* the judge takes the stage contract,
+  `--complete-nets routes/complete.nets` (`--routed-nets` is kept as its old name) with
+  `touched.nets` and `due.txt` beside it; see the stage interface under "The stage tasks".
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_partial_connectivity_counts_listed_nets`: on the placed board, with one net
@@ -394,7 +402,8 @@ Every stage task follows the same protocol. Only the table row below differs.
 **Files:**
 - Create: `hardware/gen/route/stages/sNN_<name>.py`, `hardware/breakout/routes/stage-NN.json`
 - Modify: `hardware/breakout/breakout.kicad_pcb`, `hardware/breakout/drc.rpt`,
-  `routes/routed.nets`; on a nudge, `gen_breakout_pcb.py` `ANCHORS` and `placement.md` §7
+  `routes/complete.nets`, `routes/touched.nets`, `routes/due.txt`; on a nudge,
+  `gen_breakout_pcb.py` `ANCHORS` and `placement.md` §7
 
 **Interfaces:** a stage module defines:
 - `STAGE: int`, `NAME: str`;
@@ -402,7 +411,25 @@ Every stage task follows the same protocol. Only the table row below differs.
 - `zones() -> list[dict]`;
 - `layers(net: str) -> tuple[str, ...]`;
 - `order(nets) -> list[str]`;
-- `fixed() -> list[dict]`.
+- `fixed() -> list[dict]`;
+- optionally `route(ctx)`, to route its nets itself;
+- `COMPLETE`, a list or a function `complete(nets)` of the nets the stage touched: the nets
+  this stage completes, every pad joined. The default is the nets the stage routes with
+  tracks or vias of its own (the default loop, `route(ctx)` or `fixed()`); a zone never
+  completes a net. A stage that only extends a net (R4 joining `D3` to the `+5V` plane)
+  declares it, leaving that net out;
+- `DUE`: exactly the IDs of the row's "The judge must PASS" column, as check IDs (`S-7`)
+  or check/clause keys (`G-1/overlap`; the judge prints each clause's key).
+
+*(The contract amended in R2 fix round 1, 2026-11-24.)* The driver records `COMPLETE` and
+`DUE` in the route file and writes `routes/complete.nets`, `routes/touched.nets` (every net
+with copper) and `routes/due.txt`, each the union over the stages built. The judge, run as
+`judge_layout.py BOARD --complete-nets routes/complete.nets` (touched.nets and due.txt read
+beside it): CONNECTIVITY and DRC's `unconnected_items` count the complete nets only; a due
+check or clause is judged on the copper present and anything but PASS fails the run; a
+requirement that is not due waits, PENDING, until its nets are complete; prohibitions are
+always judged on all the copper; copper on a net in neither list fails. A due item stays due
+at every later stage. R13 runs the judge with no flags, so nothing can stay PENDING.
 
 The driver does the rest. Later stages see earlier copper only as obstacles. They never rip
 it up.
@@ -410,9 +437,12 @@ it up.
 - [ ] **Step 1: Write the stage's acceptance test** in
   `tests/hardware/test_route_breakout.py`, named `test_stage_NN_<name>`. It asserts, on the
   committed board:
-  - the routed-nets connectivity is 0;
-  - the judge with `--routed-nets` exits 0, and every check the row names is PASS, not
-    PENDING;
+  - the stage module's `DUE` is exactly the row's "The judge must PASS" column;
+  - the connectivity over `routes/complete.nets` is 0;
+  - the judge with `--complete-nets routes/complete.nets --allow-not-checked G-1` exits 0,
+    which holds every entry of `routes/due.txt` at PASS (a due item that is anything else
+    fails the run). G-1 is waived at every stage because its mounting-hardware clause is
+    NOT CHECKED on any board; its plane clause, `G-1/overlap`, is due from R3;
   - the row's metric bounds hold.
 - [ ] **Step 2: Run it and see it fail** (no stage file yet).
 - [ ] **Step 3: Write the stage module**, then run `route_breakout.py route NN`. Iterate
@@ -427,22 +457,41 @@ it up.
   - the metrics table: vias; signal mm on In1.Cu and In2.Cu; plane islands and narrowest
     neck; routed length / MST; vias in pads.
 - [ ] **Step 5: Run `route_breakout.py build` twice and confirm the bytes are identical.**
-  Then commit the stage module, the route file, the board, `drc.rpt` and `routed.nets`:
+  Then commit the stage module, the route file, the board, `drc.rpt` and the three contract
+  files:
   `hw: route stage NN <name> (task RK)`.
+
+The "The judge must PASS" column is the stage module's `DUE`, verbatim (amended to clause
+level in R2 fix round 1, so that every row can pass).
 
 | Task | Stage (§3) | Nets and rules | The judge must PASS | Bounds |
 |---|---|---|---|---|
-| R3 | 1–2, fences and planes | every plane net, on In1.Cu (the four grounds, S-6) and In2.Cu (rails, S-7); G-9 | S-7, G-1 (plane part), G-3 | each plane fill one piece; narrowest neck ≥ 2.0 mm [engineering judgment; the trial's better board had 2.5] |
-| R4 | 3, star and inlet | G-1 to G-8, G-14, G-15, P-1, P-2, N-1 to N-3; `P5_RAW`, `FAN_12V_RAW` across the split | G-1, G-3 to G-6, N-1, N-2, G-10 so far | nothing narrower than 2 mm joins `NT1` (G-8, by measurement in the report) |
-| R5 | 4, the barrier parts | B-12, B-13, P-3, P-7 to P-10, K-34, K-35, G-6; J2's and J3's escapes | B-13, B-13-ALL, K-35, P-8 | vias in pads 0; every opto output by its J2 window |
+| R3 | 1–2, fences and planes | every plane net, on In1.Cu (the four grounds, S-6) and In2.Cu (rails, S-7); G-9 | `S-7` (all three clauses: layer, region, and every plane poured), `G-1/overlap`, `G-3` | each plane fill one piece; narrowest neck ≥ 2.0 mm [engineering judgment; the trial's better board had 2.5] |
+| R4 | 3, star and inlet | G-1 to G-8, G-14, G-15, P-1, P-2, N-1 to N-3; `P5_RAW`, `FAN_12V_RAW` across the split | `G-1/overlap`, `G-3`, `G-4`, `G-5`, `G-6`, `N-1`, `N-2`, `G-10/foreign`, `G-10/once`, `G-10/stretch` | nothing narrower than 2 mm joins `NT1` (G-8, by measurement in the report) |
+| R5 | 4, the barrier parts | B-12, B-13, P-3, P-7 to P-10, K-34, K-35, G-6; J2's and J3's escapes | `B-13`, `B-13-ALL`, `K-35/joined`, `P-8` | vias in pads 0; every opto output by its J2 window |
 | R6 | 5, the Intan supply chain | P-4 to P-6, `ISO_PWR` nets, N-12 | P-5, P-8 | P-6's vias under `U3`/`U4` pad 9 present |
 | R7 | 6, the barcode family | K-1 to K-10 | K-2, K-4 | each barcode net ≤ 1.5× MST |
-| R8 | 7, the split crossings | G-10, G-11 (46 nets), B-17, B-18 (16 mux/sense traces) | G-10, G-11, B-16, B-18 | one corridor; every G-11 net crosses once |
-| R9 | 8, the analog front ends | K-11 to K-23; guard rings; the BNC pairs | K-23, K-33 | no via on `A_PD*_CLAMP` |
-| R10 | 9, the analog distribution | K-18 to K-22, G-16, G-17; the 16 `A_*` nets, AISENSE, audio | G-16, G-17 | |
-| R11 | 10, comparators, thresholds, I²C, USB | K-24 to K-31, N-9 | N-9 | USB pair matched within 1.0 mm, coupled 80 % |
-| R12 | 11, the remaining digital nets | K-32 to K-37, G-23; the `J3` and `J45` escapes | N-4, K-2 again | record the K-32 buffer lengths (Open question 9) |
-| R13 | 12–13, rails, fan, silkscreen, final | N-6, G-24, N-3, P-14, M-20; then `routing-brief.md` §7 items 1 to 6 | the judge **without** `--routed-nets`: exit 0 with `--allow-not-checked` limited to what §7 names | connectivity 0; DRC 0 + 24 `silk_edge_clearance`; parity 30 warnings and no error; renders for V-4 |
+| R8 | 7, the split crossings | G-10, G-11 (46 nets), B-17, B-18 (16 mux/sense traces) | `G-10` (whole: G-11's list is its `G-10/all-cross` clause, every G-11 net crossing), `B-16`, `B-18` | one corridor; every G-11 net crosses once |
+| R9 | 8, the analog front ends | K-11 to K-23; guard rings; the BNC pairs | `K-23/length`, `K-23/vias`, `K-33` | no via on `A_PD*_CLAMP` |
+| R10 | 9, the analog distribution | K-18 to K-22, G-16, G-17; the 16 `A_*` nets, AISENSE, audio | `G-16`, `G-17` | |
+| R11 | 10, comparators, thresholds, I²C, USB | K-24 to K-31, N-9 | `N-9` | USB pair matched within 1.0 mm, coupled 80 % |
+| R12 | 11, the remaining digital nets | K-32 to K-37, G-23; the `J3` and `J45` escapes | `N-4` (`K-2` is due from R7 and stays due) | record the K-32 buffer lengths (Open question 9) |
+| R13 | 12–13, rails, fan, silkscreen, final | N-6, G-24, N-3, P-14, M-20; then `routing-brief.md` §7 items 1 to 6 | the judge **without** `--complete-nets`: exit 0 with `--allow-not-checked` limited to what §7 names | connectivity 0; DRC 0 + 24 `silk_edge_clearance`; parity 30 warnings and no error; renders for V-4 |
+
+Notes on the column (R2 fix round 1):
+
+- G-1 is never due whole: its mounting-hardware clause is NOT CHECKED on any board, so
+  every stage run waives G-1 (`--allow-not-checked G-1`), and its plane clause
+  `G-1/overlap` is due from R3.
+- R5's K-35 is `K-35/joined` only. Its other clause, `K-35/other-part` (U65, an ACSL-6420,
+  whose isolated supply pins K-35 does not name and no source pairs), is NOT CHECKED once
+  judged. It is not due, and its nets (the opto supplies, plane nets) are complete only on
+  the final board, so it stays PENDING through R12 and needs no waiver there. R13 waives
+  K-35 by name (`--allow-not-checked G-1,K-23,K-35,N-10`, routing-brief §7).
+- R9's K-23 leaves out `K-23/block` (a 2-gang block moved by hand), NOT CHECKED on any
+  board; R13 waives K-23.
+- G-10 at R4 is its three prohibitions; at R8 it is whole, the corridor and every G-11
+  crossing included, on the copper present.
 
 R13 also updates `placement.md` (every nudge), the `hardware/README.md` counts, and
 `routing-brief.md` §6 (closed items). It records which "by eye" items of §7 item 5 the

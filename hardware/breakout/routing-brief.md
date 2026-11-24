@@ -37,7 +37,8 @@ holes, task R0), and the IO Board's outline on User.Comments. **It has no track,
 kicad-cli sch export netlist --format kicadsexpr \
     -o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch
 python hardware/gen/route_breakout.py build        # a Python with numpy; writes the board,
-                                                   # routes/routed.nets and routes/built.json
+                                                   # routes/built.json and the stage contract
+                                                   # (complete.nets, touched.nets, due.txt)
 python3 hardware/gen/check_breakout_placement.py
 ```
 
@@ -48,7 +49,8 @@ checkers. `breakout.net` is not committed.
 rebuild with the driver** (task R1b). `python hardware/gen/route_breakout.py build` runs
 `gen_breakout_pcb.py --out build/route/placed`, replays the committed route files
 `hardware/breakout/routes/stage-NN.json` onto that placement with no search, and writes
-this board and `routes/routed.nets`; `route_breakout.py route N` routes stage N on top of
+this board, `routes/complete.nets`, `routes/touched.nets` and `routes/due.txt` (the stage
+contract, §7's partial mode); `route_breakout.py route N` routes stage N on top of
 the stages before it, writes its route file, then builds. The commands above are how the
 placement was first made: do not run the generator into `hardware/breakout/` now. Nobody
 edits copper in pcbnew; a hand fix goes into its stage module's `fixed()`, and `route N`
@@ -491,7 +493,7 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
     hardware/gen/judge_layout.py hardware/breakout/breakout.kicad_pcb \
     [--baseline UNROUTED.kicad_pcb] [--reference REF.kicad_pcb] \
     [--nets NETS.txt --region x0,y0,x1,y1] [--json OUT.json] [--kicad-happy] \
-    [--allow-not-checked ID,ID,...] [--routed-nets routes/routed.nets]
+    [--allow-not-checked ID,ID,...] [--complete-nets routes/complete.nets]
 ```
 
 - **Layer 1, gates:** DRC with `--severity-all`, on a copy staged as `breakout.kicad_pcb`
@@ -523,34 +525,42 @@ person, once, before fab. Run it with KiCad's own Python, from the repository ro
   Its return-path figures are re-measured on the adjacent plane: with no stack-up in the
   board file it samples the opposite outer layer instead.
 
-**Partial mode, `--routed-nets FILE`** (task R2). A board routed through stage N is judged on
-the nets routed so far: `routes/routed.nets`, one net per line, which `route_breakout.py`
-writes. A listed net is taken as routed complete. Each layer-2 check, and each of its
-clauses, is printed with its class:
+**Partial mode, the stage contract** (task R2, amended in its fix round 1). A board routed
+through stage N is judged against three lists `route_breakout.py` writes, each the union over
+the stages built: `routes/complete.nets` (the nets the stages complete, every pad joined: by
+default those a stage routes with tracks or vias, never by a zone alone), `routes/touched.nets`
+(every net with copper) and `routes/due.txt` (each stage module's `DUE`: check IDs, or
+check/clause keys such as `G-1/overlap`). Run the judge with
+`--complete-nets routes/complete.nets`; it reads the other two beside it (`--touched-nets`,
+`--due` to name others; `--routed-nets` is the old name). Each layer-2 check, and each of its
+clauses, is printed with its key and its class:
 
 - a **prohibition**, which any copper present can break (G-10's foreign crossings, K-2,
-  P-8's and K-11's no-via, N-16, B-16), is judged on the copper present, listed or not;
+  P-8's and K-11's no-via, N-16, B-16), is judged on all the copper, on any net;
 - a **requirement**, which needs copper to exist (N-4's pins, B-18's pairs, K-35's joined
-  bypass, N-1/N-2's widths along a path, N-10's squares, every SHORT ratio, G-10's one
-  corridor), is `PENDING` until every net it needs is listed. A `PENDING` clause prints what
-  it found so far and the nets it waits on; a `PENDING` check does not count against the
-  exit code.
+  bypass, N-1/N-2's widths along a path, N-10's squares, every SHORT ratio, G-10's corridor
+  and every G-11 net crossing, S-7's every plane poured), is `PENDING` until every net it
+  needs is complete, unless it is due. A `PENDING` clause prints what it found so far and
+  the nets it waits on, and does not count against the exit code;
+- a **due** check or clause is judged on the copper present, and anything but `PASS`, `N/A`
+  included, fails the run.
 
-The judge's `CLASSES` table holds the class of every clause and why. In partial mode
-CONNECTIVITY counts the listed nets' unrouted connections (the whole board's count is
-printed beside it), and DRC sets aside an `unconnected_items` entry only when every item in
-it is on an unlisted net; every other class keeps the accepted 24 `silk_edge_clearance`.
-DRC lists at most 499 `unconnected_items`, so the CONNECTIVITY count is the complete one.
-Without the flag nothing is ever `PENDING`. G-1's mounting-hardware clause is `NOT CHECKED`
-at every stage, so a stage's run that must exit 0 names G-1 in `--allow-not-checked`, as the
-final run does. A check that holds both classes is `PENDING` while any requirement of it
-waits, so "G-10 so far" is read from its prohibition clauses. On the committed, unrouted
-board an empty `--routed-nets` file exits 1 on G-1 alone (and FIXED, when the reference is
-the board itself): DRC and connectivity pass, and every requirement is `PENDING`.
+CONNECTIVITY counts the complete nets' unrouted connections (the whole board's count is
+printed beside it); DRC sets aside an `unconnected_items` entry only when every item in it
+is on a net that is not complete, and every other class keeps the accepted 24
+`silk_edge_clearance` (DRC lists at most 499 `unconnected_items`, so the CONNECTIVITY count
+is the complete one); the NET-LISTS gate fails copper on a net in neither list. A SHORT
+ratio on a net whose pads are not all joined is a lower bound: over 1.5 it FAILs, under it
+it is NOT CHECKED, never PASS, in either mode. Without `--complete-nets` everything is
+judged and nothing is ever `PENDING`. G-1's mounting-hardware clause is `NOT CHECKED` on
+every board, so a stage run waives G-1 (`--allow-not-checked G-1`) and makes `G-1/overlap`
+due. On the committed, unrouted board, empty lists exit 1 on G-1 alone: DRC, connectivity
+and NET-LISTS pass, and every requirement is `PENDING`.
 
 Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A` (or `PENDING`, in
-partial mode); 2 on a bad argument, such as a `--routed-nets` name that is not a net of the
-board, or `--routed-nets` with `--nets`/`--region`. A rule check's `NOT CHECKED` counts
+partial mode); 2 on a bad argument, such as a name in the lists that is not a net of the
+board, a `due.txt` entry that is neither a check ID nor a clause key, or `--complete-nets`
+with `--nets`/`--region`. A rule check's `NOT CHECKED` counts
 against it unless that check's ID is named in `--allow-not-checked`; a
 `FAIL` is never waived, and no gate (DRC, connectivity, placement, region) can be named.
 `--skip-drc` is for development only: a run that uses it never exits 0. The summary lists

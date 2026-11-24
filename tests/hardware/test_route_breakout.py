@@ -73,6 +73,8 @@ def kicad(code: str, *args: str) -> str:
 
 
 BOARD_PCB = Path("hardware/breakout/breakout.kicad_pcb")
+# the stage contract the driver writes for the judge (task R2, fix round 1)
+CONTRACT = ("complete.nets", "touched.nets", "due.txt")
 PLACED_PCB = Path("build/route/placed/breakout.kicad_pcb")
 
 FOOTPRINTS = r'''
@@ -126,7 +128,7 @@ b.Save(sys.argv[1])
 
 
 def connectivity(out: str) -> tuple[int, int]:
-    m = re.search(r"connectivity: routed nets (\d+) unconnected .*; whole board (\d+) "
+    m = re.search(r"connectivity: complete nets (\d+) unconnected .*; whole board (\d+) "
                   r"unconnected", out)
     assert m, out
     return int(m.group(1)), int(m.group(2))
@@ -141,13 +143,15 @@ def hashes(tree: Path) -> tuple[str, str]:
             Rules.load(placed.parent).sha256)
 
 
-def write_stage(tree: Path, n: int, **copper) -> Path:
+def write_stage(tree: Path, n: int, complete=None, due=(), **copper) -> Path:
     place, rules = hashes(tree)
     d = {"stage": n, "name": "test", "placement_sha256": place, "rules_sha256": rules,
          "nets": sorted({c["net"] for k in ("tracks", "vias", "zones")
                          for c in copper.get(k, [])}),
          "tracks": copper.get("tracks", []), "vias": copper.get("vias", []),
-         "zones": copper.get("zones", []), "fixed": []}
+         "zones": copper.get("zones", []), "fixed": [], "due": list(due)}
+    if complete is not None:
+        d["complete"] = list(complete)
     p = tree / "hardware" / "breakout" / "routes" / f"stage-{n:02d}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(d, indent=1, sort_keys=True) + "\n")
@@ -180,7 +184,10 @@ def test_build_with_no_stages_is_placement(base):
     assert len(built["footprints"]) == 577
     assert built["footprints"] == placed["footprints"]
     assert built["copper"] == [] and placed["copper"] == []
-    assert (tree / "hardware" / "breakout" / "routes" / "routed.nets").read_text() == ""
+    routes = tree / "hardware" / "breakout" / "routes"
+    for f in CONTRACT:
+        assert (routes / f).read_text() == ""
+    assert not (routes / "routed.nets").exists()
 
 
 def test_committed_board_is_the_build(base):
@@ -189,9 +196,10 @@ def test_committed_board_is_the_build(base):
     tree, p = base
     assert p.returncode == 0, p.stdout + p.stderr
     assert (tree / BOARD_PCB).read_bytes() == (REPO / BOARD_PCB).read_bytes()
-    for f in ("routed.nets", "built.json"):
+    for f in CONTRACT + ("built.json",):
         committed = REPO / "hardware" / "breakout" / "routes" / f
         assert committed.read_text() == (tree / "hardware/breakout/routes" / f).read_text()
+    assert not (REPO / "hardware" / "breakout" / "routes" / "routed.nets").exists()
 
 
 def test_rebuild_is_byte_identical(tree):
@@ -255,12 +263,12 @@ def test_a_comment_in_the_rules_is_not_stale(tree):
 def test_refuses_unreplayed_copper(tree):
     kicad(ADD_TRACK, str(tree / BOARD_PCB))
     before = (tree / BOARD_PCB).read_bytes()
-    nets = (tree / "hardware" / "breakout" / "routes" / "routed.nets").read_bytes()
+    nets = (tree / "hardware" / "breakout" / "routes" / "complete.nets").read_bytes()
     p = drive(tree, "build")
     assert p.returncode == 1, p.stdout + p.stderr
     assert "REFUSED: hand edits" in p.stdout and "tracks (0 -> 1)" in p.stdout
     assert (tree / BOARD_PCB).read_bytes() == before
-    assert (tree / "hardware" / "breakout" / "routes" / "routed.nets").read_bytes() == nets
+    assert (tree / "hardware" / "breakout" / "routes" / "complete.nets").read_bytes() == nets
 
 
 EDITS = {
@@ -315,7 +323,10 @@ def test_route_file_roundtrip(tree):
     want = [{"net": NET, "layer": "F.Cu", "width": 0.25, "pts": [a, b]}
             for a, b in zip(TRACK["pts"], TRACK["pts"][1:])]
     assert sorted(got, key=json.dumps) == sorted(want, key=json.dumps)
-    assert (tree / "hardware/breakout/routes/routed.nets").read_text() == NET + "\n"
+    routes = tree / "hardware/breakout/routes"
+    assert (routes / "complete.nets").read_text() == NET + "\n"   # a track completes it
+    assert (routes / "touched.nets").read_text() == NET + "\n"
+    assert (routes / "due.txt").read_text() == ""
     routed, _board = connectivity(p.stdout)
     assert routed == 0
 
@@ -499,3 +510,59 @@ def test_extract_writes_the_obstacle_schema(base, tmp_path):
     assert d["mh"] == 8                                     # H3 to H10 (M-16)
     assert d["ties"] == ["NT1", "NT2", "NT3", "NT4"]        # the net ties' copper bars
     assert d["pads"] > 2500
+
+
+DGND_ZONE = {"net": "DGND", "layer": "In1.Cu", "name": "test_DGND",
+             "outline": [[100.0, 20.0], [140.0, 20.0], [140.0, 40.0], [100.0, 40.0]],
+             "priority": 0, "connect": "thermal", "min_width": 0.25}
+RWD = {"net": "RWD_BTN", "layer": "F.Cu", "width": 0.25, "pts": [[28.0, 28.0], [31.0, 28.0]]}
+
+
+def contract_files(tree: Path) -> dict:
+    routes = tree / "hardware" / "breakout" / "routes"
+    return {f: (routes / f).read_text().split() for f in CONTRACT}
+
+
+def test_the_stage_contract_for_two_stages(tree):
+    """R2 fix round 1: complete.nets, touched.nets and due.txt are the union over the stages
+    replayed. Stage 1 track-routes NET (complete by default) and pours DGND (a zone never
+    completes a net); stage 2 declares its RWD_BTN track complete and adds two DUE entries."""
+    write_stage(tree, 1, tracks=[TRACK], zones=[DGND_ZONE], due=["S-7"])
+    write_stage(tree, 2, tracks=[RWD], complete=["RWD_BTN"], due=["G-1/overlap", "S-7"])
+    p = drive(tree, "build")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert contract_files(tree) == {"complete.nets": sorted([NET, "RWD_BTN"]),
+                                    "touched.nets": sorted([NET, "DGND", "RWD_BTN"]),
+                                    "due.txt": ["G-1/overlap", "S-7"]}
+    assert "complete.nets (2 nets), touched.nets (3 nets) and due.txt (2 entries)" in p.stdout
+    p = drive(tree, "build", "--through", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert contract_files(tree) == {"complete.nets": [NET], "touched.nets": sorted([NET, "DGND"]),
+                                    "due.txt": ["S-7"]}
+    # a stage that only pours: nothing complete
+    for f in (tree / "hardware/breakout/routes").glob("stage-*.json"):
+        f.unlink()
+    write_stage(tree, 1, zones=[DGND_ZONE])
+    assert drive(tree, "build").returncode == 0
+    assert contract_files(tree) == {"complete.nets": [], "touched.nets": ["DGND"], "due.txt": []}
+
+
+def test_route_records_the_module_contract(tree):
+    """`route N` records the module's DUE and COMPLETE in the route file; a module whose
+    DUE has changed since is refused at build, by name, until the stage is routed again."""
+    pytest.importorskip("numpy")
+    f = probe(tree)
+    f.write_text(f.read_text() + '\nDUE = ["K-2", "G-1/overlap"]\nCOMPLETE = []\n')
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    d = json.loads((tree / STAGE_01).read_text())
+    assert (d["due"], d["complete"]) == (["G-1/overlap", "K-2"], [])
+    assert contract_files(tree) == {"complete.nets": [], "touched.nets": [NET],
+                                    "due.txt": ["G-1/overlap", "K-2"]}
+    f.write_text(f.read_text().replace('DUE = ["K-2", "G-1/overlap"]', 'DUE = ["K-2"]'))
+    p = drive(tree, "build")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "stage-01.json's DUE is not what stage 1's module now declares" in p.stdout, p.stdout
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert contract_files(tree)["due.txt"] == ["K-2"]

@@ -1881,7 +1881,7 @@ the git-ignored `build/route/placed/` and replays the committed route files
 is not what it last wrote (`routes/built.json`).
 
 ```bash
-python hardware/gen/route_breakout.py build                          # a Python with numpy, KiCad installed: gen_breakout_pcb.py --out build/route/placed (reads breakout.net and netlist-contract.json, refuses if they disagree), then the route files replayed and the zones filled; writes breakout.kicad_pcb, routes/routed.nets, routes/built.json, and breakout.kicad_pro / breakout.kicad_dru if the generator's differ
+python hardware/gen/route_breakout.py build                          # a Python with numpy, KiCad installed: gen_breakout_pcb.py --out build/route/placed (reads breakout.net and netlist-contract.json, refuses if they disagree), then the route files replayed and the zones filled; writes breakout.kicad_pcb, routes/built.json, the stage contract (routes/complete.nets, touched.nets, due.txt), and breakout.kicad_pro / breakout.kicad_dru if the generator's differ
 python3 hardware/gen/check_breakout_placement.py                     # on the written file: the generator checks its own text, and only this checks what pcbnew made of it
 kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
 ```

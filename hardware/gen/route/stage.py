@@ -183,6 +183,25 @@ class RouteResult:
     vias: list = field(default_factory=list)
     zones: list = field(default_factory=list)
     fixed: list = field(default_factory=list)
+    # The stage contract (task R2, fix round 1). `complete`: the nets this stage completes,
+    # every pad joined (None in a route file from before it: the default below). `due`: the
+    # judge's check IDs or check/clause keys that must PASS from this stage on.
+    complete: list | None = None
+    due: list = field(default_factory=list)
+
+    def track_nets(self) -> set:
+        """Nets this stage routes with tracks or vias of its own (search or fixed())."""
+        return ({t["net"] for t in self.tracks} | {v["net"] for v in self.vias}
+                | {(f.get("track") or f.get("via"))["net"] for f in self.fixed})
+
+    def copper_nets(self) -> set:
+        """Every net this stage puts copper on: tracks, vias, fixed pieces and zones."""
+        return self.track_nets() | {z["net"] for z in self.zones}
+
+    def complete_nets(self) -> list:
+        """The nets this stage completes: as declared, else the nets it track-routes. A
+        zone never completes a net."""
+        return sorted(self.track_nets()) if self.complete is None else sorted(self.complete)
 
     def _net(self, n):
         if n not in self.nets:
@@ -220,7 +239,8 @@ class RouteResult:
         return {"stage": int(self.stage), "name": self.name,
                 "placement_sha256": self.placement_sha256, "rules_sha256": self.rules_sha256,
                 "nets": sorted(set(self.nets)), "tracks": tracks, "vias": vias,
-                "zones": zones, "fixed": fixed}
+                "zones": zones, "fixed": fixed, "complete": self.complete_nets(),
+                "due": sorted(set(self.due))}
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), indent=1, sort_keys=True) + "\n"
@@ -234,6 +254,8 @@ class RouteResult:
         r.vias = [norm_via(v) for v in d["vias"]]
         r.zones = [norm_zone(z) for z in d["zones"]]
         r.fixed = list(d.get("fixed", []))
+        r.complete = list(d["complete"]) if d.get("complete") is not None else None
+        r.due = list(d.get("due", []))
         return r
 
 
