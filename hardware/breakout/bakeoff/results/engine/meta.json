@@ -9,5 +9,6 @@
   "setup": "a hand-written stage, engine/stage_ni.py (344 lines): R1a's port of the Opus NI-trial router's plan, adjusted on this island, each adjustment out of a failure (task-R1a-report.md, 'The NI island regression' and concern 2). Authoring time not recorded; R1a's scratch files are dated 09:05 to 10:53 on 2026-11-24, shared with the engine's own development",
   "hand_plan": "OPTOS pin/capacitor/pull-up table; NI_5V stubs J45 pins 8, 14 to y 227.6; In2.Cu signal only under J45 (y >= 226); pins 11-14 by F.Cu stub to a via within +/-0.06 mm of the pin's line; pin 16 to its bypass on F.Cu; BARCODE_NI after U60's pull-ups; exits to x < 57; L-shaped join corridors (x <= 50, widening 1.5/4/10 mm); B-13 fences and clipped straddler terminals; phase order; plane rectangles",
   "load_average": "{ 17.08 15.42 14.82 }",
-  "notes": "extract 1 s, route 60 s, apply and fill 1 s"
+  "notes": "extract 1 s, route 60 s, apply and fill 1 s",
+  "rules_sha256_note": "route-ni.json's rules_sha256 (7e80532e5779...) is by the definition of Rules.sha256 before task R1b (sha256 of the package's .kicad_dru and whole .kicad_pro bytes). R1b fix round 1 redefined it (the parsed .kicad_dru, net_settings and the board-level rules), so a re-run of run.sh records a different value for the same rules. Nothing replays this file; it is graded as it stands."
 }

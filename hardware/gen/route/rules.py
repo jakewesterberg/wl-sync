@@ -338,9 +338,19 @@ def parse_dru(text: str) -> list[Rule]:
     return rules
 
 
-def rules_json(net_settings: dict) -> bytes:
-    """The .kicad_pro's net_settings as canonical JSON bytes, for `Rules.sha256`."""
-    return json.dumps(net_settings, sort_keys=True, separators=(",", ":")).encode()
+def rules_digest(dru_text: str, net_settings: dict, board: dict) -> str:
+    """`Rules.sha256`: what the engine reads, not the files' bytes. The .kicad_dru's rules
+    as parsed (comments and layout do not count), the .kicad_pro's net_settings, and the
+    effective board-level rules after KiCad's defaults (all of KICAD_DEFAULTS' keys), each
+    as canonical JSON. A route file records it as rules_sha256 (task R1b), and the driver
+    refuses to replay one recorded under other rules."""
+    digest = hashlib.sha256()
+    for name, data in (("breakout.kicad_dru rules", _sexpr(dru_text)),
+                       ("breakout.kicad_pro net_settings", net_settings),
+                       ("board rules", {k: float(board[k]) for k in sorted(KICAD_DEFAULTS)})):
+        digest.update(name.encode() + b"\0" +
+                      json.dumps(data, sort_keys=True, separators=(",", ":")).encode() + b"\0")
+    return digest.hexdigest()
 
 
 # ---- the rules --------------------------------------------------------------------------
@@ -350,10 +360,9 @@ class Rules:
     patterns: list                    # [(netclass, pattern)] in file order
     rules: list                       # [Rule] in file order
     board: dict                       # min_copper_edge_clearance etc., mm
-    # sha256 of breakout.kicad_dru's bytes and the .kicad_pro's net_settings (canonical
-    # JSON), not of the whole .kicad_pro, which pcbnew rewrites for reasons that are not
-    # rules. A route file records it as rules_sha256 (task R1b), and the driver refuses to
-    # replay one recorded under other rules.
+    # rules_digest(): the parsed .kicad_dru, net_settings and the effective board dict,
+    # not the files' bytes (a comment, or a .kicad_pro setting that is no rule, does not
+    # change it). A route file records it as rules_sha256 (task R1b).
     sha256: str
     source: Path | None = None
     _cache: dict = field(default_factory=dict, repr=False)
@@ -382,12 +391,9 @@ class Rules:
         board.update({k: float(v) for k, v in
                       pro.get("board", {}).get("design_settings", {}).get("rules", {}).items()
                       if k in KICAD_DEFAULTS})
-        digest = hashlib.sha256()
-        for name, data in (("breakout.kicad_dru", dru_b),
-                           ("breakout.kicad_pro net_settings", rules_json(ns))):
-            digest.update(name.encode() + b"\0" + data + b"\0")
-        return cls(classes, patterns, parse_dru(dru_b.decode()), board, digest.hexdigest(),
-                   breakout_dir)
+        dru_text = dru_b.decode()
+        return cls(classes, patterns, parse_dru(dru_text), board,
+                   rules_digest(dru_text, ns, board), breakout_dir)
 
     # -- net classes --------------------------------------------------------------------------
     def netclass(self, net: str) -> str:

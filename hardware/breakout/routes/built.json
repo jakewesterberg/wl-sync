@@ -1,0 +1,23 @@
+{
+ "board": "breakout.kicad_pcb",
+ "counts": {
+  "copper drawings": 0,
+  "footprints": 577,
+  "other": 15,
+  "tracks": 0,
+  "vias": 0,
+  "zones": 17
+ },
+ "digests": {
+  "copper drawings": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "footprints": "08abec2a6e974fd11ac9e588626797307e3cfad88220d1c0e0f6b5ef03cf3526",
+  "other": "890a09dae1117476b74ffd33a8cb974bf9d64979eedf94cf8bace80ec9de6a44",
+  "tracks": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "vias": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "zones": "cb6872b680b5ac066644315b25fbff420bfce724b1900da858c361509dab7740"
+ },
+ "route_files": {},
+ "schema": "wl-sync-route-built",
+ "through": 0,
+ "version": 1
+}

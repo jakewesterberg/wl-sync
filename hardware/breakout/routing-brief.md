@@ -31,13 +31,13 @@ by task R0 on the user's decision of 2026-11-22), every pad on its net, 17 named
 rule areas (the nine barrier and split areas, and `mh_H3` to `mh_H10` round the mounting
 holes, task R0), and the IO Board's outline on User.Comments. **It has no track, no via and no pour.**
 
-**How it was made**, in case it must be remade before routing starts:
+**How it is made** (task R1b): the driver places it and replays the route files.
 
 ```bash
 kicad-cli sch export netlist --format kicadsexpr \
     -o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch
-python3 hardware/gen/gen_breakout_pcb.py
-kicad-cli pcb upgrade hardware/breakout/breakout.kicad_pcb
+python hardware/gen/route_breakout.py build        # a Python with numpy; writes the board,
+                                                   # routes/routed.nets and routes/built.json
 python3 hardware/gen/check_breakout_placement.py
 ```
 
@@ -51,12 +51,15 @@ rebuild with the driver** (task R1b). `python hardware/gen/route_breakout.py bui
 this board and `routes/routed.nets`; `route_breakout.py route N` routes stage N on top of
 the stages before it, writes its route file, then builds. The commands above are how the
 placement was first made: do not run the generator into `hardware/breakout/` now. Nobody
-edits copper in pcbnew; a hand fix goes into its stage's `fixed` list and is replayed.
+edits copper in pcbnew; a hand fix goes into its stage module's `fixed()`, and `route N`
+carries it into the route file.
 Before writing anything, the driver refuses a route file recorded against another
-placement or other rules (re-route that stage), and a committed board carrying copper
-that the route files do not hold. To move a part, move it in the generator (`ANCHORS`,
-`placement.md` §7) and rebuild; each stage routed before the move is then refused until
-it is re-routed.
+placement or other rules (re-route that stage), a route file whose `fixed` is not its
+stage module's `fixed()` (a hand fix goes into the module; route files are generated), and
+a committed board that is not what the driver last wrote (`routes/built.json`: any copper,
+footprint or other edit made in pcbnew). To move a part, move it in the generator
+(`ANCHORS`, `placement.md` §7) and rebuild; each stage routed before the move is then
+refused until it is re-routed.
 
 **What must not move.**
 

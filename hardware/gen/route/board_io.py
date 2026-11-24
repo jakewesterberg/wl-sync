@@ -29,7 +29,8 @@ Command line (the driver, hardware/gen/route_breakout.py, calls these):
     <kicad python> -m hardware.gen.route.board_io copper BOARD OUT.json
 
 `apply` prints one JSON line, {"routed": n, "board": n, "nets": n}: the unrouted-connection
-count over the nets in NETS_FILE (one per line) and over the whole board.
+count over the nets in NETS_FILE (one per line) and over the whole board. A BoardError
+exits 3 with "BoardError: <why>" on stderr, which the driver turns into a refusal.
 """
 from __future__ import annotations
 
@@ -358,4 +359,8 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except BoardError as e:         # a board the engine cannot model: the driver refuses it
+        print(f"BoardError: {e}", file=sys.stderr)
+        raise SystemExit(3)

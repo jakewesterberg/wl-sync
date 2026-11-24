@@ -1873,14 +1873,16 @@ python3 hardware/gen/check_breakout_control_usb_i2c_netlist.py hardware/breakout
 python3 hardware/gen/gen_breakout_netlist_contract.py                # hardware/breakout/netlist-contract.json -- run LAST, once every checker above has passed; commit this file alongside any sheet change (see "Whole-board netlist contract" above)
 ```
 
-For the breakout's board, once the netlist above is exported. **Do this only while the
-board is unrouted**: the generator writes the file whole, and refuses to overwrite a board
-with routed items unless given `--force`.
+For the breakout's board, once the netlist above is exported. The board is a build
+(task R1b; `hardware/breakout/routing-brief.md` §1): the driver runs the generator into
+the git-ignored `build/route/placed/` and replays the committed route files
+`hardware/breakout/routes/stage-NN.json` onto it. Do not run the generator into
+`hardware/breakout/`, and do not edit the board in pcbnew: the driver refuses a board that
+is not what it last wrote (`routes/built.json`).
 
 ```bash
-python3 hardware/gen/gen_breakout_pcb.py                             # breakout.kicad_pcb, and the net classes and rules in breakout.kicad_pro / breakout.kicad_dru; reads breakout.net and netlist-contract.json, and refuses if they disagree
-kicad-cli pcb upgrade hardware/breakout/breakout.kicad_pcb            # see "Format upgrade" below
-python3 hardware/gen/check_breakout_placement.py                     # on the UPGRADED file: the generator checks its own text, and only this checks what pcbnew made of it
+python hardware/gen/route_breakout.py build                          # a Python with numpy, KiCad installed: gen_breakout_pcb.py --out build/route/placed (reads breakout.net and netlist-contract.json, refuses if they disagree), then the route files replayed and the zones filled; writes breakout.kicad_pcb, routes/routed.nets, routes/built.json, and breakout.kicad_pro / breakout.kicad_dru if the generator's differ
+python3 hardware/gen/check_breakout_placement.py                     # on the written file: the generator checks its own text, and only this checks what pcbnew made of it
 kicad-cli pcb drc --severity-all -o hardware/breakout/drc.rpt hardware/breakout/breakout.kicad_pcb
 ```
 
@@ -1890,7 +1892,8 @@ and 24 `silk_edge_clearance`
 (the twelve barrier-straddling parts' own outlines over their slots, which constraints B-21
 accepts); every other class 0. `hardware/breakout/placement.md` §9 has the table. `gen_breakout.py` and the sheet
 generators rewrite `breakout.kicad_pro` as a stub, which drops the net classes: run
-`gen_breakout_pcb.py` after them, or the placement check fails on its item 7.
+`route_breakout.py build` after them (it writes the generator's `breakout.kicad_pro`
+back), or the placement check fails on its item 7.
 
 Regenerating `breakout.kicad_sch` and any of its ten child sheets mints fresh UUIDs on
 every one of their own components too (same byte-reproducibility caveat below), which is

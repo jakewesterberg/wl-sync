@@ -78,7 +78,9 @@ which records the accepted readings in the judge, is folded into Task R2 here.
   - N-9 coupled for 80 % of its length within a 0.4 mm gap;
   - the rest as in `READINGS`.
 - **Copper comes only from the route files.** Nobody edits copper in pcbnew. A hand fix is
-  written into the stage's route file (its `fixed` list) and replayed.
+  written into the stage module's `fixed()`, and the route file carries it (`route N`
+  writes it there; route files are generated and never edited by hand, and `build`
+  refuses one whose `fixed` differs from its module's).
 - **Placement nudges** follow tasks J2 and J3:
   - move only a by-rule part (`placement.md` §7);
   - add it to `ANCHORS` in `gen_breakout_pcb.py`, with the task and the rule each new

@@ -105,6 +105,14 @@ for t in b.GetTracks():
 print(json.dumps(out))
 '''
 
+VIAS = r'''
+import json, sys, pcbnew
+mm = pcbnew.ToMM
+b = pcbnew.LoadBoard(sys.argv[1])
+print(json.dumps([[round(mm(t.GetPosition().x), 4), round(mm(t.GetPosition().y), 4)]
+                  for t in b.GetTracks() if t.GetClass() == "PCB_VIA"]))
+'''
+
 ADD_TRACK = r'''
 import sys, pcbnew
 F = pcbnew.FromMM
@@ -181,8 +189,9 @@ def test_committed_board_is_the_build(base):
     tree, p = base
     assert p.returncode == 0, p.stdout + p.stderr
     assert (tree / BOARD_PCB).read_bytes() == (REPO / BOARD_PCB).read_bytes()
-    committed = REPO / "hardware" / "breakout" / "routes" / "routed.nets"
-    assert committed.read_text() == (tree / "hardware/breakout/routes/routed.nets").read_text()
+    for f in ("routed.nets", "built.json"):
+        committed = REPO / "hardware" / "breakout" / "routes" / f
+        assert committed.read_text() == (tree / "hardware/breakout/routes" / f).read_text()
 
 
 def test_rebuild_is_byte_identical(tree):
@@ -217,17 +226,30 @@ def test_replay_refuses_stale_placement(tree):
 
 
 def test_replay_refuses_stale_rules(tree):
-    """A change to breakout.kicad_dru (here only a comment in it) is a change of rules, and
-    a route file recorded under the old ones is refused (Review Focus 2)."""
+    """A board-level rule in the .kicad_pro (copper to edge) is a rule the engine reads, so
+    a route file recorded under the old value is refused (Review Focus 2; fix round 1, C-1).
+    The generator merges the committed .kicad_pro, so the edit reaches the build."""
     stage = write_stage(tree, 1, tracks=[TRACK])
+    pro = tree / "hardware" / "breakout" / "breakout.kicad_pro"
+    d = json.loads(pro.read_text())
+    d["board"]["design_settings"]["rules"]["min_copper_edge_clearance"] = 0.6
+    pro.write_text(json.dumps(d, indent=2) + "\n")
+    p = drive(tree, "build")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert stage.name in p.stdout and "stale rules" in p.stdout
+
+
+def test_a_comment_in_the_rules_is_not_stale(tree):
+    """A comment in breakout.kicad_dru changes no rule: the route file still replays."""
+    write_stage(tree, 1, tracks=[TRACK])
     gen = tree / "hardware" / "gen" / "gen_breakout_pcb.py"
     line = '"# N-8: 0.2 mm is the floor for every net.",'
     text = gen.read_text()
     assert line in text
     gen.write_text(text.replace(line, '"# N-8: 0.2 mm is the floor for every net (sic).",'))
     p = drive(tree, "build")
-    assert p.returncode == 1, p.stdout + p.stderr
-    assert stage.name in p.stdout and "stale rules" in p.stdout
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert "(sic)" in (tree / "hardware" / "breakout" / "breakout.kicad_dru").read_text()
 
 
 def test_refuses_unreplayed_copper(tree):
@@ -236,9 +258,53 @@ def test_refuses_unreplayed_copper(tree):
     nets = (tree / "hardware" / "breakout" / "routes" / "routed.nets").read_bytes()
     p = drive(tree, "build")
     assert p.returncode == 1, p.stdout + p.stderr
-    assert "copper" in (p.stdout + p.stderr).lower()
+    assert "REFUSED: hand edits" in p.stdout and "tracks (0 -> 1)" in p.stdout
     assert (tree / BOARD_PCB).read_bytes() == before
     assert (tree / "hardware" / "breakout" / "routes" / "routed.nets").read_bytes() == nets
+
+
+EDITS = {
+    # a filled rectangle drawn on B.Cu (fix round 1, I-2: was discarded unseen)
+    "rectangle": r'''
+s = pcbnew.PCB_SHAPE(b); s.SetShape(pcbnew.SHAPE_T_RECT)
+s.SetStart(pcbnew.VECTOR2I(F(200), F(100))); s.SetEnd(pcbnew.VECTOR2I(F(205), F(104)))
+s.SetFilled(True); s.SetLayer(pcbnew.B_Cu); s.SetWidth(F(0.2)); b.Add(s)
+''',
+    # copper text on F.Cu
+    "text": r'''
+t = pcbnew.PCB_TEXT(b); t.SetText("HAND"); t.SetPosition(pcbnew.VECTOR2I(F(200), F(100)))
+t.SetLayer(pcbnew.F_Cu); b.Add(t)
+''',
+    # an arc track (the driver cannot replay one; was a traceback, M-8)
+    "arc": r'''
+a = pcbnew.PCB_ARC(b); a.SetStart(pcbnew.VECTOR2I(F(200), F(100)))
+a.SetMid(pcbnew.VECTOR2I(F(201), F(101))); a.SetEnd(pcbnew.VECTOR2I(F(202), F(100)))
+a.SetWidth(F(0.25)); a.SetLayer(pcbnew.F_Cu); a.SetNet(b.FindNet("DGND")); b.Add(a)
+''',
+    # a footprint moved by hand (fix round 1, M-1)
+    "moved": r'''
+fp = b.FindFootprintByReference("R195")
+fp.SetPosition(pcbnew.VECTOR2I(fp.GetPosition().x + F(0.5), fp.GetPosition().y))
+''',
+}
+WANT = {"rectangle": ("copper drawings (0 -> 1)", "a gr_rect on B.Cu"),
+        "text": ("copper drawings (0 -> 1)", "a gr_text on F.Cu"),
+        "arc": ("tracks (0 -> 1)", "an arc track"),
+        "moved": ("footprints (577 -> 577)", "")}
+
+
+@pytest.mark.parametrize("edit", sorted(EDITS))
+def test_refuses_every_hand_edit(tree, edit):
+    code = ("import sys, pcbnew\nF = pcbnew.FromMM\nb = pcbnew.LoadBoard(sys.argv[1])\n"
+            + EDITS[edit] + "\nb.Save(sys.argv[1])\n")
+    kicad(code, str(tree / BOARD_PCB))
+    before = (tree / BOARD_PCB).read_bytes()
+    p = drive(tree, "build")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "REFUSED: hand edits" in p.stdout and "Traceback" not in p.stdout + p.stderr
+    for w in WANT[edit]:
+        assert w in p.stdout, p.stdout
+    assert (tree / BOARD_PCB).read_bytes() == before
 
 
 def test_route_file_roundtrip(tree):
@@ -264,11 +330,11 @@ def nets(board_nets):
 
 
 def zones():
-    return []
+    return ZONES
 
 
 def layers(net):
-    return ("F.Cu",)
+    return LAYERS
 
 
 def order(nets):
@@ -276,8 +342,107 @@ def order(nets):
 
 
 def fixed():
-    return []
+    return FIXED
+
+
+ZONES = []
+LAYERS = ("F.Cu",)
+FIXED = []
 '''
+FIXED_VIA = {"via": {"net": NET, "at": [116.5, 90.0], "size": 0.6, "drill": 0.3}}
+FIXED_TRACK = {"track": {"net": NET, "layer": "F.Cu", "width": 0.25,
+                         "pts": [[118.0, 87.325], [118.0, 88.5]]}}
+
+
+def probe(tree: Path, **kw) -> Path:
+    """Write the probe stage module, with ZONES, LAYERS or FIXED replaced."""
+    text = PROBE_STAGE
+    for k, v in kw.items():
+        old = {"zones": "ZONES = []", "layers": 'LAYERS = ("F.Cu",)', "fixed": "FIXED = []"}[k]
+        text = text.replace(old, f"{k.upper()} = {v!r}")
+    stages = tree / "hardware" / "gen" / "route" / "stages"
+    stages.mkdir(exist_ok=True)
+    f = stages / "s01_probe.py"
+    f.write_text(text)
+    return f
+
+
+STAGE_01 = Path("hardware/breakout/routes/stage-01.json")
+
+
+def test_reroute_with_changed_copper(tree):
+    """Route, change the plan, route again: the normal loop (fix round 1, C-2). Then the
+    board builds, through 0 and in full."""
+    pytest.importorskip("numpy")
+    probe(tree)
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    probe(tree, zones=[{"net": "DGND", "layer": "In1.Cu", "name": "probe_DGND",
+                        "outline": [[100.0, 20.0], [140.0, 20.0], [140.0, 40.0],
+                                    [100.0, 40.0]],
+                        "priority": 0, "connect": "thermal", "min_width": 0.25}])
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads((tree / STAGE_01).read_text())["zones"][0]["name"] == "probe_DGND"
+    assert b"probe_DGND" in (tree / BOARD_PCB).read_bytes()
+    for args in (("build",), ("build", "--through", "0"), ("build",)):
+        p = drive(tree, *args)
+        assert p.returncode == 0, p.stdout + p.stderr
+
+
+def test_failed_route_leaves_the_tree_buildable(tree):
+    """A stage that cannot route (its pads are on F.Cu, it may use In1.Cu only) writes
+    nothing, and the tree still builds."""
+    pytest.importorskip("numpy")
+    probe(tree, layers=("In1.Cu",))
+    before = (tree / BOARD_PCB).read_bytes()
+    p = drive(tree, "route", "1")
+    assert p.returncode == 1 and "not routed" in p.stdout, p.stdout + p.stderr
+    assert not (tree / STAGE_01).exists()
+    assert (tree / BOARD_PCB).read_bytes() == before
+    p = drive(tree, "build")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert (tree / BOARD_PCB).read_bytes() == before
+
+
+def test_fixed_via_is_replayed_and_edits_go_through_the_module(tree):
+    """A fixed() via reaches the route file and the board. A route file's `fixed` edited by
+    hand is refused, pointing at the module; editing fixed() and routing carries the edit
+    (fix round 1, I-3)."""
+    pytest.importorskip("numpy")
+    probe(tree, fixed=[FIXED_VIA])
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads((tree / STAGE_01).read_text())["fixed"] == [FIXED_VIA]
+    assert len(json.loads(kicad(VIAS, str(tree / BOARD_PCB)))) == 1
+    # a hand edit to the route file is refused
+    d = json.loads((tree / STAGE_01).read_text())
+    moved = {"via": dict(FIXED_VIA["via"], at=[116.5, 91.0])}
+    d["fixed"] = [moved]
+    (tree / STAGE_01).write_text(json.dumps(d, indent=1, sort_keys=True) + "\n")
+    p = drive(tree, "build")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "stage-01.json's `fixed`" in p.stdout and "module's fixed()" in p.stdout, p.stdout
+    # the same edit made in the module, then routed, goes through
+    probe(tree, fixed=[moved])
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads((tree / STAGE_01).read_text())["fixed"] == [moved]
+    assert json.loads(kicad(VIAS, str(tree / BOARD_PCB))) == [[116.5, 91.0]]
+    assert drive(tree, "build").returncode == 0
+
+
+def test_a_net_with_fixed_copper_routes_onto_it(tree):
+    """The default loop starts from the stage's own fixed copper of a net instead of
+    refusing the net (fix round 1, I-3)."""
+    pytest.importorskip("numpy")
+    probe(tree, fixed=[FIXED_TRACK])
+    p = drive(tree, "route", "1")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert connectivity(p.stdout) == (0, 1790)
+    got = json.loads(kicad(TRACKS, str(tree / BOARD_PCB)))
+    assert {"net": NET, "layer": "F.Cu", "width": 0.25,
+            "pts": [[118.0, 87.325], [118.0, 88.5]]} in got
 
 
 def test_route_writes_a_stage_and_builds(tree):

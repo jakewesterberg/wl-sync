@@ -5,36 +5,44 @@
 
 `build` places the board (gen_breakout_pcb.py --out build/route/placed), replays every
 committed route file hardware/breakout/routes/stage-NN.json (through stage N, if given) onto
-it with no search, fills the zones, and writes hardware/breakout/breakout.kicad_pcb and
-hardware/breakout/routes/routed.nets (the nets of the stages replayed, one per line). The
-generator's breakout.kicad_pro and breakout.kicad_dru are written beside the board if they
-differ from the committed ones. `route N` searches stage N, whose plan is the module
-hardware/gen/route/stages/sNN_<name>.py, on top of the stages before N, writes
-routes/stage-NN.json, then builds through N. Both print KiCad's unrouted-connection count
-over the routed nets and over the whole board.
+it with no search, fills the zones, and writes hardware/breakout/breakout.kicad_pcb,
+hardware/breakout/routes/routed.nets (the nets of the stages replayed, one per line) and
+hardware/breakout/routes/built.json (the stamp, below). The generator's breakout.kicad_pro
+and breakout.kicad_dru are written beside the board if they differ from the committed ones.
+`route N` searches stage N, whose plan is the module hardware/gen/route/stages/sNN_<name>.py,
+on top of the stages before N, and builds through N; its route file reaches routes/ only
+once that build has succeeded. Both print KiCad's unrouted-connection count over the routed
+nets and over the whole board.
 
 So a placement nudge costs a rebuild, not a hand re-route: change ANCHORS in the generator,
-then `build`. Copper comes only from the route files; nobody edits copper in pcbnew (the
-routing plan's Global Constraints). Hence the two refusals, each before anything is written:
+then `build`. Copper comes only from the route files, and route files are generated: a
+hand fix is written into its stage module's fixed(), which `route N` carries into the
+route file (the routing plan's Global Constraints). Nobody edits copper in pcbnew. Hence
+three refusals, each before anything is written:
 
 - STALE PLACEMENT OR RULES (Review Focus 1, 2). Each route file records the sha256 of the
-  placed board it was routed on (the generator's bytes, uuids seeded) and of the rules
-  (breakout.kicad_dru and the .kicad_pro's net_settings; Rules.sha256). A file whose hashes
-  differ from this build's is refused, by name: its copper would land on moved pads or
-  against changed clearances. Re-route that stage.
-- UNREPLAYED COPPER (Review Focus 4). The committed board's tracks, vias and pours must be
-  exactly the copper of the route files through some stage k (k = 0: none). Anything else
-  is a hand edit that a rebuild would silently discard; it is refused. Put the edit in its
-  stage's `fixed` list and rebuild. So a stage's copper leaves the board before its file
-  does: to drop stages after k, `build --through k`, then delete their files.
+  placed board it was routed on (the generator's bytes, uuids seeded) and Rules.sha256 (the
+  parsed .kicad_dru, the .kicad_pro's net_settings and its board-level rules after KiCad's
+  defaults). A file whose hashes differ from this build's is refused, by name: its copper
+  would land on moved pads or against changed clearances. Re-route that stage.
+- A HAND-EDITED ROUTE FILE. A route file whose `fixed` differs from its stage module's
+  fixed() is refused (when the module is there and imports): the fix belongs in the module.
+- HAND EDITS ON THE BOARD (Review Focus 4). The committed board must be what the driver
+  last wrote: built.json holds digests of its tracks, vias, pours (fills aside), copper
+  drawings and text, footprints and everything else, taken from the file's own top-level
+  blocks, and the board is compared with it. Anything else (a track drawn in pcbnew, a
+  moved footprint, a filled rectangle on B.Cu) is a hand edit that a rebuild would
+  silently discard, and is refused. A board with no stamp is accepted only if its copper
+  equals the route files' through some stage.
 
 A stage module defines STAGE (int), NAME (str), nets(board_nets) -> [net], zones() ->
 [zone dict], layers(net) -> (layer, ...), order(nets) -> [net] and fixed() -> [{"track": ...}
-| {"via": ...}] (the plan's stage interface). The driver replays `fixed` first, adds the
+| {"via": ...}] (the plan's stage interface). The driver lays `fixed` first, adds the
 zones, then routes each net in `order`: pad by pad, nearest unjoined pad first, from the
-pads and copper already joined. A module may instead define route(ctx) to route its nets
-itself (ctx: grid, result, nets, obstacles, rules, route_net). The result is pruned of
-dangling copper, with every earlier stage's copper and the extracted board's as `existing`.
+pads and copper already joined, starting from the net's fixed copper if it has some. A
+module may instead define route(ctx) to route its nets itself (ctx: grid, result, nets,
+obstacles, rules, route_net, failed). The result is pruned of dangling copper, with every
+earlier stage's copper and the extracted board's as `existing`.
 
 It runs under a Python with numpy (the engine's search); pcbnew work runs in KiCad's own
 Python (board_io.py, in a subprocess; $WL_KICAD_PYTHON overrides its path). The build
@@ -66,6 +74,7 @@ BREAKOUT = ROOT / "hardware" / "breakout"
 BOARD = BREAKOUT / "breakout.kicad_pcb"
 ROUTES = BREAKOUT / "routes"
 ROUTED_NETS = ROUTES / "routed.nets"
+STAMP = ROUTES / "built.json"
 GENERATOR = ROOT / "hardware" / "gen" / "gen_breakout_pcb.py"
 STAGES = ROOT / "hardware" / "gen" / "route" / "stages"
 BUILD = ROOT / "build" / "route"
@@ -91,6 +100,9 @@ def kicad(*args: str) -> str:
     p = subprocess.run([str(KICAD_PY), "-m", "hardware.gen.route.board_io", *args],
                        cwd=ROOT, capture_output=True, text=True,
                        env={**os.environ, "PYTHONPATH": str(ROOT)})
+    if p.returncode == 3:           # board_io's BoardError: a board the engine cannot model
+        msg = [l for l in p.stderr.splitlines() if l.startswith("BoardError: ")]
+        raise Refused((msg[-1][len("BoardError: "):] if msg else p.stderr[-2000:]))
     if p.returncode != 0:
         err = "\n".join(l for l in p.stderr.splitlines()
                         if "Debug" not in l and "assert" not in l)
@@ -124,8 +136,29 @@ def route_files() -> dict[int, Path]:
     return out
 
 
-def check_fresh(files: dict[int, Path], placement: str, rules: str) -> list[RouteResult]:
-    """Refuse a route file recorded against another placement or other rules."""
+def module_fixed(n: int):
+    """Stage n's module's fixed(), as a route file holds it, or None if there is no module
+    or it does not import."""
+    try:
+        mod = stage_module(n)
+    except Refused:
+        return None
+    except Exception as e:                                   # noqa: BLE001
+        say(f"note: stage {n}'s module does not import ({type(e).__name__}: {e}); its "
+            f"route file's `fixed` is not checked against it")
+        return None
+    return RouteResult(fixed=_norm_fixed(mod.fixed())).as_dict()["fixed"]
+
+
+def _norm_fixed(fixed) -> list:
+    return [{"track": norm_track(f["track"])} if "track" in f else {"via": norm_via(f["via"])}
+            for f in fixed]
+
+
+def check_fresh(files: dict[int, Path], placement: str, rules: str,
+                check_fixed: bool = True) -> list[RouteResult]:
+    """Refuse a route file recorded against another placement or other rules, or whose
+    `fixed` is not its stage module's fixed()."""
     out = []
     for n in sorted(files):
         f = files[n]
@@ -141,6 +174,12 @@ def check_fresh(files: dict[int, Path], placement: str, rules: str) -> list[Rout
                 f"stale rules: {rel} was routed under rules {r.rules_sha256[:12]}, and "
                 f"breakout.kicad_dru / net_settings are now {rules[:12]}. Re-route it: "
                 f"route_breakout.py route {n}")
+        want = module_fixed(n) if check_fixed else None
+        if want is not None and r.as_dict()["fixed"] != want:
+            raise Refused(
+                f"{rel}'s `fixed` is not what stage {n}'s module's fixed() gives. Route "
+                f"files are generated and never edited by hand: put the fix in the "
+                f"module's fixed(), then route_breakout.py route {n}")
         out.append(r)
     return out
 
@@ -166,11 +205,121 @@ def _copper_of(r: RouteResult) -> dict:
             "vias": r.vias + [f["via"] for f in r.fixed if "via" in f], "zones": r.zones}
 
 
-def check_committed(files: dict[int, Path]) -> int:
-    """Refuse when the committed board carries copper that no prefix of the route files
-    holds. Returns the stage the committed board was built through."""
+# ---- the stamp: what the driver last wrote ----------------------------------------------------
+_COPPER = re.compile(r'\(layers? [^()]*"(F|B|In\d+)\.Cu"')
+REPLAYABLE = {"segment": "tracks", "via": "vias", "zone": "zones"}
+
+
+def _top_blocks(text: str) -> list[str]:
+    """The top-level children of a (kicad_pcb ...) file, quote-aware."""
+    out, depth, start, i, inq, n = [], 0, 0, 0, False, len(text)
+    while i < n:
+        c = text[i]
+        if inq:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                inq = False
+        elif c == '"':
+            inq = True
+        elif c == "(":
+            depth += 1
+            if depth == 2:
+                start = i
+        elif c == ")":
+            if depth == 2:
+                out.append(text[start:i + 1])
+            depth -= 1
+        i += 1
+    return out
+
+
+def _strip_fills(block: str) -> str:
+    """A zone without its (filled_polygon ...) children: a refill is no hand edit."""
+    out, k = [], 0
+    while True:
+        j = block.find("(filled_polygon", k)
+        if j < 0:
+            out.append(block[k:])
+            return "".join(out)
+        out.append(block[k:j])
+        depth, m = 0, j
+        while True:
+            if block[m] == "(":
+                depth += 1
+            elif block[m] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            m += 1
+        k = m + 1
+
+
+def board_digests(text: str) -> tuple[dict, dict, list[str]]:
+    """Digests of a board file's top-level blocks by kind: tracks (segments and arcs), vias,
+    zones (fills aside), copper drawings (any other item on a copper layer: shapes, text,
+    dimensions), footprints, other. Returns (digests, counts, the copper items the driver
+    cannot replay, as kind and layer)."""
+    groups = {k: [] for k in ("tracks", "vias", "zones", "copper drawings", "footprints",
+                              "other")}
+    odd = []
+    for b in _top_blocks(text):
+        kind = re.match(r"\(([A-Za-z_]+)", b).group(1)
+        if kind == "footprint":
+            groups["footprints"].append(b)
+        elif kind in REPLAYABLE:
+            groups[REPLAYABLE[kind]].append(_strip_fills(b) if kind == "zone" else b)
+        elif kind == "arc":
+            groups["tracks"].append(b)
+            odd.append("an arc track")
+        elif _COPPER.search(b) and kind not in ("version", "generator", "generator_version",
+                                                 "general", "paper", "layers", "setup",
+                                                 "net", "embedded_fonts"):
+            groups["copper drawings"].append(b)
+            layer = _COPPER.search(b).group(0).split('"')[1]
+            odd.append(f"a {kind} on {layer}")
+        else:
+            groups["other"].append(b)
+    dig = {k: hashlib.sha256("\0".join(sorted(v)).encode()).hexdigest()
+           for k, v in groups.items()}
+    return dig, {k: len(v) for k, v in groups.items()}, odd
+
+
+def write_stamp(board: Path, files: dict[int, Path], through: int) -> None:
+    dig, counts, _ = board_digests(board.read_text())
+    STAMP.write_text(json.dumps({
+        "schema": "wl-sync-route-built", "version": 1, "board": board.name,
+        "through": through,
+        "route_files": {files[n].name: hashlib.sha256(files[n].read_bytes()).hexdigest()
+                        for n in sorted(files)},
+        "digests": dig, "counts": counts}, indent=1, sort_keys=True) + "\n")
+
+
+def check_committed(files: dict[int, Path]) -> None:
+    """Refuse a committed board that is not what the driver last wrote (built.json); with
+    no stamp, one whose copper no prefix of the route files holds."""
     if not BOARD.exists():
-        return 0
+        return
+    dig, counts, odd = board_digests(BOARD.read_text())
+    if STAMP.exists():
+        stamp = json.loads(STAMP.read_text())
+        changed = [k for k in dig if stamp["digests"].get(k) != dig[k]]
+        if not changed:
+            say(f"committed board: as the driver last wrote it (through stage "
+                f"{stamp['through']}); no hand edits")
+            return
+        delta = ", ".join(f"{k} ({stamp['counts'].get(k)} -> {counts[k]})" for k in changed)
+        why = (f" It holds copper the driver cannot replay: {', '.join(sorted(set(odd)))}."
+               if odd else "")
+        raise Refused(
+            f"hand edits: {BOARD.relative_to(ROOT)} is not what the driver last wrote "
+            f"({STAMP.relative_to(ROOT)}); these differ: {delta}.{why} A rebuild would "
+            f"discard them. Put a copper fix in its stage module's fixed() and route that "
+            f"stage; move a part in the generator's ANCHORS; or restore the board with git. "
+            f"Then rebuild.")
+    if odd:
+        raise Refused(f"{BOARD.relative_to(ROOT)} holds copper the driver cannot replay: "
+                      f"{', '.join(sorted(set(odd)))}")
     got = BUILD / "committed-copper.json"
     kicad("copper", str(BOARD), str(got))
     have = _copper_key(json.loads(got.read_text()))
@@ -183,22 +332,23 @@ def check_committed(files: dict[int, Path]) -> int:
         cands.append((n, _copper_key(acc)))
     for n, want in cands:
         if want == have:
-            return n
+            say(f"committed board: no stamp; its copper is the route files' through stage {n}")
+            return
     n, want = min(cands, key=lambda c: sum(len(set(c[1][k]) ^ set(have[k])) for k in have))
     extra = {k: len(set(have[k]) - set(want[k])) for k in have}
     missing = {k: len(set(want[k]) - set(have[k])) for k in have}
     raise Refused(
-        f"unreplayed copper: {BOARD.relative_to(ROOT)} has copper that the route files do "
-        f"not hold (nearest: the stages through {n}; on the board and in no route file "
-        f"{extra}, in the route files and not on the board {missing}). A rebuild would "
-        f"discard it. Write a hand fix into its stage's `fixed` list, or restore the "
-        f"board with git, then rebuild.")
+        f"unreplayed copper: {BOARD.relative_to(ROOT)} has no stamp ({STAMP.name}), and its "
+        f"copper is not the route files' through any stage (nearest: through {n}; on the "
+        f"board only {extra}; in the route files only {missing}). Restore the board with "
+        f"git, or rebuild from a clean board.")
 
 
-def write_outputs(built: Path, nets: list[str]) -> None:
+def write_outputs(built: Path, nets: list[str], files: dict[int, Path], through: int) -> None:
     ROUTES.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(built, BOARD)
     ROUTED_NETS.write_text("".join(n + "\n" for n in nets))
+    write_stamp(BOARD, files, through)
     for name in ("breakout.kicad_pro", "breakout.kicad_dru"):
         src, dst = PLACED / name, BREAKOUT / name
         if not dst.exists() or src.read_bytes() != dst.read_bytes():
@@ -206,13 +356,14 @@ def write_outputs(built: Path, nets: list[str]) -> None:
             say(f"wrote {dst.relative_to(ROOT)} (the generator's changed)")
 
 
-def replay(files: dict[int, Path], placement: str, rules: str, through: int | None) -> int:
+def replay(files: dict[int, Path], placement: str, rules: str, through: int | None,
+           promote: tuple[Path, Path] | None = None) -> int:
     """Replay the route files through `through` onto the placed board and write the
-    outputs, after both refusals."""
+    outputs, after the refusals. `promote` (a new route file's build path, and its place in
+    routes/) is moved into routes/ only once the apply has succeeded."""
     use = {n: f for n, f in files.items() if through is None or n <= through}
     results = check_fresh(use, placement, rules)
-    was = check_committed(files)
-    say(f"committed board: the route files' copper through stage {was}; no hand edits")
+    check_committed(files)
     nets = sorted({n for r in results for n in r.nets})
     nets_file = BUILD / "routed.nets"
     nets_file.write_text("".join(n + "\n" for n in nets))
@@ -220,7 +371,11 @@ def replay(files: dict[int, Path], placement: str, rules: str, through: int | No
     t = time.time()
     got = json.loads(kicad("apply", str(PLACED / BOARD.name), str(built), str(nets_file),
                            *[str(use[n]) for n in sorted(use)]).strip().splitlines()[-1])
-    write_outputs(built, nets)
+    if promote is not None:
+        os.replace(*promote)
+        use = {n: (promote[1] if f == promote[0] else f) for n, f in use.items()}
+        say(f"wrote {promote[1].relative_to(ROOT)}")
+    write_outputs(built, nets, use, max(use, default=0))
     stages = ", ".join(use[n].name for n in sorted(use)) or "none"
     say(f"replayed {len(use)} route file(s) ({stages}) in {time.time() - t:.0f} s; "
         f"wrote {BOARD.relative_to(ROOT)} and {ROUTED_NETS.relative_to(ROOT)}")
@@ -254,24 +409,38 @@ def stage_module(n: int):
     return mod
 
 
-def route_net(grid, result: RouteResult, net: str, layers: tuple, **kw) -> list[str]:
-    """Join `net`'s pads on `layers`: from its first pad (by name), the nearest unjoined
-    pad each time, from the pads and copper joined so far. Returns the pads it failed to
-    reach. Refuses a net that already has copper from an earlier stage, which this simple
-    loop cannot tell joined from not."""
+def route_net(grid, result: RouteResult, net: str, layers: tuple, earlier=frozenset(),
+              **kw) -> list[str]:
+    """Join `net`'s pads on `layers`: the nearest unjoined pad each time, from the pads and
+    copper joined so far. A net with fixed copper of this stage starts from that copper
+    (every pad is then a goal); otherwise from its first pad by name. Returns the pads it
+    failed to reach. Refuses a net in `earlier` (copper from an earlier stage), which this
+    simple loop cannot tell joined from not."""
     from hardware.gen.route.search import Copper, route_connection
+    if net in earlier:
+        raise Refused(f"net {net} has copper from an earlier stage; the default loop joins "
+                      f"only nets new to this stage (define route(ctx) in the stage module)")
     pads = sorted((p for p in grid.pads if p.net == net),
                   key=lambda p: (p.ref, len(p.num), p.num))
-    if len(pads) < 2:
-        return []
+
     def laid():
         return [i for i in grid.copper_objs(net) if grid.objs[i].kind != "pad"]
-    if laid():
-        raise Refused(f"net {net} has copper from an earlier stage; the default loop joins "
-                      f"only fresh nets (define route(ctx) in the stage module)")
-    joined, left, failed = [pads[0]], pads[1:], []
+    anchors = []                    # where this stage's fixed copper of the net lies
+    for f in result.fixed:
+        if "track" in f and f["track"]["net"] == net:
+            anchors += [tuple(q) for q in f["track"]["pts"]]
+        if "via" in f and f["via"]["net"] == net:
+            anchors.append(tuple(f["via"]["at"]))
+    if len(pads) < 2 and not anchors:
+        return []
+    if anchors:
+        joined, left = [], list(pads)
+    else:
+        joined, left = [pads[0]], pads[1:]
+    failed = []
     while left:
-        left.sort(key=lambda p: (min(math.dist(p.at, q.at) for q in joined), p.ref,
+        left.sort(key=lambda p: (min(math.dist(p.at, q) for q in
+                                     [j.at for j in joined] + anchors), p.ref,
                                  len(p.num), p.num))
         goal = left.pop(0)
         sources = list(joined) + ([Copper(net, layers=tuple(layers))]
@@ -298,12 +467,14 @@ def search(n: int, mod, placement: str, rules: Rules, earlier: list[RouteResult]
               max(q[0] for q in outer), max(q[1] for q in outer))
     grid = Grid(window, rules=rules)
     grid.add_obstacles(obs)
+    earlier_nets = set()
     for r in earlier:
         grid.add_copper(r)
+        cu = _copper_of(r)
+        earlier_nets |= {c["net"] for c in cu["tracks"] + cu["vias"]}
     res = RouteResult(stage=n, name=mod.NAME, placement_sha256=placement,
                       rules_sha256=rules.sha256)
-    res.fixed = [{"track": norm_track(f["track"])} if "track" in f else {"via": norm_via(f["via"])}
-                 for f in mod.fixed()]
+    res.fixed = _norm_fixed(mod.fixed())
     for f in res.fixed:
         res._net((f.get("track") or f.get("via"))["net"])
     grid.add_copper(res)
@@ -317,11 +488,11 @@ def search(n: int, mod, placement: str, rules: Rules, earlier: list[RouteResult]
     t = time.time()
     if hasattr(mod, "route"):
         ctx = SimpleNamespace(grid=grid, result=res, nets=nets, obstacles=obs, rules=rules,
-                              route_net=route_net, failed=failed)
+                              route_net=route_net, failed=failed, earlier_nets=earlier_nets)
         mod.route(ctx)
     else:
         for net in mod.order(nets):
-            bad = route_net(grid, res, net, tuple(mod.layers(net)))
+            bad = route_net(grid, res, net, tuple(mod.layers(net)), earlier_nets)
             if bad:
                 failed[net] = bad
     say(f"stage {n} {mod.NAME}: {len(nets)} nets searched in {time.time() - t:.0f} s")
@@ -337,9 +508,8 @@ def route(n: int) -> int:
     later = sorted(k for k in files if k > n)
     if later:
         raise Refused(f"stage files after {n} exist ({[files[k].name for k in later]}): they "
-                      f"were routed on the old stage {n}'s copper. First drop their copper "
-                      f"from the board (route_breakout.py build --through {n}), then delete "
-                      f"them, then route {n} and re-route them after it.")
+                      f"were routed on the old stage {n}'s copper. Delete them, route {n}, "
+                      f"then re-route them after it.")
     earlier = check_fresh({k: f for k, f in files.items() if k < n}, placement, rules_sha)
     check_committed(files)
     rules = Rules.load(PLACED)
@@ -352,11 +522,13 @@ def route(n: int) -> int:
                       + "; ".join(f"{k}: {', '.join(v)}" for k, v in sorted(failed.items()))
                       + f". Nothing written; the partial result is {part.relative_to(ROOT)}")
     ROUTES.mkdir(parents=True, exist_ok=True)
-    out = ROUTES / f"stage-{n:02d}.json"
-    out.write_text(result.to_json())
-    say(f"wrote {out.relative_to(ROOT)}: {len(result.tracks)} tracks, {len(result.vias)} "
-        f"vias, {len(result.zones)} zones, {len(result.fixed)} fixed")
-    return replay(route_files(), placement, rules_sha, n)
+    new = BUILD / f"stage-{n:02d}.json"
+    new.write_text(result.to_json())
+    say(f"routed stage {n}: {len(result.tracks)} tracks, {len(result.vias)} vias, "
+        f"{len(result.zones)} zones, {len(result.fixed)} fixed")
+    files = dict(files)
+    files[n] = new
+    return replay(files, placement, rules_sha, n, promote=(new, ROUTES / new.name))
 
 
 def main(argv: list[str] | None = None) -> int:

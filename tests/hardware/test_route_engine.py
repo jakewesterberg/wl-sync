@@ -323,3 +323,41 @@ def test_width_budget_and_design_block(rules):
     del obs["design"]
     with pytest.raises(SchemaError, match="design"):
         Grid((0.0, 0.0, 40.0, 20.0), rules=rules).add_obstacles(obs)
+
+
+def test_rules_sha256_is_what_the_engine_reads(tmp_path):
+    """Rules.sha256 (a route file's rules_sha256, task R1b fix round 1) changes with any
+    rule the engine reads, the board-level ones in the .kicad_pro included, and not with
+    a comment in the .kicad_dru or a .kicad_pro setting that is no rule."""
+    import json
+    import shutil
+
+    def load(edit_dru=None, edit_pro=None):
+        d = tmp_path / f"r{len(list(tmp_path.iterdir()))}"
+        d.mkdir()
+        for f in ("breakout.kicad_dru", "breakout.kicad_pro"):
+            shutil.copy2(BREAKOUT / f, d / f)
+        if edit_dru:
+            (d / "breakout.kicad_dru").write_text(edit_dru((d / "breakout.kicad_dru").read_text()))
+        if edit_pro:
+            pro = json.loads((d / "breakout.kicad_pro").read_text())
+            edit_pro(pro)
+            (d / "breakout.kicad_pro").write_text(json.dumps(pro, indent=2))
+        return Rules.load(d).sha256
+
+    base = load()
+    assert load(edit_dru=lambda t: t + "\n# a comment only\n") == base
+    assert load(edit_dru=lambda t: t.replace("(version 1)", "(version 1)\n\n\n")) == base
+
+    def no_rule(pro):
+        pro.setdefault("board", {})["layer_presets"] = []
+    assert load(edit_pro=no_rule) == base
+
+    def edge(pro):
+        pro["board"]["design_settings"]["rules"]["min_copper_edge_clearance"] = 0.6
+    assert load(edit_pro=edge) != base
+    assert load(edit_dru=lambda t: t.replace("(min 0.6mm)", "(min 0.65mm)", 1)) != base
+
+    def width(pro):
+        pro["net_settings"]["classes"][0]["track_width"] += 0.05
+    assert load(edit_pro=width) != base
