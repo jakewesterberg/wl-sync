@@ -9,10 +9,14 @@ mounting holes, each in its own keep-out rule area (task R0). Beside the board i
 writes the net classes into breakout.kicad_pro, and their minimum track widths and the
 clearance rules into breakout.kicad_dru.
 
-What it does not write: a track, a via or a pour. `kicad-cli` has no netlist-import and no
-Specctra-DSN export (the mule plan's Task 3 note), so routing is a person's, in pcbnew.
-ONCE A PERSON HAS ROUTED THE BOARD, DO NOT RE-RUN THIS: it writes the file whole, and a
-re-run discards the routing. `main()` refuses to overwrite a board that has routed items.
+What it does not write: a track, a via or a pour. The copper comes only from the route files
+in hardware/breakout/routes/, which hardware/gen/route_breakout.py replays onto this
+generator's placed board (task R1b). So the driver runs this with `--out build/route/placed`,
+and the committed hardware/breakout/breakout.kicad_pcb is the driver's output; rebuild it
+with `route_breakout.py build`, not by running this alone. Without `--out` it writes into
+hardware/breakout/ as before, and `main()` refuses to overwrite a board there that has
+routed items. Its uuids are seeded (`seed_uuids("breakout")`), so the same sources give the
+same bytes.
 
 Prerequisite, as for the mule (`main()` checks it):
 
@@ -69,7 +73,7 @@ from gen_breakout_netlist_contract import (  # noqa: E402
 )
 from kicad_pcb import (  # noqa: E402
     Board, _child_at, _child_tag, _split_children, extract_footprint,
-    footprint_courtyard_bbox, place_point,
+    footprint_courtyard_bbox, place_point, seed_uuids,
 )
 
 OUT = Path(__file__).resolve().parent.parent / "breakout"
@@ -1161,6 +1165,7 @@ def rules_text(panel_nets: list[str]) -> str:
 # Build.
 # ===========================================================================
 def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
+    seed_uuids("breakout")      # the same sources give the same uuids (task R1b)
     contract = json.loads(contract_path.read_text())
     assert_netlist_is_the_contracts(net_path, contract)
     comps, pin_nets = load_netlist(net_path)
@@ -1259,17 +1264,28 @@ def build(net_path: Path = NET_PATH, contract_path: Path = CONTRACT_PATH):
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    argv = sys.argv[1:] if argv is None else list(argv)
+    out = OUT
+    if "--out" in argv:
+        k = argv.index("--out")
+        if k + 1 >= len(argv):
+            print("error: --out needs a directory")
+            return 1
+        out = Path(argv[k + 1]).resolve()
+        del argv[k:k + 2]
+    pcb_path = out / PCB_PATH.name
+    pro_path = out / PRO_PATH.name
+    dru_path = out / DRU_PATH.name
     if not NET_PATH.exists():
         print(f"error: {NET_PATH} does not exist. Export it with:")
         print("  kicad-cli sch export netlist --format kicadsexpr "
               "-o hardware/breakout/breakout.net hardware/breakout/breakout.kicad_sch")
         return 1
-    if PCB_PATH.exists() and "--force" not in argv:
+    if out == OUT and PCB_PATH.exists() and "--force" not in argv:
         routed = chk.read_board(PCB_PATH.read_text())["routed"]
         if routed:
             print(f"error: {PCB_PATH} has {routed} routed items. Regenerating would "
-                  f"discard them. Pass --force only if that is what is wanted.")
+                  f"discard them. Rebuild with hardware/gen/route_breakout.py build.")
             return 1
     b, pl, comps, pin_nets, contract = build()
     text = b.render()
@@ -1285,11 +1301,11 @@ def main(argv: list[str] | None = None) -> int:
             print("  " + f)
         return 1
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    PCB_PATH.write_text(text)
-    PRO_PATH.write_text(pro_text)
-    DRU_PATH.write_text(dru_text)
-    print(f"wrote {PCB_PATH} ({PCB_PATH.stat().st_size} bytes)")
+    out.mkdir(parents=True, exist_ok=True)
+    pcb_path.write_text(text)
+    pro_path.write_text(pro_text)
+    dru_path.write_text(dru_text)
+    print(f"wrote {pcb_path} ({pcb_path.stat().st_size} bytes)")
     print(f"{len(b.net_codes) - 1} nets, {len(b.footprints_text)} footprints placed "
           f"({len(FRONT_CENTRES) + len(BACK_CENTRES)} panel connectors, "
           f"{len(ANCHORS)} anchors, {len(pl.owner_log)} beside the part they serve, "
@@ -1297,7 +1313,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"parts per region: {report['parts_per_region']}; "
           f"straddlers: {report['straddlers']}; pads on the wrong side: "
           f"{report['pads_on_wrong_side']}")
-    print(f"wrote {PRO_PATH.name} (net classes) and {DRU_PATH.name} (minimum widths, N-12, N-13, N-16, S-5)")
+    print(f"wrote {pro_path.name} (net classes) and {dru_path.name} (minimum widths, N-12, N-13, N-16, S-5)")
     print(f"N-13 covers {len(panel_nets)} nets; {len(direct_nets)} of them reach a panel "
           f"connector with no series resistor")
     if "--plan" in argv:

@@ -338,6 +338,11 @@ def parse_dru(text: str) -> list[Rule]:
     return rules
 
 
+def rules_json(net_settings: dict) -> bytes:
+    """The .kicad_pro's net_settings as canonical JSON bytes, for `Rules.sha256`."""
+    return json.dumps(net_settings, sort_keys=True, separators=(",", ":")).encode()
+
+
 # ---- the rules --------------------------------------------------------------------------
 @dataclass
 class Rules:
@@ -345,6 +350,10 @@ class Rules:
     patterns: list                    # [(netclass, pattern)] in file order
     rules: list                       # [Rule] in file order
     board: dict                       # min_copper_edge_clearance etc., mm
+    # sha256 of breakout.kicad_dru's bytes and the .kicad_pro's net_settings (canonical
+    # JSON), not of the whole .kicad_pro, which pcbnew rewrites for reasons that are not
+    # rules. A route file records it as rules_sha256 (task R1b), and the driver refuses to
+    # replay one recorded under other rules.
     sha256: str
     source: Path | None = None
     _cache: dict = field(default_factory=dict, repr=False)
@@ -374,7 +383,8 @@ class Rules:
                       pro.get("board", {}).get("design_settings", {}).get("rules", {}).items()
                       if k in KICAD_DEFAULTS})
         digest = hashlib.sha256()
-        for name, data in (("breakout.kicad_dru", dru_b), ("breakout.kicad_pro", pro_b)):
+        for name, data in (("breakout.kicad_dru", dru_b),
+                           ("breakout.kicad_pro net_settings", rules_json(ns))):
             digest.update(name.encode() + b"\0" + data + b"\0")
         return cls(classes, patterns, parse_dru(dru_b.decode()), board, digest.hexdigest(),
                    breakout_dir)

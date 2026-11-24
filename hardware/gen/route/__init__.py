@@ -7,6 +7,8 @@ hardware/breakout/trial_route_ni.py), with its rasterisation and search moved to
     stage.py   the obstacle-file and route-file schemas, Pad, RouteResult (no numpy)
     grid.py    Grid: obstacles as distance fields, thresholded per clearance case (numpy)
     search.py  route_connection(): A* over the grid (numpy)
+    board_io.py  extract() and apply(): the only pcbnew code (KiCad's Python; task R1b,
+               not imported here). The driver is hardware/gen/route_breakout.py.
 
 rules and stage import without numpy, so KiCad's Python (task R1b's board_io) can use them;
 the names below that need numpy are imported only when numpy is there.

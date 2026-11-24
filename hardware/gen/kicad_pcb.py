@@ -96,8 +96,32 @@ FPROOT = Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints")
 LOCAL_FPROOT = Path(__file__).resolve().parent.parent / "lib"
 
 
+_UUID_SEED: uuid.UUID | None = None
+_UUID_COUNT = 0
+
+
+def seed_uuids(seed: str | None) -> None:
+    """Make `uid()` repeatable: from here on it gives uuid5(namespace of `seed`, "1"),
+    then "2", and so on, so the same generator run writes the same uuids every time.
+    `None` returns to random uuid4s. Calling it again restarts the count.
+
+    Why: a board that is a build product (task R1b; gen_breakout_pcb.py seeds with
+    "breakout") must come out byte-identical from the same sources, or every rebuild is a
+    diff of 10 000 uuids and a review cannot see what changed (the routing plan's Review
+    Focus 5). Before this, the breakout kept its footprint uuids only by transplanting
+    them from the committed board after each regeneration."""
+    global _UUID_SEED, _UUID_COUNT
+    _UUID_SEED = None if seed is None else uuid.uuid5(uuid.NAMESPACE_URL,
+                                                      f"wl-sync:kicad_pcb:{seed}")
+    _UUID_COUNT = 0
+
+
 def uid() -> str:
-    return str(uuid.uuid4())
+    global _UUID_COUNT
+    if _UUID_SEED is None:
+        return str(uuid.uuid4())
+    _UUID_COUNT += 1
+    return str(uuid.uuid5(_UUID_SEED, str(_UUID_COUNT)))
 
 
 def _fmt(v: float) -> str:

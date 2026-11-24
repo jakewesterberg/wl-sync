@@ -44,11 +44,19 @@ python3 hardware/gen/check_breakout_placement.py
 `hardware/README.md`, "Regenerating fab outputs", has the full sequence with the netlist
 checkers. `breakout.net` is not committed.
 
-**Once the board has a track, never run `gen_breakout_pcb.py` again.** It writes the file
-whole. It refuses to overwrite a board with routed items unless given `--force`, and
-`--force` discards the routing. To move a part before routing, move it in the generator
-(`ANCHORS`, `placement.md` §7) and regenerate. To move a part after routing has begun,
-move it in pcbnew and say so in `placement.md`.
+**The generator writes only to the build directory; copper comes only from `routes/`;
+rebuild with the driver** (task R1b). `python hardware/gen/route_breakout.py build` runs
+`gen_breakout_pcb.py --out build/route/placed`, replays the committed route files
+`hardware/breakout/routes/stage-NN.json` onto that placement with no search, and writes
+this board and `routes/routed.nets`; `route_breakout.py route N` routes stage N on top of
+the stages before it, writes its route file, then builds. The commands above are how the
+placement was first made: do not run the generator into `hardware/breakout/` now. Nobody
+edits copper in pcbnew; a hand fix goes into its stage's `fixed` list and is replayed.
+Before writing anything, the driver refuses a route file recorded against another
+placement or other rules (re-route that stage), and a committed board carrying copper
+that the route files do not hold. To move a part, move it in the generator (`ANCHORS`,
+`placement.md` §7) and rebuild; each stage routed before the move is then refused until
+it is re-routed.
 
 **What must not move.**
 
@@ -373,7 +381,9 @@ for it (Open question 9).
 - Move a panel connector, a straddler, a slot or `NT1`.
 - Change a net, a footprint's pads or the schematic. If a route cannot be made, stop and
   say which rule blocks it.
-- Run `gen_breakout_pcb.py`.
+- Run `gen_breakout_pcb.py` into `hardware/breakout/`, or edit copper in pcbnew. The
+  generator writes only to the build directory, copper comes only from `routes/`, and the
+  board is rebuilt with `hardware/gen/route_breakout.py` (§1).
 - Accept a new DRC class as "expected". The only accepted violations are the 24
   `silk_edge_clearance`.
 
