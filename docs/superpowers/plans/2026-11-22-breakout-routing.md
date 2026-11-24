@@ -128,6 +128,7 @@ hardware/breakout/routes/complete.nets    the stage contract (R2 fix round 1), e
 hardware/breakout/routes/touched.nets       the stages built: the nets completed, the nets with
 hardware/breakout/routes/due.txt            copper, and the judge's checks/clauses that must PASS
 tests/hardware/test_route_engine.py       numpy only; runs in CI
+tests/hardware/test_route_ni_targets.py   numpy only; pins the tuned NI-island metrics (R1d)
 tests/hardware/test_route_breakout.py     needs KiCad; skipped in CI
 ```
 
@@ -351,6 +352,104 @@ the ordinary nets of R12, with ours for the constrained stages.
   returned board into route files (an importer to `stage-NN.json`), so that replay and
   determinism still hold.
 
+**Outcome (2026-11-24).** DeepPCB was dropped before it routed ("deeppcb doesnt have any
+academic discount", the user). Quilter routed twice, the user's one retry included; neither
+board passes the judge, and ours does. The user's decision: "Our router, Quilter's numbers
+as targets (Recommended)". Our engine routes R3 to R13, so no importer is needed.
+Quilter's run-2 numbers become Task R1d's targets. The evidence is
+`hardware/breakout/bakeoff/bakeoff-report.md`.
+
+### Task R1d: tune the engine to Quilter's targets on the NI island
+
+The controller's ruling, after the bake-off (2026-11-24). Quilter's run 2 routed the NI
+island with fewer vias, no signal on In2.Cu, shorter tracks and wider plane necks than our
+engine (`bakeoff-report.md` §5). It failed the judge, chiefly on rules it was never given.
+R1d tunes our engine toward those numbers on the same island, before any stage is routed,
+so that R3 to R13 inherit the tuning.
+
+**Targets** (NI island, judge in island mode; `bakeoff-report.md` §6):
+
+| Metric | Target | Engine at R1c |
+|---|---|---|
+| vias | ≤ 102 (≤ 0.708 per routed connection) | 138 (0.958) |
+| signal copper on In2.Cu | 0 mm | 60.5 mm |
+| routed length / MST | ≤ 1.153 | 1.232 |
+| plane narrowest neck, NI_GND and NI_5V | ≥ 10 mm | 5.5 / 3 mm |
+
+**The judge stays the gate.** A target is a goal, reported. A target miss never fails R1d
+or a stage. A judge miss always does. Quilter reached 0 mm on In2.Cu only by escaping
+J45's inner rows on the outer layers at 0.2 mm, which N-13 forbids (`bakeoff-report.md`
+§3). So that target may have a floor under N-13; if so, the report gives the residue and
+its cause.
+
+**Files:**
+- Modify: `hardware/gen/route/search.py` and `grid.py` (cost weights, search order),
+  `stage.py` (plane shapes, if a stage helper is the place);
+  `hardware/breakout/bakeoff/engine/stage_ni.py` (the NI-island stage approach);
+  `hardware/breakout/bakeoff/results/engine/` (the re-routed candidate: board, route file,
+  stage log, `meta.json`)
+- Create: `tests/hardware/test_route_ni_targets.py`;
+  `hardware/breakout/bakeoff/results/engine/metrics.json` (the judge's metrics block for
+  the tuned candidate, as `judge.json` writes it)
+
+**Interfaces:**
+- Consumes:
+  - the package `hardware/breakout/bakeoff/ni-island/`;
+  - `engine/run.sh`;
+  - the judge in island mode (`--nets ni-island/island.nets.txt --region 0,100,70,240`).
+- Produces:
+  - tuned defaults in `route_connection` and `Grid`, keyword parameters only, so that
+    existing calls keep working;
+  - any plane-shaping helper the stages can reuse (R3 draws every plane);
+  - the tuned `results/engine/` and its `metrics.json`.
+
+- [ ] **Step 1: Write the regression test** `tests/hardware/test_route_ni_targets.py`
+  (`pytest.importorskip("numpy")`; no KiCad, so it runs in CI). Without KiCad it reads the
+  committed `results/engine/route-ni.json` and `metrics.json`, and asserts:
+  - vias, In2.Cu signal mm and routed length / MST are no worse than the values R1d ends
+    with, pinned as constants in the test. The pins only ever tighten;
+  - `metrics.json`'s plane necks are no narrower than pinned;
+  - the route file's own counts agree with `metrics.json` (vias, In2.Cu track length), so
+    the two cannot drift apart.
+
+  Pin R1c's values first (138, 60.5, 1.232, 5.5 / 3). The test passes at once and guards
+  against getting worse while tuning.
+- [ ] **Step 2: Measure before tuning.** Re-run `engine/run.sh` and the judge. Record the
+  four metrics and where each loss arises, in the report:
+  - which nets take the vias;
+  - which escapes use In2.Cu, and why;
+  - the worst length / MST nets;
+  - where each plane's neck is.
+- [ ] **Step 3: Tune, one change at a time.**
+  - The levers: via and layer costs, bend cost, the `prefer` directions, net order, escape
+    targets and corridors in the stage, and plane outlines (a plane is the island's whole
+    copper-allowed area less what must be cut, not a rectangle cut by stubs).
+  - After each change: `engine/run.sh`, the judge, the four metrics, and
+    `/opt/anaconda3/bin/python -m pytest tests/hardware/test_route_engine.py -q`.
+  - Keep a change only if the judge still exits 0 and no target metric worsens. Record
+    every change tried, kept or not, in the report.
+  - Stop when every target is met, or when the misses plateau. For each miss, give its
+    cause (for In2.Cu, whether N-13 sets the floor).
+- [ ] **Step 4: Pin the tuned numbers.** Write `metrics.json` from the final judge run.
+  Tighten the test's constants to the tuned values. Run it, and run the engine tests on
+  CPython 3.11 with numpy 1.26 (the declared floor) as R1a did.
+- [ ] **Step 5: Run the full suite** (`/opt/anaconda3/bin/python -m pytest -q`). Confirm
+  that `engine/run.sh` run twice gives byte-identical route files.
+- [ ] **Step 6: Commit.**
+  `hw: engine tuned to Quilter's NI-island targets (task R1d)`.
+
+**Pass line:** the judge still exits 0 on the island, in island mode, and each target is met
+or its shortfall is reported with its cause.
+
+**From R3 on, every stage reports the targets** in its Step 4 metrics table, beside the
+stage's own numbers:
+- vias per routed connection against 0.708;
+- signal mm on the inner layers against 0;
+- routed length / MST against 1.153;
+- each plane's narrowest neck against 10 mm.
+
+A miss is reported, never a failure; the row's own bounds and the judge still gate.
+
 ### Task R2: the judge's partial mode and the accepted readings (folds J4)
 
 **Files:**
@@ -460,7 +559,10 @@ it up.
   - the gates;
   - every check's status;
   - the metrics table: vias; signal mm on In1.Cu and In2.Cu; plane islands and narrowest
-    neck; routed length / MST; vias in pads.
+    neck; routed length / MST; vias in pads;
+  - beside them, Task R1d's targets: 0.708 vias per routed connection, 0 mm of inner-layer
+    signal, 1.153 length / MST, and 10 mm plane necks. A miss is reported with its cause,
+    never failed.
 - [ ] **Step 5: Run `route_breakout.py build` twice and confirm the bytes are identical.**
   Then commit the stage module, the route file, the board, `drc.rpt` and the three contract
   files:
@@ -477,10 +579,10 @@ level in R2 fix round 1, so that every row can pass).
 | R6 | 5, the Intan supply chain | P-4 to P-6, `ISO_PWR` nets, N-12 | P-5, P-8 | P-6's vias under `U3`/`U4` pad 9 present |
 | R7 | 6, the barcode family | K-1 to K-10 | K-2, K-4 | each barcode net ≤ 1.5× MST |
 | R8 | 7, the split crossings | G-10, G-11 (46 nets), B-17, B-18 (16 mux/sense traces) | `G-10` (whole: G-11's list is its `G-10/all-cross` clause, every G-11 net crossing), `B-16`, `B-18` | one corridor; every G-11 net crosses once |
-| R9 | 8, the analog front ends | K-11 to K-23; guard rings; the BNC pairs | `K-23/length`, `K-23/vias`, `K-33` | no via on `A_PD*_CLAMP` |
+| R9 | 8, the analog front ends | K-11 to K-23; guard rings; the BNC pairs | `K-23/length`, `K-23/vias` | no via on `A_PD*_CLAMP` |
 | R10 | 9, the analog distribution | K-18 to K-22, G-16, G-17; the 16 `A_*` nets, AISENSE, audio | `G-16`, `G-17` | |
 | R11 | 10, comparators, thresholds, I²C, USB | K-24 to K-31, N-9 | `N-9` | USB pair matched within 1.0 mm, coupled 80 % |
-| R12 | 11, the remaining digital nets | K-32 to K-37, G-23; the `J3` and `J45` escapes | `N-4` (`K-2` is due from R7 and stays due) | record the K-32 buffer lengths (Open question 9) |
+| R12 | 11, the remaining digital nets | K-32 to K-37, G-23; the `J3` and `J45` escapes | `N-4`, `K-33` (`K-2` is due from R7 and stays due) | record the K-32 buffer lengths (Open question 9) |
 | R13 | 12–13, rails, fan, silkscreen, final | N-6, G-24, N-3, P-14, M-20; then `routing-brief.md` §7 items 1 to 6 | the judge **without** `--complete-nets`: exit 0 with `--allow-not-checked` limited to what §7 names | connectivity 0; DRC 0 + 24 `silk_edge_clearance`; parity 30 warnings and no error; renders for V-4 |
 
 Notes on the column (R2 fix round 1):
@@ -496,8 +598,10 @@ Notes on the column (R2 fix round 1):
 - R9's K-23 leaves out `K-23/block` (a 2-gang block moved by hand), NOT CHECKED on any
   board. Once R9 completes K-23's nets the clause is judged, so R9 to R12 waive K-23 with
   G-1 (Step 1), and R13 waives it in its own list.
-- R9's K-33 is whole: its joined clause is written when it holds as well as when it fails
-  (fix round 2), so `K-33` due can PASS.
+- K-33 is due at R12, not R9: the LED-driver outputs are routed with the remaining digital
+  nets (routing-brief §3 step 11, K-32 to K-37). This was moved from R9 by the controller's
+  ruling of 2026-11-24, after R2 fix round 2. It is due whole: its joined clause is written
+  when it holds as well as when it fails (fix round 2), so `K-33` due can PASS.
 - A due requirement holds for every net it names: one with no copper FAILs it (fix round 2),
   so a row's DUE is met only when the stage has routed all of that check's nets.
 - G-10 at R4 is its three prohibitions; at R8 it is whole, the corridor and every G-11
