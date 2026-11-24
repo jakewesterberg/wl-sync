@@ -19,8 +19,9 @@ import pytest
 np = pytest.importorskip("numpy")
 
 from hardware.gen.route import Grid, Rules, RouteResult, route_connection  # noqa: E402
-from hardware.gen.route.stage import (Pad, assert_stayed_local, net_order, pads_of,  # noqa: E402
-                                      prune_dangling)
+from hardware.gen.route.rules import RulesError, parse_dru  # noqa: E402
+from hardware.gen.route.stage import (DESIGN_KEYS, Pad, SchemaError,  # noqa: E402
+                                      assert_stayed_local, net_order, pads_of, prune_dangling)
 
 REPO = Path(__file__).parents[2]
 BREAKOUT = REPO / "hardware" / "breakout"
@@ -43,9 +44,12 @@ def pad(ref, num, net, cx, cy, w=1.0, h=1.0, layers=("F.Cu",), smd=True):
 
 
 def obstacles(pads=(), keepouts=(), holes=(), tracks=(), vias=()):
-    """A 40 x 20 mm board, origin at its corner, with the given items."""
+    """A 40 x 20 mm board, origin at its corner, with the given items. Its design block is
+    the rule files' own board-level values, as extract() would read them from pcbnew."""
+    board = Rules.load(BREAKOUT).board
     return {"schema": "wl-sync-route-obstacles", "version": 1, "units": "mm",
             "board": "fixture", "placement_sha256": "0" * 64,
+            "design": {k: board[k] for k in DESIGN_KEYS},
             "layers": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"],
             "outline": {"outer": rect(20, 10, 40, 20), "holes": []},
             "pads": list(pads), "holes": list(holes), "keepouts": list(keepouts),
@@ -260,3 +264,62 @@ def test_order_and_measure(rules):
     assert ext["SIG_A"] == (3.0, 3.0)
     with pytest.raises(AssertionError, match="SIG_B"):
         assert_stayed_local(res, pads, ["SIG_A", "SIG_B"], slack_mm=2.0)
+
+
+def test_rules_refuse_what_the_engine_does_not_apply():
+    """Fix round 1, I-1 (Review Focus 2): a constraint the router would not apply is refused,
+    not parsed and ignored, so it cannot route against defaults."""
+    cases = [
+        ('(rule "a" (constraint edge_clearance (min 1mm)))', "not one the router applies"),
+        ('(rule "b" (constraint hole_clearance (min 1mm)))', "not one the router applies"),
+        ('(rule "c" (constraint clearance (min 0.3mm) (opt 0.4mm)))', "only (min ...)"),
+        ('(rule "d" (condition "A.Type == \'Track\' && B.Type == \'Pad\'") '
+         '(constraint physical_clearance (min 0.2mm)))', "only between a via and a pad"),
+        ('(rule "e" (condition "A.Type == \'Via\' || B.Type == \'Pad\'") '
+         '(constraint physical_clearance (min 0.2mm)))', "only between a via and a pad"),
+    ]
+    for text, msg in cases:
+        with pytest.raises(RulesError, match=re.escape(msg)):
+            parse_dru(text)
+    ok = parse_dru('(rule "f" (condition "A.Type == \'Via\' && B.Type == \'Pad\'") '
+                   '(constraint physical_clearance (min 0.2mm)))')
+    assert ok[0].constraints == {"physical_clearance": 0.2}
+    Rules.load(BREAKOUT)                       # the real rule file still loads
+
+
+def test_prune_keeps_joins_to_existing_copper():
+    """Fix round 1, I-2 (the reviewer's probe): a join that ends on an earlier stage's track,
+    and a plane drop whose pour an earlier stage made, survive when that copper is passed as
+    `existing`; neither earlier item is emitted."""
+    def sq(ref, net, cx, cy):
+        return Pad.from_dict(pad(ref, "1", net, cx, cy))
+    pads = [sq("R1", "SIG", 10, 10), sq("C1", "GND", 10, 20)]
+    res = RouteResult()
+    res.add_track("SIG", "F.Cu", 0.2, [[10.0, 10.0], [20.0, 10.0]])
+    res.add_track("GND", "F.Cu", 0.2, [[10.0, 20.0], [12.0, 20.0]])
+    res.add_via("GND", [12.0, 20.0], 0.6, 0.3)
+    earlier = RouteResult(stage=1)
+    earlier.add_track("SIG", "F.Cu", 0.2, [[20.0, 10.0], [20.0, 2.0]])
+    earlier.add_zone(net="GND", layer="In1.Cu", outline=rect(20, 10, 40, 20), name="gnd")
+    alone, gone = prune_dangling(res, pads)
+    assert gone["vias"] == 1 and gone["tracks"] == 2            # the bug, without `existing`
+    out, gone = prune_dangling(res, pads, existing=[earlier, {"tracks": [], "vias": []}])
+    assert gone == {"vias": 0, "tracks": 0, "trimmed": 0, "bridged": 0}
+    assert sorted(t["pts"][0] for t in out.tracks) == [[10.0, 10.0], [10.0, 20.0]]
+    assert [v["at"] for v in out.vias] == [[12.0, 20.0]]
+    assert [20.0, 2.0] not in [q for t in out.tracks for q in t["pts"]]  # earlier: not emitted
+    assert out.zones == []
+
+
+def test_width_budget_and_design_block(rules):
+    """Fix round 1, M-1 and M-4: a width wider than the rules ask for is refused, not
+    under-enforced; an obstacle file without the board's design block is refused."""
+    g = grid_for(obstacles([pad("R1", "1", "SIG_A", 10, 10), pad("R2", "1", "SIG_A", 20, 10)]), rules)
+    (pa,), (pb,) = pads_of(g, "R1"), pads_of(g, "R2")
+    assert route_connection(g, "SIG_A", [pa], [pb], ("F.Cu",), width=rules.max_width) is not None
+    with pytest.raises(ValueError, match="clearance budget"):
+        route_connection(g, "SIG_A", [pa], [pb], ("F.Cu",), width=rules.max_width + 0.5)
+    obs = obstacles()
+    del obs["design"]
+    with pytest.raises(SchemaError, match="design"):
+        Grid((0.0, 0.0, 40.0, 20.0), rules=rules).add_obstacles(obs)

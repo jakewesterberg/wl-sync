@@ -11,7 +11,8 @@ kept one occupancy grid per clearance case, each cell holding the id of the one 
 copper lay within that case's distance, so its cases had to be fixed in advance (it drew
 every signal against N-13's 0.6 mm, panel net or not). Here every copper item, keep-out and
 hole keeps its own signed distance field (mm, float32, negative inside the item) over its
-bounding box grown by the largest distance any rule can ask. A query for one net, one width
+bounding box grown by the largest distance any rule can ask, for the widest track any rule
+asks for (`reach`; `masks` refuses a wider one, which would under-enforce). A query for one net, one width
 and one window thresholds each field at the distance that pair of items needs, from
 `Rules`: clearance(this net, that item, layer) + half the track's width, or + the via's
 radius. So N-12, N-13, N-16 and the net-class clearances are each applied where they hold
@@ -27,8 +28,9 @@ What is held, and from what (`masks`):
   clearance, per layer, for a track; the largest over the via's layers for a via;
 - a via, also: hole to hole (`hole_to_hole`) from every drill, its own net's included
   (a drill is not a net: wl-shook's lessons §8); copper to hole (`hole_clearance`) from
-  every foreign or unplated drill; and N-16's web from every SMD pad, its own net's included
-  (`Rules.via_pad_web`, which knows the U3/U4 pad 9 exemption);
+  every foreign or unplated drill; and the rules' via-to-pad physical clearance (N-16's web)
+  from every pad it applies to, its own net's included (`Rules.via_pad_web`, which knows the
+  U3/U4 pad 9 exemption and which pads are SMD);
 - a track, also: `hole_clearance` from every foreign or unplated drill;
 - keep-outs (rule areas): no track copper on a layer that forbids tracks, no via where any
   layer forbids vias;
@@ -46,7 +48,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .rules import LAYERS, OUTER, Item, Rules
+from .rules import LAYERS, Item, Rules
 from .stage import Pad, validate_obstacles
 
 LI = {name: i for i, name in enumerate(LAYERS)}
@@ -143,7 +145,7 @@ class _Obj:
     layers: tuple                 # layer indices
     shape: Shape
     ctx: Item | None = None       # the item as the rules see it
-    web: float = 0.0              # N-16: a via's copper this far from it (SMD pads)
+    web: float = 0.0              # N-16: a via's copper this far from it, any net (pads)
     plated: bool = True           # holes
     forbids: frozenset = frozenset()
     name: str = ""
@@ -172,11 +174,20 @@ class Grid:
         self._added: set = set()
         self._arr = None
         self._on = None
-        via_d, via_drill = self.rules.via
-        widths = [c["track_width"] for c in self.rules.netclasses.values()] + [1.0]
-        self.reach = (max(self.rules.max_clearance, self.rules.edge_clearance,
-                          self.rules.hole_clearance, self.rules.hole_to_hole + via_drill / 2)
-                      + max(max(widths) / 2, via_d / 2) + MARGIN + 2 * self.pitch)
+        # How far an item's field must reach: the largest distance any rule asks between
+        # it and a track or via centre, for the widest track the rules can ask for.
+        # `masks` refuses a width wider than this budget (it would under-enforce).
+        via_d, _ = self.rules.via
+        self.max_half = max(self.rules.max_width / 2, via_d / 2)
+        self.reach = self._need(self.max_half) + 2 * self.pitch
+
+    def _need(self, half: float) -> float:
+        """The largest threshold `masks` applies to an item's field for a track of half-width
+        (or a via of radius) `half`."""
+        r = self.rules
+        _, via_drill = r.via
+        return max(max(r.max_clearance, r.edge_clearance, r.hole_clearance) + half,
+                   r.hole_to_hole + via_drill / 2) + MARGIN
 
     # -- coordinates -----------------------------------------------------------------------
     def ix(self, x: float) -> int:
@@ -228,8 +239,7 @@ class Grid:
     def add_obstacles(self, obstacles: dict) -> None:
         """Add a board's obstacles, from `board_io.extract()`'s JSON (stage.py)."""
         validate_obstacles(obstacles)
-        design = obstacles.get("design") or {}
-        for k, v in design.items():
+        for k, v in obstacles["design"].items():
             if k in self.rules.board and abs(self.rules.board[k] - float(v)) > 1e-9:
                 raise ValueError(f"the board's {k} is {v} mm, the rule files' "
                                  f"{self.rules.board[k]} mm")
@@ -251,7 +261,7 @@ class Grid:
             ctx = r.item(p.net, "Pad", footprint=p.ref, pad_number=p.num,
                          pad_type="SMD" if p.smd else "Through-hole",
                          layers=frozenset(p.layers))
-            web = r.via_pad_web(p.smd, p.ref, p.num, p.net, p.layers) if p.smd else 0.0
+            web = r.via_pad_web(p.smd, p.ref, p.num, p.net, p.layers)
             i = self._add(_Obj("pad", nid, p.net, lay, Shape("poly", p.polygon), ctx, web,
                                name=p.key))
             if i >= 0:
@@ -366,6 +376,11 @@ class Grid:
         r = self.rules
         nid = self.net_ids.get(net, -1)
         hw = width / 2
+        half = max(hw, via[0] / 2) if via is not None else hw
+        if self._need(half) > self.reach - 2 * self.pitch + 1e-9:
+            raise ValueError(f"a {width} mm track is wider than this grid's clearance budget "
+                             f"(the widest the rules ask for is {r.max_width} mm): items "
+                             f"farther than {self.reach:.3f} mm would go unchecked")
         ix0, iy0, ix1, iy1 = box
         shape = (iy1 - iy0 + 1, ix1 - ix0 + 1)
         lay = sorted(LI[l] if isinstance(l, str) else l for l in layers)
@@ -414,7 +429,7 @@ class Grid:
                     if not own:
                         t = max(r.clearance(net, o.netname, LAYERS[L], a_via, o.ctx)
                                 for L in o.layers)
-                    if o.web and any(LAYERS[L] in OUTER for L in o.layers):
+                    if o.web:                  # physical_clearance (N-16), any net
                         t = max(t, o.web)
                     if t > -math.inf:
                         vblk[wsl] |= sub < t + rv + MARGIN

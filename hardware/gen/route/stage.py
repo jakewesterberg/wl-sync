@@ -13,7 +13,7 @@ first repeated), in either winding.
      "board": "breakout.kicad_pcb", "placement_sha256": "<sha256 of the placed board file>",
      "layers": ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"],
      "design": {"min_copper_edge_clearance": 0.5, "min_hole_clearance": 0.25,
-                "min_hole_to_hole": 0.25},                        (optional: the board's own)
+                "min_hole_to_hole": 0.25},       required: the board's own, from pcbnew
      "outline": {"outer": [[x, y], ...],                          the board edge
                  "holes": [[[x, y], ...], ...]},                  slots and other cut-outs
      "pads":  [{"ref": "U56", "num": "11", "net": "EVT_D0_NI",   net "" for none
@@ -61,6 +61,7 @@ OBSTACLES_SCHEMA = "wl-sync-route-obstacles"
 OBSTACLES_VERSION = 1
 LAYERS = ("F.Cu", "In1.Cu", "In2.Cu", "B.Cu")
 FORBIDS = frozenset({"tracks", "vias", "pours"})
+DESIGN_KEYS = ("min_copper_edge_clearance", "min_hole_clearance", "min_hole_to_hole")
 
 
 class SchemaError(ValueError):
@@ -74,6 +75,11 @@ def validate_obstacles(d: dict) -> None:
                           f"{d.get('schema')!r} v{d.get('version')!r}")
     if d.get("units") != "mm":
         raise SchemaError(f"units must be mm, not {d.get('units')!r}")
+    design = d.get("design")
+    if not isinstance(design, dict) or not set(DESIGN_KEYS) <= set(design):
+        raise SchemaError(f"missing the board's design rules: 'design' must hold "
+                          f"{', '.join(DESIGN_KEYS)} (board_io.extract() writes them from "
+                          f"pcbnew's design settings)")
     for key in ("outline", "pads", "holes", "keepouts", "tracks", "vias"):
         if key not in d:
             raise SchemaError(f"missing {key!r}")
@@ -254,7 +260,8 @@ def _poly_dist(x, y, poly):
     return min(_pt_seg(x, y, *poly[i], *poly[(i + 1) % n])[0] for i in range(n))
 
 
-def prune_dangling(result: "RouteResult", pads: list) -> tuple["RouteResult", dict]:
+def prune_dangling(result: "RouteResult", pads: list,
+                   existing=None) -> tuple["RouteResult", dict]:
     """Remove copper that leads nowhere, as KiCad's connectivity sees it (an item's anchor,
     a track end or a via centre, inside another item of its net): a via joined on fewer
     than two layers (a via of a net with a zone in the result is kept: it reaches the
@@ -263,21 +270,39 @@ def prune_dangling(result: "RouteResult", pads: list) -> tuple["RouteResult", di
     A via that goes may still have joined two tracks on its one layer (a track can start
     inside its copper, off its centre), so each track end inside it is first bridged to its
     centre by a short track; no connection is lost.
-    Fixed pieces are anchors and are never removed. Returns a new result, with every
-    track as one segment, and counts of what went.
+    Fixed pieces are anchors and are never removed. So is everything in `existing`: the
+    copper already on the board when this stage ran (earlier stages' RouteResults, and the
+    obstacle file's tracks and vias, as dicts with "tracks", "vias" and optionally
+    "zones"), which a join may end on and whose pours this stage's plane vias reach. It is
+    never emitted. Returns a new result, with every track as one segment, and counts of
+    what went.
 
     Why: a search that starts from a net's copper may leave from the middle of an earlier
     piece, so a stub's tail, or a via whose other side was never used, is left behind
     (the trial router's prune(); DRC reports them as via_dangling or track_dangling)."""
-    zoned = {(z["net"], z["layer"]) for z in result.zones}
-    zoned_nets = {n for n, _ in zoned}
-    segs = []                         # [net, layer, half-width, a, b, fixed]
+    if existing is None:
+        existing = []
+    elif isinstance(existing, (RouteResult, dict)):
+        existing = [existing]
+    old_tracks, old_vias, old_zones = [], [], []
+    for e in existing:
+        d = e.as_dict() if isinstance(e, RouteResult) else e
+        old_tracks += list(d.get("tracks", [])) + [f["track"] for f in d.get("fixed", [])
+                                                   if "track" in f]
+        old_vias += list(d.get("vias", [])) + [f["via"] for f in d.get("fixed", []) if "via" in f]
+        old_zones += list(d.get("zones", []))
+    zoned_nets = {z["net"] for z in list(result.zones) + old_zones}
+    # [net, layer, half-width, a, b, anchor]: an anchor (this result's fixed pieces, or
+    # existing copper) is never removed and never emitted as a track or via
+    segs = []
     for t, fx in ([(t, False) for t in result.tracks] +
-                  [(f["track"], True) for f in result.fixed if "track" in f]):
+                  [(f["track"], True) for f in result.fixed if "track" in f] +
+                  [(t, True) for t in old_tracks]):
         for a, b in zip(t["pts"], t["pts"][1:]):
             segs.append([t["net"], t["layer"], t["width"] / 2, list(a), list(b), fx])
     vias = ([dict(v, fixed=False) for v in result.vias] +
-            [dict(f["via"], fixed=True) for f in result.fixed if "via" in f])
+            [dict(f["via"], fixed=True) for f in result.fixed if "via" in f] +
+            [dict(v, fixed=True) for v in old_vias])
     pad_by_net = {}
     for p in pads:
         pad_by_net.setdefault(p.net, []).append(p)

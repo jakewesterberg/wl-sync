@@ -15,7 +15,10 @@ item descriptions, A and B (`Item`). Only the forms this board's rules use are u
 `||`, `&&`, `!`, parentheses, `X.NetName == 'n'`, `X.NetClass == 'c'`, `X.Type == 't'`,
 `X.Pad_Type == 't'`, `X.Pad_Number == 'n'`, `A.Net != B.Net` (and `==`),
 `X.memberOfFootprint('R')`, `X.existsOnLayer('L')` and `X.intersectsCourtyard('R')`.
-Anything else makes `load` raise, so a new kind of rule cannot be silently ignored.
+Anything else makes `load` raise, so a new kind of rule cannot be silently ignored. So does
+a constraint type the engine does not apply (only track_width, clearance and
+physical_clearance are, the last only between a via and a pad: `MODELLED`), and a
+constraint with anything but `(min ...)`.
 
 KiCad's resolution is followed: for one constraint type, the last rule in the file whose
 layer and condition match (with A and B either way round) wins; with none, the net
@@ -139,7 +142,27 @@ class _Cond:
         self.f = self._or()
         if self.i != len(self.toks):
             raise RulesError(f"trailing tokens in condition {text!r}")
+        self.conjuncts = self._top_conjuncts()
         del self.toks
+
+    def _top_conjuncts(self) -> frozenset:
+        """The atoms joined by `&&` at the top level, as strings ('A.Type == \'Via\''),
+        which every match must satisfy; empty if the top level has an `||`."""
+        depth, parts, cur = 0, [], []
+        for t in self.toks:
+            if t == "(":
+                depth += 1
+            elif t == ")":
+                depth -= 1
+            if depth == 0 and t == "||":
+                return frozenset()
+            if depth == 0 and t == "&&":
+                parts.append(cur)
+                cur = []
+            else:
+                cur.append(t)
+        parts.append(cur)
+        return frozenset(" ".join(p) for p in parts if len(p) == 3)
 
     def peek(self):
         return self.toks[self.i] if self.i < len(self.toks) else None
@@ -262,6 +285,11 @@ def _layer_set(v) -> frozenset:
     raise RulesError(f"layer {name!r} not understood")
 
 
+# The constraint types the engine applies (grid.py): a track's width, copper-to-copper
+# clearance, and physical clearance between a via and a pad. Anything else is refused.
+MODELLED = frozenset({"track_width", "clearance", "physical_clearance"})
+
+
 def parse_dru(text: str) -> list[Rule]:
     rules = []
     for node in _sexpr(text):
@@ -281,12 +309,31 @@ def parse_dru(text: str) -> list[Rule]:
                 cond = _Cond(part[1][0])
             elif head == "constraint":
                 ctype = part[1]
+                if ctype not in MODELLED:
+                    raise RulesError(
+                        f"rule {name!r}: constraint {ctype!r} is not one the router applies "
+                        f"({', '.join(sorted(MODELLED))}); teach rules.py and grid.py to apply "
+                        f"it before adding it, or the router would route against defaults")
                 vals = {p[0]: p[1] for p in part[2:] if isinstance(p, list)}
+                extra = sorted(set(vals) - {"min"})
+                if extra or len(vals) != len(part) - 2:
+                    raise RulesError(f"rule {name!r}: constraint {ctype} has {extra or part[2:]}"
+                                     f"; only (min ...) is understood")
                 if "min" not in vals:
                     raise RulesError(f"rule {name!r}: constraint {ctype} has no min")
                 cons[ctype] = _mm(vals["min"])
             else:
                 raise RulesError(f"rule {name!r}: clause {head!r} not understood")
+        if "physical_clearance" in cons:
+            # The engine applies physical_clearance only between a via and a pad (N-16's
+            # web, Rules.via_pad_web). Any other pair it would silently not enforce.
+            c = cond.conjuncts if cond is not None else frozenset()
+            pairs = ({"A.Type == 'Via'", "B.Type == 'Pad'"}, {"B.Type == 'Via'", "A.Type == 'Pad'"})
+            if not any(p <= c for p in pairs):
+                raise RulesError(
+                    f"rule {name!r}: physical_clearance is applied only between a via and a "
+                    f"pad (its condition must require A.Type == 'Via' && B.Type == 'Pad'); "
+                    f"this rule's pair is not one the router enforces")
         rules.append(Rule(name, layers, cond, cons))
     return rules
 
@@ -396,8 +443,8 @@ class Rules:
                  layers=frozenset(layers))
         key = ("pw", b)
         if key not in self._cache:
-            v = self._last("physical_clearance", Item(type="Via"), b, None)
-            self._cache[key] = v or 0.0
+            vals = [self._last("physical_clearance", Item(type="Via"), b, l) for l in layers]
+            self._cache[key] = max([v for v in vals if v is not None], default=0.0)
         return self._cache[key]
 
     # -- vias and board-level rules ---------------------------------------------------------
@@ -429,6 +476,13 @@ class Rules:
         if len(found) != 1:
             raise RulesError(f"expected one N-13 clearance rule naming nets, found {len(found)}")
         return frozenset(found[0].cond.a_names)
+
+    @property
+    def max_width(self) -> float:
+        """The widest track any rule or net class asks for."""
+        vals = [c["track_width"] for c in self.netclasses.values()]
+        vals += [r.constraints["track_width"] for r in self.rules if "track_width" in r.constraints]
+        return max(vals)
 
     @property
     def max_clearance(self) -> float:
