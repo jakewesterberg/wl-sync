@@ -1,0 +1,942 @@
+{
+  "board": {
+    "design_settings": {
+      "rules": {
+        "min_clearance": 0.15,
+        "min_track_width": 0.15,
+        "min_copper_edge_clearance": 0.5,
+        "min_hole_clearance": 0.25,
+        "min_hole_to_hole": 0.25
+      }
+    }
+  },
+  "schematic": {},
+  "net_settings": {
+    "classes": [
+      {
+        "name": "Default",
+        "clearance": 0.2,
+        "track_width": 0.2,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.2,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "INLET",
+        "clearance": 0.2,
+        "track_width": 1.0,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 1.0,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "INLET_N12",
+        "clearance": 0.2,
+        "track_width": 0.8,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.8,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "FAN",
+        "clearance": 0.2,
+        "track_width": 0.8,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.8,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "NI_PWR",
+        "clearance": 0.2,
+        "track_width": 0.6,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.6,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "ISO_PWR",
+        "clearance": 0.2,
+        "track_width": 0.5,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.5,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "RAIL_BRANCH",
+        "clearance": 0.2,
+        "track_width": 0.4,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.4,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "ANALOG",
+        "clearance": 0.2,
+        "track_width": 0.25,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.25,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      },
+      {
+        "name": "USB",
+        "clearance": 0.2,
+        "track_width": 0.2,
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "diff_pair_width": 0.2,
+        "diff_pair_gap": 0.2,
+        "diff_pair_via_gap": 0.25,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "bus_width": 12,
+        "wire_width": 6,
+        "line_style": 0,
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "schematic_color": "rgba(0, 0, 0, 0.000)"
+      }
+    ],
+    "meta": {
+      "version": 4
+    },
+    "net_colors": null,
+    "netclass_assignments": null,
+    "netclass_patterns": [
+      {
+        "netclass": "RAIL_BRANCH",
+        "pattern": "+3V3"
+      },
+      {
+        "netclass": "RAIL_BRANCH",
+        "pattern": "+5V"
+      },
+      {
+        "netclass": "RAIL_BRANCH",
+        "pattern": "+12V"
+      },
+      {
+        "netclass": "RAIL_BRANCH",
+        "pattern": "-12V"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "ACC_TRIG_THR"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "AO_L_BNC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "AO_L_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "AO_R_BNC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "AO_R_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_ACC_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_AMB_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LP_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LP_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LP_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LP_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LX_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_LY_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RP_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RP_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RP_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RP_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RX_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_DAC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_EYE_RY_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_X_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_JOY_Y_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_DA"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_DAN"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_DAP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_S1"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_S1_SKN"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_S1_SKP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_SKN"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_SKP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MIC_SPARE_FB"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_COMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_COMP_FB"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_COMP_THR"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_SHLD_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_SHLD_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC1_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_SHLD_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_SHLD_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC2_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_SHLD_DIV"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_SHLD_MID"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_TPC"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_MISC3_TPC_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_RAWOUT"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD1_SHLD"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_CLAMP"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_NI"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_NI_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_RAWOUT"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "A_PD2_SHLD"
+      },
+      {
+        "netclass": "FAN",
+        "pattern": "FAN_12V"
+      },
+      {
+        "netclass": "FAN",
+        "pattern": "FAN_12V_RAW"
+      },
+      {
+        "netclass": "FAN",
+        "pattern": "FAN_RTN"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO1"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO1_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO2"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO2_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO3"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO3_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO4"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO4_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO5"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO5_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO6"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO6_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO7"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO7_BUF"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO8"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "INTAN_AO8_BUF"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_5V"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_5V_RTN"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_N12"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_N15_FILT"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_N15_RAW"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_P12"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_P15_FILT"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "ISO_P15_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT1"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT2"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT3"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT4"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT5"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT6"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT7"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "MUX_OUT8"
+      },
+      {
+        "netclass": "INLET_N12",
+        "pattern": "N12_FUSED"
+      },
+      {
+        "netclass": "INLET_N12",
+        "pattern": "N12_RAW"
+      },
+      {
+        "netclass": "NI_PWR",
+        "pattern": "NI_5V"
+      },
+      {
+        "netclass": "NI_PWR",
+        "pattern": "NI_GND"
+      },
+      {
+        "netclass": "INLET",
+        "pattern": "P5_FUSED"
+      },
+      {
+        "netclass": "INLET",
+        "pattern": "P5_RAW"
+      },
+      {
+        "netclass": "INLET",
+        "pattern": "P12_FUSED"
+      },
+      {
+        "netclass": "INLET",
+        "pattern": "P12_RAW"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "PD1_COMP_THR"
+      },
+      {
+        "netclass": "ANALOG",
+        "pattern": "PD2_COMP_THR"
+      },
+      {
+        "netclass": "ISO_PWR",
+        "pattern": "U63_VIN"
+      },
+      {
+        "netclass": "USB",
+        "pattern": "USB_DM_PI"
+      },
+      {
+        "netclass": "USB",
+        "pattern": "USB_DP_PI"
+      }
+    ]
+  }
+}

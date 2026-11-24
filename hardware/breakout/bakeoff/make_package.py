@@ -3,7 +3,7 @@
 Run with KiCad's Python, from anywhere:
 
     /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3 \\
-        hardware/breakout/bakeoff/make_package.py [OUT_DIR] [--panel-class]
+        hardware/breakout/bakeoff/make_package.py [OUT_DIR] [--panel-class] [--placement-region]
 
 OUT_DIR defaults to hardware/breakout/bakeoff/ni-island. It writes a self-contained KiCad
 project that a cloud router can open:
@@ -40,7 +40,23 @@ project that a cloud router can open:
   not the island's (the user's decision, 2026-11-24): its netlist has every net, while the
   island board's pads outside the island have none.
 
-RULES.md is written by hand, not by this script.
+RULES.md is written by hand, not by this script; it is copied into a variant.
+
+--placement-region (Quilter run 2, 2026-11-24) builds the variant ni-island-region/ by
+default from the committed ni-island/ itself, not from hardware/breakout (whose board R1b
+re-seeded the uuids of after ni-island/ was built): every file of ni-island/ copied, and its
+board loaded, given one rule area, PLACEMENT_REGION, that Quilter reads as a
+placement region, so that NI_GND can be given its "Use Region Pour". Quilter's KiCad recipe
+(llms-full.txt, "Placement regions", the KiCad tab): a rule area on the top or bottom copper
+layer, of the keepout kind, named, with every keepout item deselected; its components are
+associated with it by hand after import. The region pour takes the region's shape
+("Ground Nets": "pours this ground in the shape of the placement region that contains its
+components"), so the outline is the copper-allowed island: x 0.5 to 68.75, y 101.25 to
+239.5, i.e. the board edges less the 0.5 mm copper-to-edge clearance, and the inner edges of
+the barrier bands ni_band_back and ni_band_side. No courtyard-containing outline exists that
+keeps the pour on the island: J45's courtyard reaches y 245.245, past the board edge at 240,
+and the straddlers' reach x 73.745 (U56-U61) and 77.475 (U62), across the slot onto the
+DGND side. The zone's id is seeded, so the variant rebuilds byte for byte.
 """
 import hashlib
 import json
@@ -65,6 +81,28 @@ CONNECTIONS = 144                           # routing-brief.md §1
 PANEL_CLEARANCE = 0.6                       # N-13
 BOARD_RULES = {"min_copper_edge_clearance": 0.5, "min_hole_clearance": 0.25,
                "min_hole_to_hole": 0.25}    # KiCad 10.0.5's defaults (rules.py KICAD_DEFAULTS)
+
+
+PLACEMENT_REGION = "ni_island_placement"
+PLACEMENT_OUTLINE = [(0.5, 101.25), (68.75, 101.25), (68.75, 239.5), (0.5, 239.5)]
+SEED = 20261124
+
+
+def add_placement_region(b) -> None:
+    """Quilter's KiCad placement region: a rule area on F.Cu, every keepout item off."""
+    pcbnew.KIID.SeedGenerator(SEED)
+    z = pcbnew.ZONE(b)
+    z.SetIsRuleArea(True)
+    for f in ("SetDoNotAllowTracks", "SetDoNotAllowVias", "SetDoNotAllowPads",
+              "SetDoNotAllowZoneFills", "SetDoNotAllowFootprints"):
+        getattr(z, f)(False)
+    z.SetLayer(pcbnew.F_Cu)
+    z.SetZoneName(PLACEMENT_REGION)
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in PLACEMENT_OUTLINE:
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    b.Add(z)
 
 
 def island_copy(src: Path, dst: Path) -> list[str]:
@@ -143,6 +181,44 @@ def schematic(out: Path) -> int:
     return len(refs)
 
 
+VARIANT_NOTE = """
+
+## This variant: ni-island-region (Quilter run 2)
+
+Identical to `ni-island/` but for one rule area on the board, `ni_island_placement`: F.Cu
+only, every keepout item off, outline x 0.5 to 68.75, y 101.25 to 239.5. It forbids
+nothing; it exists so that Quilter reads it as a placement region and can pour `NI_GND` in
+its shape ("Use Region Pour"). Associate every component on an island net with it by hand
+in Quilter's Floorplan step. The straddlers `U56` to `U62` and `J45` cannot lie wholly
+inside it (their courtyards cross the slot, and the board's front edge), and no region that
+held them could keep the pour on the island.
+"""
+
+
+def region_variant(out: Path, base: Path = HERE / "ni-island") -> None:
+    """`base` copied to `out`, its board given PLACEMENT_REGION and RULES.md the note."""
+    if out.resolve() == base.resolve():
+        raise SystemExit("the variant must not overwrite its base")
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(base, out, ignore=shutil.ignore_patterns("*.kicad_prl", "*-bak"))
+    pcb = out / "breakout.kicad_pcb"
+    b = pcbnew.LoadBoard(str(pcb))
+    if any(z.GetZoneName() == PLACEMENT_REGION for z in b.Zones()):
+        raise SystemExit(f"{base} already has {PLACEMENT_REGION}")
+    add_placement_region(b)
+    b.BuildConnectivity()
+    unc = b.GetConnectivity().GetUnconnectedCount(False)
+    if unc != CONNECTIONS:
+        raise SystemExit(f"variant has {unc} unrouted connections, not {CONNECTIONS}")
+    pcbnew.SaveBoard(str(pcb), b)
+    for p in out.glob("*.kicad_prl"):
+        p.unlink()
+    shutil.copyfile(base / "breakout.kicad_pro", out / "breakout.kicad_pro")  # SaveBoard rewrites it
+    (out / "RULES.md").write_text((base / "RULES.md").read_text() + VARIANT_NOTE)
+    print(f"{pcb}: {base.name} plus rule area {PLACEMENT_REGION} {PLACEMENT_OUTLINE} on F.Cu")
+
+
 def main(out: Path, panel_class: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
     pcb = out / "breakout.kicad_pcb"
@@ -191,5 +267,10 @@ def main(out: Path, panel_class: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--panel-class"]
-    main(Path(args[0]).resolve() if args else HERE / "ni-island", "--panel-class" in sys.argv[1:])
+    flags = {"--panel-class", "--placement-region"}
+    args = [a for a in sys.argv[1:] if a not in flags]
+    region = "--placement-region" in sys.argv[1:]
+    if region:
+        region_variant(Path(args[0]).resolve() if args else HERE / "ni-island-region")
+    else:
+        main(Path(args[0]).resolve() if args else HERE / "ni-island", "--panel-class" in sys.argv[1:])

@@ -8,6 +8,12 @@ tool returned it, or our engine's) and, optionally, `meta.json`:
     {"wall_clock_s": 118, "wall_clock_scope": "...", "cost": 0, "cost_unit": "USD",
      "attempts": "...", "setup": "...", "notes": "..."}
 
+`judge_reference` (optional) is a board, relative to hardware/breakout/bakeoff/, that the
+judge's FIXED check compares with instead of main's board (`--reference`): a candidate
+routed from the ni-island-region/ variant carries that variant's one extra rule area,
+ni_island_placement, which FIXED would otherwise fail as "not in the reference". Nothing
+else in the judge reads the reference.
+
 `attempts` and `setup` say how many runs the candidate took and how much human or agent
 work went in before the run (a hand plan, rule entry, iterations), so that costs.md does
 not set one tool's routing seconds beside another's whole job as though like for like.
@@ -77,10 +83,13 @@ def deal(tools: list[str], rng=None) -> dict[str, str]:
     return {string.ascii_uppercase[i]: t for i, t in enumerate(order)}
 
 
-def judge(board: Path, outdir: Path, kicad_py: str = KICAD_PY) -> dict:
+def judge(board: Path, outdir: Path, kicad_py: str = KICAD_PY,
+          reference: Path | None = None) -> dict:
     jp = outdir / "judge.json"
     cmd = [kicad_py, str(JUDGE), str(board), "--nets", str(NETS), "--region", REGION,
            "--json", str(jp)]
+    if reference is not None:
+        cmd += ["--reference", str(reference)]
     p = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
     text = "\n".join(l for l in (p.stdout + p.stderr).splitlines()
                      if "Debug" not in l and "assert" not in l.lower())
@@ -236,7 +245,12 @@ def main(argv=None) -> int:
         mp = found[tool].parent / "meta.json"
         metas[label] = json.loads(mp.read_text()) if mp.exists() else {}
         print(f"judging {label} ...", flush=True)
-        results[label] = judge(d / "breakout.kicad_pcb", d, a.kicad_python)
+        ref = metas[label].get("judge_reference")
+        if ref is not None:
+            ref = (HERE / ref).resolve()
+            if not ref.is_file():
+                raise SystemExit(f"{tool}: judge_reference {ref} does not exist")
+        results[label] = judge(d / "breakout.kicad_pcb", d, a.kicad_python, ref)
     (out / "summary.md").write_text(summary(results))
     (kd / "costs.md").write_text(costs(metas))
     print(f"wrote {out / 'summary.md'}; key and costs in {kd}")

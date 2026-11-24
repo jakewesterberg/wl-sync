@@ -63,8 +63,9 @@ def test_candidates_wants_exactly_one_board_per_tool(results):
 def test_main_blinds_the_summary_and_keeps_the_key_apart(results, tmp_path, monkeypatch):
     calls = []
 
-    def fake_judge(board, outdir, kicad_py):
+    def fake_judge(board, outdir, kicad_py, reference=None):
         calls.append(board)
+        assert reference is None
         assert board.name == "breakout.kicad_pcb" and board.parent == outdir
         j = judge_json(vias=len(calls))
         j["_exit"] = 0
@@ -102,3 +103,29 @@ def test_the_key_directory_may_not_sit_inside_the_summary_folder(results, tmp_pa
     out = tmp_path / "grading"
     with pytest.raises(SystemExit, match="must not be inside"):
         ga.main(["--results", str(results), "--out", str(out), "--key-dir", str(out / "key")])
+
+
+def test_a_candidate_may_name_its_fixed_reference(results, tmp_path, monkeypatch):
+    meta = results / "quilter" / "meta.json"
+    m = json.loads(meta.read_text())
+    m["judge_reference"] = "ni-island-region/breakout.kicad_pcb"
+    meta.write_text(json.dumps(m))
+    seen = {}
+
+    def fake_judge(board, outdir, kicad_py, reference=None):
+        seen[board.read_text()] = reference
+        j = judge_json(vias=1)
+        j["_exit"] = 0
+        return j
+
+    monkeypatch.setattr(ga, "judge", fake_judge)
+    monkeypatch.setattr(ga, "HERE", tmp_path)
+    (tmp_path / "ni-island-region").mkdir()
+    (tmp_path / "ni-island-region" / "breakout.kicad_pcb").write_text("(kicad_pcb region)")
+    assert ga.main(["--results", str(results), "--out", str(tmp_path / "g")]) == 0
+    assert seen["(kicad_pcb quilter)"] == (tmp_path / "ni-island-region" / "breakout.kicad_pcb").resolve()
+    assert seen["(kicad_pcb engine)"] is None and seen["(kicad_pcb deeppcb)"] is None
+    m["judge_reference"] = "missing.kicad_pcb"
+    meta.write_text(json.dumps(m))
+    with pytest.raises(SystemExit, match="judge_reference .* does not exist"):
+        ga.main(["--results", str(results), "--out", str(tmp_path / "g2")])
