@@ -33,6 +33,12 @@ project that a cloud router can open:
   its library (KiCad's stock libraries and hardware/lib/wl-sync.pretty), under the same
   nickname, so the board's footprint ids resolve through ${KIPRJMOD} alone.
 - sym-lib-table, symbols/wl-sync.kicad_sym: the same for the project's own symbol library.
+- breakout.kicad_sch and its ten sheets, flat beside it: Quilter's upload requires a
+  schematic and takes no directories, so the sheets that live in hardware/breakout/sheets/
+  are copied next to the root, and the root's ten "Sheetfile" properties lose their
+  "sheets/" prefix. Nothing else in any sheet changes. It is the whole board's schematic,
+  not the island's (the user's decision, 2026-11-24): its netlist has every net, while the
+  island board's pads outside the island have none.
 
 RULES.md is written by hand, not by this script.
 """
@@ -118,6 +124,25 @@ def footprint_ids(board: Path) -> list[tuple[str, str]]:
     return sorted(ids)
 
 
+def schematic(out: Path) -> int:
+    """The root schematic and its sheets, flat in `out`; returns the number of sheets."""
+    root = (BREAKOUT / "breakout.kicad_sch").read_text()
+    refs = re.findall(r'\(property "Sheetfile" "([^"]+)"', root)
+    names = [Path(r).name for r in refs]
+    if len(set(names)) != len(names) or "breakout.kicad_sch" in names:
+        raise SystemExit(f"sheet file names collide when flattened: {refs}")
+    for r in refs:
+        if not r.startswith("sheets/"):
+            raise SystemExit(f"unexpected sheet path {r!r}")
+        text = (BREAKOUT / r).read_text()
+        if '(property "Sheetfile"' in text:
+            raise SystemExit(f"{r} has sub-sheets; flattening handles one level only")
+        (out / Path(r).name).write_text(text)
+    flat = re.sub(r'(\(property "Sheetfile" ")sheets/', r"\1", root)
+    (out / "breakout.kicad_sch").write_text(flat)
+    return len(refs)
+
+
 def main(out: Path, panel_class: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
     pcb = out / "breakout.kicad_pcb"
@@ -155,11 +180,13 @@ def main(out: Path, panel_class: bool = False) -> None:
         raise SystemExit("sym-lib-table still names ../lib")
     (out / "sym-lib-table").write_text(sym)
 
+    sheets = schematic(out)
+
     n = sum(nicks.values())
     print(f"{pcb}: {len(island)} island nets, {CONNECTIONS} connections; "
-          f"{n} footprints from {len(nicks)} libraries")
+          f"{n} footprints from {len(nicks)} libraries; schematic: root and {sheets} sheets")
     for f in sorted(out.rglob("*")):
-        if f.is_file() and f.suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru"):
+        if f.is_file() and f.suffix in (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_sch"):
             print(f"  {f.relative_to(out)} sha256 {hashlib.sha256(f.read_bytes()).hexdigest()}")
 
 

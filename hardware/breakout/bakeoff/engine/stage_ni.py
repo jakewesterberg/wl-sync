@@ -1,16 +1,26 @@
 """Our engine's bake-off candidate (task R1c): route the NI-island package with
-hardware/gen/route, by R1a's regression stage.
+hardware/gen/route, driven by a hand-written plan for this island.
 
     python stage_ni.py PACKAGE_DIR OBSTACLES.json OUT_ROUTE.json
 
-The engine gets what the cloud routers get and nothing more: the rules are read from the
-package's own breakout.kicad_dru and breakout.kicad_pro (with its PANEL class), the nets
-from its island.nets.txt, and the obstacles from its board (extract.py). The plan below is
-R1a's scratch stage unchanged (task-R1a-report.md, "The NI island regression"): a port of
-the Opus NI-trial router's phases (git show trial-ni-opus:hardware/breakout/
-trial_route_ni.py: local, exits, escapes, joins) for the post-J3 placement. Pin 16 reaches
-its bypass on F.Cu (J3), and pins 11-14 leave by an F.Cu stub to a via on their own line
-(J2), which the engine finds itself under N-13 and N-16.
+**What this candidate is: the engine plus a hand plan, not the engine alone.** The inputs
+it reads are the package's: the rules from its own breakout.kicad_dru and breakout.kicad_pro
+(Rules.load), the nets from its island.nets.txt, the obstacles from its board (extract.py).
+But the plan below was written by hand for this island and tuned on it. It is R1a's scratch
+stage unchanged (task-R1a-report.md, "The NI island regression"), itself a port of the Opus
+NI-trial router's phases (git show trial-ni-opus:hardware/breakout/trial_route_ni.py:
+local, exits, escapes, joins), adjusted for the post-J3 placement. R1a's report says each
+adjustment "came out of a failure" and that the engine "found none of them itself"
+(concern 2). The cloud routers get no such plan.
+
+What the plan fixes by hand: the OPTOS table (each optocoupler's bypass capacitors and
+pull-ups); the two NI_5V stubs from J45 pins 8 and 14 to vias at y = 227.6; In2.Cu signal
+only under J45 (IN2_YMIN = 226); each of pins 11-14 of U56-U61 leaving by an F.Cu stub to a
+via held within +/-0.06 mm of the pin's own line (the J2 window; the engine finds the via's
+x in it, under N-13 and N-16); pin 16 joined to its bypass on F.Cu (J3); BARCODE_NI routed
+after U60's pull-ups; the exits to x < 57 (HV_X); the L-shaped join corridors (JOIN_XMAX =
+50) widening 1.5, 4, 10 mm; the B-13 fences and the clipped straddler terminals; the order of
+every phase; and the two plane rectangles.
 """
 import json
 import sys

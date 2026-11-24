@@ -34,7 +34,11 @@ panels/board_creation_panel.py.
 - balance: GET /apiuser/credit-flow, whose JSON has "balance".
 
 The key is read from ~/.config/deeppcb/api_key (or the file DEEPPCB_API_KEY_FILE names). It
-is never printed or logged, and every message this prints has it replaced by [redacted].
+must be one printable token with no whitespace inside (a key file with a comment line is
+refused, without quoting it: http.client would otherwise quote the whole value in a
+ValueError). It is never printed or logged: main() catches every exception and prints only
+its message, with the key and every piece of it 8 characters or longer replaced by
+[redacted], and no traceback.
 DEEPPCB_BASE_URL overrides the base URL; the tests point it at a local fake server.
 """
 from __future__ import annotations
@@ -42,6 +46,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -56,6 +61,8 @@ USER_AGENT = "wl-sync-bakeoff/1"
 REQUEST_TIMEOUT = 60          # seconds per HTTP request (the plugin's FILES_TIMEOUT)
 PENDING_WAIT = 90             # seconds to wait for a created board to reach Pending
 DEFAULT_MAX_BATCH_TIMEOUT = 30
+REDACT_MIN = 8                # every piece of the key this long or longer is redacted
+_TOKEN = re.compile(r"[\x21-\x7e]+")   # printable ASCII, no whitespace
 TIME_TO_LIVE = 300
 JOB_TYPE = "Routing"
 ROUTING_TYPE = "CurrentUnprotectedWiring"
@@ -76,6 +83,9 @@ def read_key(path: Path | None = None) -> str:
         raise SystemExit(f"no DeepPCB API key: {p} does not exist") from None
     if not key:
         raise SystemExit(f"no DeepPCB API key: {p} is empty")
+    if not _TOKEN.fullmatch(key):
+        raise SystemExit(f"no DeepPCB API key: {p} must hold one printable token and nothing "
+                         "else (no spaces, comments or further lines); its content is not shown")
     return key
 
 
@@ -87,7 +97,7 @@ class Client:
 
     # -- plumbing -------------------------------------------------------------------------
     def redact(self, text: str) -> str:
-        return text.replace(self._key, "[redacted]") if self._key else text
+        return redact(text, self._key)
 
     def request(self, method: str, path: str, *, params: dict | None = None,
                 body: bytes | None = None, content_type: str | None = None) -> bytes:
@@ -195,11 +205,25 @@ class Client:
         return revision
 
 
+def redact(text: str, key: str) -> str:
+    """`text` with `key`, and every substring of it REDACT_MIN characters or longer,
+    replaced by [redacted], longest first."""
+    if not key:
+        return text
+    n = len(key)
+    for length in range(n, min(REDACT_MIN, n) - 1, -1):
+        for i in range(n - length + 1):
+            piece = key[i:i + length]
+            if piece in text:
+                text = text.replace(piece, "[redacted]")
+    return text
+
+
 def revisions(board: dict) -> list[int]:
-    """Every revision number, in the order of contracts.DeepPCBBoard (workflows, then each
-    workflow's revisions); the last is the latest."""
-    return [r.get("revisionNumber", 0) for w in board.get("workflows") or []
-            for r in w.get("revisions") or []]
+    """Every revision number the board lists, ascending; the last is the latest. A revision
+    without a number is left out."""
+    return sorted({r["revisionNumber"] for w in board.get("workflows") or []
+                   for r in w.get("revisions") or [] if r.get("revisionNumber") is not None})
 
 
 def multipart(fields: dict, files: list) -> tuple[bytes, str]:
@@ -253,8 +277,9 @@ def main(argv=None, client: Client | None = None) -> int:
     if a.cmd == "submit" and not a.yes:
         print("not submitted: submitting spends credits; run `cost` first, then add --yes")
         return 2
-    cl = client or Client(read_key())
+    cl = None
     try:
+        cl = client or Client(read_key())
         if a.cmd == "balance":
             print(f"balance: {cl.balance():g}")
         elif a.cmd == "create":
@@ -270,8 +295,14 @@ def main(argv=None, client: Client | None = None) -> int:
         elif a.cmd == "download":
             rev = cl.download(a.board_id, a.revision, a.out)
             print(f"revision {rev} saved to {a.out}")
-    except ApiError as e:
-        print(f"deeppcb {a.cmd} failed: {cl.redact(str(e))}", file=sys.stderr)
+    except SystemExit as e:
+        if isinstance(e.code, str):          # read_key's and submit's refusals
+            print(cl.redact(e.code) if cl else e.code, file=sys.stderr)
+            return 1
+        raise
+    except BaseException as e:               # anything, KeyboardInterrupt included
+        msg = f"{type(e).__name__}: {e}"
+        print(f"deeppcb {a.cmd} failed: {cl.redact(msg) if cl else msg}", file=sys.stderr)
         return 1
     return 0
 

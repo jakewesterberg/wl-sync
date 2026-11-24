@@ -32,7 +32,8 @@ against the repository's own `breakout.kicad_pro` and `breakout.kicad_dru` by it
 | `breakout.kicad_dru` | KiCad custom rules (N-13, N-16 and the width minimums), loaded by KiCad with the board |
 | `island.nets.txt` | the 58 island nets |
 | `fp-lib-table`, `footprints/` | every footprint the board uses, so the project opens on its own |
-| `sym-lib-table`, `symbols/` | the project's own symbol library (there is no schematic) |
+| `sym-lib-table`, `symbols/` | the project's own symbol library |
+| `breakout.kicad_sch` and ten sheets beside it | **the whole board's schematic**, not the island's: its netlist has all 747 nets, while this board's pads outside the island have none. Only the 28 island nets with connections are to be routed. The sheets sit flat beside the root (the repository keeps them in `sheets/`) because Quilter takes no directories; nothing in them is changed |
 
 KiCad 10.0.5 opens it in place. `kicad-cli pcb drc --severity-all breakout.kicad_pcb`, run in
 this directory, loads the rules and shows 144 `unconnected_items` and 24

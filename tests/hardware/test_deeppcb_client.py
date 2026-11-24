@@ -162,11 +162,11 @@ def test_submit_patches_confirm_with_the_plugins_payload(fake, client, capsys):
     assert json.loads(out)["cost"] == 75.0
 
 
-def test_submit_refuses_when_the_balance_is_short(fake, client):
+def test_submit_refuses_when_the_balance_is_short(fake, client, capsys):
     fake.on("GET", "/boards/b1", body=BOARD)
     fake.on("GET", "/apiuser/credit-flow", body={"balance": 10})
-    with pytest.raises(SystemExit, match="costs 75 credits and the balance is 10"):
-        dc.main(["submit", "b1", "--timeout", "30", "--yes"], client=client)
+    code, _, err = run(capsys, client, "submit", "b1", "--timeout", "30", "--yes")
+    assert code == 1 and "costs 75 credits and the balance is 10" in err
     assert not fake.sent("PATCH")
 
 
@@ -210,3 +210,53 @@ def test_read_key_strips_and_refuses_a_missing_or_empty_file(tmp_path):
         dc.read_key(p)
     with pytest.raises(SystemExit, match="does not exist"):
         dc.read_key(tmp_path / "missing")
+
+
+def no_piece_of_key(text):
+    """Neither the key nor any 8-character piece of it."""
+    return all(KEY[i:i + 8] not in text for i in range(len(KEY) - 7))
+
+
+def test_download_takes_the_highest_revision_whatever_the_order(fake, client, tmp_path, capsys):
+    board = dict(BOARD, workflows=[{"revisions": [{"revisionNumber": 5}, {"revisionNumber": 2}]},
+                                   {"revisions": [{"revisionNumber": 4}, {}]}])
+    fake.on("GET", "/boards/b1", body=board)
+    fake.on("GET", "/boards/b1/revision-artifact", body=b"(kicad_pcb)", ctype="text/plain")
+    code, out, _ = run(capsys, client, "download", "b1", "--out", str(tmp_path / "b.kicad_pcb"))
+    assert code == 0 and "revision 5 saved" in out
+    assert fake.sent("GET")[-1]["query"]["revision"] == ["5"]
+    assert dc.revisions(board) == [2, 4, 5]
+
+
+@pytest.mark.parametrize("content", [KEY + "\n# my deeppcb key\n", KEY + " trailing words",
+                                     "key: " + KEY, KEY + "\u00e9"])
+def test_a_malformed_key_file_is_refused_without_quoting_it(tmp_path, monkeypatch, capsys, content):
+    p = tmp_path / "api_key"
+    p.write_text(content)
+    with pytest.raises(SystemExit) as e:
+        dc.read_key(p)
+    assert "one printable token" in str(e.value) and no_piece_of_key(str(e.value))
+    monkeypatch.setenv("DEEPPCB_API_KEY_FILE", str(p))
+    assert dc.main(["balance"]) == 1               # the real client path: read_key in main
+    out = capsys.readouterr()
+    assert "one printable token" in out.err
+    assert no_piece_of_key(out.out + out.err)
+
+
+def test_any_exception_carrying_the_key_is_printed_redacted(capsys):
+    class Boom(dc.Client):
+        def balance(self):
+            raise ValueError(f"Invalid header value {(KEY + chr(10) + '# x').encode()!r}; "
+                             f"part {KEY[3:15]}")
+    code = dc.main(["balance"], client=Boom(KEY))
+    out = capsys.readouterr()
+    assert code == 1 and "ValueError: Invalid header value" in out.err
+    assert "[redacted]" in out.err and "Traceback" not in out.err
+    assert no_piece_of_key(out.out + out.err)
+
+
+def test_redact_replaces_every_long_piece_and_leaves_short_ones():
+    assert dc.redact(f"a{KEY}b", KEY) == "a[redacted]b"
+    assert dc.redact(KEY[5:13], KEY) == "[redacted]"
+    assert dc.redact(KEY[5:12], KEY) == KEY[5:12]          # 7 characters: kept
+    assert dc.redact("nothing here", KEY) == "nothing here"

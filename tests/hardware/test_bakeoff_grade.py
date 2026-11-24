@@ -38,7 +38,9 @@ def results(tmp_path):
         (r / t).mkdir(parents=True)
         (r / t / "board.kicad_pcb").write_text(f"(kicad_pcb {t})")
         (r / t / "meta.json").write_text(json.dumps({"wall_clock_s": 100 + i, "cost": i,
-                                                    "cost_unit": "credits", "notes": t}))
+                                                    "cost_unit": "credits", "notes": t,
+                                                    "attempts": f"{i + 1} runs",
+                                                    "setup": f"setup {t}"}))
     return r
 
 
@@ -71,17 +73,32 @@ def test_main_blinds_the_summary_and_keeps_the_key_apart(results, tmp_path, monk
     monkeypatch.setattr(ga, "judge", fake_judge)
     out = tmp_path / "grading"
     assert ga.main(["--results", str(results), "--out", str(out)]) == 0
-    key = json.loads((out / "blind-key.json").read_text())
+    kd = tmp_path / "grading-key"
+    assert sorted(p.name for p in out.iterdir()) == ["A", "B", "C", "summary.md"]
+    assert sorted(p.name for p in kd.iterdir()) == ["blind-key.json", "costs.md"]
+    key = json.loads((kd / "blind-key.json").read_text())
     assert sorted(key.values()) == TOOLS and len(calls) == 3
     for label, tool in key.items():
         assert (out / label / "breakout.kicad_pcb").read_text() == f"(kicad_pcb {tool})"
     s = (out / "summary.md").read_text()
-    assert not any(t in s for t in TOOLS)
+    # the fixed note on partial blinding says "our engine", and ties it to no label;
+    # nothing else in the summary names a tool
+    assert "The blinding is partial" in s and "setup differs" in s
+    assert "\n".join(ga.BLINDING) in s
+    assert not any(t in s.replace("\n".join(ga.BLINDING), "") for t in TOOLS)
     assert "| vias within 0.2 mm of an SMD pad (N-16) | 2 | 2 | 2 |" in s
     assert "| vias in SMD pads (N-16 clause 1) | 0 | 0 | 0 |" in s
     assert "| NI_GND on In1.Cu: islands / neck mm | 1 / 3 |" in s
-    c = (out / "costs.md").read_text()
+    c = (kd / "costs.md").read_text()
     for label, tool in key.items():
-        assert f"| {label} | {100 + TOOLS.index(tool)} | {TOOLS.index(tool)} credits |" in c
+        i = TOOLS.index(tool)
+        assert (f"| {label} | {100 + i} | not recorded | {i} credits | {i + 1} runs | "
+                f"setup {tool} | {tool} |") in c
     with pytest.raises(SystemExit, match="already holds a grading"):
         ga.main(["--results", str(results), "--out", str(out)])
+
+
+def test_the_key_directory_may_not_sit_inside_the_summary_folder(results, tmp_path):
+    out = tmp_path / "grading"
+    with pytest.raises(SystemExit, match="must not be inside"):
+        ga.main(["--results", str(results), "--out", str(out), "--key-dir", str(out / "key")])

@@ -1,3 +1,7 @@
 # KiCad writes a .kicad_prl (its per-user view state) beside any board it opens
 *.kicad_prl
 *.kicad_pcb-bak
+# grade_all.py's default output and its key directory: the key must never be committed
+# beside the summary by a routine git add
+/grading/
+/grading-key/

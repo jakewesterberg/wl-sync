@@ -1,18 +1,23 @@
 """Grade every bake-off candidate blind (task R1c, Step 3, 2026-11-24).
 
-    python3 hardware/breakout/bakeoff/grade_all.py [--results DIR] [--out DIR]
+    python3 hardware/breakout/bakeoff/grade_all.py [--results DIR] [--out DIR] [--key-dir DIR]
 
 Each candidate is a directory `results/<tool>/` holding one `.kicad_pcb` (the board as the
 tool returned it, or our engine's) and, optionally, `meta.json`:
 
-    {"wall_clock_s": 118, "cost": 0, "cost_unit": "USD", "notes": "..."}
+    {"wall_clock_s": 118, "wall_clock_scope": "...", "cost": 0, "cost_unit": "USD",
+     "attempts": "...", "setup": "...", "notes": "..."}
+
+`attempts` and `setup` say how many runs the candidate took and how much human or agent
+work went in before the run (a hand plan, rule entry, iterations), so that costs.md does
+not set one tool's routing seconds beside another's whole job as though like for like.
 
 The script:
 
 1. gives each candidate a blind label, A, B, C..., in an order drawn at random (so the
    label says nothing about the tool), and copies its board to `<out>/<label>/breakout.kicad_pcb`;
-2. writes the key, label to tool, to `<out>/blind-key.json`, a file of its own. Nothing else
-   it writes names a tool;
+2. writes the key, label to tool, to `<key-dir>/blind-key.json`. The key directory defaults
+   to `<out>-key`, beside `<out>`, never inside it. Nothing in `<out>` names a tool;
 3. runs the judge in island mode on each copy, with KiCad's Python:
    `judge_layout.py <copy> --nets ni-island/island.nets.txt --region 0,100,70,240
    --json <out>/<label>/judge.json`, its printout kept as `<out>/<label>/judge.txt`. The judge
@@ -23,12 +28,13 @@ The script:
 4. writes `<out>/summary.md`: every gate, every check's status, and the stage protocol's
    metrics (vias; signal mm on In1.Cu and In2.Cu; plane islands and narrowest neck; routed
    length / MST; vias in pads; N-16's count), by label;
-5. writes `<out>/costs.md`, wall-clock and cost by label, from each meta.json. It is kept
-   apart from the summary because a cost can identify a tool (ours costs nothing): read it
-   after the scoring.
+5. writes `<key-dir>/costs.md`: wall-clock, cost, attempts and setup by label, from each
+   meta.json. It is kept out of `<out>` because a cost or a setup can identify a tool (ours
+   costs nothing and carries a hand plan): read it after the scoring.
 
-It refuses an `--out` that already holds a grading, so a second run cannot re-deal the
-labels over the first.
+The blinding is partial, and summary.md says so (BLINDING). It refuses an `--out` or a
+key directory that already holds a grading, so a second run cannot re-deal the labels
+over the first. The default `--out` and its key directory are git-ignored.
 """
 from __future__ import annotations
 
@@ -129,13 +135,30 @@ def table(head: list[str], rows: list[list[str]]) -> list[str]:
     return out
 
 
+BLINDING = [
+    "**The blinding is partial.** This file names no tool and prints no pour name. But:",
+    "",
+    "- our engine's candidate is not blind to anyone who has read the R1c report, which "
+    "publishes its whole metrics table;",
+    "- each `<label>/judge.txt` prints every pour's name as its tool wrote it, and our "
+    "engine's are 'NI_GND plane (S-6)' and 'NI_5V plane (S-7)';",
+    "- only the cloud tools can really be told apart blind, and only by a reader who has "
+    "seen neither the report nor the key directory.",
+    "",
+    "**The candidates' setup differs.** Attempts, hand plans and rule entry are in "
+    "costs.md, in the key directory, with wall-clock and cost: read it after the scoring, "
+    "and do not set one candidate's routing seconds beside another's whole job as like "
+    "for like.",
+]
+
+
 def summary(results: dict[str, dict]) -> str:
     labels = sorted(results)
     L = ["# NI-island bake-off: blind grading", "",
          f"Judge: `hardware/gen/judge_layout.py --nets ni-island/island.nets.txt --region "
          f"{REGION}`, against the repository's own rules. Candidates: {', '.join(labels)}. "
-         "The key is in blind-key.json; wall-clock and cost are in costs.md.", "",
-         "## Result", ""]
+         "The key, wall-clock, cost and setup are in the key directory, not here.", "",
+         *BLINDING, "", "## Result", ""]
     L += table(["", *labels], [["judge exit (0: every gate and check PASS or N/A)",
                                 *[str(results[l]["_exit"]) for l in labels]],
                                ["not passing", *[", ".join(results[l]["not_passing"]) or "-"
@@ -167,12 +190,21 @@ def summary(results: dict[str, dict]) -> str:
 
 def costs(metas: dict[str, dict]) -> str:
     labels = sorted(metas)
-    L = ["# NI-island bake-off: wall-clock and cost by label", "",
-         "Read after the scoring: a cost can identify a tool.", ""]
-    L += table(["Label", "wall-clock s", "cost", "notes"],
-               [[l, str(metas[l].get("wall_clock_s", "-")),
+    L = ["# NI-island bake-off: wall-clock, cost and setup by label", "",
+         "Read after the scoring: a cost or a setup can identify a tool. The candidates are "
+         "not like for like: read `attempts` and `setup` with the wall-clock.", ""]
+    cell = lambda v: str(v).replace("|", "/").replace("\n", " ")  # noqa: E731
+    L += table(["Label", "wall-clock s", "wall-clock covers", "cost", "attempts", "setup",
+                "notes"],
+               [[l, cell(metas[l].get("wall_clock_s", "-")),
+                 cell(metas[l].get("wall_clock_scope", "not recorded")),
                  f"{metas[l].get('cost', '-')} {metas[l].get('cost_unit', '')}".strip(),
-                 str(metas[l].get("notes", "")).replace("|", "/")] for l in labels])
+                 cell(metas[l].get("attempts", "not recorded")),
+                 cell(metas[l].get("setup", "not recorded")),
+                 cell(metas[l].get("notes", ""))] for l in labels])
+    hp = [l for l in labels if metas[l].get("hand_plan")]
+    for l in hp:
+        L += ["", f"{l}'s hand plan: {cell(metas[l]['hand_plan'])}"]
     return "\n".join(L) + "\n"
 
 
@@ -180,15 +212,22 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--results", type=Path, default=HERE / "results")
     ap.add_argument("--out", type=Path, default=HERE / "grading")
+    ap.add_argument("--key-dir", type=Path,
+                    help="where blind-key.json and costs.md go (default: <out>-key)")
     ap.add_argument("--kicad-python", default=KICAD_PY)
     a = ap.parse_args(argv)
     found = candidates(a.results)
-    out = a.out
-    if out.exists() and any(out.iterdir()):
-        raise SystemExit(f"{out} already holds a grading; move it away first")
+    out = a.out.resolve()
+    kd = (a.key_dir or out.parent / f"{out.name}-key").resolve()
+    if kd == out or out in kd.parents:
+        raise SystemExit(f"the key directory {kd} must not be inside {out}")
+    for d in (out, kd):
+        if d.exists() and any(d.iterdir()):
+            raise SystemExit(f"{d} already holds a grading; move it away first")
     out.mkdir(parents=True, exist_ok=True)
+    kd.mkdir(parents=True, exist_ok=True)
     key = deal(list(found))
-    (out / "blind-key.json").write_text(json.dumps(key, indent=1) + "\n")
+    (kd / "blind-key.json").write_text(json.dumps(key, indent=1) + "\n")
     results, metas = {}, {}
     for label, tool in sorted(key.items()):
         d = out / label
@@ -199,8 +238,8 @@ def main(argv=None) -> int:
         print(f"judging {label} ...", flush=True)
         results[label] = judge(d / "breakout.kicad_pcb", d, a.kicad_python)
     (out / "summary.md").write_text(summary(results))
-    (out / "costs.md").write_text(costs(metas))
-    print(f"wrote {out / 'summary.md'}, {out / 'costs.md'}; key in {out / 'blind-key.json'}")
+    (kd / "costs.md").write_text(costs(metas))
+    print(f"wrote {out / 'summary.md'}; key and costs in {kd}")
     return 0
 
 
