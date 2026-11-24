@@ -566,3 +566,15 @@ def test_route_records_the_module_contract(tree):
     p = drive(tree, "route", "1")
     assert p.returncode == 0, p.stdout + p.stderr
     assert contract_files(tree)["due.txt"] == ["K-2"]
+
+
+def test_route_refuses_a_due_typo_before_the_search(tree):
+    """R2 fix round 2: a DUE entry that is neither a judge check ID nor a check/clause key is
+    refused by `route N` before it searches, naming the entry; nothing is written."""
+    f = probe(tree)
+    f.write_text(f.read_text() + '\nDUE = ["G-1/overlapp", "S-7"]\n')
+    p = drive(tree, "route", "1")
+    assert p.returncode == 1, p.stdout + p.stderr
+    assert "REFUSED: stage 1: DUE names ['G-1/overlapp']" in p.stdout, p.stdout
+    assert "searched" not in p.stdout and "placed:" not in p.stdout
+    assert not (tree / STAGE_01).exists()

@@ -543,7 +543,9 @@ clauses, is printed with its key and its class:
   needs is complete, unless it is due. A `PENDING` clause prints what it found so far and
   the nets it waits on, and does not count against the exit code;
 - a **due** check or clause is judged on the copper present, and anything but `PASS`, `N/A`
-  included, fails the run.
+  included, fails the run. A requirement that is judged (due, or its nets complete) holds
+  for every net it names: a net it needs with no copper FAILs it, so it cannot pass on the
+  subset of its nets that has copper.
 
 CONNECTIVITY counts the complete nets' unrouted connections (the whole board's count is
 printed beside it); DRC sets aside an `unconnected_items` entry only when every item in it
@@ -551,10 +553,12 @@ is on a net that is not complete, and every other class keeps the accepted 24
 `silk_edge_clearance` (DRC lists at most 499 `unconnected_items`, so the CONNECTIVITY count
 is the complete one); the NET-LISTS gate fails copper on a net in neither list. A SHORT
 ratio on a net whose pads are not all joined is a lower bound: over 1.5 it FAILs, under it
-it is NOT CHECKED, never PASS, in either mode. Without `--complete-nets` everything is
+it is NOT CHECKED, never PASS, in either mode; B-18's, N-9's, K-23's and K-33's length
+comparisons are the same (out of tolerance FAILs, else NOT CHECKED until the net is joined). Without `--complete-nets` everything is
 judged and nothing is ever `PENDING`. G-1's mounting-hardware clause is `NOT CHECKED` on
 every board, so a stage run waives G-1 (`--allow-not-checked G-1`) and makes `G-1/overlap`
-due. On the committed, unrouted board, empty lists exit 1 on G-1 alone: DRC, connectivity
+due; from R9, once K-23's nets are complete, its `K-23/block` clause is NOT CHECKED too, and
+the stage run waives `G-1,K-23`. On the committed, unrouted board, empty lists exit 1 on G-1 alone: DRC, connectivity
 and NET-LISTS pass, and every requirement is `PENDING`.
 
 Exit code 0 only when every gate and every layer-2 check is `PASS` or `N/A` (or `PENDING`, in

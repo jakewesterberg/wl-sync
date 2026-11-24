@@ -1139,15 +1139,27 @@ class Judge:
             c["key"] = f"{r.id}/{spec[0]}" if spec else None
             if not partial:
                 continue
-            if due_whole or c["key"] in due_keys:
+            due = due_whole or c["key"] in due_keys
+            need = (set(spec[3](self)) & self.present
+                    if spec is not None and spec[2] == REQ else set())
+            missing = sorted(need - self.complete)
+            if need and (due or not missing):
+                # judged: a requirement must hold for every net it names, not for the ones
+                # that happen to have copper (fix round 2, NB-1)
+                bare = sorted(need - self.m.copper_nets)
+                if bare and c["status"] != FAIL:
+                    c["no_copper"] = bare
+                    c["evidence"] = [f"{c['status']} on the nets with copper, but {len(bare)} "
+                                     f"net(s) it needs have none: {short_list(bare)}"] \
+                        + list(c["evidence"])
+                    c["status"] = FAIL
+            if due:
                 matched.add(c["key"])
                 self._due(c, r.id if due_whole else c["key"])
-            elif spec is not None and spec[2] == REQ:
-                missing = sorted(set(spec[3](self)) & self.present - self.complete)
-                if missing:
-                    c["so_far"] = c["status"]
-                    c["status"] = PENDING
-                    c["pending_on"] = missing
+            elif missing:
+                c["so_far"] = c["status"]
+                c["status"] = PENDING
+                c["pending_on"] = missing
         if not partial:
             return
         # a due clause the check did not write is not a PASS either; for a check due as a
@@ -2282,6 +2294,7 @@ class Judge:
         g = self.m.graph("AGND") if "AGND" in self.m.copper_nets else None
         cl = {k: [] for k in ("once", "beside", "sense", "length", "at mux")}
         bad = {k: [] for k in cl}
+        unjoined = []       # the length clause on a MUX_OUTn not yet joined (fix round 2)
         for net in [n for n in MUX_OUT if n in self.m.copper_nets]:
             ina = next((ref for ref, pin, *_ in self.contract["nets"][net] if pin == "3"), None)
             mux = next((ref for ref, pin, *_ in self.contract["nets"][net] if pin == "28"), None)
@@ -2301,8 +2314,14 @@ class Judge:
                 continue
             cl["sense"].append(f"{net}: {ina}.2 to the AGND pour by {ls:.2f} mm of track")
             L = self.m.track_length(net)
-            (bad if abs(L - ls) > 1.0 else cl)["length"].append(
-                f"{net} {L:.2f} mm, its sense trace {ls:.2f} mm")
+            line = f"{net} {L:.2f} mm, its sense trace {ls:.2f} mm"
+            if abs(L - ls) > 1.0:
+                bad["length"].append(line)
+            elif self.net_open(net):
+                unjoined.append(line + f"; {net} is not fully joined, so its length so far "
+                                "decides nothing")
+            else:
+                cl["length"].append(line)
             targets = [n for n in range(len(g.xy)) if g.is_contact(n)]
             dist, _ = g.shortest([start], targets, use_zones=False)
             t = min((n for n in targets if n in dist), key=lambda n: dist[n])
@@ -2317,7 +2336,9 @@ class Judge:
                  "length": "MUX_OUTn and its sense trace within 1.0 mm in length",
                  "at mux": "the sense trace taken from the pour within 10 mm of the mux"}
         for k, name in names.items():
-            if bad[k] or cl[k]:
+            if k == "length" and unjoined and not bad[k]:
+                r.clause(name, NOT_CHECKED, *unjoined)
+            elif bad[k] or cl[k]:
                 r.clause(name, self.verdict(bad[k]), *(bad[k] or cl[k]))
 
     # -- N-9 -----------------------------------------------------------------------------
@@ -2332,8 +2353,12 @@ class Judge:
         if self.state(nets) != "routed":
             return
         L = {n: self.m.track_length(n) for n in nets}
-        r.clause("lengths within 1.0 mm", self.verdict(abs(L[nets[0]] - L[nets[1]]) > 1.0),
-                 f"D+ {L[nets[0]]:.2f} mm, D- {L[nets[1]]:.2f} mm")
+        open_ = [n for n in nets if self.net_open(n)]
+        line = f"D+ {L[nets[0]]:.2f} mm, D- {L[nets[1]]:.2f} mm"
+        r.clause("lengths within 1.0 mm",
+                 FAIL if abs(L[nets[0]] - L[nets[1]]) > 1.0 else NOT_CHECKED if open_ else PASS,
+                 line + (f"; {', '.join(open_)} not fully joined, so the lengths so far decide "
+                         "nothing" if open_ else ""))
         own = [p for p in self.m.pads if p.net in nets]
         dgnd = {ln: [i for i in self.m.islands_of("DGND") if i.layer == ln] for ln in self.m.cu}
         loose, gaps = [], []
@@ -2371,7 +2396,7 @@ class Judge:
         legs = self.k33_legs()
         if self.na_if(r, [n for n, *_ in legs], "the LED-driver output nets"):
             return
-        apart, ok, bad = [], [], []
+        apart, ok, bad, unjoined, joined = [], [], [], [], []
         for net, pa, pb in legs:
             if net not in self.m.copper_nets:
                 continue
@@ -2389,28 +2414,48 @@ class Judge:
                 apart.append(f"{net}: {pa[0]}.{pa[1]} and {pb[0]}.{pb[1]} not joined to the LED")
                 continue
             j = min(common, key=lambda n: da[n] + db[n] + dl[n])
+            joined.append(f"{net}: {pa[0]}.{pa[1]} and {pb[0]}.{pb[1]} joined to the LED")
             line = (f"{net}: legs {da[j]:.2f} mm ({pa[0]}.{pa[1]}) and {db[j]:.2f} mm "
                     f"({pb[0]}.{pb[1]}), junction ({g.xy[j][0]:.2f},{g.xy[j][1]:.2f})")
-            (bad if abs(da[j] - db[j]) > 1.0 or max(da[j], db[j]) > 10.0 else ok).append(line)
-        if apart:
-            r.clause("both outputs joined to the LED", FAIL, *apart)
-        if bad or ok:
-            r.clause("legs at most 10 mm and within 1.0 mm", self.verdict(bad), *(bad or ok))
+            if abs(da[j] - db[j]) > 1.0 or max(da[j], db[j]) > 10.0:
+                bad.append(line)
+            elif self.net_open(net):
+                unjoined.append(line + f"; {net} is not fully joined, so the legs so far "
+                                "decide nothing")
+            else:
+                ok.append(line)
+        # written PASS as well as FAIL, so that K-33 due as a whole can PASS (fix round 2,
+        # NB-2)
+        if apart or joined:
+            r.clause("both outputs joined to the LED", self.verdict(apart), *(apart or joined))
+        if bad or unjoined or ok:
+            r.clause("legs at most 10 mm and within 1.0 mm",
+                     FAIL if bad else NOT_CHECKED if unjoined else PASS,
+                     *(bad or unjoined or ok))
 
     # -- K-23 ----------------------------------------------------------------------------
     def k23(self, r):
         pairs = self.K23_PAIRS
         if self.na_if(r, [n for p in pairs for n in p], "the divider nets"):
             return
-        lb, lo, vb, vo = [], [], [], []
+        lb, lo, lu, vb, vo = [], [], [], [], []
         for a, b in pairs:
             if a not in self.m.copper_nets and b not in self.m.copper_nets:
                 continue
             la, lb_ = self.m.track_length(a), self.m.track_length(b)
             va, vb_ = len(self.m.vias_of(a)), len(self.m.vias_of(b))
-            (lb if abs(la - lb_) > 1.0 else lo).append(f"{a} {la:.2f} mm, {b} {lb_:.2f} mm")
+            line = f"{a} {la:.2f} mm, {b} {lb_:.2f} mm"
+            open_ = [n for n in (a, b) if self.net_open(n)]
+            if abs(la - lb_) > 1.0:
+                lb.append(line)
+            elif open_:
+                lu.append(line + f"; {', '.join(open_)} not fully joined, so the lengths so "
+                          "far decide nothing")
+            else:
+                lo.append(line)
             (vb if va != vb_ else vo).append(f"{a} {va} vias, {b} {vb_} vias")
-        r.clause("each leg's twin within 1.0 mm in length", self.verdict(lb), *(lb or lo))
+        r.clause("each leg's twin within 1.0 mm in length",
+                 FAIL if lb else NOT_CHECKED if lu else PASS, *(lb or lu or lo))
         r.clause("each leg's twin with as many vias", self.verdict(vb), *(vb or vo))
         r.clause("a 2-gang block fitted and moved by hand, clear of the BNC bodies",
                  NOT_CHECKED, "access by hand is not a property the board file holds")

@@ -176,6 +176,15 @@ def declared_complete(mod, touched) -> list | None:
     return sorted(set(c(sorted(touched)) if callable(c) else c))
 
 
+def bad_due(due) -> list[str]:
+    """DUE entries that are neither a judge check ID nor a check/clause key, from the
+    judge's own CLASSES (judge_layout imports without pcbnew; fix round 2)."""
+    sys.path.insert(0, str(ROOT / "hardware" / "gen"))
+    import judge_layout as jl
+    keys = set(jl.CLASSES) | {k for rid in jl.CLASSES for k in jl.clause_keys(rid)}
+    return sorted(d for d in set(due) if d not in keys)
+
+
 def module_contract(n: int, r: RouteResult):
     """(due, complete) as stage n's module gives them for its route file `r`, or None if
     there is no module or it does not import."""
@@ -579,6 +588,10 @@ def search(n: int, mod, placement: str, rules: Rules, earlier: list[RouteResult]
 
 def route(n: int) -> int:
     mod = stage_module(n)
+    wrong = bad_due(getattr(mod, "DUE", []))
+    if wrong:                            # before the search, not after it (fix round 2)
+        raise Refused(f"stage {n}: DUE names {wrong}, which are neither a check ID nor a "
+                      f"check/clause key of judge_layout.py (it prints each clause's key)")
     placement, rules_sha = place()
     files = route_files()
     later = sorted(k for k in files if k > n)

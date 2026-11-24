@@ -433,13 +433,16 @@ CASES = {
                     "its sense trace 6.0"),
     "B-18/at-mux": ("B-18", "the sense trace taken from the pour", b18_sense(0.0), B18_FAR,
                     "mm from U38"),
-    "N-9/length": ("N-9", "lengths within 1.0 mm", n9(), n9(dm_end=151.5), "D- 11.50 mm"),
+    # n9()'s and k23()'s tracks join no pads: a length so far decides nothing, NOT CHECKED
+    # (R2 fix round 2); the controls are out of tolerance already, a FAIL
+    "N-9/length": ("N-9", "lengths within 1.0 mm", n9(), n9(dm_end=151.5), "D- 11.50 mm",
+                   "NOT CHECKED"),
     "N-9/coupled": ("N-9", "coupled", n9(), n9(dm_y=122.0), "USB_DP_PI: 0% of its length"),
     "N-9/plane": ("N-9", "over unbroken DGND", n9(), n9(pour_x1=145), "samples not over a DGND fill"),
     "N-9/vbus": ("N-9", "J18 pin 1", n9(), n9(vbus=True), "J18 pin 1 touched"),
     "K-33": ("K-33", "legs at most 10 mm", k33(4.5), k33(1.5), "legs 1.50 mm (U8.18)"),
     "K-23/length": ("K-23", "each leg's twin within 1.0 mm", k23(), k23(shld_end=206),
-                    "A_MISC1_SHLD_MID 7.00 mm"),
+                    "A_MISC1_SHLD_MID 7.00 mm", "NOT CHECKED"),
     "K-23/vias": ("K-23", "each leg's twin with as many vias", k23() + ";" + N16_BASE,
                   k23(shld_via=True) + ";" + N16_BASE,
                   "A_MISC1_SHLD_MID 1 vias"),
@@ -1141,13 +1144,18 @@ def test_short_on_an_unjoined_net_never_passes(contract):
     fb = ["U3_FB", "U3_NRSS", "U4_FB", "U4_NRSS"]
     _, out, _ = contract("half", complete=fb)
     c = clause(checks(out)["P-5"], "FB and NR/SS on short traces")
-    assert c["status"] == "NOT CHECKED", c
+    # NOT CHECKED on U3_FB (M-1), and FAIL once the three other nets are listed complete
+    # with no copper at all (fix round 2, NB-1). In full mode the clause is NOT CHECKED: the
+    # P-5/short control's base.
+    assert c["status"] == "FAIL" and c["no_copper"] == ["U3_NRSS", "U4_FB", "U4_NRSS"], c
+    assert c["evidence"][0].startswith("NOT CHECKED on the nets with copper, but 3 net(s)")
     assert "U3_FB: 4.73 mm routed against 8.98 mm MST; the net is not fully joined" in \
-        c["evidence"][0], c
+        c["evidence"][1], c
     assert checks(out)["P-5"]["status"] != "PASS"
     _, out, _ = contract("half", due=["P-5/short"])
     c = clause(checks(out)["P-5"], "FB and NR/SS on short traces")
-    assert c["status"] == "FAIL" and c["due_was"] == "NOT CHECKED", c
+    assert c["status"] == "FAIL" and c["no_copper"] == ["U3_NRSS", "U4_FB", "U4_NRSS"], c
+    assert "DUE (P-5/short): FAIL, not PASS" in c["evidence"][0], c
 
 
 def test_every_g11_net_crosses(contract):
@@ -1165,3 +1173,136 @@ def test_every_g11_net_crosses(contract):
     _, out, _ = contract("g11-less")
     c = clause(checks(out)["G-10"], "every G-11 net crosses x = 170")
     assert c["status"] == "PENDING" and c["so_far"] == "FAIL", c
+
+
+# ---- R2 fix round 2: the DUE seams ---------------------------------------------------------
+CONTRACT_JSON = REPO / "hardware" / "breakout" / "netlist-contract.json"
+# every K-33 leg pair joined: a via at each pad, B.Cu tracks to the midpoint of the two driver
+# pins, and from it to the LED's pad
+K33_ALL = f'''
+NETS = json.load(open({str(CONTRACT_JSON)!r}))["nets"]
+LEGS = []
+for a, c in (("U8", "U70"), ("U9", "U71"), ("U11", "U73"), ("U10", "U72")):
+    for n, nodes in sorted(NETS.items()):
+        fa = [pin for ref, pin, fn, _ in nodes if ref == a and fn.startswith("Y")]
+        fc = [pin for ref, pin, fn, _ in nodes if ref == c and fn.startswith("Y")]
+        if fa and fc:
+            LEGS.append((n, (a, fa[0]), (c, fc[0])))
+for n, pa, pc in LEGS:
+    A, C = pad_xy(*pa), pad_xy(*pc)
+    j = ((A[0] + C[0]) / 2, (A[1] + C[1]) / 2)
+    via(n, *A); via(n, *C); track(n, 'B.Cu', [A, j]); track(n, 'B.Cu', [j, C])
+    for ref, pin, *_ in NETS[n]:
+        if (ref, pin) not in (pa, pc):
+            L = pad_xy(ref, pin); via(n, *L); track(n, 'B.Cu', [j, (j[0], L[1]), L])
+'''
+# every K-23 divider net joined as a star from its header pin, and the shorter twin of each
+# pair lengthened by a dangling stub to the other's length (the pads are not symmetric)
+K23_ALL = r'''
+import math
+K23_PADS = {}
+for f in b.GetFootprints():
+    for p in f.Pads():
+        n = p.GetNetname()
+        if n.startswith("A_MISC") and (n.endswith("_MID") or n.endswith("_DIV")):
+            K23_PADS.setdefault(n, []).append((f.GetReference(), p.GetNumber()))
+def star(net):
+    ps = sorted(K23_PADS[net], key=lambda q: (not q[0].startswith("J"), q))
+    hub = pad_xy(*ps[0]); L = 0.0
+    for q in ps[1:]:
+        e = pad_xy(*q); track(net, 'F.Cu', [hub, e]); L += math.dist(hub, e)
+    return L, hub
+for m in ("A_MISC1", "A_MISC2", "A_MISC3"):
+    for a, c in ((m + "_MID", m + "_SHLD_MID"), (m + "_DIV", m + "_SHLD_DIV")):
+        la, ha = star(a); lc, hc = star(c)
+        short, h, d = (a, ha, lc - la) if la < lc else (c, hc, la - lc)
+        if d > 0.05:
+            track(short, 'F.Cu', [h, (h[0], h[1] + d)])
+'''
+K23_NETS = [f"A_MISC{k}_{s}" for k in (1, 2, 3) for s in ("MID", "SHLD_MID", "DIV", "SHLD_DIV")]
+
+
+@pytest.fixture(scope="module")
+def seams(tmp_path_factory):
+    d = tmp_path_factory.mktemp("seams")
+    codes = {"b18-one": b18_sense(0.0), "k23-one": k23(), "k33-one": k33(4.5),
+             "ni-planes": NI_PLANES, "k33-all": K33_ALL, "k23-all": K23_ALL}
+    boards = make_boards(d, list(codes.values()))
+    boards = {k: boards[c] for k, c in codes.items()}
+
+    def run(which, complete=(), due=(), extra=("--skip-drc",)):
+        tag = key("|".join([which, " ".join(complete), " ".join(due), " ".join(extra)]))
+        f = write_contract(d / f"c-{tag}", complete, None, due)
+        return run_judge(boards[which], "--complete-nets", str(f), "--reference", str(BOARD),
+                         *extra, json_out=d / f"out-{tag}.json")
+    return run
+
+
+# (board, DUE, check, a net it needs that has no copper there)
+SUBSET = {
+    "B-18": ("b18-one", ["B-18"], "B-18", "MUX_OUT2"),
+    "K-23": ("k23-one", ["K-23/length", "K-23/vias"], "K-23", "A_MISC2_MID"),
+    "K-33": ("k33-one", ["K-33"], "K-33", "EVT_D1_BUF"),
+    "K-35": ("ni-planes", ["K-35/joined"], "K-35", "INTAN_GND"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(SUBSET))
+def test_due_requirement_needs_every_net(seams, name):
+    """NB-1: a due requirement is not met by the subset of its nets that has copper. Each
+    board routes one net or pair (B-18: MUX_OUT1; K-23: A_MISC1_MID's pair; K-33: EVT_D0_BUF;
+    K-35: the NI planes only), on which the clause alone would PASS."""
+    which, due, rid, bare = SUBSET[name]
+    _, base, _ = seams(which)                     # not due: PENDING, so far PASS on the subset
+    assert checks(base)[rid]["status"] == "PENDING", checks(base)[rid]
+    code, out, stdout = seams(which, due=due)
+    chk = checks(out)[rid]
+    assert chk["status"] == "FAIL", chk
+    hit = [c for c in chk["clauses"] if bare in c.get("no_copper", [])]
+    assert hit, chk
+    assert any("PASS on the nets with copper, but" in c["evidence"][1] for c in hit), hit
+    assert rid in out["not_passing"] and code == 1
+
+
+def test_complete_requirement_needs_every_net(seams):
+    """NB-1, the complete-gated case: B-18 not due, but every net it needs listed complete,
+    with only MUX_OUT1 routed, FAILs (and CONNECTIVITY with it)."""
+    _, out, _ = seams("b18-one", complete=MUX_OUT_ALL + ["AGND"])
+    b18 = checks(out)["B-18"]
+    assert b18["status"] == "FAIL" and any("MUX_OUT8" in c.get("no_copper", [])
+                                           for c in b18["clauses"]), b18
+    assert gates_of(out)["CONNECTIVITY"]["status"] == "FAIL"
+
+
+MUX_OUT_ALL = [f"MUX_OUT{n}" for n in range(1, 9)]
+
+
+def test_k33_due_whole_passes(seams):
+    """NB-2: K-33 due as a whole PASSes on correct legs: its joined clause is written when it
+    holds, not only when it fails."""
+    _, out, _ = seams("k33-all", due=["K-33"])
+    k33 = checks(out)["K-33"]
+    assert k33["status"] == "PASS", k33
+    assert {c["key"]: c["status"] for c in k33["clauses"]} == {"K-33/joined": "PASS",
+                                                                "K-33/legs": "PASS"}
+    assert "EVT_D0_BUF: U8.18 and U70.18 joined to the LED" in \
+        clause(k33, "both outputs joined")["evidence"]
+
+
+def test_r9_waiver(seams):
+    """NB-3: an R9-shaped contract, K-23's twelve nets complete and DUE K-23/length,
+    K-23/vias. K-23/block is NOT CHECKED on every board, so from R9 the stage run waives
+    K-23 too: with G-1 alone K-23 counts; with G-1,K-23 nothing else fails. (DRC is skipped,
+    and so the one failure left: the hand-drawn stars cross other copper; what is under test
+    is the waiver.)"""
+    due = ["K-23/length", "K-23/vias"]
+    _, out, _ = seams("k23-all", complete=K23_NETS, due=due,
+                      extra=("--skip-drc", "--allow-not-checked", "G-1"))
+    assert out["not_passing"] == ["DRC", "K-23"], out["not_passing"]
+    k23c = {c["key"]: c["status"] for c in checks(out)["K-23"]["clauses"]}
+    assert k23c == {"K-23/length": "PASS", "K-23/vias": "PASS", "K-23/block": "NOT CHECKED"}
+    assert gates_of(out)["CONNECTIVITY"]["status"] == "PASS"
+    _, out, _ = seams("k23-all", complete=K23_NETS, due=due,
+                      extra=("--skip-drc", "--allow-not-checked", "G-1,K-23"))
+    assert out["not_passing"] == ["DRC"], out["not_passing"]
+    assert out["not_checked_allowed"] == ["G-1", "K-23"]

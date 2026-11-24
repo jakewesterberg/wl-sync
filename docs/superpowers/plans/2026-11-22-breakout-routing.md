@@ -439,10 +439,15 @@ it up.
   committed board:
   - the stage module's `DUE` is exactly the row's "The judge must PASS" column;
   - the connectivity over `routes/complete.nets` is 0;
-  - the judge with `--complete-nets routes/complete.nets --allow-not-checked G-1` exits 0,
+  - the judge with `--complete-nets routes/complete.nets --allow-not-checked W` exits 0,
     which holds every entry of `routes/due.txt` at PASS (a due item that is anything else
-    fails the run). G-1 is waived at every stage because its mounting-hardware clause is
-    NOT CHECKED on any board; its plane clause, `G-1/overlap`, is due from R3;
+    fails the run). W is `G-1` for R3 to R8, and `G-1,K-23` for R9 to R12 (fix round 2):
+    - G-1, because its mounting-hardware clause is NOT CHECKED on any board (its plane
+      clause, `G-1/overlap`, is due from R3);
+    - K-23, from R9 on, because R9 completes K-23's nets, and its `K-23/block` (a 2-gang
+      block moved by hand) is then judged, and is NOT CHECKED on any board.
+
+    R13 keeps its own list, what routing-brief §7 names;
   - the row's metric bounds hold.
 - [ ] **Step 2: Run it and see it fail** (no stage file yet).
 - [ ] **Step 3: Write the stage module**, then run `route_breakout.py route NN`. Iterate
@@ -489,7 +494,12 @@ Notes on the column (R2 fix round 1):
   the final board, so it stays PENDING through R12 and needs no waiver there. R13 waives
   K-35 by name (`--allow-not-checked G-1,K-23,K-35,N-10`, routing-brief §7).
 - R9's K-23 leaves out `K-23/block` (a 2-gang block moved by hand), NOT CHECKED on any
-  board; R13 waives K-23.
+  board. Once R9 completes K-23's nets the clause is judged, so R9 to R12 waive K-23 with
+  G-1 (Step 1), and R13 waives it in its own list.
+- R9's K-33 is whole: its joined clause is written when it holds as well as when it fails
+  (fix round 2), so `K-33` due can PASS.
+- A due requirement holds for every net it names: one with no copper FAILs it (fix round 2),
+  so a row's DUE is met only when the stage has routed all of that check's nets.
 - G-10 at R4 is its three prohibitions; at R8 it is whole, the corridor and every G-11
   crossing included, on the copper present.
 
