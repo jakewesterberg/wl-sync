@@ -1,0 +1,12 @@
+rules sha256 1d68039e640f0aa733e82fcd7918f7a892e94745c360ac66b764265cbb8abdad; knobs {'gnd_via_at_pin16': True, 'pullup_plane_reach': 5.0, 'pullup_plane_via_cost': 6.0, 'hv_x': 57.0, 'exit_via_cost': 3.0, 'escape_ymax': 224.0, 'escape_in2_cost': 4.0, 'escape_via_cost': 10.0, 'join_via_cost': 3.0, 'join_bend_cost': 0.2, 'join_prefer': True, 'join_shape': 'VD', 'join_halves': (1.5, 4.0, 10.0), 'join_xmax': 50.0, 'join_order': '-x', 'via_free': (), 'runway_half': 0.72, 'runway_len': 6.0}
+phase local: 5.8s, failed so far 0
+phase exits: 8.7s, failed so far 0
+phase escapes: 12.4s, failed so far 0
+phase joins: 17.5s, failed so far 0
+pruned: {'vias': 6, 'tracks': 0, 'trimmed': 1, 'bridged': 6}
+stayed local: {'BARCODE_NI': (78.69, 78.72), 'NI_5V_FB_FILT': (2.98, 2.98), 'NI_5V_FB_RAW': (3.51, 3.51)}
+tracks 436 vias 119 zones 2; failed 0: []
+route wall-clock 44.6s
+real 44.76
+user 39.00
+sys 7.28

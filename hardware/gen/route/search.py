@@ -50,6 +50,14 @@ FINE_ONLY_CELLS = 40_000  # a window this small is searched fine at once
 COARSE_WEIGHT = 1.5     # the coarse pass's heuristic weight: it only picks a corridor
 CORRIDOR_WEIGHT = 1.0   # the corridor search is plain A* (1.2 was tried: no faster)
 REVERSE_POPS = 300_000  # the bound on the search back from the goals (sealed-goal test)
+# `prefer`'s step multipliers per direction (DIRS order): the axis itself 1, 45 degrees off
+# it 1.4, square to it 3 (wl-shook lessons §5, the trial's HV_MULT). 'h' and 'v' are R1a's;
+# 'ne' (up-right and down-left, the board's y growing downward) and 'nw' were added in task
+# R1d, so a layer can carry the diagonal of an octilinear two-layer scheme.
+PREFER = {"h": (1.0, 1.4, 3.0, 1.4, 1.0, 1.4, 3.0, 1.4),
+          "v": (3.0, 1.4, 1.0, 1.4, 3.0, 1.4, 1.0, 1.4),
+          "ne": (1.4, 1.0, 1.4, 3.0, 1.4, 1.0, 1.4, 3.0),
+          "nw": (1.4, 3.0, 1.4, 1.0, 1.4, 3.0, 1.4, 1.0)}
 
 
 @dataclass(frozen=True)
@@ -378,15 +386,19 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
                      layer_cost: dict | None = None, prefer: dict | None = None,
                      avoid: list | None = None, within: list | None = None,
                      margin: float = 5.0, max_pops: int = 4_000_000,
-                     max_cost: float | None = None) -> Path | None:
+                     max_cost: float | None = None, via_avoid: list | None = None
+                     ) -> Path | None:
     """The cheapest path for `net` from any source terminal to any goal terminal, on
     `layers`, or None if there is none.
 
     width: the net's (Rules.width) unless given. layer_cost: {layer: multiplier} on step
-    length. prefer: {layer: 'h' | 'v'}: off-direction steps cost 3x, diagonals 1.4x (wl-shook
-    lessons §5, the trial's HV_MULT). avoid: [Area] the path may not enter (on their
-    layers); within: [Area] the path must stay inside (any layer). max_cost: give up on
-    states dearer than this (mm), e.g. to hold a plane drop short."""
+    length. prefer: {layer: 'h' | 'v' | 'ne' | 'nw'}: steps square to the axis cost 3x, 45
+    degrees off it 1.4x (PREFER; wl-shook lessons §5, the trial's HV_MULT). avoid: [Area]
+    the path may not enter (on their layers); within: [Area] the path must stay inside (any
+    layer). max_cost: give up on states dearer than this (mm), e.g. to hold a plane drop
+    short. via_avoid (task R1d):
+    [Area] where no via may go (tracks may), e.g. to keep vias out of a band where they
+    would wall off part of a plane."""
     rules = grid.rules
     w = rules.width(net) if width is None else width
     via = rules.via
@@ -398,8 +410,7 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
     pref = {}
     for l, axis in (prefer or {}).items():
         if LI[l] in mult:
-            pref[LI[l]] = ([1.0, 1.4, 3.0, 1.4, 1.0, 1.4, 3.0, 1.4] if axis == "h" else
-                           [3.0, 1.4, 1.0, 1.4, 3.0, 1.4, 1.0, 1.4])
+            pref[LI[l]] = list(PREFER[axis])
     goal_via = any(isinstance(g, ViaSite) for g in goals)
     goal_terms = [g for g in goals if not isinstance(g, ViaSite)]
     boxes = [b for b in (_terminal_bbox(grid, t) for t in list(sources) + goal_terms)
@@ -416,7 +427,8 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
         box = (max(0, grid.ix(bx0 - m)), max(0, grid.iy(by0 - m)),
                min(grid.nx - 1, grid.ix(bx1 + m)), min(grid.ny - 1, grid.iy(by1 + m)))
         got = _route_in(grid, net, w, via, lay, sources, goal_terms, goal_via, box, via_cost,
-                        bend_cost, mult, pref, avoid, within, allow_via, max_pops, max_cost)
+                        bend_cost, mult, pref, avoid, within, allow_via, max_pops, max_cost,
+                        via_avoid)
         if isinstance(got, Path):
             return got
         if box == full or not got.touched:
@@ -425,7 +437,8 @@ def route_connection(grid: Grid, net: str, sources: list, goals: list,
 
 
 def _route_in(grid, net, w, via, lay, sources, goal_terms, goal_via, box, via_cost,
-              bend_cost, mult, pref, avoid, within, allow_via, max_pops, max_cost):
+              bend_cost, mult, pref, avoid, within, allow_via, max_pops, max_cost,
+              via_avoid=None):
     ix0, iy0, ix1, iy1 = box
     W, H = ix1 - ix0 + 1, iy1 - iy0 + 1
     need_via = allow_via or goal_via
@@ -446,6 +459,11 @@ def _route_in(grid, net, w, via, lay, sources, goal_terms, goal_via, box, via_co
                 ok[hit[0]] |= hit[1]
         for L in blk:
             blk[L] |= ~ok
+    if vblk is not None:
+        for a in via_avoid or ():
+            hit = _area_mask(grid, a, box)
+            if hit is not None:
+                vblk[hit[0]] |= hit[1]
     fr = {L: ~blk[L] for L in lay}
     vf = None if vblk is None else ~vblk
     smask = _union([_terminal_mask(grid, t, box, lay, net) for t in sources], (H, W))

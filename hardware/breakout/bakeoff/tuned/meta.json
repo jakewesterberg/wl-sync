@@ -1,0 +1,13 @@
+{
+  "wall_clock_s": 47,
+  "wall_clock_scope": "routing only: extract, route, apply and fill, on a local machine; not the writing or tuning of the hand plan",
+  "route_wall_clock_s": 44.76,
+  "route_cpu_user_s": 39.00,
+  "cost": 0,
+  "cost_unit": "USD",
+  "attempts": "1 run here, of the plan tuned on this island in task R1d (32 logged tuning runs, task-R1d-report.md)",
+  "setup": "R1c's hand plan (engine/stage_ni.py) as hardware/gen/route/stages/ni_island.py (428 lines), with R1d's tuned knobs (its TUNED): VD joins, pin-16 ground vias, escape via cost 10, pull-up plane-via sharing, joins east to west",
+  "hand_plan": "as R1c's (OPTOS table; NI_5V stubs; In2.Cu only under J45; J2 pin vias; pin 16 to its bypass; BARCODE_NI after U60's pull-ups; exits to x < 57; B-13 fences; plane rectangles), with joins vertical on B.Cu then 45 degrees on F.Cu, and pin 16's NI_GND via on its own line",
+  "load_average": "{ 13.55 20.22 36.91 }",
+  "notes": "extract 2 s, route 44 s, apply and fill 1 s"
+}

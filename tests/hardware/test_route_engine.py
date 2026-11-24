@@ -361,3 +361,44 @@ def test_rules_sha256_is_what_the_engine_reads(tmp_path):
     def width(pro):
         pro["net_settings"]["classes"][0]["track_width"] += 0.05
     assert load(edit_pro=width) != base
+
+
+def test_prefer_diagonal_axis(rules):
+    """Task R1d: prefer 'ne' makes up-right (and down-left) the cheap direction, so a path
+    between two pads offset on both axes runs as one 45-degree leg and one straight leg
+    (octilinear), with off-axis steps dearer; 'h' and 'v' keep R1a's tables."""
+    from hardware.gen.route.search import PREFER
+    assert PREFER["h"] == (1.0, 1.4, 3.0, 1.4, 1.0, 1.4, 3.0, 1.4)
+    assert PREFER["v"] == (3.0, 1.4, 1.0, 1.4, 3.0, 1.4, 1.0, 1.4)
+    a = pad("R1", "1", "SIG_A", 5.0, 15.0)
+    b = pad("R2", "1", "SIG_A", 15.0, 5.0)           # 10 right, 10 up: one diagonal
+    g = grid_for(obstacles([a, b]), rules)
+    (pa,), (pb,) = pads_of(g, "R1"), pads_of(g, "R2")
+    path = route_connection(g, "SIG_A", [pa], [pb], ("F.Cu",), prefer={"F.Cu": "ne"})
+    assert path is not None
+    assert path_length(path) <= 1.05 * math.hypot(10.0, 10.0)
+    # against the grain ('nw'), the same pads cost more than their length
+    p2 = route_connection(g, "SIG_A", [pa], [pb], ("F.Cu",), prefer={"F.Cu": "nw"})
+    assert p2.cost > 1.3 * path_length(p2)
+
+
+def test_via_avoid_moves_the_via(rules):
+    """Task R1d: via_avoid keeps every via out of its areas (tracks may still cross them),
+    so a forced layer change happens beside the area, not in it."""
+    from hardware.gen.route import rect_area
+    a = pad("R1", "1", "SIG_A", 10.0, 10.0)
+    b = pad("J1", "1", "SIG_A", 30.0, 10.0, w=1.7, h=1.7,
+            layers=("F.Cu", "In1.Cu", "In2.Cu", "B.Cu"), smd=False)
+    hole = {"at": [30.0, 10.0], "diameter": 1.0, "plated": True, "net": "SIG_A"}
+    wall = {"name": "wall", "layers": ["F.Cu"], "forbids": ["tracks", "vias", "pours"],
+            "polygon": rect(20.0, 10.0, 1.0, 20.0)}
+    g = grid_for(obstacles([a, b], keepouts=[wall], holes=[hole]), rules)
+    (pa,), (pb,) = pads_of(g, "R1"), pads_of(g, "J1")
+    free = rect_area(11.0, 0.0, 19.4, 20.0, ["F.Cu", "B.Cu"])
+    path = route_connection(g, "SIG_A", [pa], [pb], ("F.Cu", "B.Cu"), via_avoid=[free])
+    assert path is not None
+    (v,) = path.vias()
+    assert not (11.0 <= v["at"][0] <= 19.4)
+    assert v["at"][0] < 11.0                         # still on the source's side of the wall
+    # without it, R1a's via sits next to the wall (test_route_takes_via_when_blocked)
+    assert route_connection(g, "SIG_A", [pa], [pb], ("F.Cu", "B.Cu")).vias()[0]["at"][0] > 11.0

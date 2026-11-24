@@ -1,0 +1,536 @@
+{
+ "count_drc": {
+  "drc": {
+   "classes": {
+    "silk_edge_clearance": 24
+   },
+   "clearance_by_place": {
+    "elsewhere": 0,
+    "j45": 0,
+    "opto_field": 0
+   },
+   "clearance_by_rule": {}
+  },
+  "inner_signal_mm": {
+   "In1.Cu": {
+    "j45": 0.0,
+    "outside_j45": 0.0
+   },
+   "In2.Cu": {
+    "j45": 53.4,
+    "outside_j45": 0.0
+   }
+  },
+  "rule_areas": {
+   "agnd_dgnd_gap": [
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "intan_band_agnd": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "intan_band_dgnd": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "intan_band_left": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "intan_band_right": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "intan_slot_keepout": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H10": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H3": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H4": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H5": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H6": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H7": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H8": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "mh_H9": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "ni_band_back": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "ni_band_side": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ],
+   "ni_slot_keepout": [
+    "B.Cu",
+    "F.Cu",
+    "In1.Cu",
+    "In2.Cu"
+   ]
+  },
+  "tracks_by_layer": {
+   "B.Cu": 173,
+   "F.Cu": 229,
+   "In2.Cu": 34
+  },
+  "vias": 119
+ },
+ "judge": {
+  "command": "judge_layout.py BOARD --nets hardware/breakout/bakeoff/ni-island/island.nets.txt --region 0,100,70,240",
+  "exit": 0,
+  "judge_commit": "c046f7d",
+  "metrics": {
+   "bypass": [
+    {
+     "cap": "C121",
+     "ic": "U56",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C121",
+     "ic": "U56",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C122",
+     "ic": "U57",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C122",
+     "ic": "U57",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C123",
+     "ic": "U58",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C123",
+     "ic": "U58",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C124",
+     "ic": "U59",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C124",
+     "ic": "U59",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C125",
+     "ic": "U60",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C125",
+     "ic": "U60",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C126",
+     "ic": "U61",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "10",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C126",
+     "ic": "U61",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C127",
+     "ic": "U56",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C127",
+     "ic": "U56",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C128",
+     "ic": "U57",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C128",
+     "ic": "U57",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C129",
+     "ic": "U58",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C129",
+     "ic": "U58",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C130",
+     "ic": "U59",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C130",
+     "ic": "U59",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C131",
+     "ic": "U60",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C131",
+     "ic": "U60",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C132",
+     "ic": "U61",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 1.0,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C132",
+     "ic": "U61",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 2.89,
+     "pin": "16",
+     "rule": "K-35",
+     "via": "track"
+    },
+    {
+     "cap": "C133",
+     "ic": "U60",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 72.92,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "plane"
+    },
+    {
+     "cap": "C133",
+     "ic": "U60",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 78.51,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "plane"
+    },
+    {
+     "cap": "C134",
+     "ic": "U60",
+     "net": "NI_5V",
+     "pad": "1",
+     "path_mm": 69.08,
+     "pin": "15",
+     "rule": "K-35",
+     "via": "plane"
+    },
+    {
+     "cap": "C134",
+     "ic": "U60",
+     "net": "NI_GND",
+     "pad": "2",
+     "path_mm": 73.86,
+     "pin": "9",
+     "rule": "K-35",
+     "via": "plane"
+    }
+   ],
+   "connections": 144,
+   "corridor": {
+    "crossings": 0
+   },
+   "inner_layer_signal": {
+    "In1.Cu": {
+     "nets": [],
+     "signal_length_mm": 0,
+     "signal_segments": 0
+    },
+    "In2.Cu": {
+     "nets": [
+      "EVT_D10_NI",
+      "EVT_D12_NI",
+      "EVT_D13_NI",
+      "EVT_D14_NI",
+      "EVT_D2_NI",
+      "EVT_D3_NI",
+      "EVT_D5_NI",
+      "EVT_D6_NI",
+      "EVT_D9_NI",
+      "EVT_STROBE_NI",
+      "PD2_COMP_NI",
+      "RWD_CMD_NI"
+     ],
+     "signal_length_mm": 53.4,
+     "signal_segments": 34
+    }
+   },
+   "layer_changes": {
+    "max": 22,
+    "mean_vias_per_routed_net": 4.25,
+    "nets_routed": 28,
+    "top": [
+     {
+      "net": "NI_5V",
+      "vias": 22
+     },
+     {
+      "net": "NI_GND",
+      "vias": 16
+     },
+     {
+      "net": "EVT_D3_NI",
+      "vias": 4
+     },
+     {
+      "net": "EVT_D6_NI",
+      "vias": 4
+     },
+     {
+      "net": "EVT_D14_NI",
+      "vias": 4
+     }
+    ]
+   },
+   "length": {
+    "mst_lower_bound_mm": 2752.0,
+    "ratio": 1.076,
+    "signal_track_mm": 2961.9,
+    "worst": [
+     {
+      "mst_mm": 86.2,
+      "net": "RWD_DLVR_NI",
+      "ratio": 1.35,
+      "routed_mm": 116.8
+     },
+     {
+      "mst_mm": 133.2,
+      "net": "EVT_D7_NI",
+      "ratio": 1.28,
+      "routed_mm": 170.8
+     },
+     {
+      "mst_mm": 124.4,
+      "net": "EVT_D11_NI",
+      "ratio": 1.23,
+      "routed_mm": 152.8
+     },
+     {
+      "mst_mm": 100.2,
+      "net": "RHS_STIM_OUT_NI",
+      "ratio": 1.17,
+      "routed_mm": 116.7
+     },
+     {
+      "mst_mm": 114.5,
+      "net": "EVT_D15_NI",
+      "ratio": 1.15,
+      "routed_mm": 131.2
+     }
+    ]
+   },
+   "pours": [
+    {
+     "area_mm2": 9084.0,
+     "islands": 3,
+     "layer": "In1.Cu",
+     "neck_mm": 9,
+     "net": "NI_GND",
+     "zone": "NI_GND plane (S-6)"
+    },
+    {
+     "area_mm2": 9067.3,
+     "islands": 1,
+     "layer": "In2.Cu",
+     "neck_mm": 9,
+     "net": "NI_5V",
+     "zone": "NI_5V plane (S-7)"
+    }
+   ],
+   "routed_connections": 144,
+   "vias": 119,
+   "vias_per_routed_connection": 0.826
+  }
+ }
+}

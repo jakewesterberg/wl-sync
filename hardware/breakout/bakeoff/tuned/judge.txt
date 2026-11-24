@@ -1,0 +1,131 @@
+judge_layout: hardware/breakout/bakeoff/tuned/breakout.kicad_pcb
+  region copy: 58 listed nets, region (0.0, 100.0, 70.0, 240.0)
+LAYER 1  GATES
+  [   PASS    ] DRC-RULES: breakout's custom rules and net classes are loaded
+      control: a 0.5 mm P5_RAW track gives track_width "Track width (rule 'N-1 INLET track width' min width 1.0000 mm; actual 0.5000 mm)"
+      custom rule names seen: ['N-1 INLET track width']
+  [   PASS    ] DRC: DRC classes against the accepted set (24 silk_edge_clearance, nothing else)
+      every class: silk_edge_clearance 24
+  [   PASS    ] CONNECTIVITY: KiCad's unrouted-connection count after filling every zone (routing-brief §1)
+      GetUnconnectedCount(False) = 0 after filling 2 pours
+  [    N/A    ] NET-LISTS: every net with copper is in --complete-nets or --touched-nets
+      no --complete-nets given
+  [   PASS    ] PLACEMENT: check_breakout_placement.py on the board
+      PASS
+      2334 findings set aside: pads of unlisted nets that carry no net, as a region copy should
+      routed items: 555
+  [   PASS    ] REGION: every track, via and pour vertex inside the region and on a listed net
+      436 track pieces, 119 vias, 2 pours, all inside (0.0, 100.0, 70.0, 240.0) and on listed nets
+LAYER 2  RULES NO TOOL CHECKS ([judge's reading] where the rule leaves a number open; the user, 2026-11-22: all 27 accepted as written (.superpowers/sdd/2026-11-07-one-clock/judge-readings-2026-11-22.md)); each check's class in parentheses
+  [    N/A    ] G-10: Only G-11's nets cross the AGND/DGND split, once each, in one corridor near NT1  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      no copper crosses x = 170 and no G-11 net is routed
+  [   PASS    ] K-2: No barcode-family net enters, overlies or underlies the AGND region  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] no barcode copper in AGND  (K-2/agnd; prohibition)
+          21 nets checked, no copper in AGND
+  [   PASS    ] K-4: The isolated barcode nets: inside their islands, short, clear of the Intan outputs  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] inside its own island  (K-4/island; prohibition)
+      - [PASS] the shortest path (SHORT)  (K-4/short; requirement)
+          BARCODE_NI: 83.29 mm routed against 80.86 mm MST
+  [    N/A    ] G-1: AGND and DGND join at NT1 only  (prohibition)  [judge's reading] [reading accepted 2026-11-22] [extended since the ruling, task R0]
+      AGND and DGND are not on this board
+  [    N/A    ] G-3: FAN_RTN, CHASSIS_GND, ISO_5V_RTN: one tie each, never flooded into their plane  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      none of FAN_RTN, CHASSIS_GND, ISO_5V_RTN is on this board
+  [    N/A    ] G-4: NT2 at the inlet beside NT1  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      FAN_RTN is not on this board
+  [    N/A    ] G-5: NT3 at the star; J56 reaches it by a dedicated trace  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      CHASSIS_GND is not on this board
+  [    N/A    ] G-6: NT4 at U63's secondary pins; ISO_5V_RTN has its five pins  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      ISO_5V_RTN is not on this board
+  [    N/A    ] G-7: The four net ties are NetTie-2_SMD_Pad2.0mm as drawn  (prohibition)
+      none of the four ties' nets is on this board
+  [    N/A    ] G-16: J2/J36: no copper on any unused (ground) pin; pin 62 on AGND  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      - [N/A] unused pins bare  (G-16/bare; prohibition)
+          no unused J2/J36 pins inside the region
+  [    N/A    ] G-17: AO_GND_TPC is a trace only: no pour carries or touches it  (prohibition)
+      none of AO_GND_TPC is on this board
+  [    N/A    ] G-18: The ten *_SHLD nets: no pour on or touching them  (prohibition)
+      none of A_PD1_SHLD, A_PD2_SHLD, A_MIC_SHLD... is on this board
+  [    N/A    ] G-19: ACCESIO_AGND kept out of every pour  (prohibition)
+      none of ACCESIO_AGND is on this board
+  [    N/A    ] G-20: ACCESIO_SHELL: no pour on or touching J19's shell pads; R224 at J19  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      none of ACCESIO_SHELL is on this board
+  [   PASS    ] S-7: Plane nets poured on their own layer (S-6, S-7) and inside their own domain's region  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] each plane net on its plane layer (grounds L2, rails L3)  (S-7/layer; prohibition)
+          4 plane-net pour islands
+      - [PASS] each plane-net pour inside its domain's region  (S-7/region; prohibition)
+      - [PASS] every plane net poured on its plane layer, in its region  (S-7/poured; requirement)
+          2 plane nets poured
+          NI_5V: 9067 mm2 of fill on In2.Cu inside the NI region
+          ... 1 more in the JSON
+  [    N/A    ] X-6: BNC post-mount pads: every net and pour clear by 0.2 mm  (prohibition)
+      - [N/A] post-mount pads clear by 0.2 mm  (X-6/clear; prohibition)
+          no BNC post-mount pads inside the region
+  [    N/A    ] P-5: U3/U4: pin 7 bare; FB and NR/SS short; capacitors and FB/NR parts at the pins  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      U3, U4 and their FB/NR nets are not on this board
+  [    N/A    ] P-8: U63_VIN: one short F.Cu trace, no via, no pour, no +5V contact  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [    N/A    ] K-11: A_PD1_CLAMP, A_PD2_CLAMP: F.Cu only, no via, short  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [   PASS    ] N-16: No via in an SMD pad, and every via 0.2 mm from every SMD pad, its own net's included (P-6's U3/U4 pad 9 exempt)  (prohibition)
+      - [PASS] no via's hole or annulus overlaps an SMD pad  (N-16/in-pad; prohibition)
+          119 vias, 2038 SMD pads: none overlaps
+      - [PASS] every via 0.2 mm from every SMD pad, its own net's included  (N-16/web; prohibition)
+          119 vias: none within 0.2 mm of an SMD pad
+  [   PASS    ] K-35: A bypass capacitor at each optocoupler's isolated supply pin pair  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] a capacitor at each pin pair (both pads within 5.0 mm, joined)  (K-35/joined; requirement)
+          U56 pins 10/9: C121 at 2.25 / 3.98 mm, joined to both pins
+          U56 pins 15/16: C127 at 2.25 / 3.98 mm, joined to both pins
+          ... 10 more in the JSON
+  [   PASS    ] N-4: J45: both NI_5V pins with symmetric copper, all twelve NI_GND pins used  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] all twelve NI_GND pins used  (N-4/gnd-pins; requirement)
+          12 NI_GND pins have copper
+      - [PASS] both NI_5V pins (8, 14) used  (N-4/5v-pins; requirement)
+      - [PASS] symmetric copper  (N-4/symmetric; requirement)
+          pin 8: pour on ['In2.Cu'], 3.49 mm of track off it, narrowest 0.6, vias 1; pin 14: pour on ['In2.Cu'], 3.49 mm, narrowest 0.6, vias 1
+  [    N/A    ] N-1: +5V from D3 to its L3 plane at least 1.0 mm  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [    N/A    ] N-2: -12V from D2 to its L3 plane at least 0.8 mm  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [    N/A    ] N-10: +5V: at most 83 squares from D3 to the farthest LED resistor  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [    N/A    ] B-13: C162 and U63: shortest traces, left from the pads' outer ends  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of C162's and U63's nets is on this board
+  [   PASS    ] B-13-ALL: Every straddler pad left from its outer end (routing-brief §4.1)  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      - [PASS] every straddler pad left from its outer end  (B-13-ALL/outer-end; prohibition)
+          49 straddler pads with tracks
+  [    N/A    ] B-16: No Intan copper at U2/U63's primary pins, no DGND copper under their secondary pins  (prohibition)  [judge's reading] [reading accepted 2026-11-22]
+      U2's and U63's own nets have no copper yet
+  [    N/A    ] B-17: Only the sixteen MUX_OUTn/AGND traces cross the AGND/Intan line  (prohibition)
+      nothing crosses y = 165 between x = 170 and 238, and no MUX_OUTn is routed
+  [    N/A    ] B-18: Each MUX_OUTn beside its own AGND sense trace, equal lengths  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of MUX_OUT1 to 8 is on this board
+  [    N/A    ] N-9: USB pair coupled, matched, over unbroken DGND; J18 pin 1 bare  (prohibition+requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of its nets is on this board
+  [    N/A    ] K-33: Paralleled LED-driver outputs join by short, equal traces  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of the LED-driver output nets is on this board
+  [    N/A    ] K-23: The three /1-/2 dividers' legs laid out symmetrically  (requirement)  [judge's reading] [reading accepted 2026-11-22]
+      none of the divider nets is on this board
+  [   PASS    ] FIXED: Panel connectors, straddlers, NT1, J1, slots and rule areas as in the reference (routing-brief §1, §5)  (prohibition)  [judge's reading] [reading accepted 2026-11-22] [extended since the ruling, task R0]
+      - [PASS] 37 fixed parts where the reference has them  (FIXED/parts; prohibition)
+          reference: main (d10df6c):hardware/breakout/breakout.kicad_pcb
+      - [PASS] Edge.Cuts (outline and slots) as the reference  (FIXED/edges; prohibition)
+      - [PASS] the 9 rule areas as the reference  (FIXED/areas; prohibition)
+          added, mounting-hole keep-outs (M-16, PLACEMENT checks them): mh_H10, mh_H3, mh_H4, mh_H5, mh_H6, mh_H7, mh_H8, mh_H9
+NOT JUDGED HERE (rules that bear on routing and that no layer-2 check holds):
+  DRC: B-5 to B-9, B-14, B-23 (slots, keep-outs, bands), N-1 to N-8 class widths, N-11 to N-14, S-5, X-7: by DRC with the rules loaded (layer 1)
+  PLACEMENT: K-5 to K-8, K-14, K-17, K-25 to K-28, K-30, K-31, K-34, K-36, K-37, P-1, P-7, P-9, P-13, P-14, G-2, G-12 to G-15, G-21 to G-23, B-10 to B-12, B-19, M-*: placement, held by the PLACEMENT gate only as far as check_breakout_placement.py checks it
+  a person: K-1/K-3 (undecided, Open question 2), K-4's DGND-side clause, K-9, K-12, K-15, K-18 to K-22, K-24, K-29, K-32, P-4, P-6, P-10, P-12, G-8, G-24, X-9, X-10, V-4: not implemented
+LAYER 3  METRICS
+ board:
+  vias 119; connections 144, routed 144; vias per routed connection 0.826
+  In1.Cu: signal tracks 0 mm in 0 pieces []
+  In2.Cu: signal tracks 53.4 mm in 34 pieces ['EVT_D10_NI', 'EVT_D12_NI', 'EVT_D13_NI', 'EVT_D14_NI', 'EVT_D2_NI', 'EVT_D3_NI']
+  pour NI_GND 'NI_GND plane (S-6)' In1.Cu: 3 island(s), 9084.0 mm2, narrowest neck 9 mm
+  pour NI_5V 'NI_5V plane (S-7)' In2.Cu: 1 island(s), 9067.3 mm2, narrowest neck 9 mm
+  signal track 2961.9 mm against an octilinear MST of 2752.0 mm: ratio 1.076
+    worst RWD_DLVR_NI: 1.35 (116.8/86.2 mm)
+    worst EVT_D7_NI: 1.28 (170.8/133.2 mm)
+    worst EVT_D11_NI: 1.23 (152.8/124.4 mm)
+  layer changes: 4.25 vias per routed net on average, max 22 [('NI_5V', 22), ('NI_GND', 16), ('EVT_D3_NI', 4)]
+  bypass: 28 capacitor pads in scope, 28 connected; C121.1->U56.10 1.0 mm (track), C121.2->U56.9 2.89 mm (track), C122.1->U57.10 1.0 mm (track), C122.2->U57.9 2.89 mm (track), C123.1->U58.10 1.0 mm (track), C123.2->U58.9 2.89 mm (track)
+RESULT: exit 0; every gate and rule check PASS or N/A
