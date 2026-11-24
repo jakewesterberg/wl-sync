@@ -15,6 +15,7 @@ Sources, cited below by short name:
 | ledger | `.superpowers/sdd/2026-11-22-breakout-routing/progress.md`, the lines from "BAKE-OFF" on |
 | R1c report | `.superpowers/sdd/2026-11-22-breakout-routing/task-R1c-report.md` |
 | candidates | `results/engine/`, `results/quilter-1/`, `results/quilter-2/` here, each a `breakout.kicad_pcb` and a `meta.json` |
+| count_drc | `count_drc.py` here, run on the three candidates and the package (KiCad's Python, from the repository root: `count_drc.py results/*/breakout.kicad_pcb ni-island/breakout.kicad_pcb`). It prints tracks by layer id, inner-layer signal mm split at y = 226, each rule area's copper layers as pcbnew reads them, and a re-run of the judge-staged DRC with its clearance entries counted by rule and by place |
 
 ## 1. Who took part, and what each got
 
@@ -29,7 +30,7 @@ table (grading-run2 `costs.md`; each candidate's `meta.json`):
 |---|---|---|---|
 | package | `ni-island/` | `ni-island/` | `ni-island-region/`: `ni-island/` plus one placement rule area |
 | attempts | 1 run here, of a plan tuned on this island in R1a over at least 5 earlier routing runs | 1 job, 1 candidate | the user's one retry ("Retry Quilter once", 2026-11-24); 1 candidate |
-| help beyond the package | a hand-written stage, `engine/stage_ni.py` (344 lines). It fixes the pin tables, the J45 power stubs, In2.Cu signal only under J45, the J2 via bands, the order, the corridors, the B-13 fences and the plane rectangles | the settings entered in Quilter's UI from `ni-island/RULES.md` (run1 log): stackup, fabricator minimums 0.2/0.2/0.6/0.3/0.5 mm, NI_5V power pour at 500 mA, NI_PWR widths 0.6 mm | run 1's settings, plus every island part assigned to the region and NI_5V's computed widths edited to 0.6 mm (run2 log) |
+| help beyond the package | a hand-written stage, `engine/stage_ni.py` (344 lines). It fixes the pin tables, the J45 power stubs, In2.Cu signal only under J45, the J2 via bands, the order, the corridors, the B-13 fences and the plane rectangles | the settings entered in Quilter's UI from `ni-island/RULES.md` (run1 log): stackup, fabricator minimums 0.2/0.2/0.6/0.3/0.5 mm, NI_5V power pour at 500 mA, NI_PWR widths 0.6 mm | run 1's settings, plus all 50 island parts assigned to the region and NI_5V's computed widths edited to 0.6 mm (run2 log) |
 | wall-clock | 62 s of routing only; writing the plan is not counted | 2886 s, Quilter's cloud time | 2272 s |
 | cost | 0 | 0 (free noncommercial plan; its inputs may be used for training) | 0 |
 
@@ -72,20 +73,33 @@ Key (grading-run2 `blind-key.json`): A = quilter-2, B = engine, C = quilter-1.
 
 The 26 N/A checks are rules whose nets are not on this island. Quilter's exports rename the
 inner layers "Ground Layer 1" and "Power Layer 2", which is why the judge lists their pours
-under those names. Its "0 mm on In2.Cu" is real: counted by layer id with KiCad's Python,
-quilter-1 has 202 top and 151 bottom tracks and quilter-2 has 197 and 136, none on an inner
-layer. Ours has 39 pieces on In2.Cu (`scratchpad/r1c/writeup/layers.py`).
+under those names. Its "0 mm on In2.Cu" is real. Counted by layer id (count_drc):
+- quilter-1 has 202 F.Cu and 151 B.Cu track pieces, none on an inner layer;
+- quilter-2 has 197 and 136, none on an inner layer;
+- ours has 395 on F.Cu, 200 on B.Cu and 39 on In2.Cu. All 60.5 mm of our In2.Cu signal lies
+  at y ≥ 226, under J45: 0 mm outside it.
 
 ## 3. Why Quilter fails
 
 **N-13 is never given to it.** It does not parse KiCad's rules (section 1). Every clearance
-violation is N-13's: in a re-run of KiCad's DRC staged as the judge stages it,
-`scratchpad/r1c/writeup/quilter-*/hardware/breakout/drc.json`, every `clearance` entry
-names "N-13 panel-side nets, outer layers". There are 174 for quilter-1 and 190 for
-quilter-2. The judge's own runs counted 179 and 204; the count moves with KiCad's zone
-refill. They sit where N-13 bites:
-- for quilter-2, 85 at J45 (y ≥ 226) and 77 in the optocoupler field (x ≥ 55);
-- for quilter-1, 86 and 80.
+violation is N-13's. In count_drc's re-run of KiCad's DRC, staged as the judge stages it,
+every `clearance` entry names "N-13 panel-side nets, outer layers": 182 for quilter-1 and
+191 for quilter-2. The judge's own runs counted 179 and 204; the count moves a little with
+KiCad's zone refill.
+
+count_drc places each entry by its first item's position, in this order, so the places do
+not overlap:
+- J45: y ≥ 226;
+- the optocoupler field: x ≥ 55 and y < 226, which is U56 to U61 and their pull-ups. It
+  excludes J45;
+- elsewhere: the rest.
+
+| | J45 | optocoupler field | elsewhere |
+|---|---|---|---|
+| quilter-1 | 85 | 88 | 9 |
+| quilter-2 | 90 | 75 | 26 |
+
+An earlier uncommitted re-run gave 86/80 and 85/77 on the first two (174 and 190 in all).
 
 Quilter's 0 mm on In2.Cu and its lower via count are bought partly here. With 0.2 mm
 between J45's pads on the outer layers it escapes the connector's inner rows on F.Cu and
@@ -106,7 +120,8 @@ poured NI_GND and NI_5V over the whole board:
   not missing copper. That is a question for the judge, not settled here, and REGION fails
   either way.
 
-**Its export rewrites our keep-outs.** PLACEMENT, from both `judge.txt`, verbatim in part:
+**Its export rewrites our keep-outs' layer lists, and the placement check misreads the
+result.** PLACEMENT, from both `judge.txt`, verbatim in part:
 
 ```
 6: rule area ni_band_side is not on all four copper layers
@@ -119,15 +134,28 @@ poured NI_GND and NI_5V over the whole board:
 6: rule area mh_H3 is not on all four copper layers
 ```
 
-In the package, 16 of the 17 rule areas cover all four copper layers, and `agnd_dgnd_gap`
-covers In1.Cu and In2.Cu (the obstacle extract, `engine/extract.py`). Quilter's returned
-boards carry them on fewer. It did not move a part: FIXED passes.
+The rewrite is in each rule area's `(layers ...)` list, which Quilter's export writes with
+its first name replaced by KiCad's wildcard `"*.Cu"`:
+- `ni_band_side` was `"F.Cu" "B.Cu" "In1.Cu" "In2.Cu"` in the package and is now
+  `"*.Cu" "B.Cu" "In1.Cu" "In2.Cu"`, and the same for the other 15 four-layer areas;
+- `agnd_dgnd_gap` was `"In1.Cu" "In2.Cu"` and is now `"*.Cu" "In2.Cu"`.
+
+KiCad reads `"*.Cu"` as every copper layer. So, as pcbnew reads them (count_drc
+`rule_areas`), all 17 are on all four layers in both Quilter boards. In the package 16 of
+the 17 are, and `agnd_dgnd_gap` covers In1.Cu and In2.Cu only.
+
+`check_breakout_placement.py` reads the layer names as text and does not expand the
+wildcard. It therefore reports every one of these areas as off a layer it is still on.
+This PLACEMENT failure is that misreading, not a weakened keep-out. The one real change is
+that `agnd_dgnd_gap` now also covers F.Cu and B.Cu. It sits at the AGND/DGND split,
+x 169.5 to 170.5, far from the island. The
+rewrite is still Quilter's change to our file. Quilter did not move a part: FIXED passes.
 
 **K-4: BARCODE_NI is not the shortest path.** The judge's reading is at most 1.5 x MST:
 - quilter-2: "BARCODE_NI: 130.24 mm routed against 80.86 mm MST (over 1.5x)" (1.61 x);
 - quilter-1: 134.83 mm (1.67 x);
-- the engine: K-4 PASS, with 78.72 mm of copper against an extent of 78.69 mm between its
-  pads (R1c report, section 4).
+- the engine: K-4 PASS, "BARCODE_NI: 87.70 mm routed against 80.86 mm MST" (1.08 x;
+  grading-run2 `B/judge.txt`, line 28).
 
 No Quilter setting expresses it (RULES.md: "not expressible").
 
@@ -136,7 +164,7 @@ No Quilter setting expresses it (RULES.md: "not expressible").
 | Fix (run2 log) | quilter-1 | quilter-2 |
 |---|---|---|
 | NI_5V's computed widths edited from 0.21/0.454/0.21 mm to 0.6 mm (Top, Power, Bottom). Run 1's narrow segments were Quilter's own computed width, all 57 "NI_5V on Top Layer" at 0.2102 mm | DRC `track_width` 57 ("N-4 NI_PWR track width") | **0** |
-| every island part assigned to the placement region | B-13-ALL FAIL: "track NI_5V_FB_RAW ... leaves U62.6 (62.38,182.00) from its inner end" | **PASS** (49 straddler pads) |
+| all 50 island parts assigned to the placement region | B-13-ALL FAIL: "track NI_5V_FB_RAW ... leaves U62.6 (62.38,182.00) from its inner end" | **PASS** (49 straddler pads) |
 
 Whether the B-13 fix came from the region assignment or from the run's other differences
 cannot be told from one run each. The region pour, the change run 2 was for, did not
@@ -146,7 +174,8 @@ happen (section 3).
 
 On every layout metric the stage protocol reports, Quilter's run 2 beat our engine:
 - **vias:** 102 against 138, 0.708 per connection against 0.958. Run 1 had 99;
-- **signal on In2.Cu:** 0 mm against 60.5 mm;
+- **signal on In2.Cu:** 0 mm against 60.5 mm. All of ours is under J45 (y ≥ 226), where
+  Quilter's 0 mm comes from breaking N-13 (section 3);
 - **routed length / MST:** 1.153 against 1.232;
 - **plane shape:** both planes one island with a 10 mm narrowest neck, against our NI_GND
   in 3 islands (neck 5.5 mm) and NI_5V at 3 mm.
@@ -167,15 +196,21 @@ boards is needed (R1c Step 4).
 | Metric | Target | Quilter run 2 | Engine now |
 |---|---|---|---|
 | vias | ≤ 102 (≤ 0.708 per connection) | 102 | 138 (0.958) |
-| signal copper on In2.Cu | 0 mm | 0 | 60.5 mm |
+| signal copper on In2.Cu outside J45's inner rows (y < 226) | 0 mm | 0 | 0 mm |
+| the same at J45's inner rows (y ≥ 226) | exempt: reported, not a target | 0 (by breaking N-13) | 60.5 mm |
 | routed length / MST | ≤ 1.153 | 1.153 | 1.232 |
 | plane narrowest neck, each plane | ≥ 10 mm | 10 / 10 | 5.5 / 3 |
 
+**The In2.Cu target is defined by the controller's ruling (2026-11-24):** 0 mm, except
+where N-13 leaves no outer-layer path, which is J45's inner rows, y ≥ 226, as the NI
+trial found.
+- The metric is In2.Cu signal mm outside y ≥ 226.
+- The J45 residue (y ≥ 226) is reported separately and is not a miss.
+- Quilter's 0 mm there came from escaping those rows on the outer layers at 0.2 mm. That
+  is forbidden by N-13 and is not a way to meet the target (section 3).
+
 **The judge stays the gate.** A target is a goal. A miss is reported with its cause and
-never fails a stage. A judge miss always does. The In2.Cu target may not be fully reachable
-under N-13: Quilter reached 0 only by escaping J45's inner rows on the outer layers at
-0.2 mm, which N-13 forbids (section 3). If R1d finds that so, it reports the residue and
-its cause.
+never fails a stage. A judge miss always does.
 
 ## 7. Files
 
@@ -184,3 +219,4 @@ its cause.
 - `deeppcb_client.py`: the DeepPCB client, unused after the user dropped DeepPCB.
 - `grade_all.py`: the blind grading. Its run-2 output is grading-run2.
 - `engine/`: our candidate's extract, stage, apply and `run.sh`.
+- `count_drc.py`: the counts behind sections 2 and 3.

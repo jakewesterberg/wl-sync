@@ -372,15 +372,23 @@ so that R3 to R13 inherit the tuning.
 | Metric | Target | Engine at R1c |
 |---|---|---|
 | vias | ≤ 102 (≤ 0.708 per routed connection) | 138 (0.958) |
-| signal copper on In2.Cu | 0 mm | 60.5 mm |
+| signal copper on In2.Cu outside J45's inner rows (y < 226) | 0 mm | 0 mm |
+| the same at J45's inner rows (y ≥ 226) | exempt: reported separately, never a miss | 60.5 mm |
 | routed length / MST | ≤ 1.153 | 1.232 |
 | plane narrowest neck, NI_GND and NI_5V | ≥ 10 mm | 5.5 / 3 mm |
 
+**The In2.Cu target, the controller's ruling (2026-11-24):** 0 mm, except where N-13 leaves
+no outer-layer path, which is J45's inner rows, y ≥ 226, as the NI trial found.
+- The metric is In2.Cu signal mm outside y ≥ 226 (`bakeoff/count_drc.py`,
+  `inner_signal_mm.In2.Cu.outside_j45`).
+- The J45 residue (y ≥ 226) is reported separately and is never a miss.
+- Quilter reached 0 mm there by escaping J45's inner rows on the outer layers at 0.2 mm.
+  **That is forbidden by N-13 and is not a way to meet the target** (`bakeoff-report.md`
+  §3). Nothing in R1d may route J45's panel nets on the outer layers closer than N-13's
+  0.6 mm; the judge's DRC gate would fail it anyway.
+
 **The judge stays the gate.** A target is a goal, reported. A target miss never fails R1d
-or a stage. A judge miss always does. Quilter reached 0 mm on In2.Cu only by escaping
-J45's inner rows on the outer layers at 0.2 mm, which N-13 forbids (`bakeoff-report.md`
-§3). So that target may have a floor under N-13; if so, the report gives the residue and
-its cause.
+or a stage. A judge miss always does.
 
 **Files:**
 - Modify: `hardware/gen/route/search.py` and `grid.py` (cost weights, search order),
@@ -396,6 +404,7 @@ its cause.
 - Consumes:
   - the package `hardware/breakout/bakeoff/ni-island/`;
   - `engine/run.sh`;
+  - `bakeoff/count_drc.py`, for the In2.Cu split at y = 226 and the clearance counts;
   - the judge in island mode (`--nets ni-island/island.nets.txt --region 0,100,70,240`).
 - Produces:
   - tuned defaults in `route_connection` and `Grid`, keyword parameters only, so that
@@ -406,18 +415,21 @@ its cause.
 - [ ] **Step 1: Write the regression test** `tests/hardware/test_route_ni_targets.py`
   (`pytest.importorskip("numpy")`; no KiCad, so it runs in CI). Without KiCad it reads the
   committed `results/engine/route-ni.json` and `metrics.json`, and asserts:
-  - vias, In2.Cu signal mm and routed length / MST are no worse than the values R1d ends
-    with, pinned as constants in the test. The pins only ever tighten;
+  - vias, In2.Cu signal mm outside y ≥ 226 and routed length / MST are no worse than the
+    values R1d ends with, pinned as constants in the test. The pins only ever tighten. The
+    J45 residue (In2.Cu signal mm at y ≥ 226) is exempt, so it is not pinned as a bound;
+    the test only checks that `metrics.json` records it;
   - `metrics.json`'s plane necks are no narrower than pinned;
-  - the route file's own counts agree with `metrics.json` (vias, In2.Cu track length), so
-    the two cannot drift apart.
+  - the route file's own counts agree with `metrics.json` (vias, In2.Cu track length, both
+    sides of y = 226), so the two cannot drift apart.
 
-  Pin R1c's values first (138, 60.5, 1.232, 5.5 / 3). The test passes at once and guards
-  against getting worse while tuning.
+  Pin R1c's values first: 138 vias; In2.Cu 0 mm outside y ≥ 226 (its 60.5 mm is all at
+  J45); 1.232; necks 5.5 / 3. The test passes at once and guards against getting worse while tuning.
 - [ ] **Step 2: Measure before tuning.** Re-run `engine/run.sh` and the judge. Record the
   four metrics and where each loss arises, in the report:
   - which nets take the vias;
-  - which escapes use In2.Cu, and why;
+  - which escapes use In2.Cu, and why, split at y = 226 (J45's exempt rows against the
+    rest);
   - the worst length / MST nets;
   - where each plane's neck is.
 - [ ] **Step 3: Tune, one change at a time.**
@@ -429,9 +441,13 @@ its cause.
   - Keep a change only if the judge still exits 0 and no target metric worsens. Record
     every change tried, kept or not, in the report.
   - Stop when every target is met, or when the misses plateau. For each miss, give its
-    cause (for In2.Cu, whether N-13 sets the floor).
-- [ ] **Step 4: Pin the tuned numbers.** Write `metrics.json` from the final judge run.
-  Tighten the test's constants to the tuned values. Run it, and run the engine tests on
+    cause. In2.Cu signal at J45's inner rows (y ≥ 226) is exempt, so it is never a reason to
+    keep tuning, and never to be cut by escaping those rows on the outer layers (N-13). A
+    shorter J45 residue is welcome only if N-13 still holds.
+- [ ] **Step 4: Pin the tuned numbers.** Write `metrics.json` from the final judge run,
+  with `count_drc.py`'s In2.Cu split beside it. Tighten the test's constants to the tuned
+  values for the four targets. Record the J45 residue in `metrics.json` and the report; it
+  is not pinned. Run it, and run the engine tests on
   CPython 3.11 with numpy 1.26 (the declared floor) as R1a did.
 - [ ] **Step 5: Run the full suite** (`/opt/anaconda3/bin/python -m pytest -q`). Confirm
   that `engine/run.sh` run twice gives byte-identical route files.
@@ -444,7 +460,12 @@ or its shortfall is reported with its cause.
 **From R3 on, every stage reports the targets** in its Step 4 metrics table, beside the
 stage's own numbers:
 - vias per routed connection against 0.708;
-- signal mm on the inner layers against 0;
+- signal mm on the inner layers against 0, outside the areas where N-13 leaves no
+  outer-layer path. On the NI island that is J45's inner rows (y ≥ 226), the one such area
+  the trial and the bake-off found. A stage that finds another names it, with its geometry,
+  in its report. Each area's residue is reported separately and is not a miss. Escaping
+  such rows on the outer layers below N-13's 0.6 mm is forbidden, not a way to meet the
+  target;
 - routed length / MST against 1.153;
 - each plane's narrowest neck against 10 mm.
 
@@ -560,9 +581,10 @@ it up.
   - every check's status;
   - the metrics table: vias; signal mm on In1.Cu and In2.Cu; plane islands and narrowest
     neck; routed length / MST; vias in pads;
-  - beside them, Task R1d's targets: 0.708 vias per routed connection, 0 mm of inner-layer
-    signal, 1.153 length / MST, and 10 mm plane necks. A miss is reported with its cause,
-    never failed.
+  - beside them, Task R1d's targets: 0.708 vias per routed connection; 0 mm of inner-layer
+    signal outside the areas where N-13 leaves no outer-layer path (J45's inner rows,
+    y ≥ 226, and any the stage names), with each area's residue reported separately; 1.153
+    length / MST; and 10 mm plane necks. A miss is reported with its cause, never failed.
 - [ ] **Step 5: Run `route_breakout.py build` twice and confirm the bytes are identical.**
   Then commit the stage module, the route file, the board, `drc.rpt` and the three contract
   files:
