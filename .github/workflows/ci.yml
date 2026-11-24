@@ -29,7 +29,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install
-        run: pip install -e ".[dev]"
+        # hw: numpy, for the breakout's routing engine tests (tests/hardware/
+        # test_route_engine.py). Not a Pi library, so the check below still holds.
+        run: pip install -e ".[dev,hw]"
 
       - name: Assert no hardware dependency
         # The core must import and test with no Pi libraries present. If piolib

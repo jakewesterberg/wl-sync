@@ -240,6 +240,18 @@ third_party:
   - name: kicad
     where: dws
     why: The breakout board's schematic and layout.
+  - name: numpy
+    constraint: ">=1.26"
+    where: dws
+    why: >-
+      The breakout board's routing engine (hardware/gen/route, task R1a) holds its
+      obstacles as numpy distance fields and builds its search graph with numpy; it is
+      the pyproject extra "hw", which CI installs to run the engine's tests. The floor
+      is the routing plan's (docs/superpowers/plans/2026-11-22-breakout-routing.md, Task
+      R1a); the engine uses only long-stable numpy API, nothing new in 2.x, and on
+      Python 3.13 pip resolves 2.1 or later, the first with 3.13 wheels. Developer-only:
+      nothing on the sync box imports it, and KiCad's bundled Python, which has no
+      numpy, runs only the parts that need none.
 
 # What the sync box owns. wl-preproc's CHECKPOINT states the direction: "wl-sync
 # owns everything the sync box produces — session identity, the barcode codec,
