@@ -1,0 +1,9 @@
+{
+  "wall_clock_s": 134,
+  "route_wall_clock_s": 130.01,
+  "route_cpu_user_s": 88.17,
+  "cost": 0,
+  "cost_unit": "USD",
+  "load_average": "{ 45.53 58.18 59.10 }",
+  "notes": "extract 3 s, route 130 s, apply and fill 1 s; local machine"
+}

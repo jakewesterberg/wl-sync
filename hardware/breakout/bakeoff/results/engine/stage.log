@@ -1,0 +1,26 @@
+rules from hardware/breakout/bakeoff/ni-island: sha256 7e80532e5779d4d122bb2ff37b99800bb69b23e5dcd4057684cf837615659c81; netclasses ['ANALOG', 'Default', 'FAN', 'INLET', 'INLET_N12', 'ISO_PWR', 'NI_PWR', 'RAIL_BRANCH', 'USB']
+grid 1376x2776, 284 objects, 0.3s
+  slow tree-R129.2: 4.1s
+phase local: 10.2s, failed so far 0
+phase exits: 21.1s, failed so far 0
+phase escapes: 22.6s, failed so far 0
+  slow join-J45.47: 2.3s
+  slow join-J45.49: 2.7s
+  slow join-J45.51: 3.3s
+  slow join-J45.5: 2.3s
+  slow join-J45.11: 3.5s
+  slow join-J45.17: 3.4s
+  slow join-J45.19: 2.5s
+  slow join-J45.40: 4.2s
+  slow join-J45.42: 6.0s
+  slow join-J45.46: 3.6s
+  slow join-J45.48: 6.0s
+  slow join-J45.52: 2.8s
+phase joins: 75.3s, failed so far 0
+pruned: {'vias': 5, 'tracks': 0, 'trimmed': 0, 'bridged': 5}
+stayed local: {'BARCODE_NI': (78.69, 78.72), 'NI_5V_FB_FILT': (2.98, 2.98), 'NI_5V_FB_RAW': (3.51, 3.51)}
+tracks 634 vias 138 zones 2; failed 0: []
+route wall-clock 129.7s
+real 130.01
+user 88.17
+sys 8.10
